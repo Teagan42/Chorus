@@ -1,0 +1,91 @@
+# Minimal satellite that proves full-duplex audio. Copy to satellite1.yaml
+# (gitignored) and fill in the real PSK, WiFi and orchestrator address.
+#
+# The real Satellite1 board wiring comes from the FutureProofHomes package;
+# the i2s pins below are generic ESP32-S3 placeholders so this file validates
+# standalone with `task firmware:config`.
+#
+# No `voice_assistant:` block. Deliberate -- see packages/chorus-bridge.yaml.
+
+substitutions:
+  name: satellite1-example
+  orchestrator_host: "10.0.0.10"
+
+esphome:
+  name: ${name}
+  min_version: 2026.7.0
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+packages:
+  chorus: !include
+    file: packages/chorus-bridge.yaml
+    vars:
+      orchestrator_host: ${orchestrator_host}
+      microphone_id: xmos_mic
+      speaker_id: tts_speaker
+
+# Native API is retained for control only: entities, LED ring, wake-word
+# sensitivity. Audio rides the chorus_bridge socket (SPEC §3.1).
+# The Noise handshake is the authentication; there is no password auth.
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+logger:
+  level: INFO
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+i2s_audio:
+  - id: i2s_in
+    i2s_lrclk_pin: GPIO13
+    i2s_bclk_pin: GPIO14
+  - id: i2s_out
+    i2s_lrclk_pin: GPIO16
+    i2s_bclk_pin: GPIO15
+
+# Stereo: the XMOS chip presents the AEC'd mix and the raw mic as two channels.
+microphone:
+  - platform: i2s_audio
+    id: xmos_mic
+    i2s_audio_id: i2s_in
+    i2s_din_pin: GPIO12
+    adc_type: external
+    channel: stereo
+    sample_rate: 16000
+    bits_per_sample: 32bit
+
+speaker:
+  - platform: i2s_audio
+    id: i2s_dac
+    i2s_audio_id: i2s_out
+    dac_type: external
+    i2s_dout_pin: GPIO17
+    sample_rate: 48000
+    channel: mono
+
+  # chorus_bridge feeds 16 kHz mono; this stack converts up (SPEC §3.2.1).
+  - platform: mixer
+    id: dac_mixer
+    output_speaker: i2s_dac
+    source_speakers:
+      - id: tts_source
+      - id: media_source
+
+  - platform: resampler
+    id: tts_speaker
+    output_speaker: tts_source
+
+# Ducking is on the mixer source, not on the Speaker base class.
+chorus_bridge:
+  ducking_speaker: tts_source

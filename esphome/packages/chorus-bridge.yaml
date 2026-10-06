@@ -1,0 +1,42 @@
+# Reusable chorus_bridge wiring. Consume with:
+#
+#   packages:
+#     chorus: !include
+#       file: packages/chorus-bridge.yaml
+#       vars:
+#         orchestrator_host: 10.0.0.10
+#         microphone_id: xmos_mic
+#         speaker_id: tts_source
+#
+# A board with a mixer adds ducking in its own config; package keys merge:
+#
+#   chorus_bridge:
+#     ducking_speaker: media_source
+#
+# `voice_assistant:` must NOT also be present. Its half-duplex state machine
+# stops the mic during TTS, which is the limit this component exists to escape
+# (SPEC §3.1).
+
+defaults:
+  orchestrator_port: "6055"
+
+external_components:
+  # Local, not a git ref: the component and the orchestrator share a wire
+  # protocol, so they must be versioned together (docs/adr/0010).
+  - source:
+      type: local
+      path: ../components
+    components: [chorus_bridge]
+
+chorus_bridge:
+  id: chorus
+  host: ${orchestrator_host}
+  port: ${orchestrator_port}
+  speaker: ${speaker_id}
+  microphone:
+    # Channel 0 is the XMOS echo-cancelled mix; channel 1 is raw. Both are
+    # non-passive by construction -- see the component's to_code.
+    - microphone: ${microphone_id}
+      channels: [0]
+    - microphone: ${microphone_id}
+      channels: [1]
