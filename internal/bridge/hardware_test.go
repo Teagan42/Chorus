@@ -41,24 +41,36 @@ const micGapTolerance = 400 * time.Millisecond
 
 // requireDevice skips unless the satellite answers its native API. A device
 // that is simply absent is not a test failure (CONTRIBUTING §1).
-func requireDevice(t *testing.T) *config.Satellite {
-	t.Helper()
+//
+// Probed once per run, not once per test: the device accepts a small number of
+// API connections and is slow to answer while it is busy with audio, so a
+// probe per test is both wasteful and a source of spurious skips.
+var probe = sync.OnceValues(func() (*config.Satellite, error) {
 	cfg, err := config.Load(*inventory)
 	if err != nil {
-		t.Skipf("no usable inventory at %s: %v", *inventory, err)
+		return nil, fmt.Errorf("no usable inventory at %s: %w", *inventory, err)
 	}
 	sat, err := cfg.Find(*deviceName)
 	if err != nil {
-		t.Skipf("no satellite selected: %v", err)
+		return nil, fmt.Errorf("no satellite selected: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	c, err := esphome.Dial(ctx, sat.Address, sat.PSK)
 	if err != nil {
-		t.Skipf("satellite %s (%s) did not answer: %v", sat.Name, sat.Address, err)
+		return nil, fmt.Errorf("satellite %s (%s) did not answer: %w", sat.Name, sat.Address, err)
 	}
 	_ = c.Close()
+	return sat, nil
+})
+
+func requireDevice(t *testing.T) *config.Satellite {
+	t.Helper()
+	sat, err := probe()
+	if err != nil {
+		t.Skip(err.Error())
+	}
 	return sat
 }
 
