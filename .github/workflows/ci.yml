@@ -55,6 +55,48 @@ jobs:
         if: github.event_name == 'pull_request'
         run: task commit:check -- ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
 
+  # Separate job, not a step in gate: gate proves `task test` needs nothing,
+  # and a services: block on that runner would stop proving it.
+  db:
+    name: test:db (postgres)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Matches docker-compose.yml. A version skew here would test a
+        # database no developer runs.
+        image: postgres:18.0-alpine
+        env:
+          POSTGRES_DB: chorus
+          POSTGRES_USER: chorus
+          # Throwaway for a job-scoped container on localhost. The real
+          # deployment password lives in a gitignored .env, never in git.
+          POSTGRES_PASSWORD: chorus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chorus -d chorus"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.54.0
+
+      # Set explicitly so the tests fail rather than skip: an unset DSN means
+      # "this developer has no database", which must never describe CI.
+      - run: task test:db
+        env:
+          CHORUS_POSTGRES_DSN: postgres://chorus:chorus@localhost:5432/chorus?sslmode=disable
+
   # Blocking since every SPEC §15 critical clause has coverage. It was advisory
   # while the runtime did not exist. If it goes red, add the test — do not
   # weaken spectrace or drop a citation.

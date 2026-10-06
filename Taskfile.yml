@@ -80,6 +80,21 @@ tasks:
       - go test -race -count=1 -coverprofile=coverage.out ./...
       - go tool cover -func=coverage.out | tail -1
 
+  test:db:
+    desc: Requires Postgres. Start one with `task db:up`.
+    cmds:
+      - go test -race -count=1 -tags=db ./...
+
+  db:up:
+    desc: Start the local journal database
+    cmds:
+      - docker compose up -d --wait postgres
+
+  db:down:
+    desc: Stop the local journal database, keeping the volume
+    cmds:
+      - docker compose stop postgres
+
   test:models:
     desc: Requires GPU model sidecars. Self-hosted runner only.
     cmds:

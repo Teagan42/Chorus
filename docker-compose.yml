@@ -1,0 +1,27 @@
+# Local development stack (SPEC §13). Model sidecars pinned to GPU land with
+# the provider work; this file carries the journal's storage only.
+services:
+  postgres:
+    # Pinned for the same reason as the Go tools: a server release must not
+    # turn a green test red with no code change.
+    image: postgres:18.0-alpine
+    environment:
+      POSTGRES_DB: chorus
+      POSTGRES_USER: chorus
+      # Default is a throwaway for a loopback container. A real deployment
+      # overrides it from a gitignored .env; see .env.example.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chorus}
+    ports:
+      - "127.0.0.1:5432:5432"
+    # `task test:db` runs as soon as compose returns, so readiness must be the
+    # container's claim and not a sleep in the Taskfile.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chorus -d chorus"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - journal:/var/lib/postgresql/data
+
+volumes:
+  journal:
