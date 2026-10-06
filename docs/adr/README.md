@@ -30,6 +30,7 @@ decision rather than by clause: facets of one choice share one record.
 | [0018](0018-mechanical-enforcement.md) | Enforce the five rules with tools, not review | CONTRIBUTING |
 | [0019](0019-own-the-annotation-layer.md) | Own the annotation layer; OTel alongside | §9.1, §9.2 |
 | [0020](0020-correct-device-api-facts.md) | Supersedes 0010: the socket and playback-position APIs as they exist | §3.1, §3.2.1 |
+| [0021](0021-journal-sequence-enforced-in-postgres.md) | Hash-partition the journal; enforce its sequence in Postgres | §8, §13 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, and 0011. Those five carry the whole phase-1 risk.
