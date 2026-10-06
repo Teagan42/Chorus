@@ -165,6 +165,40 @@ func TestNewLinkRejectsBadProtocolVersion(t *testing.T) {
 }
 
 // Hello opens every connection; anything else first means a desynchronised peer.
+// verifies SPEC §3.1
+//
+// The declared format is the point of the handshake: everything downstream is
+// hardcoded to 16 kHz/16-bit, so a device that announces anything else must be
+// refused rather than silently misread.
+func TestNewLinkRejectsIncompatibleAudioFormat(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		hello bridge.Hello
+	}{
+		{"sample rate", bridge.Hello{
+			Version:       bridge.ProtocolVersion,
+			SampleRate:    48000,
+			BitsPerSample: bridge.BitsPerSample,
+			MicChannels:   2,
+		}},
+		{"bit depth", bridge.Hello{
+			Version:       bridge.ProtocolVersion,
+			SampleRate:    bridge.SampleRate,
+			BitsPerSample: 32,
+			MicChannels:   2,
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			host, device := newPipe(t)
+			go func() { _ = bridge.NewWriter(device).WriteFrame(tc.hello.Frame()) }()
+
+			if _, err := bridge.NewLink(host); err == nil {
+				t.Fatal("NewLink accepted an incompatible audio format")
+			}
+		})
+	}
+}
+
 func TestNewLinkRejectsNonHelloFirstFrame(t *testing.T) {
 	host, device := newPipe(t)
 	// A payload that would parse as a valid hello body, so only the frame type

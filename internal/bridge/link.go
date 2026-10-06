@@ -60,6 +60,15 @@ func NewLink(conn net.Conn) (*Link, error) {
 	if l.hello, err = ParseHello(f.Payload); err != nil {
 		return nil, err
 	}
+	// Checked, not trusted. Everything downstream -- the chunk size, every
+	// Position() -- is hardcoded to 16 kHz/16-bit, so a device declaring
+	// anything else would exchange audio and playback positions that both sides
+	// silently misread. Refusing the link is what makes a device YAML change
+	// surface here, which is the whole reason the format is on the wire.
+	if l.hello.SampleRate != SampleRate || l.hello.BitsPerSample != BitsPerSample {
+		return nil, fmt.Errorf("device declared %d Hz/%d-bit audio, want %d Hz/%d-bit",
+			l.hello.SampleRate, l.hello.BitsPerSample, SampleRate, BitsPerSample)
+	}
 	return l, nil
 }
 
