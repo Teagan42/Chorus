@@ -232,11 +232,11 @@ func feedTTS(ctx context.Context, l *bridge.Link, pcm []byte) <-chan error {
 	const slice = 200 * time.Millisecond
 	n := int(bridge.SampleRate) * int(slice/time.Millisecond) / 1000 * 2
 
-	// Primed with a full source buffer before pacing starts. Real TTS bursts its
-	// first chunk too, and without the lead the device's mixer source runs only
-	// one slice deep: a 60 ms loop() hiccup then underruns it, and the i2s
-	// speaker emits silence it counts as played.
-	lead := min(5*n, len(pcm))
+	// Primed two slices deep before pacing starts, so a loop() hiccup cannot
+	// underrun the device's mixer source and make the i2s speaker emit silence it
+	// counts as played. Not deeper: five slices is a one-second burst at line
+	// rate, which is the radio saturation the pacing above exists to avoid.
+	lead := min(2*n, len(pcm))
 
 	done := make(chan error, 1)
 	go func() {
