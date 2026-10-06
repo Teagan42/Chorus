@@ -99,6 +99,24 @@ events: {
 			{name: "result_json", type: "string", description: "Serialized result."},
 		]
 	}
+	model_completed: {
+		name:        "model_completed", actor: "thinking"
+		description: "Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8)."
+		// Replay attributes a completion to the configuration that produced it.
+		requires_versions: true
+		fields: [
+			{name: "completion_json", type: "string", description: "Raw completion as returned.", required: true},
+			{name: "finish_reason", type: "string", description: "Why generation stopped.", required: true, enum: ["stop", "length", "tool_calls", "error"]},
+		]
+	}
+	barge_in_detected: {
+		name:        "barge_in_detected", actor: "listening"
+		description: "Interruption passed the detection gate. Timing is milliseconds into TTS playback, not wall clock, so replay reproduces the cut."
+		has_audio:   true
+		fields: [
+			{name: "tts_position_ms", type: "integer", description: "Playback offset at detection.", required: true},
+		]
+	}
 	barge_in_rejected: {
 		name:        "barge_in_rejected", actor: "listening"
 		description: "Candidate interruption failed the detection gate. Tuning corpus for SPEC §4.3."
