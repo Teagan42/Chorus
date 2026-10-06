@@ -68,8 +68,9 @@ unpacked sint32 or base64 at 32 kB/s.
 
 **Resolution: `chorus_bridge`, an `external_components:` package with its own
 socket.** No fork of ESPHome, no fork of either device's firmware. Audio over
-raw TCP via `components/socket/tcp_client_link.h` (managed outbound, auto
-reconnect, device dials out — no inbound port). Native API retained for control
+raw TCP on `components/socket/socket.h` — the device dials out, so no inbound
+port, but non-blocking connect and reconnect are ours to write: ESPHome ships no
+managed outbound-link helper. Native API retained for control
 only. `voice_assistant` is removed from the YAML entirely.
 
 ### 3.2 Component contract
@@ -115,9 +116,11 @@ Feed the stock `announcement_resampling_speaker` at 16 kHz / 16-bit / mono via
 Ducking is `SourceSpeaker::apply_ducking(db, duration)` (both stock YAMLs use
 20 dB) — not on the base class.
 
-**Playback position is DAC-accurate.** `add_audio_output_callback` reports
-cumulative frames written to the DAC plus an `esp_timer` microsecond timestamp.
-`frames_played / sample_rate` is the exact position the user has *heard*.
+**Playback position is DAC-accurate.** `add_audio_output_callback` reports the
+frames written to the DAC *since the last callback* — a per-DMA-buffer delta,
+not a running total — plus an `esp_timer` microsecond timestamp. The component
+accumulates it; `frames_played / sample_rate` is then the exact position the
+user has *heard*.
 Correlated with our own byte-offset-to-text map, truncation error is bounded by
 the DAC FIFO plus analog amp delay — sub-millisecond (Voice PE documents
 `fixed_delay: 480 us`).
