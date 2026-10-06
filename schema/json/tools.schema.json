@@ -1,0 +1,75 @@
+[
+  {
+    "description": "Close the conversation. Call when the task is complete rather than waiting for silence.",
+    "input_schema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "end_session"
+  },
+  {
+    "description": "Search the media library.",
+    "input_schema": {
+      "properties": {
+        "limit": {
+          "description": "Maximum results.",
+          "type": "integer"
+        },
+        "query": {
+          "description": "Free-text search.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "media_search"
+  },
+  {
+    "description": "Store a durable fact about the current speaker.",
+    "input_schema": {
+      "properties": {
+        "fact": {
+          "description": "The fact to retain.",
+          "type": "string"
+        },
+        "shareable": {
+          "description": "Whether other household members may see this.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fact"
+      ],
+      "type": "object"
+    },
+    "name": "remember"
+  },
+  {
+    "description": "Say something to the user. Runs concurrently with other tools; the model chooses when and whether to speak.",
+    "input_schema": {
+      "properties": {
+        "mode": {
+          "description": "queue appends after current speech; preempt cancels it; interject ducks and cuts in.",
+          "enum": [
+            "queue",
+            "preempt",
+            "interject"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "description": "What to say.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "speak"
+  }
+]
