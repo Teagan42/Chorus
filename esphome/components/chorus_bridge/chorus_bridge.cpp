@@ -316,7 +316,12 @@ void ChorusBridge::handle_frame_(FrameType type, uint8_t flags, const uint8_t *p
       if (this->speaker_ == nullptr) {
         return;
       }
-      this->speaker_->start();
+      // Only on a genuine start. TTS arrives as many small frames, and
+      // re-entering start() on each one restarts the resampler/mixer chain
+      // underneath and audibly stalls it.
+      if (this->speaker_->is_stopped()) {
+        this->speaker_->start();
+      }
       this->speaker_pending_.insert(this->speaker_pending_.end(), payload, payload + length);
       this->pump_speaker_();
       return;
