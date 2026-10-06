@@ -186,8 +186,9 @@ func tone(d time.Duration, hz float64) []byte {
 	pcm := make([]byte, 2*n)
 	for i := range n {
 		v := int16(8000 * math.Sin(2*math.Pi*hz*float64(i)/float64(bridge.SampleRate)))
-		pcm[2*i] = byte(uint16(v) >> 8)
-		pcm[2*i+1] = byte(uint16(v))
+		// Little-endian: that is what the device's speaker reads.
+		pcm[2*i] = byte(uint16(v))
+		pcm[2*i+1] = byte(uint16(v) >> 8)
 	}
 	return pcm
 }
