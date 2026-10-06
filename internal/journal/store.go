@@ -3,6 +3,7 @@ package journal
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 )
@@ -37,7 +38,7 @@ func (m *MemStore) Append(_ context.Context, e Event) error {
 	if want := uint64(len(log)) + 1; e.Seq != want {
 		return fmt.Errorf("seq %d for %s: want %d", e.Seq, e.ConversationID, want)
 	}
-	m.byConv[e.ConversationID] = append(log, e)
+	m.byConv[e.ConversationID] = append(log, detach(e))
 	return nil
 }
 
@@ -45,7 +46,21 @@ func (m *MemStore) Append(_ context.Context, e Event) error {
 func (m *MemStore) Events(_ context.Context, conversationID string) ([]Event, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return slices.Clone(m.byConv[conversationID]), nil
+
+	events := slices.Clone(m.byConv[conversationID])
+	for i, e := range events {
+		events[i] = detach(e)
+	}
+	return events, nil
+}
+
+// detach severs the Fields map an Event shares with its writer or reader.
+// slices.Clone is shallow, so without this the log is not append-only.
+func detach(e Event) Event {
+	fields := make(map[string]string, len(e.Fields))
+	maps.Copy(fields, e.Fields)
+	e.Fields = fields
+	return e
 }
 
 // LastSeq reports 0 for an unknown conversation.

@@ -9,14 +9,10 @@ import (
 	"github.com/teaganglenn/chorus/internal/journal"
 )
 
-// conversation writes one interrupted turn with a tool call, and returns the
-// store so replay reads exactly what the live reduction saw.
-func conversation(t *testing.T) *journal.MemStore {
-	t.Helper()
-
-	store := journal.NewMemStore()
-	j := journal.New(store, journal.FixedClock(time.Unix(1_760_000_000, 0)), versions())
-	records := []journal.Record{
+// conversationRecords is one interrupted turn with a tool call. Shared with
+// the store conformance suite so both backends replay the same conversation.
+func conversationRecords() []journal.Record {
+	return []journal.Record{
 		{Kind: journal.KindSessionOpened, Fields: map[string]string{"satellite": "kitchen", "speaker_id": "teagan"}},
 		{Kind: journal.KindUtteranceTranscribed, AudioRef: "blob/1", Fields: map[string]string{"text": "play something"}},
 		{Kind: journal.KindModelCompleted, Fields: map[string]string{"completion_json": `{"say":"one sec"}`, "finish_reason": "tool_calls"}},
@@ -29,22 +25,12 @@ func conversation(t *testing.T) *journal.MemStore {
 		}},
 		{Kind: journal.KindSessionClosed, Fields: map[string]string{"reason": "model_ended"}},
 	}
-	for _, r := range records {
-		if _, err := j.Append(context.Background(), "conv-1", r); err != nil {
-			t.Fatalf("append %s: %v", r.Kind, err)
-		}
-	}
-	return store
 }
 
-// verifies SPEC §8
-func TestReplayDerivesStateFromTheLog(t *testing.T) {
-	got, err := journal.Replay(context.Background(), conversation(t), "conv-1", journal.Overrides{})
-	if err != nil {
-		t.Fatalf("replay: %v", err)
-	}
-
-	want := journal.State{
+// wantReplayState is the state conversationRecords must reduce to, whichever
+// Store holds the log.
+func wantReplayState() journal.State {
+	return journal.State{
 		ConversationID: "conv-1",
 		Satellite:      "kitchen",
 		Speaker:        "teagan",
@@ -62,6 +48,31 @@ func TestReplayDerivesStateFromTheLog(t *testing.T) {
 			Outcome: "ok", Result: `{"hits":3}`,
 		}},
 	}
+}
+
+// conversation writes conversationRecords and returns the store, so replay
+// reads exactly what the live reduction saw.
+func conversation(t *testing.T) *journal.MemStore {
+	t.Helper()
+
+	store := journal.NewMemStore()
+	j := journal.New(store, journal.FixedClock(time.Unix(1_760_000_000, 0)), versions())
+	for _, r := range conversationRecords() {
+		if _, err := j.Append(context.Background(), "conv-1", r); err != nil {
+			t.Fatalf("append %s: %v", r.Kind, err)
+		}
+	}
+	return store
+}
+
+// verifies SPEC §8
+func TestReplayDerivesStateFromTheLog(t *testing.T) {
+	got, err := journal.Replay(context.Background(), conversation(t), "conv-1", journal.Overrides{})
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+
+	want := wantReplayState()
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("state mismatch\n got: %+v\nwant: %+v", got, want)
 	}
