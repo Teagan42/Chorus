@@ -1,0 +1,249 @@
+# FutureProofHomes Satellite1 running chorus_bridge instead of voice_assistant.
+#
+# Real board wiring, taken from FutureProofHomes/Satellite1-ESPHome
+# (config/common/core_board.yaml and speaker.yaml). Deliberately NOT built on
+# their satellite1.base.yaml: that package includes voice_assistant, whose
+# half-duplex state machine is the limit this component exists to escape
+# (SPEC §3.1). Everything their base adds beyond audio -- LED ring, timers,
+# media player, mmwave, BLE improv -- is omitted because full duplex is what
+# this config exists to prove.
+#
+# Hardware facts that are not obvious from the pin numbers:
+#   - The XMOS XU316 is the I2S master (`i2s_mode: secondary`). The ESP32 does
+#     not choose the clock, so audio is silent until the XMOS answers over SPI.
+#     This release has no readiness guard, so the logs are the only signal.
+#   - `microphone: platform: satellite1` reads 48 kHz 32-bit off I2S and
+#     decimates by 3 on-device, reporting 16 kHz to consumers. The 48000 below
+#     is the wire rate, not what chorus_bridge receives.
+#   - Channel 0 is the XMOS echo-cancelled mix, channel 1 is raw.
+
+substitutions:
+  name: satellite1
+  friendly_name: Satellite1
+  # The orchestrator's address. A literal IP: ESPHome's set_sockaddr does not
+  # resolve hostnames, so this needs a static lease (SPEC §13).
+  orchestrator_host: "10.0.12.73"
+  xmos_fw_version: "v1.1.0-alpha.0"
+
+esphome:
+  name: ${name}
+  # Matches the stock firmware's hostname, so this is an upgrade of the same
+  # device rather than a new one.
+  name_add_mac_suffix: true
+  friendly_name: ${friendly_name}
+  min_version: 2026.7.0
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+  ignore_not_found: false
+
+external_components:
+  # The board's own components. These override ESPHome's built-in i2s_audio,
+  # which has no duplex access mode and cannot be an I2S secondary.
+  #
+  # Pinned to a release, not a branch: a branch is refetched on a timer, so a
+  # driver change would land in a build that nothing in this repo records.
+  #
+  # This tag is what fixes ESPHOME_VERSION in the Taskfile at 2026.7.x: it is
+  # the release the board vendor builds against, and it is what the device
+  # shipped running. Upstream main targets 2026.9 but does not build there.
+  - source: github://FutureProofHomes/Satellite1-ESPHome@v0.2.1
+    components: [fusb302b, i2s_audio, memory_flasher, satellite1, tas2780]
+
+packages:
+  chorus: !include
+    file: packages/chorus-bridge.yaml
+    vars:
+      orchestrator_host: ${orchestrator_host}
+      microphone_id: sat1_mics
+      speaker_id: tts_speaker
+
+# Retained so a bad flash is recoverable over the network rather than over USB.
+# Dropping any of these three turns a mistake into a teardown of the speaker.
+ota:
+  - platform: esphome
+    id: ota_esphome
+
+safe_mode:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# Native API is control only: entities and diagnostics. Audio rides the
+# chorus_bridge socket (SPEC §3.1). The Noise handshake is the authentication.
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+logger:
+  deassert_rts_dtr: true
+  hardware_uart: USB_SERIAL_JTAG
+  level: INFO
+
+# ---------------------------------------------------------------- board buses
+
+i2c:
+  - id: i2c_0
+    sda: GPIO5
+    scl: GPIO6
+    frequency: 400kHz
+    scan: true
+
+spi:
+  - id: spi_0
+    clk_pin: GPIO12
+    mosi_pin: GPIO11
+    miso_pin: GPIO13
+    interface: SPI2
+
+# One duplex bus: the mic and speaker share the XMOS clocks, which is what
+# makes simultaneous capture and playback possible at all.
+i2s_audio:
+  - id: i2s_shared
+    i2s_lrclk_pin: GPIO07
+    i2s_bclk_pin: GPIO08
+    i2s_mclk_pin: GPIO16
+    access_mode: duplex
+    i2s_mode: secondary
+
+globals:
+  - id: tas2780_active
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  # Negotiated supply voltage, which selects the amplifier's power mode.
+  - id: pd_power_contract
+    type: int
+    restore_value: false
+    initial_value: '0'
+
+# USB-PD. The amplifier's power mode depends on the negotiated voltage, so
+# activation waits for the contract rather than running at boot.
+fusb302b:
+  id: pd_fusb302b
+  irq_pin: GPIO1
+  request_voltage: 20
+  on_power_ready:
+    - logger.log:
+        format: "PD contract: %s"
+        args: ['id(pd_fusb302b).contract.c_str()']
+    - lambda: id(pd_power_contract) = id(pd_fusb302b).contract_voltage;
+    - script.execute: activate_internal_speaker
+
+satellite1:
+  id: satellite1_id
+  spi_id: spi_0
+  cs_pin: GPIO10
+  data_rate: 8000000
+  spi_mode: MODE3
+  xmos_rst_pin: GPIO4
+
+  # The XMOS supplies the I2S clocks, so there is no audio at all until it
+  # answers over SPI. Logged rather than guarded: this release has no
+  # access_guard, so a silent device means looking here first.
+  on_xmos_no_response:
+    - logger.log: "XMOS not responding: there will be no audio"
+
+  on_xmos_connected:
+    - logger.log:
+        format: "XMOS connected: %s"
+        args: ['id(satellite1_id).status_string().c_str()']
+    - script.execute: activate_internal_speaker
+
+# The amplifier directly, with no satellite1 `dac_proxy` above it.
+#
+# dac_proxy exists upstream to switch between the speaker and the headphone
+# jack and to persist that choice. There is no jack path here, and its only
+# other jobs are an SPI DAC-select -- whose value, SPEAKER, is already
+# dac_proxy's own default -- and unmuting the amplifier, done below.
+#
+# It is also excluded because it does not compile: dac_proxy.h inherits
+# EntityBase without including entity_base.h, and nothing else in its include
+# chain provides it. True of both v0.2.1 and upstream main.
+audio_dac:
+  - platform: tas2780
+    id: speaker_dac
+    address: 0x3F
+
+script:
+  # Idempotent, and called from both the PD contract and the XMOS handshake
+  # because either can be the last of the two to arrive.
+  - id: activate_internal_speaker
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: return !id(tas2780_active);
+          then:
+            # Mode 2 needs the 20 V contract; below that the amplifier must run
+            # in its low-power mode or it browns out.
+            - tas2780.activate:
+                mode: !lambda 'return id(pd_power_contract) >= 9 ? 2 : 0;'
+            - lambda: id(tas2780_active) = true;
+      - audio_dac.mute_off: speaker_dac
+
+# ------------------------------------------------------------------- downlink
+
+speaker:
+  - platform: i2s_audio
+    id: i2s_audio_speaker
+    i2s_audio_id: i2s_shared
+    i2s_dout_pin: GPIO9
+    sample_rate: 48000
+    bits_per_sample: 32bit
+    channel: stereo
+    dac_type: external
+    audio_dac: speaker_dac
+    timeout: never
+
+  # chorus_bridge feeds 16 kHz mono. The mixer and resampler forward the i2s
+  # speaker's output callback, rescaling frame counts to their own input rate,
+  # so the playback position stays DAC-accurate through the chain (SPEC §3.2.1).
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: i2s_audio_speaker
+    num_channels: 2
+    source_speakers:
+      - id: tts_source
+        timeout: never
+      - id: media_source
+        timeout: never
+        buffer_duration: 100ms
+
+  - platform: resampler
+    id: tts_speaker
+    output_speaker: tts_source
+    sample_rate: 48000
+    bits_per_sample: 16
+
+# --------------------------------------------------------------------- uplink
+
+microphone:
+  - platform: satellite1
+    id: sat1_mics
+    i2s_audio_id: i2s_shared
+    i2s_din_pin: GPIO15
+    sample_rate: 48000
+    bits_per_sample: 32bit
+    channel: stereo
+    pdm: false
+    adc_type: external
+
+# Ducking applies to the other mixer source, not to our own TTS.
+chorus_bridge:
+  ducking_speaker: media_source
