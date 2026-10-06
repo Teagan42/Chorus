@@ -69,9 +69,9 @@ unpacked sint32 or base64 at 32 kB/s.
 **Resolution: `chorus_bridge`, an `external_components:` package with its own
 socket.** No fork of ESPHome, no fork of either device's firmware. Audio over
 raw TCP on `components/socket/socket.h` — the device dials out, so no inbound
-port, but non-blocking connect and reconnect are ours to write: ESPHome ships no
-managed outbound-link helper. Native API retained for control
-only. `voice_assistant` is removed from the YAML entirely.
+port, but non-blocking connect and reconnect are ours to write: ESPHome ships
+no managed outbound-link helper. Native API retained for control only.
+`voice_assistant` is removed from the YAML entirely.
 
 ### 3.2 Component contract
 
@@ -120,10 +120,9 @@ Ducking is `SourceSpeaker::apply_ducking(db, duration)` (both stock YAMLs use
 frames written to the DAC *since the last callback* — a per-DMA-buffer delta,
 not a running total — plus an `esp_timer` microsecond timestamp. The component
 accumulates it; `frames_played / sample_rate` is then the exact position the
-user has *heard*.
-Correlated with our own byte-offset-to-text map, truncation error is bounded by
-the DAC FIFO plus analog amp delay — sub-millisecond (Voice PE documents
-`fixed_delay: 480 us`).
+user has *heard*. Correlated with our own byte-offset-to-text map, truncation
+error is bounded by the DAC FIFO plus analog amp delay — sub-millisecond
+(Voice PE documents `fixed_delay: 480 us`).
 
 Use this callback. Do not use a proxy: the best proxy on the stock path is
 `bytes_sent_duration − [0.384, 0.512] s` (HA deliberately keeps its ring buffer
