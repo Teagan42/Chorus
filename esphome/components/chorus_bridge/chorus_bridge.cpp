@@ -40,8 +40,8 @@ void ChorusBridge::add_microphone_source(microphone::MicrophoneSource *source, u
 
 void ChorusBridge::setup() {
   this->tx_.reserve(TX_CAPACITY);
-  this->rx_.reserve(SPEAKER_BUFFER_SIZE);
-  this->speaker_pending_.reserve(SPEAKER_BUFFER_SIZE);
+  this->rx_.reserve(RX_CAPACITY);
+  this->speaker_pending_.reserve(RX_CAPACITY);
 
   for (auto &ch : this->mic_channels_) {
     // shared, not the returned unique_ptr: the audio source owns the buffer
@@ -184,6 +184,7 @@ void ChorusBridge::disconnect_(const char *reason) {
   this->tx_.clear();
   this->rx_.clear();
   this->speaker_pending_.clear();
+  this->finish_requested_ = false;
   this->stop_microphones_();
   // Silence rather than play stale TTS when the link returns.
   if (this->speaker_ != nullptr) {
@@ -255,11 +256,14 @@ void ChorusBridge::pump_uplink_() {
 }
 
 void ChorusBridge::pump_downlink_() {
-  // ready() obliges us to read until EAGAIN, or ready() stops reporting data.
-  while (true) {
+  // Bounded, not drained. An utterance is megabytes and this heap is not: an
+  // unbounded rx_ aborts the firmware in std::vector::insert the moment the
+  // allocator fails, because exceptions are off. Leaving the socket unread
+  // instead makes TCP flow control hold the remainder on the host.
+  while (this->rx_.size() + RX_CHUNK_SIZE <= RX_CAPACITY) {
     const size_t offset = this->rx_.size();
-    this->rx_.resize(offset + SPEAKER_BUFFER_SIZE);
-    ssize_t got = this->socket_->read(this->rx_.data() + offset, SPEAKER_BUFFER_SIZE);
+    this->rx_.resize(offset + RX_CHUNK_SIZE);
+    ssize_t got = this->socket_->read(this->rx_.data() + offset, RX_CHUNK_SIZE);
     this->rx_.resize(offset + (got > 0 ? got : 0));
     if (got > 0) {
       continue;
@@ -281,6 +285,11 @@ void ChorusBridge::pump_downlink_() {
     const size_t length = (static_cast<size_t>(h[2]) << 8) | h[3];
     if (this->rx_.size() - consumed - HEADER_SIZE < length) {
       break;  // partial frame; wait for the rest
+    }
+    // Same bound one level down: stop handing audio to the speaker queue while
+    // it is already full, and leave the frame in rx_ for a later loop().
+    if (static_cast<FrameType>(h[0]) == FrameType::TTS && this->speaker_pending_.size() >= SPEAKER_BUFFER_SIZE) {
+      break;
     }
     this->handle_frame_(static_cast<FrameType>(h[0]), h[1], h + HEADER_SIZE, length);
     consumed += HEADER_SIZE + length;
@@ -307,16 +316,18 @@ void ChorusBridge::handle_frame_(FrameType type, uint8_t flags, const uint8_t *p
     case FrameType::STOP:
       // Barge-in: discard the buffer so the user stops hearing us now.
       this->speaker_pending_.clear();
+      this->finish_requested_ = false;
       if (this->speaker_ != nullptr) {
         this->speaker_->stop();
       }
       return;
 
     case FrameType::FINISH:
-      // Natural end: drain what is buffered, then stop.
-      if (this->speaker_ != nullptr && this->speaker_pending_.empty()) {
-        this->speaker_->finish();
-      }
+      // Deferred, not immediate: the downlink is bounded, so the tail of the
+      // utterance is normally still queued here. pump_speaker_() finishes once
+      // it has handed the last byte over.
+      this->finish_requested_ = true;
+      this->pump_speaker_();
       return;
 
     case FrameType::DUCK:
@@ -347,13 +358,19 @@ void ChorusBridge::handle_frame_(FrameType type, uint8_t flags, const uint8_t *p
 }
 
 void ChorusBridge::pump_speaker_() {
-  if (this->speaker_ == nullptr || this->speaker_pending_.empty()) {
+  if (this->speaker_ == nullptr) {
     return;
   }
-  // play() returns bytes actually buffered: that is the backpressure signal.
-  size_t written = this->speaker_->play(this->speaker_pending_.data(), this->speaker_pending_.size());
-  if (written > 0) {
-    this->speaker_pending_.erase(this->speaker_pending_.begin(), this->speaker_pending_.begin() + written);
+  if (!this->speaker_pending_.empty()) {
+    // play() returns bytes actually buffered: that is the backpressure signal.
+    size_t written = this->speaker_->play(this->speaker_pending_.data(), this->speaker_pending_.size());
+    if (written > 0) {
+      this->speaker_pending_.erase(this->speaker_pending_.begin(), this->speaker_pending_.begin() + written);
+    }
+  }
+  if (this->finish_requested_ && this->speaker_pending_.empty()) {
+    this->finish_requested_ = false;
+    this->speaker_->finish();
   }
 }
 
