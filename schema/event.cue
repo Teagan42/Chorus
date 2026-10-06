@@ -81,6 +81,15 @@ events: {
 			{name: "frames_played", type: "integer", description: "DAC frame count at cut.", required: true},
 		]
 	}
+	speech_discarded: {
+		name:            "speech_discarded", actor: "speaking"
+		description:     "Speech generated but never played, because a barge-in emptied the queue first. Distinct from truncation: nothing was heard."
+		training_signal: true
+		fields: [
+			{name: "unspoken_text", type: "string", description: "Generated but never played.", required: true},
+			{name: "reason", type: "string", description: "Why it was dropped.", required: true, enum: ["barge_in", "preempted", "session_closed"]},
+		]
+	}
 	tool_called: {
 		name:        "tool_called", actor: "thinking"
 		description: "Model dispatched a tool; emitted when its JSON closed, not at end of message."
