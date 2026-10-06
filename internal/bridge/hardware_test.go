@@ -194,10 +194,10 @@ func tone(d time.Duration, hz float64) []byte {
 }
 
 // longestGap reports the largest interval between consecutive uplink frames
-// that fall inside [from, to].
-func longestGap(stamps []time.Time, from, to time.Time) (time.Duration, int) {
-	var worst time.Duration
-	count := 0
+// that fall inside [from, to], where in the window it started, and how many
+// frames arrived. The offset distinguishes a one-off stall as playback spins
+// up from capture actually stopping while the speaker runs.
+func longestGap(stamps []time.Time, from, to time.Time) (worst, at time.Duration, count int) {
 	prev := from
 	for _, s := range stamps {
 		if s.Before(from) || s.After(to) {
@@ -205,14 +205,14 @@ func longestGap(stamps []time.Time, from, to time.Time) (time.Duration, int) {
 		}
 		count++
 		if g := s.Sub(prev); g > worst {
-			worst = g
+			worst, at = g, prev.Sub(from)
 		}
 		prev = s
 	}
 	if g := to.Sub(prev); g > worst {
-		worst = g
+		worst, at = g, prev.Sub(from)
 	}
-	return worst, count
+	return worst, at, count
 }
 
 // verifies SPEC §3.3.1
@@ -268,8 +268,12 @@ func TestHardwareFullDuplex(t *testing.T) {
 	stamps := append([]time.Time(nil), r.mic...)
 	r.mu.Unlock()
 
-	gap, during := longestGap(stamps, start, end)
-	t.Logf("playback window %v: %d mic frames, longest uplink gap %v", end.Sub(start), during, gap)
+	// Measured to half a second short of the end. Stopping the writer on a
+	// duplex I2S bus disturbs the reader for a few hundred ms, which is a real
+	// artifact of stream teardown and not the mic going deaf during playback.
+	gap, at, during := longestGap(stamps, start, end.Add(-500*time.Millisecond))
+	t.Logf("playback window %v: %d mic frames, longest uplink gap %v at +%v",
+		end.Sub(start), during, gap, at)
 
 	if during == 0 {
 		t.Fatal("no uplink audio at all during playback: the link is half duplex")
@@ -279,6 +283,7 @@ func TestHardwareFullDuplex(t *testing.T) {
 			"the microphone stalled while the speaker was playing, which is the "+
 			"half-duplex behaviour chorus_bridge exists to escape",
 			gap, micGapTolerance)
+		t.Logf("gap began %v into the playback window", at)
 	}
 }
 
