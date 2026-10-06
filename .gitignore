@@ -1,0 +1,17 @@
+# Secrets — device PSKs live here, never in git.
+devices.yaml
+*.local.yaml
+.env
+
+# Build output
+/bin/
+/dist/
+
+# Captured audio from spikes
+/tmp/
+*.wav
+*.pcm
+
+# Tool caches
+.buf-cache/
+.task/
