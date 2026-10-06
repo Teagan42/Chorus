@@ -1,0 +1,37 @@
+#!/bin/sh
+# Catches formatting and staged-secret problems locally. Deliberately fast:
+# the full gate is `task check`, which runs in CI.
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+# A committed PSK cannot be un-leaked by a later commit.
+for forbidden in devices.yaml .env; do
+	if printf '%s\n' "$staged" | grep -qx "$forbidden"; then
+		echo "pre-commit: $forbidden must never be committed (holds secrets)." >&2
+		exit 1
+	fi
+done
+
+# Generated Go is the generator's output, not the author's; protoc-gen-go does
+# not emit gofumpt-clean code and reformatting it would just churn.
+go_files=$(printf '%s\n' "$staged" | grep '\.go$' | grep -v -e '\.gen\.go$' -e '^internal/pb/' || true)
+if [ -n "$go_files" ]; then
+	if command -v gofumpt >/dev/null; then
+		unformatted=$(printf '%s\n' "$go_files" | xargs gofumpt -l)
+	else
+		unformatted=$(printf '%s\n' "$go_files" | xargs gofmt -l)
+	fi
+	if [ -n "$unformatted" ]; then
+		echo "pre-commit: unformatted files; run 'task fmt':" >&2
+		printf '  %s\n' $unformatted >&2
+		exit 1
+	fi
+fi
+
+cue_files=$(printf '%s\n' "$staged" | grep '\.cue$' || true)
+if [ -n "$cue_files" ] && command -v cue >/dev/null; then
+	# -c is required: plain `cue vet` ignores the conditional policy constraints.
+	cue vet -c ./schema/ || { echo "pre-commit: schema policy violation." >&2; exit 1; }
+fi
