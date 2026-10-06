@@ -41,11 +41,45 @@ func TestAppendStampsMonotonicSequenceAndWallClock(t *testing.T) {
 }
 
 // verifies SPEC §8
-func TestAppendRejectsUnknownKind(t *testing.T) {
+func TestAppendRejectsMalformedWrites(t *testing.T) {
+	cases := map[string]struct {
+		versions journal.Versions
+		record   journal.Record
+	}{
+		"undeclared kind": {versions(), journal.Record{Kind: "speech_maybe_spoken"}},
+		"missing required field": {versions(), journal.Record{
+			Kind: journal.KindToolResult, Fields: map[string]string{"call_id": "c1"},
+		}},
+		"audio without a blob reference": {versions(), journal.Record{
+			Kind: journal.KindUtteranceTranscribed, Fields: map[string]string{"text": "hello"},
+		}},
+		"versions required but incomplete": {journal.Versions{Model: "qwen3-32b@1"}, journal.Record{
+			Kind: journal.KindWakeRejected, AudioRef: "blob/1", Fields: map[string]string{"reason": "no_speech"},
+		}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			j := journal.New(journal.NewMemStore(), journal.FixedClock(time.Unix(0, 0)), tc.versions)
+
+			if _, err := j.Append(context.Background(), "conv-1", tc.record); err == nil {
+				t.Fatalf("append accepted %s", name)
+			}
+		})
+	}
+}
+
+// verifies SPEC §8
+func TestAppendStampsTheVersionsInEffect(t *testing.T) {
 	j := journal.New(journal.NewMemStore(), journal.FixedClock(time.Unix(0, 0)), versions())
 
-	_, err := j.Append(context.Background(), "conv-1", journal.Record{Kind: "speech_maybe_spoken"})
-	if err == nil {
-		t.Fatal("append accepted an undeclared kind")
+	e, err := j.Append(context.Background(), "conv-1", journal.Record{
+		Kind: journal.KindSpeechTruncated, AudioRef: "blob/1",
+		Fields: map[string]string{"spoken_text": "I found", "unspoken_text": " three", "frames_played": "6720"},
+	})
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if e.Versions != versions() {
+		t.Errorf("versions = %+v, want %+v", e.Versions, versions())
 	}
 }
