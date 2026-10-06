@@ -204,9 +204,12 @@ void ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *pa
   // Append whole frames only: a truncated header leaves the host unable to
   // find the next frame boundary.
   if (this->tx_.size() + HEADER_SIZE + length > TX_CAPACITY) {
-    if (type == FrameType::MIC) {
+    // MIC is droppable audio; the host sees a gap. PLAYED is droppable because
+    // it carries a cumulative frame count, so the next one supersedes it --
+    // tearing the link down over a status report loses the whole utterance.
+    if (type == FrameType::MIC || type == FrameType::PLAYED) {
       if (++this->dropped_chunks_ % 32 == 1) {
-        ESP_LOGW(TAG, "TX full, dropped %" PRIu32 " mic chunks", this->dropped_chunks_);
+        ESP_LOGW(TAG, "TX full, dropped %" PRIu32 " uplink frames", this->dropped_chunks_);
       }
       return;
     }
