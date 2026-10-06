@@ -55,15 +55,12 @@ jobs:
         if: github.event_name == 'pull_request'
         run: task commit:check -- ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
 
-  # DELIBERATELY NON-BLOCKING. spec:check fails on five SPEC §15 clauses
-  # (§4.1, §4.4, §4.5, §8, §11) whose implementations do not exist yet; that
-  # list is the phase-1 work order, not a broken gate. The user chose to keep
-  # it red and visible rather than split the critical-clause gate. Remove
-  # continue-on-error once those clauses have tests — do not weaken spectrace.
+  # Blocking since every SPEC §15 critical clause has coverage. It was advisory
+  # while the runtime did not exist. If it goes red, add the test — do not
+  # weaken spectrace or drop a citation.
   spec:
-    name: spec trace (advisory)
+    name: spec trace
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v5
 
