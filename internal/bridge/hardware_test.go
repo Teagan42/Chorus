@@ -170,6 +170,25 @@ func (r *recorder) state() string {
 		"position %v; wakes %v; mutes %+v", len(r.mic), r.bytes, len(r.played), pos, r.wakes, r.mutes)
 }
 
+// awaitSettled waits until the reported position stops advancing, i.e. the DAC
+// has drained. Needed before asserting a final position: the test learns the
+// utterance finished from a report that is itself one DMA buffer behind.
+func (r *recorder) awaitSettled(t *testing.T, within time.Duration) time.Duration {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	last := r.playedPosition()
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		pos := r.playedPosition()
+		if pos == last {
+			return pos
+		}
+		last = pos
+	}
+	t.Fatalf("played position still advancing after %v\n%s", within, r.state())
+	return 0
+}
+
 // playedPosition is the audio the DAC has actually emitted.
 func (r *recorder) playedPosition() time.Duration {
 	r.mu.Lock()
@@ -298,6 +317,11 @@ func TestHardwareFullDuplex(t *testing.T) {
 	const utterance = 6 * time.Second
 	pcm := tone(utterance, 440)
 
+	// A baseline, because frames are cumulative per connection: the device may
+	// already have played audio on this link, and "position >= 6s" would then
+	// be satisfied before a single byte of this utterance reached the DAC.
+	base := r.playedPosition()
+
 	start := time.Now()
 	feed := feedTTS(context.Background(), l, pcm)
 	go func() {
@@ -312,7 +336,7 @@ func TestHardwareFullDuplex(t *testing.T) {
 			if len(r.played) == 0 {
 				return false
 			}
-			return r.played[len(r.played)-1].Position(bridge.SampleRate) >= utterance-100*time.Millisecond
+			return r.played[len(r.played)-1].Position(bridge.SampleRate)-base >= utterance-100*time.Millisecond
 		})
 	end := time.Now()
 
@@ -353,6 +377,7 @@ func TestHardwarePlaybackPositionIsDACAccurate(t *testing.T) {
 	serveLink(t, l, r)
 
 	const utterance = 3 * time.Second
+	base := r.playedPosition()
 	feed := feedTTS(context.Background(), l, tone(utterance, 440))
 	go func() {
 		if err := <-feed; err == nil {
@@ -365,8 +390,9 @@ func TestHardwarePlaybackPositionIsDACAccurate(t *testing.T) {
 			if len(r.played) == 0 {
 				return false
 			}
-			return r.played[len(r.played)-1].Position(bridge.SampleRate) >= utterance-100*time.Millisecond
+			return r.played[len(r.played)-1].Position(bridge.SampleRate)-base >= utterance-500*time.Millisecond
 		})
+	r.awaitSettled(t, 20*time.Second)
 
 	r.mu.Lock()
 	played := append([]bridge.Played(nil), r.played...)
@@ -388,7 +414,7 @@ func TestHardwarePlaybackPositionIsDACAccurate(t *testing.T) {
 		}
 	}
 
-	final := played[len(played)-1].Position(bridge.SampleRate)
+	final := played[len(played)-1].Position(bridge.SampleRate) - base
 	if d := final - utterance; d < -50*time.Millisecond || d > 50*time.Millisecond {
 		t.Errorf("final played position = %v for a %v utterance (error %v)", final, utterance, d)
 	}
