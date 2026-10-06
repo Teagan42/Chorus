@@ -1,0 +1,135 @@
+# Single entry point across Go, Python, CUE, and ESPHome toolchains.
+# Tiered tests: `test` is hermetic and always runnable; `test:models` needs a
+# GPU; `test:hardware` needs a reachable satellite. See CONTRIBUTING.md.
+version: "3"
+
+vars:
+  GOBIN:
+    sh: go env GOPATH
+  PKG: github.com/teaganglenn/chorus
+
+env:
+  PATH: "{{.GOBIN}}/bin:{{.PATH}}"
+
+tasks:
+  default:
+    cmds: [task: check]
+
+  # ---------------------------------------------------------------- toolchain
+  tools:
+    desc: Install pinned dev tools into GOPATH/bin
+    cmds:
+      - go install github.com/bufbuild/buf/cmd/buf@latest
+      - go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+      - go install cuelang.org/go/cmd/cue@latest
+      - go install mvdan.cc/gofumpt@latest
+      # Quoted: the unquoted ": " in the URL would parse as a YAML mapping.
+      - 'command -v uv >/dev/null || echo "install uv -> https://docs.astral.sh/uv/"'
+      # Hooks are opt-in per clone; git will not enable them automatically.
+      - git config core.hooksPath .githooks
+
+  # ------------------------------------------------------------------- codegen
+  gen:
+    desc: Regenerate everything derived from schemas
+    cmds: [task: gen:proto, task: gen:cue]
+
+  gen:proto:
+    desc: ESPHome API bindings from the vendored proto
+    sources: ["proto/esphome/*.proto", "buf.gen.yaml"]
+    generates: ["internal/pb/*.pb.go"]
+    cmds: [buf generate]
+
+  gen:cue:
+    desc: Go types, JSON Schema, and docs from CUE schemas
+    sources: ["schema/**/*.cue"]
+    cmds: [go run ./internal/tools/schemagen]
+
+  gen:check:
+    desc: Fail if generated output is stale (CI gate)
+    cmds:
+      - task: gen
+      - |
+        # --porcelain, not `git diff`: a newly generated file is untracked, and
+        # `git diff` does not see untracked files.
+        dirty=$(git status --porcelain -- \
+          'internal/pb' '*.gen.go' 'schema/json' 'docs/reference')
+        if [ -n "$dirty" ]; then
+          echo "ERROR: generated output is stale or uncommitted." >&2
+          echo "Run 'task gen' and commit the result in a chore(gen) commit." >&2
+          printf '%s\n' "$dirty" >&2
+          exit 1
+        fi
+
+  # --------------------------------------------------------------------- tests
+  test:
+    desc: Hermetic tests. No network, no GPU, no hardware.
+    cmds:
+      - go test -race -count=1 ./...
+
+  test:cover:
+    desc: Hermetic tests with coverage report
+    cmds:
+      - go test -race -count=1 -coverprofile=coverage.out ./...
+      - go tool cover -func=coverage.out | tail -1
+
+  test:models:
+    desc: Requires GPU model sidecars. Self-hosted runner only.
+    cmds:
+      - go test -race -count=1 -tags=models ./...
+
+  test:hardware:
+    desc: Requires a reachable satellite from devices.yaml.
+    cmds:
+      - go test -count=1 -tags=hardware ./...
+
+  test:docs:
+    desc: Extract and run code examples from markdown
+    cmds:
+      - go run ./internal/tools/docexec docs/ CONTRIBUTING.md
+
+  # -------------------------------------------------------------- spec tracing
+  spec:
+    desc: Report SPEC.md clause/test traceability
+    cmds: [go run ./internal/tools/spectrace docs/SPEC.md]
+
+  spec:check:
+    desc: Fail on spec clauses that claim coverage but have none (CI gate)
+    cmds: [go run ./internal/tools/spectrace -strict docs/SPEC.md]
+
+  # --------------------------------------------------------------------- hygiene
+  fmt:
+    desc: Format everything
+    cmds:
+      - gofumpt -w .
+      - cue fmt ./schema/...
+      - sh -c 'command -v uv >/dev/null && uv run ruff format sidecars || true'
+
+  lint:
+    cmds:
+      # Fail loudly on a missing tool. Piping `gofumpt -l` into a guard made an
+      # absent binary look like a clean tree.
+      - 'for t in gofumpt cue golangci-lint; do command -v $t >/dev/null || { echo "lint: $t not installed; run task tools" >&2; exit 1; }; done'
+      - go vet ./...
+      - 'test -z "$(gofumpt -l .)" || { echo "unformatted (run task fmt):" >&2; gofumpt -l . >&2; exit 1; }'
+      # -c (concrete) is load-bearing: plain `cue vet` does not evaluate the
+      # conditional policy constraints and passes on known-bad schemas.
+      - cue vet -c ./schema/
+      - golangci-lint run ./...
+
+  commit:check:
+    desc: Enforce atomic-commit rules on HEAD (or RANGE=a..b)
+    cmds: ["go run ./internal/tools/atomic {{.CLI_ARGS}}"]
+
+  check:
+    desc: What CI runs on every push
+    cmds:
+      - task: lint
+      - task: gen:check
+      - task: test
+      - task: test:docs
+      - task: spec:check
+
+  # ----------------------------------------------------------------- dev loops
+  probe:
+    desc: Probe a real satellite (needs devices.yaml)
+    cmds: ["go run ./cmd/probe {{.CLI_ARGS}}"]
