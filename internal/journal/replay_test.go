@@ -141,3 +141,27 @@ func TestReduceHandlesEveryGeneratedKind(t *testing.T) {
 		}
 	}
 }
+
+// verifies SPEC §4.4
+func TestReduceKeepsDiscardedSpeechOutOfWhatWasHeard(t *testing.T) {
+	e := journal.Event{
+		Seq:  1,
+		Kind: journal.KindSpeechDiscarded,
+		Fields: map[string]string{
+			"unspoken_text": "and the album came out in 1973",
+			"reason":        "barge_in",
+		},
+	}
+
+	got, err := journal.Reduce(journal.State{}, e)
+	if err != nil {
+		t.Fatalf("reduce: %v", err)
+	}
+	if len(got.Spoken) != 0 {
+		t.Errorf("Spoken = %q; the user heard none of a discarded utterance", got.Spoken)
+	}
+	want := []string{"and the album came out in 1973"}
+	if !reflect.DeepEqual(got.Unspoken, want) {
+		t.Errorf("Unspoken = %q, want %q", got.Unspoken, want)
+	}
+}

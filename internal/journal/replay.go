@@ -139,6 +139,10 @@ func Reduce(s State, e Event) (State, error) {
 		s.Spoken = append(s.Spoken, e.Fields["spoken_text"])
 		s.Unspoken = append(s.Unspoken, e.Fields["unspoken_text"])
 		s.Interrupted = true
+	case KindSpeechDiscarded:
+		// Never played, so it joins Unspoken only. The model must not believe
+		// the user heard it (SPEC §4.4).
+		s.Unspoken = append(s.Unspoken, e.Fields["unspoken_text"])
 	case KindBargeInDetected:
 		ms, err := strconv.Atoi(e.Fields["tts_position_ms"])
 		if err != nil {
@@ -167,6 +171,7 @@ var handled = map[Kind]bool{
 	KindModelCompleted:       true,
 	KindSessionClosed:        true,
 	KindSessionOpened:        true,
+	KindSpeechDiscarded:      true,
 	KindSpeechSpoken:         true,
 	KindSpeechTruncated:      true,
 	KindToolCalled:           true,
