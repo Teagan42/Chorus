@@ -143,6 +143,7 @@ class ChorusBridge : public Component {
   std::atomic<int64_t> played_timestamp_{0};
   std::atomic<bool> played_dirty_{false};
 
+  std::atomic<bool> playing_{false};
   bool finish_requested_{false};
   bool mic_requested_{true};
   bool mic_started_{false};

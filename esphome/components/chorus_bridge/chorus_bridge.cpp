@@ -81,6 +81,13 @@ void ChorusBridge::setup() {
 
     // Runs on the speaker's own task: copy and hand off, do no work (SPEC §3.2.1).
     this->speaker_->add_audio_output_callback([this](uint32_t frames, int64_t timestamp) {
+      // Gated, because stop() is asynchronous: the mixer and the i2s DMA keep
+      // draining for up to buffer_duration after it returns, and those frames
+      // belong to the stream that was torn down. Counting them charges the next
+      // utterance for the tail of the previous one.
+      if (!this->playing_.load(std::memory_order_acquire)) {
+        return;
+      }
       this->played_frames_.fetch_add(frames, std::memory_order_relaxed);
       this->played_timestamp_.store(timestamp, std::memory_order_relaxed);
       this->played_dirty_.store(true, std::memory_order_release);
@@ -186,10 +193,17 @@ void ChorusBridge::disconnect_(const char *reason) {
   }
   this->connecting_ = false;
   this->handshake_sent_ = false;
+  // Before stop(), so no straggling callback is attributed to the next link.
+  this->playing_.store(false, std::memory_order_release);
   this->tx_.clear();
   this->rx_.clear();
   this->speaker_pending_.clear();
   this->finish_requested_ = false;
+  // Frames are cumulative per connection (internal/bridge/frame.go), so the
+  // counter has to start from zero on the next one. Without this the first
+  // PLAYED of a new link reports a position from the previous one.
+  this->played_frames_.store(0, std::memory_order_relaxed);
+  this->played_dirty_.store(false, std::memory_order_relaxed);
   this->stop_microphones_();
   // Silence rather than play stale TTS when the link returns.
   if (this->speaker_ != nullptr) {
@@ -322,12 +336,18 @@ void ChorusBridge::handle_frame_(FrameType type, uint8_t flags, const uint8_t *p
       if (this->speaker_->is_stopped()) {
         this->speaker_->start();
       }
+      // Not a counter reset: frames stay cumulative for the whole connection
+      // (internal/bridge/frame.go), so the host's positions never go backwards.
+      this->playing_.store(true, std::memory_order_release);
       this->speaker_pending_.insert(this->speaker_pending_.end(), payload, payload + length);
       this->pump_speaker_();
       return;
 
     case FrameType::STOP:
-      // Barge-in: discard the buffer so the user stops hearing us now.
+      // Barge-in: discard the buffer so the user stops hearing us now. Gate
+      // first, so the frames the DAC drains after this are not reported as
+      // played -- the last position before a stop is the truncation point.
+      this->playing_.store(false, std::memory_order_release);
       this->speaker_pending_.clear();
       this->finish_requested_ = false;
       if (this->speaker_ != nullptr) {
