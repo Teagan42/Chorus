@@ -193,6 +193,44 @@ func serveLink(t *testing.T, l *bridge.Link, h bridge.Handler) {
 	}()
 }
 
+// feedTTS streams pcm slightly ahead of real time and returns when the feed
+// ends. A real TTS stream arrives as it is synthesised; dumping a whole
+// utterance at line rate saturates the device's radio and starves the uplink
+// that shares it, which looks like a duplex failure but is not one.
+func feedTTS(ctx context.Context, l *bridge.Link, pcm []byte) <-chan error {
+	const slice = 200 * time.Millisecond
+	n := int(bridge.SampleRate) * int(slice/time.Millisecond) / 1000 * 2
+
+	// Primed with a full source buffer before pacing starts. Real TTS bursts its
+	// first chunk too, and without the lead the device's mixer source runs only
+	// one slice deep: a 60 ms loop() hiccup then underruns it, and the i2s
+	// speaker emits silence it counts as played.
+	lead := min(5*n, len(pcm))
+
+	done := make(chan error, 1)
+	go func() {
+		if err := l.SendTTS(pcm[:lead]); err != nil {
+			done <- err
+			return
+		}
+		for off := lead; off < len(pcm); off += n {
+			if ctx.Err() != nil {
+				done <- ctx.Err()
+				return
+			}
+			if err := l.SendTTS(pcm[off:min(off+n, len(pcm))]); err != nil {
+				done <- err
+				return
+			}
+			// Three quarters of a slice, so the device keeps a small lead and
+			// the speaker never underruns waiting on the next write.
+			time.Sleep(slice * 3 / 4)
+		}
+		done <- nil
+	}()
+	return done
+}
+
 // tone generates a synthetic sine wave. Synthetic by policy: a test fixture
 // must never be a real household recording.
 func tone(d time.Duration, hz float64) []byte {
@@ -261,12 +299,12 @@ func TestHardwareFullDuplex(t *testing.T) {
 	pcm := tone(utterance, 440)
 
 	start := time.Now()
-	if err := l.SendTTS(pcm); err != nil {
-		t.Fatalf("SendTTS: %v", err)
-	}
-	if err := l.Finish(); err != nil {
-		t.Fatalf("Finish: %v", err)
-	}
+	feed := feedTTS(context.Background(), l, pcm)
+	go func() {
+		if err := <-feed; err == nil {
+			_ = l.Finish()
+		}
+	}()
 
 	// Wait on the DAC's own position rather than a wall-clock guess.
 	r.await(t, "the DAC to report the whole utterance played", utterance+20*time.Second,
@@ -315,12 +353,12 @@ func TestHardwarePlaybackPositionIsDACAccurate(t *testing.T) {
 	serveLink(t, l, r)
 
 	const utterance = 3 * time.Second
-	if err := l.SendTTS(tone(utterance, 440)); err != nil {
-		t.Fatalf("SendTTS: %v", err)
-	}
-	if err := l.Finish(); err != nil {
-		t.Fatalf("Finish: %v", err)
-	}
+	feed := feedTTS(context.Background(), l, tone(utterance, 440))
+	go func() {
+		if err := <-feed; err == nil {
+			_ = l.Finish()
+		}
+	}()
 
 	r.await(t, "played position to reach the utterance length", utterance+20*time.Second,
 		func() bool {
@@ -381,8 +419,7 @@ func TestHardwareBargeInStopsPlayback(t *testing.T) {
 	// Fed from a goroutine so the barge-in lands mid-utterance, which is the
 	// only case that tells us anything: Stop() after the last byte is sent
 	// would prove nothing about discarding a buffer.
-	sendErr := make(chan error, 1)
-	go func() { sendErr <- l.SendTTS(tone(10*time.Second, 440)) }()
+	sendErr := feedTTS(context.Background(), l, tone(10*time.Second, 440))
 
 	r.await(t, "playback to start", 20*time.Second, func() bool {
 		return len(r.played) > 0 && r.played[len(r.played)-1].Frames > 0
