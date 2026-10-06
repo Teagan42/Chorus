@@ -124,7 +124,8 @@ That list is the one place where missing tests fail the build.
 
 Architectural decisions live in `docs/adr/`, numbered, never edited after
 acceptance — superseded instead. If a decision needed a paragraph of
-justification, it needs an ADR. Use `docs/adr/0000-template.md`.
+justification, it needs an ADR. Use `docs/adr/0000-template.md`;
+`docs/adr/README.md` is the index.
 
 ### Executable docs
 
