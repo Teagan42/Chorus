@@ -11,6 +11,7 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | `model_completed` | thinking |  |  | Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8). |
 | `session_closed` | session |  |  | Conversation ended. |
 | `session_opened` | session |  |  | Wake word confirmed; a conversation begins. |
+| `speech_discarded` | speaking |  | yes | Speech generated but never played, because a barge-in emptied the queue first. Distinct from truncation: nothing was heard. |
 | `speech_spoken` | speaking | yes |  | Audio the user actually heard, bounded by DAC-reported playback position. |
 | `speech_truncated` | speaking | yes | yes | Barge-in cut speech short. Carries the exact split between heard and unheard text. |
 | `tool_called` | thinking |  |  | Model dispatched a tool; emitted when its JSON closed, not at end of message. |

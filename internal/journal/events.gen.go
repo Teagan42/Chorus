@@ -20,6 +20,8 @@ const (
 	KindSessionClosed Kind = "session_closed"
 	// Wake word confirmed; a conversation begins.
 	KindSessionOpened Kind = "session_opened"
+	// Speech generated but never played, because a barge-in emptied the queue first. Distinct from truncation: nothing was heard.
+	KindSpeechDiscarded Kind = "speech_discarded"
 	// Audio the user actually heard, bounded by DAC-reported playback position.
 	KindSpeechSpoken Kind = "speech_spoken"
 	// Barge-in cut speech short. Carries the exact split between heard and unheard text.
@@ -51,6 +53,7 @@ var Meta = map[Kind]EventMeta{
 	KindModelCompleted:       {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: true, RequiredFields: []string{"completion_json", "finish_reason"}},
 	KindSessionClosed:        {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"reason"}},
 	KindSessionOpened:        {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"satellite"}},
+	KindSpeechDiscarded:      {Actor: "speaking", HasAudio: false, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"unspoken_text", "reason"}},
 	KindSpeechSpoken:         {Actor: "speaking", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"text", "frames_played"}},
 	KindSpeechTruncated:      {Actor: "speaking", HasAudio: true, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"spoken_text", "unspoken_text", "frames_played"}},
 	KindToolCalled:           {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"tool", "call_id", "args_json"}},
@@ -66,6 +69,7 @@ var AllKinds = []Kind{
 	KindModelCompleted,
 	KindSessionClosed,
 	KindSessionOpened,
+	KindSpeechDiscarded,
 	KindSpeechSpoken,
 	KindSpeechTruncated,
 	KindToolCalled,
