@@ -419,13 +419,19 @@ func TestHardwareBargeInStopsPlayback(t *testing.T) {
 	// Fed from a goroutine so the barge-in lands mid-utterance, which is the
 	// only case that tells us anything: Stop() after the last byte is sent
 	// would prove nothing about discarding a buffer.
-	sendErr := feedTTS(context.Background(), l, tone(10*time.Second, 440))
+	// Cancelled with the barge-in: a feeder that keeps writing TTS after Stop
+	// legitimately restarts playback, and the position would climb for that
+	// reason rather than because the buffer survived.
+	feedCtx, stopFeed := context.WithCancel(context.Background())
+	defer stopFeed()
+	sendErr := feedTTS(feedCtx, l, tone(10*time.Second, 440))
 
 	r.await(t, "playback to start", 20*time.Second, func() bool {
 		return len(r.played) > 0 && r.played[len(r.played)-1].Frames > 0
 	})
 
 	at := r.playedPosition()
+	stopFeed()
 	if err := l.Stop(); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
