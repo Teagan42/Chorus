@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -233,7 +234,8 @@ type fakeDevice struct {
 
 	// sent counts mic chunks the host has actually taken delivery of. net.Pipe
 	// is unbuffered, so it only advances when the host reads.
-	sent atomic.Uint32
+	sent   atomic.Uint32
+	closed atomic.Bool
 
 	mu       sync.Mutex
 	ttsBytes int
@@ -260,40 +262,65 @@ func newFakeDevice(conn net.Conn) *fakeDevice {
 func (d *fakeDevice) streamMic() {
 	w := bridge.NewWriter(d.conn)
 	if err := w.WriteFrame(deviceHello(1)); err != nil {
+		d.closed.Store(true)
 		return
 	}
 	for n := uint32(1); ; n++ {
 		pcm := make([]byte, 4)
 		binary.BigEndian.PutUint32(pcm, n)
 		if err := w.WriteFrame(bridge.Frame{Type: bridge.TypeMic, Flags: bridge.ChannelAEC, Payload: pcm}); err != nil {
+			d.closed.Store(true)
 			return
 		}
 		d.sent.Store(n)
 	}
 }
 
-// awaitTTSBytes waits until the device has consumed a whole utterance.
-func (d *fakeDevice) awaitTTSBytes(t *testing.T, want int) {
+// await blocks until the device has observed what the host already sent.
+// Asserting without this races the device's reader goroutine.
+func (d *fakeDevice) await(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.After(patience)
 	for {
 		d.mu.Lock()
-		got := d.ttsBytes
+		ok := cond()
 		d.mu.Unlock()
-		if got >= want {
+		if ok {
 			return
 		}
 		select {
 		case <-d.notify:
 		case <-deadline:
-			t.Fatalf("device received %d of %d TTS bytes", got, want)
+			t.Fatalf("timed out waiting for the device to see %s", what)
 		}
 	}
 }
 
+// awaitTTSBytes waits until the device has consumed a whole utterance.
+func (d *fakeDevice) awaitTTSBytes(t *testing.T, want int) {
+	t.Helper()
+	d.await(t, "a whole utterance", func() bool { return d.ttsBytes >= want })
+}
+
+// readDownlink consumes host frames, but will not take another one until the
+// uplink has made progress since the last. That turns full duplex from
+// something the test hopes the scheduler provides into something the utterance
+// cannot complete without: a host that stops reading the uplink blocks here,
+// its TTS writes back up, and SendTTS never returns. Without this gate,
+// net.Pipe's synchronous rendezvous lets the TTS writer and this reader run hot
+// and starve the uplink entirely, which made the assertion flaky.
 func (d *fakeDevice) readDownlink() {
 	r := bridge.NewReader(d.conn)
+	lastMic := uint32(0)
 	for {
+		for d.sent.Load() == lastMic {
+			if d.closed.Load() {
+				return
+			}
+			runtime.Gosched()
+		}
+		lastMic = d.sent.Load()
+
 		f, err := r.ReadFrame()
 		if err != nil {
 			return
@@ -415,6 +442,11 @@ func TestHostControlFrames(t *testing.T) {
 	if err := l.SetMicEnabled(true); err != nil {
 		t.Fatalf("SetMicEnabled: %v", err)
 	}
+
+	// The device's reader is a separate goroutine; a bare read here races it.
+	d.await(t, "all four control frames", func() bool {
+		return d.stops == 1 && len(d.ducks) == 1 && len(d.micEnables) == 2
+	})
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
