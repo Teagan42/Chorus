@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"math"
 	"net"
 	"sync"
@@ -151,9 +152,22 @@ func (r *recorder) await(t *testing.T, what string, within time.Duration, cond f
 		select {
 		case <-r.notify:
 		case <-deadline:
-			t.Fatalf("timed out after %v waiting for %s", within, what)
+			t.Fatalf("timed out after %v waiting for %s\n%s", within, what, r.state())
 		}
 	}
+}
+
+// state summarises what arrived, so a hardware timeout names its own cause:
+// no mic means no capture, no played means no DAC output.
+func (r *recorder) state() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pos := time.Duration(0)
+	if n := len(r.played); n > 0 {
+		pos = r.played[n-1].Position(bridge.SampleRate)
+	}
+	return fmt.Sprintf("uplink: %d mic frames / %d bytes; downlink: %d played frames, "+
+		"position %v; wakes %v; mutes %+v", len(r.mic), r.bytes, len(r.played), pos, r.wakes, r.mutes)
 }
 
 // playedPosition is the audio the DAC has actually emitted.
