@@ -1,0 +1,122 @@
+# Versioning is derived from conventional commit subjects, not chosen by hand:
+# release-please keeps a release PR open with the computed bump and changelog,
+# and merging it tags the release. Binaries and images are built only from that
+# tag, so a published artifact always has a changelog entry behind it.
+#
+# No container image yet: the only binary is cmd/probe, a dev tool. Add a
+# ghcr.io push here when the orchestrator daemon exists.
+name: release
+
+on:
+  push:
+    branches: [main]
+
+# Serialize: two merges in flight must not race on the same release PR or tag.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    name: release-please
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      released: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
+      version: ${{ steps.rp.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          # A PR opened with GITHUB_TOKEN does not trigger pull_request
+          # workflows, so the release PR would sit forever with its required
+          # checks never reporting. RELEASE_PLEASE_TOKEN is a PAT or App token;
+          # set it or releases stall. Falls back so forks still run.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Re-run the gate against the tag. The merge commit passed CI, but the tag is
+  # what users install, and release-please commits a changelog on top of it.
+  verify:
+    name: verify the tag
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Put GOPATH/bin on PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.54.0
+
+      - run: task tools
+
+      - run: task lint
+
+      - run: task test
+
+  binaries:
+    name: binaries
+    needs: [release-please, verify]
+    if: needs.release-please.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # CGO_ENABLED=0: a static binary, and nothing here needs libc.
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          out="probe_${{ needs.release-please.outputs.version }}_${GOOS}_${GOARCH}"
+          mkdir -p "dist/$out"
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${{ needs.release-please.outputs.version }}" \
+            -o "dist/$out/probe" ./cmd/probe
+          cp README.md "dist/$out/"
+          tar -C dist -czf "dist/$out.tar.gz" "$out"
+          # Run inside dist and keep the filename: `sha256sum -c` rejects a
+          # bare digest.
+          (cd dist && sha256sum "$out.tar.gz" > "$out.tar.gz.sha256")
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ needs.release-please.outputs.tag }}" \
+            dist/*.tar.gz dist/*.tar.gz.sha256 --clobber --repo "$GITHUB_REPOSITORY"
