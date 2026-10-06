@@ -826,3 +826,80 @@ func TestListenerAcceptCancellationDoesNotStealTheNextDevice(t *testing.T) {
 		t.Errorf("MicChannels = %d, want 2", got)
 	}
 }
+
+// verifies SPEC §3.2
+//
+// Barge-in is an ordering boundary, not just another interleaving. A TTS chunk
+// written after the stop frame restarts on the device exactly the audio the
+// barge-in was cancelling, so Stop has to invalidate an utterance that is still
+// being written rather than merely queue behind its next chunk.
+func TestStopAbandonsTheUtteranceBeingWritten(t *testing.T) {
+	host, device := newPipe(t)
+	go func() { _ = bridge.NewWriter(device).WriteFrame(deviceHello(1)) }()
+	l, err := bridge.NewLink(host)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Far more than one chunk, so the write is still in progress when Stop
+	// lands. net.Pipe is unbuffered, so every frame blocks on the drain below.
+	pcm := make([]byte, 64*bridge.MaxPayload)
+
+	// Drained continuously in its own goroutine: net.Pipe is synchronous, so a
+	// test that reads only on demand would deadlock its own Stop.
+	var order []bridge.Type
+	firstTTS := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r := bridge.NewReader(device)
+		seen := false
+		for {
+			f, err := r.ReadFrame()
+			if err != nil {
+				return
+			}
+			order = append(order, f.Type)
+			if f.Type == bridge.TypeTTS && !seen {
+				seen = true
+				close(firstTTS)
+			}
+		}
+	}()
+
+	sent := make(chan error, 1)
+	go func() { sent <- l.SendTTS(pcm) }()
+
+	select {
+	case <-firstTTS:
+	case <-time.After(patience):
+		t.Fatal("no TTS chunk was ever written")
+	}
+
+	if err := l.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if err := <-sent; !errors.Is(err, bridge.ErrStopped) {
+		t.Errorf("SendTTS err = %v, want ErrStopped", err)
+	}
+
+	_ = l.Close()
+	<-done
+
+	stopAt := -1
+	for i, typ := range order {
+		if typ == bridge.TypeStop {
+			stopAt = i
+			break
+		}
+	}
+	if stopAt < 0 {
+		t.Fatalf("never saw the stop frame in %v", order)
+	}
+	for _, typ := range order[stopAt+1:] {
+		if typ == bridge.TypeTTS {
+			t.Fatal("a TTS chunk followed the stop frame: the device would " +
+				"restart the audio the barge-in cancelled")
+		}
+	}
+}

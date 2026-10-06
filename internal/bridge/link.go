@@ -41,7 +41,18 @@ type Link struct {
 	mu sync.Mutex // serializes writes; a torn frame is unparseable
 	bw *bufio.Writer
 	w  *Writer
+	// Bumped by Stop. SendTTS captures it and abandons the rest of its payload
+	// if it changes, because the mutex alone only makes each frame whole: a
+	// multi-chunk SendTTS releases it between chunks, so a Stop could land
+	// mid-payload and the remaining chunks would follow the stop frame. The
+	// device treats any TTS after STOP as a new utterance, so that restarts
+	// exactly the audio the barge-in was cancelling.
+	utterance uint64
 }
+
+// ErrStopped reports that Stop cancelled the utterance a SendTTS call was
+// still writing. Distinct from a transport failure: the link is fine.
+var ErrStopped = errors.New("bridge: utterance stopped by barge-in")
 
 // NewLink completes the opening handshake. The device states its audio format
 // in Hello rather than letting the host assume it, so a YAML change on the
@@ -143,13 +154,18 @@ func (l *Link) send(f Frame) error {
 // SendTTS streams downlink PCM as 16 kHz signed 16-bit mono. Chunks from
 // concurrent calls may interleave, but each frame is written whole; serialise
 // at the call site if one utterance must stay contiguous.
+// Returns ErrStopped if a barge-in overtakes it mid-payload.
 func (l *Link) SendTTS(pcm []byte) error {
 	if len(pcm)%(BitsPerSample/8) != 0 {
 		return fmt.Errorf("send tts: %d bytes is not a whole number of samples", len(pcm))
 	}
+	l.mu.Lock()
+	gen := l.utterance
+	l.mu.Unlock()
+
 	for len(pcm) > 0 {
 		n := min(len(pcm), ttsChunkBytes)
-		if err := l.send(Frame{Type: TypeTTS, Payload: pcm[:n]}); err != nil {
+		if err := l.sendTTSChunk(gen, pcm[:n]); err != nil {
 			return err
 		}
 		pcm = pcm[n:]
@@ -157,8 +173,32 @@ func (l *Link) SendTTS(pcm []byte) error {
 	return nil
 }
 
-// Stop is barge-in: the device discards its speaker buffer immediately.
-func (l *Link) Stop() error { return l.send(Frame{Type: TypeStop}) }
+// sendTTSChunk re-checks the utterance under the write lock, so a chunk can
+// never be written after the Stop that cancelled it.
+func (l *Link) sendTTSChunk(gen uint64, payload []byte) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.utterance != gen {
+		return ErrStopped
+	}
+	if err := l.w.WriteFrame(Frame{Type: TypeTTS, Payload: payload}); err != nil {
+		return err
+	}
+	return l.bw.Flush()
+}
+
+// Stop is barge-in: the device discards its speaker buffer immediately. Audio
+// from an utterance already being written is abandoned rather than allowed to
+// trail the stop frame.
+func (l *Link) Stop() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.utterance++
+	if err := l.w.WriteFrame(Frame{Type: TypeStop}); err != nil {
+		return err
+	}
+	return l.bw.Flush()
+}
 
 // Finish ends an utterance naturally, draining what is already buffered.
 func (l *Link) Finish() error { return l.send(Frame{Type: TypeFinish}) }
