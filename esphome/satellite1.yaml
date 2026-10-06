@@ -219,8 +219,13 @@ speaker:
     output_speaker: i2s_audio_speaker
     num_channels: 2
     source_speakers:
+      # Half a second of slack. This source is fed from loop() over the
+      # network, so it has to ride out a loop() hiccup; underrunning it makes
+      # the i2s speaker emit silence that still counts as played frames, which
+      # pushes the reported position past the audio actually sent.
       - id: tts_source
         timeout: never
+        buffer_duration: 500ms
       - id: media_source
         timeout: never
         buffer_duration: 100ms
