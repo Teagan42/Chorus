@@ -83,6 +83,11 @@ var storeConformance = map[string]func(*testing.T, journal.Store){
 		if err != nil {
 			t.Fatalf("events: %v", err)
 		}
+		// Non-nil, not merely empty: the review UI and dataset export read this
+		// column as SQL, where a null payload and an empty object differ.
+		if events[0].Fields == nil {
+			t.Error("fields came back nil, want an empty map")
+		}
 		if n := len(events[0].Fields); n != 0 {
 			t.Errorf("fields = %v, want empty", events[0].Fields)
 		}
