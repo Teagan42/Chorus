@@ -1,0 +1,10 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/teaganglenn/chorus/internal/pb
+plugins:
+  - local: protoc-gen-go
+    out: internal/pb
+    opt: paths=source_relative
