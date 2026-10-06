@@ -1,7 +1,5 @@
 # Chorus — a concurrent voice assistant for ESPHome satellites
 
-Working name. Veto it.
-
 Chorus replaces Home Assistant's Assist pipeline for ESP32 voice satellites
 (FutureProofHomes Satellite1, HA Voice Preview Edition). It exists because
 Assist's lifecycle is rigid in three specific ways: the assistant cannot speak
