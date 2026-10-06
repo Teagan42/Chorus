@@ -1,0 +1,101 @@
+# Tiers that cannot run on a hosted runner (CONTRIBUTING.md §1): test:models
+# needs GPU sidecars, test:hardware needs a reachable satellite. Opt-in only,
+# so a normal PR is never blocked on a device being awake.
+#
+# Runner labels required:
+#   gpu      -> self-hosted, linux, x64, gpu       (CUDA + uv, model sidecars reachable)
+#   hardware -> self-hosted, linux, chorus-satellite (same L2 as the satellite)
+name: self-hosted
+
+on:
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: which tier to run
+        type: choice
+        options: [models, hardware, both]
+        default: both
+  pull_request:
+    types: [labeled, synchronize]
+  schedule:
+    # Nightly, 08:00 UTC. Catches sidecar and firmware drift.
+    - cron: "0 8 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  # The satellite and the GPU are single-tenant; never run two of these at once.
+  group: self-hosted-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  models:
+    name: task test:models (GPU)
+    # A fork PR must never reach our runner: it would execute untrusted code
+    # on a long-lived host with the device PSK in reach.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.tier != 'hardware') ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'ci:self-hosted'))
+    runs-on: [self-hosted, linux, x64, gpu]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Put GOPATH/bin on PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.54.0
+      - run: task test:models
+
+  hardware:
+    name: task test:hardware (real satellite)
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.tier != 'models') ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'ci:self-hosted'))
+    runs-on: [self-hosted, linux, chorus-satellite]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Put GOPATH/bin on PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.54.0
+
+      # devices.yaml holds the Noise PSK and is gitignored. It arrives from a
+      # secret or a runner-local file and is never printed or committed.
+      - name: Materialize devices.yaml
+        env:
+          DEVICES_YAML: ${{ secrets.CHORUS_DEVICES_YAML }}
+          RUNNER_DEVICES_FILE: ${{ vars.CHORUS_DEVICES_FILE }}
+        run: |
+          set -eu
+          umask 077
+          if [ -n "${DEVICES_YAML:-}" ]; then
+            printf '%s' "$DEVICES_YAML" > devices.yaml
+          elif [ -n "${RUNNER_DEVICES_FILE:-}" ] && [ -f "$RUNNER_DEVICES_FILE" ]; then
+            cp "$RUNNER_DEVICES_FILE" devices.yaml
+          else
+            echo "no device inventory: set secret CHORUS_DEVICES_YAML or var CHORUS_DEVICES_FILE" >&2
+            exit 1
+          fi
+
+      - run: task test:hardware
+
+      # The workspace outlives the job on a self-hosted runner.
+      - name: Shred devices.yaml
+        if: always()
+        run: shred -u devices.yaml 2>/dev/null || rm -f devices.yaml
