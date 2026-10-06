@@ -1,6 +1,6 @@
 # 0010. Ship audio over a raw socket from an external component, not the native API
 
-- **Status:** accepted
+- **Status:** accepted · two API facts corrected by [ADR-0020](0020-correct-device-api-facts.md)
 - **Source:** SPEC §3.1, §3.2
 
 Stock `voice_assistant` is half-duplex, which kills barge-in — and the limit is a
