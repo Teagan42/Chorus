@@ -3,6 +3,7 @@ package session_test
 import (
 	"context"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -200,6 +201,38 @@ func TestPreemptDropsWhatWasAboutToBeSaid(t *testing.T) {
 	cut := r.eventOf(t, s.ConversationID(), journal.KindSpeechTruncated)
 	if cut.Fields["unspoken_text"] != " the" {
 		t.Errorf("unspoken = %q, want \" the\"", cut.Fields["unspoken_text"])
+	}
+}
+
+// verifies SPEC §4.2
+func TestATrailingDeltaForAPreemptedCallIsNeverSpoken(t *testing.T) {
+	steps := []step{
+		{act: session.SpeechDelta{CallID: "s1", Text: "I'll check the"}},
+		{act: session.SpeechDelta{CallID: "s2", Text: "it is already off", Mode: session.ModePreempt, Last: true}},
+		// Generation for s1 had not stopped when the preempt landed.
+		{act: session.SpeechDelta{CallID: "s1", Text: " kettle", Last: true}},
+		{act: session.TurnEnd{FinishReason: "stop", Completion: "{}"}},
+	}
+	r := newRig(t, steps, nil)
+	r.speaker.hold = true
+	r.speaker.cut = len("I'll check")
+
+	s := r.open(t, "alice")
+	errc := heard(s, "is the kettle on")
+
+	r.speaker.wrote(t)
+	if got := r.speaker.wrote(t); got != "it is already off" {
+		t.Fatalf("second utterance = %q; the preempting line never played", got)
+	}
+	close(r.speaker.release)
+	wait(t, errc)
+
+	st := r.state(t, s.ConversationID())
+	if !reflect.DeepEqual(st.Spoken, []string{"I'll check", "it is already off"}) {
+		t.Errorf("spoken = %q; a preempted call spoke again", st.Spoken)
+	}
+	if !slices.Contains(st.Unspoken, " kettle") {
+		t.Errorf("unspoken = %q, want the trailing delta recorded as never heard", st.Unspoken)
 	}
 }
 

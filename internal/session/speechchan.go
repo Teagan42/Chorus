@@ -25,6 +25,11 @@ type speechChannel struct {
 	// cut latches the interruption until the next turn. Without it, a delta
 	// racing the barge-in starts playing speech nobody may hear.
 	cut bool
+
+	// dead holds calls already cut or dropped. A preempt does not latch the
+	// channel, so a trailing delta would otherwise write to a stream that is
+	// closing, or re-speak text already recorded as never heard.
+	dead map[string]bool
 }
 
 // utterance is one speak call. Text arrives as deltas, so playback starts
@@ -48,7 +53,7 @@ type utterance struct {
 }
 
 func newSpeechChannel(s *Session) *speechChannel {
-	c := &speechChannel{s: s}
+	c := &speechChannel{s: s, dead: map[string]bool{}}
 	c.idle = sync.NewCond(&c.mu)
 	return c
 }
@@ -60,7 +65,7 @@ func (c *speechChannel) deliver(d SpeechDelta) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.cut {
+	if c.cut || c.dead[d.CallID] {
 		return false
 	}
 	u := c.find(d.CallID)
@@ -104,6 +109,7 @@ func (c *speechChannel) resume() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cut = false
+	c.dead = map[string]bool{}
 }
 
 // interrupt stops the playing utterance and discards the queue. Both halves
@@ -122,12 +128,14 @@ func (c *speechChannel) cutLocked(reason string) {
 		return
 	}
 	c.current.reason = reason
+	c.dead[c.current.callID] = true
 	c.current.cancel()
 }
 
 // dropLocked discards queued utterances that were generated but never played.
 func (c *speechChannel) dropLocked(reason string) {
 	for _, u := range c.pending {
+		c.dead[u.callID] = true
 		if text := strings.Join(u.buf, ""); text != "" {
 			c.s.fail(c.s.record(journal.Record{
 				Kind: journal.KindSpeechDiscarded,
@@ -175,6 +183,9 @@ func (c *speechChannel) startNextLocked() {
 		c.idle.Broadcast()
 		return
 	}
+	// Register the child before the first write: the write is observable, so
+	// anything that sees it must already see the child.
+	c.s.enter("speaking")
 	u.stream, u.started = stream, true
 	for _, text := range u.buf {
 		c.s.fail(stream.Write(text))
@@ -184,7 +195,6 @@ func (c *speechChannel) startNextLocked() {
 		close(u.last)
 	}
 	c.current = u
-	c.s.enter("speaking")
 	go c.play(u)
 }
 
@@ -194,7 +204,17 @@ func (c *speechChannel) play(u *utterance) {
 	case <-u.last:
 	case <-u.ctx.Done():
 	}
-	c.record(u, u.stream.Close())
+	pb := u.stream.Close()
+
+	// Read the reason under the mutex: ending naturally races a cut being
+	// applied, which writes it.
+	c.mu.Lock()
+	reason := u.reason
+	c.mu.Unlock()
+
+	// Recorded before the next utterance may start, so the log order is the
+	// order the queue was heard in.
+	c.record(u.callID, reason, pb)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -207,9 +227,8 @@ func (c *speechChannel) play(u *utterance) {
 
 // record writes what the DAC actually played. The spoken half is kept and
 // marked interrupted; the unspoken half is a different event (SPEC §4.4).
-func (c *speechChannel) record(u *utterance, pb Playback) {
-	callID, frames := u.callID, strconv.FormatInt(pb.Frames, 10)
-	reason := u.reason
+func (c *speechChannel) record(callID, reason string, pb Playback) {
+	frames := strconv.FormatInt(pb.Frames, 10)
 	if reason == "" {
 		reason = "barge_in"
 	}
