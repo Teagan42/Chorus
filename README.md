@@ -1,0 +1,192 @@
+# Chorus
+
+**Your voice assistant shouldn't go deaf while it talks.**
+
+Barge in. Bring someone else into the conversation. Walk into another room.
+Chorus keeps up.
+
+It replaces Home Assistant's Assist pipeline for ESP32 voice satellites
+(FutureProofHomes Satellite1, HA Voice Preview Edition). Assist has three hard
+limits: it can't speak and act at the same time, interruption loses the
+conversation, and its trace data is too thin to learn from.
+
+- **Full duplex.** The mic never stops, even during playback. Interrupt
+  mid-sentence and the turn is truncated at the byte the speaker actually
+  played — not at the byte the model sent.
+- **Knows who said what.** A speaker embedding per utterance, so when someone
+  else chimes in, Chorus re-attributes the turn *inside* the same conversation.
+- **Follows the person, not the device.** The conversation belongs to whoever is
+  talking; the audio stream belongs to the satellite. Wake on another satellite
+  and pick the same thread back up.
+- **Everything is replayable.** The orchestrator is a pure reducer over an
+  append-only event log. Tracing isn't instrumentation; it *is* the runtime.
+  Every barge-in produces a preference pair, and `replay()` is a tested
+  function.
+
+Built for one household, 2–10 satellites, and local models. Chorus isn't a Home
+Assistant integration; Home Assistant is one tool backend among several.
+
+## Status
+
+**Phase 1, in progress.** The device bridge, session engine, and event journal
+are under construction; there is no orchestrator daemon to run yet. What exists
+today:
+
+| Piece | State |
+|---|---|
+| `internal/esphome` — native API client, Noise transport | dials real hardware |
+| in-process fake satellite (the primary test asset) | not yet extracted from `pipe_test.go` |
+| `internal/session` — actor/supervisor, speech channel, barge-in gate | under test |
+| `internal/journal` — append-only log on Postgres | under test |
+| `esphome/components/chorus_bridge` — firmware component | config schema + wire protocol |
+| `cmd/probe` — connect to a satellite and dump what it exposes | works |
+| STT / LLM / TTS / speaker-ID sidecars | not started |
+
+`task spec` reports which spec clauses have tests behind them.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    SAT["<b>satellite — ESP32</b><br/>micro_wake_word<br/>XMOS XU316: AEC / NS / AGC<br/>chorus_bridge"]
+
+    subgraph ORCH["orchestrator — Go"]
+        direction TB
+        GW["device gateway"] --> SUP["session supervisor"]
+        SUP --> REG["tool registry"]
+        SUP --> JRN["event journal<br/><b>source of truth</b>"]
+    end
+
+    SIDE["<b>model sidecars — Python, gRPC</b><br/>STT · Parakeet<br/>LLM · Qwen3 / vLLM<br/>TTS · Kokoro<br/>speaker-ID · ECAPA"]
+    STORE["<b>storage</b><br/>Postgres · JSONB log<br/>MinIO · audio blobs"]
+    UI["<b>review UI</b> — Go + htmx<br/>dataset export"]
+
+    SAT -- "audio: raw TCP, device dials out" --> GW
+    GW -. "native API 6053 / Noise: control only" .-> SAT
+    SUP <--> SIDE
+    JRN --> STORE --> UI
+```
+
+Polyglot by seam: Go where it's a concurrent socket server, Python where the
+ecosystem is Python. No shoehorning either direction.
+
+The device is the TCP server and the controller is the client, so Chorus dials
+out — `aioesphomeapi` is the reference implementation. Audio cannot ride the
+native API without forking `api.proto`, which is why `chorus_bridge` opens its
+own socket. Stock `voice_assistant` is removed from the device YAML entirely.
+
+## Install
+
+Needs Go 1.27+, [`uv`](https://docs.astral.sh/uv/) for the Python sidecars, and
+Docker for the journal database. Everything else — `buf`, `cue`, `gofumpt`,
+`golangci-lint` — is pinned and installed by `task tools`.
+
+```sh
+go install github.com/go-task/task/v3/cmd/task@v3.54.0
+
+git clone git@github.com:Teagan42/Chorus.git
+cd Chorus
+task tools      # pinned toolchain into GOPATH/bin, plus the git hooks
+task check      # lint + codegen drift + tests + doc examples + spec trace
+```
+
+`task check` is the gate. It runs in seconds and is identical in CI. If it
+passes, you have a working clone.
+
+## Running
+
+### Against the fake satellite
+
+The hermetic test suite needs no hardware, no GPU, and no network — the fake
+device speaks the real protocol in-process, real Noise handshake and real
+framing:
+
+```sh
+task test
+```
+
+Concurrency and interrupt timing are where this project's bugs live, and they
+cannot be tested repeatably against hardware. That makes the fake the primary
+test asset rather than a convenience.
+
+### Against a real satellite
+
+Flash the firmware, then point the probe at it.
+
+```sh
+cd esphome
+cp secrets.example.yaml secrets.yaml      # wifi + api encryption key
+cp satellite1.example.yaml satellite1.yaml
+cd ..
+
+task firmware:config                      # validate before flashing
+```
+
+**Do not flash `satellite1.example.yaml` as-is.** Its I²S pins are generic
+ESP32-S3 placeholders, there so the file validates standalone — they are not
+either satellite's wiring. Give `satellite1.yaml` the real board configuration
+first (for Satellite1, the FutureProofHomes package), or you will overwrite a
+working device with firmware that cannot drive its own audio hardware.
+
+With real wiring in place:
+
+```sh
+task firmware:compile                     # downloads ESP-IDF on first run
+task firmware:upload                      # over the air
+```
+
+Then describe the device to the host side:
+
+```sh
+cp devices.example.yaml devices.yaml       # gitignored; psk is the base64 api key
+task probe -- -listen 10s
+```
+
+`probe` completes the Noise handshake, prints the device info and entity list,
+and then streams incoming messages for as long as you asked. It is the phase-1
+spike: proof the connection can be owned without Home Assistant.
+
+### The journal database
+
+```sh
+task db:up        # Postgres, waits until healthy
+task test:db      # the db-tagged tier
+task db:down      # stop, keep the volume
+```
+
+## Tests
+
+Four tiers, separated because three of them cannot run everywhere. `task check`
+is the gate; the others are what the gate can't demand of every machine.
+
+| Task | Needs | Runs |
+|---|---|---|
+| `task test` | nothing | hermetic suite, included in `task check` |
+| `task test:db` | Postgres (`task db:up`) | separate CI job, every push |
+| `task test:models` | GPU sidecars | self-hosted runner |
+| `task test:hardware` | a real satellite | self-hosted runner, manual |
+
+Hermetic means hermetic: no network, no wall clock, no GPU, no device. A test
+that reaches the network is a bug in the test.
+
+## Documentation
+
+| Where | What |
+|---|---|
+| [`docs/SPEC.md`](docs/SPEC.md) | Normative. Tests cite the clause they verify. |
+| [`docs/adr/`](docs/adr/) | 21 decision records, and why each one went that way. |
+| [`docs/reference/`](docs/reference/) | Generated from the CUE schemas — events, tools. |
+| [`esphome/README.md`](esphome/README.md) | The `chorus_bridge` wire protocol. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Five rules. Read before the first PR. |
+
+Docs are build artifacts or they are executed: `task test:docs` extracts and
+runs the code examples, and `task spec:check` fails on spec clauses that claim
+coverage they don't have.
+
+## Contributing
+
+Tests first — a bug gets a failing fixture before a fix. Schemas are the source
+of truth, so generated types and docs are never hand-edited. Commits are atomic:
+generated, dependency, formatting, and behavior changes never share one.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the detail, and `task check` enforces
+what it can.
