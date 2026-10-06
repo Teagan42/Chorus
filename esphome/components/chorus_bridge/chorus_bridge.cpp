@@ -237,7 +237,10 @@ void ChorusBridge::pump_uplink_() {
       continue;
     }
     // Delivered chunk size is the mic task's choice; send chunks are sized here.
-    while (ch.reader->fill(0) > 0 || ch.reader->available() > 0) {
+    // fill(0, false): never block in loop(), and pre_shift is ignored by
+    // RingBufferAudioSource, which exposes the ring buffer's storage in place.
+    // It returns 0 while an exposure is unconsumed, hence the available() arm.
+    while (ch.reader->fill(0, false) > 0 || ch.reader->available() > 0) {
       size_t available = ch.reader->available();
       if (available == 0) {
         break;
