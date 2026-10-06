@@ -34,10 +34,20 @@ var (
 // default reconnect_interval is 5s, so this allows several attempts.
 const dialIn = 45 * time.Second
 
-// micGapTolerance is the largest silence allowed in the uplink while the
-// speaker is playing. Chunks are 32 ms, so a healthy link stays far below
-// this; half duplex shows up as a gap the length of the whole utterance.
-const micGapTolerance = 400 * time.Millisecond
+// micGapExcess is how much longer an uplink gap may be during playback than
+// the same link's own gap while idle.
+//
+// Measured as an excess over a baseline, not against a fixed budget, because
+// the uplink's idle jitter is set by the radio, not by this component: on a
+// contended 2.4 GHz band the device goes over a second between frames with the
+// speaker switched off entirely. A fixed budget charges that weather to
+// playback and fails a link that is genuinely duplex. The baseline is taken on
+// this same connection seconds earlier, so it is the closest available control.
+const micGapExcess = 400 * time.Millisecond
+
+// micBaselineWindow is how long the idle uplink is watched before playback, to
+// learn what this link's jitter looks like with nothing else happening.
+const micBaselineWindow = 4 * time.Second
 
 // requireDevice skips unless the satellite answers its native API. A device
 // that is simply absent is not a test failure (CONTRIBUTING §1).
@@ -324,6 +334,20 @@ func TestHardwareFullDuplex(t *testing.T) {
 	}
 	r.mu.Unlock()
 
+	// The control: what this link's uplink does with the speaker idle.
+	idleFrom := time.Now()
+	time.Sleep(micBaselineWindow)
+	idleTo := time.Now()
+	r.mu.Lock()
+	idleStamps := append([]time.Time(nil), r.mic...)
+	r.mu.Unlock()
+	baseline, _, idleCount := longestGap(idleStamps, idleFrom, idleTo)
+	t.Logf("idle window %v: %d mic frames, longest uplink gap %v",
+		idleTo.Sub(idleFrom), idleCount, baseline)
+	if idleCount == 0 {
+		t.Fatal("no uplink audio while idle: the mic is not capturing at all")
+	}
+
 	// Six seconds, so the device's 16 KB speaker buffer and the kernel socket
 	// buffer cannot swallow the whole utterance and hide a capture stall.
 	const utterance = 6 * time.Second
@@ -366,12 +390,20 @@ func TestHardwareFullDuplex(t *testing.T) {
 	if during == 0 {
 		t.Fatal("no uplink audio at all during playback: the link is half duplex")
 	}
-	if gap > micGapTolerance {
-		t.Errorf("longest uplink gap during playback = %v, want < %v: "+
-			"the microphone stalled while the speaker was playing, which is the "+
-			"half-duplex behaviour chorus_bridge exists to escape",
-			gap, micGapTolerance)
+	if gap > baseline+micGapExcess {
+		t.Errorf("longest uplink gap during playback = %v, want < %v "+
+			"(idle baseline %v + %v): the microphone stalled while the speaker was "+
+			"playing, which is the half-duplex behaviour chorus_bridge exists to escape",
+			gap, baseline+micGapExcess, baseline, micGapExcess)
 		t.Logf("gap began %v into the playback window", at)
+	}
+	// A hard ceiling regardless of the baseline, so a radio bad enough to hide a
+	// real stall cannot buy a pass. Half duplex gaps the whole utterance; a third
+	// of it is already far more silence than duplex capture can explain.
+	if gap > utterance/3 {
+		t.Errorf("longest uplink gap during playback = %v for a %v utterance: "+
+			"too much of the utterance passed with no capture to call this duplex",
+			gap, utterance)
 	}
 }
 

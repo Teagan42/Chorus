@@ -173,7 +173,7 @@ channels}`, and the three claims below are asserted on every run of
 
 | Claim | Measured |
 |---|---|
-| Capture continues during playback (§3.3.1) | 590-636 mic frames across a 6 s utterance; longest uplink gap 75-276 ms against a 400 ms tolerance |
+| Capture continues during playback (§3.3.1) | 448-628 mic frames across a 6 s utterance; longest uplink gap 137-393 ms against an idle baseline of 94-296 ms on the same link |
 | Playback position is the DAC's own (§3.2.1) | Final position within 40 ms of a 3 s utterance; frame advance tracks `esp_timer` to under 1 ms when playback does not stall |
 | Barge-in discards the buffer (§3.2) | Playback stops 20-60 ms in, and capture survives it |
 
@@ -189,6 +189,14 @@ Hardware notes that cost real time to find:
 - The i2s speaker holds its stream open across an underrun and emits silence
   that the DAC genuinely plays and therefore counts. The reported position can
   exceed the audio supplied; it cannot fall short of what was emitted.
+- The uplink's **idle** jitter is set by the radio, not by this component: with
+  the speaker switched off the device goes 170-468 ms between frames routinely,
+  and over a second occasionally. A duplex claim measured against a fixed gap
+  budget therefore tests the 2.4 GHz band, not the component. The test takes a
+  baseline on the same connection and asserts the excess over it.
+- **Open:** roughly one run in five still shows a ~2 s uplink stall during
+  playback, outside the idle population above. The hard ceiling in the test
+  catches it. Unexplained, and not yet attributed to the firmware.
 - ESP-IDF builds with exceptions off, so an allocation failure is an `abort()`,
   not an error path. Every buffer in the audio path is fixed-capacity and
   reserved once.
