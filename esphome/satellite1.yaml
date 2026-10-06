@@ -23,7 +23,6 @@ substitutions:
   # The orchestrator's address. A literal IP: ESPHome's set_sockaddr does not
   # resolve hostnames, so this needs a static lease (SPEC §13).
   orchestrator_host: "10.0.12.73"
-  xmos_fw_version: "v1.1.0-alpha.0"
 
 esphome:
   name: ${name}
