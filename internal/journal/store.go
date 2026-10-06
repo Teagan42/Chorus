@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"time"
 )
 
 // Store persists the log. SPEC §8 names Postgres JSONB partitioned by
@@ -38,8 +39,18 @@ func (m *MemStore) Append(_ context.Context, e Event) error {
 	if want := uint64(len(log)) + 1; e.Seq != want {
 		return fmt.Errorf("seq %d for %s: want %d", e.Seq, e.ConversationID, want)
 	}
-	m.byConv[e.ConversationID] = append(log, detach(e))
+	m.byConv[e.ConversationID] = append(log, detach(truncateClock(e)))
 	return nil
+}
+
+// StoredClockResolution is what a Store preserves of Event.At. Postgres
+// timestamptz is microsecond, so every backend truncates alike or replay
+// depends on which one holds the log (SPEC §8).
+const StoredClockResolution = time.Microsecond
+
+func truncateClock(e Event) Event {
+	e.At = e.At.Truncate(StoredClockResolution)
+	return e
 }
 
 // Events returns a copy, so a reader cannot mutate the log.

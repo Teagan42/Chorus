@@ -88,6 +88,26 @@ var storeConformance = map[string]func(*testing.T, journal.Store){
 		}
 	},
 
+	// Postgres timestamptz is microsecond-resolution, so the seam is too. Both
+	// stores must truncate identically or replay depends on the backend.
+	"wall clock is stored to microsecond truth": func(t *testing.T, s journal.Store) {
+		ctx := context.Background()
+		e := event("conv-1", 1)
+		e.At = time.Date(2026, 10, 6, 12, 34, 56, 123456789, time.UTC)
+		if err := s.Append(ctx, e); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+
+		events, err := s.Events(ctx, "conv-1")
+		if err != nil {
+			t.Fatalf("events: %v", err)
+		}
+		want := time.Date(2026, 10, 6, 12, 34, 56, 123456000, time.UTC)
+		if !events[0].At.Equal(want) {
+			t.Errorf("at = %v, want %v truncated to microseconds", events[0].At.UTC(), want)
+		}
+	},
+
 	"sequence must be exactly one past the last": func(t *testing.T, s journal.Store) {
 		ctx := context.Background()
 		cases := []uint64{0, 2, 7}
