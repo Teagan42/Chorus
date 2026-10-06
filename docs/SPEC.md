@@ -134,7 +134,8 @@ peers, with no degraded tier. Neither does wake word on the XMOS. Beamforming
 is claimed by neither vendor.
 
 Playback position is available and DAC-accurate (§3.2.1), so the barge-in
-truncation point is effectively exact. No open device-layer questions remain.
+truncation point is effectively exact. No open device-layer questions remain;
+§3.3.2 records what the hardware actually measured.
 
 ### 3.3.1 Verified against hardware
 
@@ -161,6 +162,36 @@ Entities that matter, all usable from the orchestrator over the native API:
 | `binary_sensor` **Room Presence** + mmWave radar suite | Unplanned bonus: presence-gated sessions, occupancy-aware routing |
 | `switch` **Mute Microphones** (HW) | Hardware mute is a user-facing privacy control; respect it |
 | `button` **XMOS Flash Embedded FW** | XMOS firmware is flashable from the API |
+
+### 3.3.2 Full duplex, measured on the device
+
+The Phase 1 blocker (§14) is closed. `internal/bridge/hardware_test.go` runs
+against the living-room Satellite1 with no Home Assistant involved: the device
+dials the orchestrator's audio port, declares `{version 1, 16 kHz, 16-bit, 2 mic
+channels}`, and the three claims below are asserted on every run of
+`task test:hardware`.
+
+| Claim | Measured |
+|---|---|
+| Capture continues during playback (§3.3.1) | 590-636 mic frames across a 6 s utterance; longest uplink gap 75-276 ms against a 400 ms tolerance |
+| Playback position is the DAC's own (§3.2.1) | Final position within 40 ms of a 3 s utterance; frame advance tracks `esp_timer` to under 1 ms when playback does not stall |
+| Barge-in discards the buffer (§3.2) | Playback stops 20-60 ms in, and capture survives it |
+
+Hardware notes that cost real time to find:
+
+- The XU316 is the **I2S master**, so there is no audio at all -- in either
+  direction -- until it answers over SPI. A 20 V USB-PD contract is what selects
+  the amplifier's full power mode. Both complete before a log client can attach,
+  so the config reports them on an interval instead.
+- Uplink and downlink **share one radio**. Writing TTS faster than real time
+  starves the uplink badly enough to look exactly like a half-duplex failure.
+  Pace the downlink.
+- The i2s speaker holds its stream open across an underrun and emits silence
+  that the DAC genuinely plays and therefore counts. The reported position can
+  exceed the audio supplied; it cannot fall short of what was emitted.
+- ESP-IDF builds with exceptions off, so an allocation failure is an `abort()`,
+  not an error path. Every buffer in the audio path is fixed-capacity and
+  reserved once.
 
 ## 4. Session model: actor/supervisor
 
@@ -459,11 +490,11 @@ Do not build the S2S path until the cascade works end to end.
 
 ### Phase 1
 
-1. **Device bridge spike — throw-away-able.** Go orchestrator dials a satellite
+1. ~~**Device bridge spike — throw-away-able.** Go orchestrator dials a satellite
    over the native API (Noise handshake); `chorus_bridge` streams mic audio out
    over TCP and plays audio back. **Prove full-duplex on real hardware.** This
    is the riskiest unknown and every downstream decision depends on it, so it is
-   validated before anything is built on it.
+   validated before anything is built on it.~~ **Done — §3.3.2.**
 2. **Event journal + replay.** Postgres, `replay()`, before any intelligence
    exists.
 3. **Cascade.** Parakeet → Qwen3/vLLM with streaming tool-call dispatch →
