@@ -374,33 +374,48 @@ func (s *Session) runTool(parent context.Context, wg *sync.WaitGroup, tc ToolCal
 	type outcome struct {
 		out string
 		err error
+		// Whether the barge-in had already happened when the tool returned.
+		// Stamped here because the receiver cannot tell a result that landed
+		// before the interruption from one that landed after (SPEC §4.4).
+		late bool
 	}
 	results := make(chan outcome, 1)
 	go func() {
 		out, err := tool.Invoke(ctx, tc.Args)
-		results <- outcome{out, err}
+		late := false
+		select {
+		case <-parent.Done():
+			late = true
+		default:
+		}
+		results <- outcome{out, err, late}
 	}()
 
 	timeout := s.sup.cfg.Timers.After(spec.Timeout)
 	interrupted := parent.Done()
-	detached := false
+
+	record := func(r outcome, detached bool) {
+		switch {
+		case errors.Is(r.err, context.Canceled):
+			s.result(tc.ID, "cancelled", "")
+		case r.err != nil:
+			// Recoverable failures are results the model reasons about
+			// rather than canned speech (SPEC §7).
+			s.result(tc.ID, "error", fmt.Sprintf(`{"error":%q}`, r.err.Error()))
+		case detached:
+			// Kept, but nobody was waiting for it any more.
+			s.result(tc.ID, "detached", r.out)
+		default:
+			s.result(tc.ID, "ok", r.out)
+		}
+	}
 
 	for {
 		select {
 		case r := <-results:
-			switch {
-			case errors.Is(r.err, context.Canceled):
-				s.result(tc.ID, "cancelled", "")
-			case r.err != nil:
-				// Recoverable failures are results the model reasons about
-				// rather than canned speech (SPEC §7).
-				s.result(tc.ID, "error", fmt.Sprintf(`{"error":%q}`, r.err.Error()))
-			case detached:
-				// Kept, but nobody was waiting for it any more.
-				s.result(tc.ID, "detached", r.out)
-			default:
-				s.result(tc.ID, "ok", r.out)
-			}
+			// Detached means the work outlived the barge-in. A result stamped
+			// on time is the model's to see, whichever branch select woke on.
+			record(r, r.late && spec.OnInterrupt == registry.InterruptDetach)
 			return
 		case <-timeout:
 			s.result(tc.ID, "timed_out", `{"error":"timed_out"}`)
@@ -408,8 +423,9 @@ func (s *Session) runTool(parent context.Context, wg *sync.WaitGroup, tc ToolCal
 		case <-interrupted:
 			// nil the channel: a closed Done would spin this loop.
 			interrupted = nil
+			// Stop the turn waiting on work that now outlives it; the outcome
+			// itself is decided by the stamp, not here.
 			if spec.OnInterrupt == registry.InterruptDetach {
-				detached = true
 				release()
 			}
 		}
