@@ -9,7 +9,7 @@ vars:
   PKG: github.com/teaganglenn/chorus
   # Pinned for the same reason as the Go tools: a component API change must
   # not turn a green build red with no code change. Bump on purpose.
-  ESPHOME_VERSION: 2026.9.1
+  ESPHOME_VERSION: 2026.7.2
 
 env:
   PATH: "{{.GOBIN}}/bin:{{.PATH}}"

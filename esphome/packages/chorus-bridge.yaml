@@ -23,9 +23,13 @@ defaults:
 external_components:
   # Local, not a git ref: the component and the orchestrator share a wire
   # protocol, so they must be versioned together (docs/adr/0010).
+  #
+  # Relative to the including config's directory, not to this file. That is
+  # ESPHome 2026.7 behaviour and it changed in 2026.9, so consumers of this
+  # package must live in esphome/.
   - source:
       type: local
-      path: ../components
+      path: components
     components: [chorus_bridge]
 
 chorus_bridge:
