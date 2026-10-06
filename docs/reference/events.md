@@ -6,7 +6,9 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 
 | Event | Actor | Audio | Training signal | Description |
 |---|---|---|---|---|
+| `barge_in_detected` | listening | yes |  | Interruption passed the detection gate. Timing is milliseconds into TTS playback, not wall clock, so replay reproduces the cut. |
 | `barge_in_rejected` | listening | yes |  | Candidate interruption failed the detection gate. Tuning corpus for SPEC §4.3. |
+| `model_completed` | thinking |  |  | Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8). |
 | `session_closed` | session |  |  | Conversation ended. |
 | `session_opened` | session |  |  | Wake word confirmed; a conversation begins. |
 | `speech_spoken` | speaking | yes |  | Audio the user actually heard, bounded by DAC-reported playback position. |

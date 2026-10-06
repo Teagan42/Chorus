@@ -10,8 +10,12 @@ type Kind string
 type Actor string
 
 const (
+	// Interruption passed the detection gate. Timing is milliseconds into TTS playback, not wall clock, so replay reproduces the cut.
+	KindBargeInDetected Kind = "barge_in_detected"
 	// Candidate interruption failed the detection gate. Tuning corpus for SPEC §4.3.
 	KindBargeInRejected Kind = "barge_in_rejected"
+	// Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8).
+	KindModelCompleted Kind = "model_completed"
 	// Conversation ended.
 	KindSessionClosed Kind = "session_closed"
 	// Wake word confirmed; a conversation begins.
@@ -42,7 +46,9 @@ type EventMeta struct {
 
 // Meta describes every known event kind.
 var Meta = map[Kind]EventMeta{
+	KindBargeInDetected:      {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"tts_position_ms"}},
 	KindBargeInRejected:      {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"stage"}},
+	KindModelCompleted:       {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: true, RequiredFields: []string{"completion_json", "finish_reason"}},
 	KindSessionClosed:        {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"reason"}},
 	KindSessionOpened:        {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"satellite"}},
 	KindSpeechSpoken:         {Actor: "speaking", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"text", "frames_played"}},
@@ -55,7 +61,9 @@ var Meta = map[Kind]EventMeta{
 
 // AllKinds lets replay assert exhaustive handling.
 var AllKinds = []Kind{
+	KindBargeInDetected,
 	KindBargeInRejected,
+	KindModelCompleted,
 	KindSessionClosed,
 	KindSessionOpened,
 	KindSpeechSpoken,
