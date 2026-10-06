@@ -7,6 +7,9 @@ vars:
   GOBIN:
     sh: go env GOPATH
   PKG: github.com/teaganglenn/chorus
+  # Pinned for the same reason as the Go tools: a component API change must
+  # not turn a green build red with no code change. Bump on purpose.
+  ESPHOME_VERSION: 2026.9.1
 
 env:
   PATH: "{{.GOBIN}}/bin:{{.PATH}}"
@@ -133,6 +136,34 @@ tasks:
       - task: test
       - task: test:docs
       - task: spec:check
+
+  # ------------------------------------------------------------------ firmware
+  # esphome is a Python tool and is not pinned in GOPATH/bin like the rest.
+  # uvx resolves it per invocation so no venv has to be checked in.
+  firmware:config:
+    desc: Validate the satellite YAML and the chorus_bridge config schema
+    dir: esphome
+    cmds:
+      - test -f secrets.yaml || { echo "copy secrets.example.yaml to secrets.yaml first" >&2; exit 1; }
+      - uvx --from 'esphome=={{.ESPHOME_VERSION}}' esphome config {{.CLI_ARGS | default "satellite1.yaml"}}
+
+  firmware:compile:
+    desc: Compile the satellite firmware. Downloads ESP-IDF on first run.
+    dir: esphome
+    cmds:
+      - uvx --from 'esphome=={{.ESPHOME_VERSION}}' esphome compile {{.CLI_ARGS | default "satellite1.yaml"}}
+
+  firmware:upload:
+    desc: Flash a satellite over the air
+    dir: esphome
+    cmds:
+      - uvx --from 'esphome=={{.ESPHOME_VERSION}}' esphome upload {{.CLI_ARGS | default "satellite1.yaml"}}
+
+  firmware:logs:
+    desc: Stream device logs while proving full duplex
+    dir: esphome
+    cmds:
+      - uvx --from 'esphome=={{.ESPHOME_VERSION}}' esphome logs {{.CLI_ARGS | default "satellite1.yaml"}}
 
   # ----------------------------------------------------------------- dev loops
   probe:
