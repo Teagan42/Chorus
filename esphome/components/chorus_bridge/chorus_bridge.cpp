@@ -12,9 +12,11 @@ namespace esphome::chorus_bridge {
 
 static const char *const TAG = "chorus_bridge";
 
-// Bounded so a stalled orchestrator cannot exhaust the heap. Uplink audio is
-// droppable; the host sees a gap. Control frames are not, hence the headroom.
-static const size_t TX_CAPACITY = 8 * (SEND_BUFFER_SIZE + HEADER_SIZE);
+// Sized to the mic ring buffers it drains, one per channel. Uplink audio is
+// droppable in principle, but a queue that holds less than the ring does turns
+// every brief loop() delay into a hole in the capture the ring was sized to
+// absorb -- and a 400 ms hole is indistinguishable from going half duplex.
+static const size_t TX_CAPACITY = 2 * RING_BUFFER_SIZE;
 
 static void put_be16(std::vector<uint8_t> &out, uint16_t v) {
   out.push_back(v >> 8);
