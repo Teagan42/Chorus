@@ -2,6 +2,10 @@
 devices.yaml
 *.local.yaml
 .env
+# ESPHome resolves !secret from here; it holds the same PSK as devices.yaml.
+esphome/secrets.yaml
+# Flashable firmware embeds the PSK.
+esphome/*.bin
 
 # Build output
 /bin/
@@ -15,3 +19,5 @@ devices.yaml
 # Tool caches
 .buf-cache/
 .task/
+__pycache__/
+.esphome/
