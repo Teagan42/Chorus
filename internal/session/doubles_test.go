@@ -351,6 +351,22 @@ func (r *rig) eventOf(t *testing.T, convID string, k journal.Kind) journal.Event
 	return found[0]
 }
 
+// awaitKind waits for an event the implementation is already committed to
+// writing. Proves a later action was generated before a test cancels the turn:
+// a cancelled model stream stops emitting, so cancelling too early makes the
+// action never exist rather than be discarded.
+func (r *rig) awaitKind(t *testing.T, convID string, k journal.Kind) {
+	t.Helper()
+	deadline := time.Now().Add(patience)
+	for time.Now().Before(deadline) {
+		if countKind(r.kinds(t, convID), k) > 0 {
+			return
+		}
+		runtime.Gosched()
+	}
+	t.Fatalf("no %s event was recorded", k)
+}
+
 // awaitCall waits for a detached child to land its result. The wait converges
 // on a write that is already in flight; it is not a timing assumption.
 func (r *rig) awaitCall(t *testing.T, convID, id string) journal.Call {

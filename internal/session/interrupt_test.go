@@ -233,6 +233,10 @@ func TestQueuedSpeechIsDiscardedAsADistinctEvent(t *testing.T) {
 	s := r.open(t, "alice")
 	errc := heard(s, "find zeppelin")
 	r.speaker.wrote(t)
+	// The engine's sends are unbuffered, so a recorded model_completed proves
+	// s2 was queued. s1 is held, so the turn is parked with s2 still waiting -
+	// exactly the state a barge-in has to discard.
+	r.awaitKind(t, s.ConversationID(), journal.KindModelCompleted)
 	if _, err := s.BargeIn(t.Context(), interruption(420)); err != nil {
 		t.Fatalf("barge-in: %v", err)
 	}
