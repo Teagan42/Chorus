@@ -93,6 +93,9 @@ api:
 logger:
   deassert_rts_dtr: true
   hardware_uart: USB_SERIAL_JTAG
+  # INFO: DEBUG logging in the audio path is itself enough to starve the
+  # speaker and stall the shared I2S bus. The interval below reports the two
+  # states that actually matter at INFO.
   level: INFO
 
 # ---------------------------------------------------------------- board buses
@@ -140,6 +143,7 @@ fusb302b:
   request_voltage: 20
   on_power_ready:
     - logger.log:
+        level: INFO
         format: "PD contract: %s"
         args: ['id(pd_fusb302b).contract.c_str()']
     - lambda: id(pd_power_contract) = id(pd_fusb302b).contract_voltage;
@@ -157,10 +161,13 @@ satellite1:
   # answers over SPI. Logged rather than guarded: this release has no
   # access_guard, so a silent device means looking here first.
   on_xmos_no_response:
-    - logger.log: "XMOS not responding: there will be no audio"
+    - logger.log:
+        level: WARN
+        format: "XMOS not responding: there will be no audio"
 
   on_xmos_connected:
     - logger.log:
+        level: INFO
         format: "XMOS connected: %s"
         args: ['id(satellite1_id).status_string().c_str()']
     - script.execute: activate_internal_speaker
@@ -196,6 +203,21 @@ script:
                 mode: !lambda 'return id(pd_power_contract) >= 9 ? 2 : 0;'
             - lambda: id(tas2780_active) = true;
       - audio_dac.mute_off: speaker_dac
+
+# The XMOS handshake and the PD negotiation both complete in the first seconds
+# of boot, before a log client can attach. Reported periodically so the state
+# is observable at any time: a silent board is almost always one of these two.
+interval:
+  - interval: 10s
+    then:
+      - logger.log:
+          level: INFO
+          format: "XMOS: %s | PD: %s (%dV) | amp active: %s"
+          args:
+            - 'id(satellite1_id).status_string().c_str()'
+            - 'id(pd_fusb302b).contract.c_str()'
+            - 'id(pd_power_contract)'
+            - 'id(tas2780_active) ? "yes" : "no"'
 
 # ------------------------------------------------------------------- downlink
 
