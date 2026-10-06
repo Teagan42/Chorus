@@ -781,3 +781,48 @@ func TestListenerAcceptHonoursContext(t *testing.T) {
 		t.Fatal("Accept ignored context cancellation")
 	}
 }
+
+// A cancelled Accept must not consume the connection the next one is waiting
+// for. Abandoning an in-flight net.Listener.Accept leaves it queued, so the
+// next device to dial is handed to a caller that has already given up.
+func TestListenerAcceptCancellationDoesNotStealTheNextDevice(t *testing.T) {
+	ln, err := bridge.Listen("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	// First caller gives up before anything dials in.
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := ln.Accept(gone); !errors.Is(err, context.Canceled) {
+		t.Fatalf("first Accept err = %v, want context.Canceled", err)
+	}
+
+	dialed := make(chan error, 1)
+	go func() {
+		conn, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			dialed <- err
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		dialed <- bridge.NewWriter(conn).WriteFrame(deviceHello(2))
+		<-time.After(50 * time.Millisecond)
+	}()
+
+	ctx, cancel2 := context.WithTimeout(context.Background(), patience)
+	defer cancel2()
+	l, err := ln.Accept(ctx)
+	if err != nil {
+		t.Fatalf("second Accept lost the device to the cancelled one: %v", err)
+	}
+	defer func() { _ = l.Close() }()
+
+	if err := <-dialed; err != nil {
+		t.Fatalf("device side: %v", err)
+	}
+	if got := l.Hello().MicChannels; got != 2 {
+		t.Errorf("MicChannels = %d, want 2", got)
+	}
+}
