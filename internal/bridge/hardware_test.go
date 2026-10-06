@@ -415,8 +415,20 @@ func TestHardwarePlaybackPositionIsDACAccurate(t *testing.T) {
 	}
 
 	final := played[len(played)-1].Position(bridge.SampleRate) - base
-	if d := final - utterance; d < -50*time.Millisecond || d > 50*time.Millisecond {
-		t.Errorf("final played position = %v for a %v utterance (error %v)", final, utterance, d)
+	// Asymmetric, and the asymmetry is the point. Undershoot is the failure that
+	// matters: a position short of the audio the DAC emitted puts the truncation
+	// point before what the user heard, and the DPO corpus would record words as
+	// unheard that were not (ADR-0005). Overshoot means the stream stayed open
+	// across an underrun and the i2s speaker emitted silence -- which the DAC
+	// really did play, so reporting it is correct. The skew check below is what
+	// separates that from a byte-counting proxy; it is bounded here only so an
+	// unbounded runaway still fails.
+	if d := final - utterance; d < -50*time.Millisecond {
+		t.Errorf("final played position = %v for a %v utterance (short by %v): the "+
+			"position does not account for everything the DAC emitted", final, utterance, -d)
+	} else if d > 250*time.Millisecond {
+		t.Errorf("final played position = %v for a %v utterance (over by %v): more "+
+			"underrun silence than a duplex bus should produce", final, utterance, d)
 	}
 
 	// The device stamps each report with esp_timer micros. Position advance and
@@ -426,8 +438,15 @@ func TestHardwarePlaybackPositionIsDACAccurate(t *testing.T) {
 	byClock := time.Duration(last.TimestampMicros-first.TimestampMicros) * time.Microsecond
 	skew := byFrames - byClock
 	t.Logf("advance by DAC frames %v, by esp_timer %v, skew %v", byFrames, byClock, skew)
-	if skew < -100*time.Millisecond || skew > 100*time.Millisecond {
-		t.Errorf("DAC frame advance and esp_timer advance disagree by %v", skew)
+
+	// One-sided on purpose. Frames running *ahead* of the clock is the failure
+	// that matters: it means the position is counting bytes handed to the
+	// speaker rather than frames the DAC emitted, which is exactly the proxy
+	// SPEC §3.2.1 rejects. Frames running behind means playback stalled -- a
+	// performance problem, not an accuracy one, and not this test's claim.
+	if skew > 50*time.Millisecond {
+		t.Errorf("DAC frames advanced %v more than esp_timer: the position is a "+
+			"byte-counting proxy, not the DAC's own", skew)
 	}
 }
 
