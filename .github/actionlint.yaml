@@ -1,0 +1,5 @@
+# Declares the custom runner labels so actionlint stops flagging them.
+self-hosted-runner:
+  labels:
+    - gpu
+    - chorus-satellite

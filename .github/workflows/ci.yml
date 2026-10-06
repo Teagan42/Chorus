@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: gate (lint, gen, test, docs, commits)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # atomic needs the PR's whole commit range, not just the tip.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Put GOPATH/bin on PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Cache dev toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: toolchain-${{ runner.os }}-${{ hashFiles('Taskfile.yml', '.github/workflows/ci.yml') }}
+
+      # task is the only entry point; everything else comes from task tools.
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.54.0
+
+      # Separate commands: go install rejects packages from two modules at once.
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+
+      - run: task tools
+
+      - run: task gen:check
+
+      - run: task lint
+
+      - run: task test
+
+      - run: task test:docs
+
+      # Push builds have no stable base; a force-push makes before..sha invalid.
+      - name: task commit:check
+        if: github.event_name == 'pull_request'
+        run: task commit:check -- ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+
+  # DELIBERATELY NON-BLOCKING. spec:check fails on five SPEC §15 clauses
+  # (§4.1, §4.4, §4.5, §8, §11) whose implementations do not exist yet; that
+  # list is the phase-1 work order, not a broken gate. The user chose to keep
+  # it red and visible rather than split the critical-clause gate. Remove
+  # continue-on-error once those clauses have tests — do not weaken spectrace.
+  spec:
+    name: spec trace (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.54.0
+
+      # Full report first: it names the uncovered clauses, not just the count.
+      - run: task spec
+
+      - run: task spec:check
