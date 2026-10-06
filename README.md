@@ -116,24 +116,21 @@ Flash the firmware, then point the probe at it.
 ```sh
 cd esphome
 cp secrets.example.yaml secrets.yaml      # wifi + api encryption key
-cp satellite1.example.yaml satellite1.yaml
 cd ..
 
 task firmware:config                      # validate before flashing
-```
-
-**Do not flash `satellite1.example.yaml` as-is.** Its I²S pins are generic
-ESP32-S3 placeholders, there so the file validates standalone — they are not
-either satellite's wiring. Give `satellite1.yaml` the real board configuration
-first (for Satellite1, the FutureProofHomes package), or you will overwrite a
-working device with firmware that cannot drive its own audio hardware.
-
-With real wiring in place:
-
-```sh
 task firmware:compile                     # downloads ESP-IDF on first run
 task firmware:upload                      # over the air
 ```
+
+`satellite1.yaml` is the real FutureProofHomes Satellite1 wiring and is what
+the firmware tasks build by default. Set `orchestrator_host` in it to the
+machine running the orchestrator — a literal IP on a static lease, because
+ESPHome cannot resolve hostnames for an outbound socket.
+
+**Do not flash `satellite1.example.yaml`.** Its I²S pins are generic ESP32-S3
+placeholders, there so the file validates standalone — they are not any real
+board's wiring. It exists to exercise the config schema, not to run.
 
 Then describe the device to the host side:
 
