@@ -123,14 +123,17 @@ void ChorusBridge::start_connect_() {
   // Nagle would coalesce the 32 ms chunks barge-in timing depends on.
   this->socket_->setsockopt(IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
-  struct sockaddr_storage addr{};
-  socklen_t len = socket::set_sockaddr((struct sockaddr *) &addr, sizeof(addr), this->host_, this->port_);
-  if (len == 0) {
+  this->connect_addr_ = {};
+  // Kept, because finish_connect_() completes the handshake by re-issuing it.
+  this->connect_addrlen_ =
+      socket::set_sockaddr((struct sockaddr *) &this->connect_addr_, sizeof(this->connect_addr_), this->host_, this->port_);
+  if (this->connect_addrlen_ == 0) {
     ESP_LOGW(TAG, "Bad host '%s'", this->host_.c_str());
     this->socket_ = nullptr;
     return;
   }
-  if (this->socket_->connect((struct sockaddr *) &addr, len) != 0 && errno != EINPROGRESS) {
+  if (this->socket_->connect((struct sockaddr *) &this->connect_addr_, this->connect_addrlen_) != 0 &&
+      errno != EINPROGRESS) {
     ESP_LOGW(TAG, "Connect to %s:%u failed: %s", this->host_.c_str(), this->port_, strerror(errno));
     this->socket_ = nullptr;
     return;
@@ -139,19 +142,19 @@ void ChorusBridge::start_connect_() {
 }
 
 bool ChorusBridge::finish_connect_() {
-  int err = 0;
-  socklen_t len = sizeof(err);
-  // SO_ERROR is the only portable completion signal for a non-blocking connect.
-  if (this->socket_->getsockopt(SOL_SOCKET, SO_ERROR, &err, &len) != 0) {
-    this->disconnect_("getsockopt failed");
-    return false;
-  }
-  if (err == EINPROGRESS || err == EALREADY) {
-    return false;
-  }
-  if (err != 0) {
-    this->disconnect_(strerror(err));
-    return false;
+  // A second connect(), not SO_ERROR. lwip leaves SO_ERROR at 0 while a
+  // connect is still in flight, so SO_ERROR cannot tell "connected" from
+  // "pending" -- it reports success early and the first read then fails with
+  // EINPROGRESS and tears the link down. Re-issuing connect() is unambiguous:
+  // EISCONN means established, EALREADY means keep waiting.
+  if (this->socket_->connect((struct sockaddr *) &this->connect_addr_, this->connect_addrlen_) != 0) {
+    if (errno == EALREADY || errno == EINPROGRESS) {
+      return false;
+    }
+    if (errno != EISCONN) {
+      this->disconnect_(strerror(errno));
+      return false;
+    }
   }
   this->connecting_ = false;
 

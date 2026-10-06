@@ -121,6 +121,8 @@ class ChorusBridge : public Component {
   uint32_t last_connect_attempt_{0};
 
   std::unique_ptr<socket::Socket> socket_;
+  struct sockaddr_storage connect_addr_{};
+  socklen_t connect_addrlen_{0};
   bool connecting_{false};
   bool handshake_sent_{false};
 
