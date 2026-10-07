@@ -658,6 +658,41 @@ func TestADeltaCutBeforeSynthesisIsStillUnspokenText(t *testing.T) {
 	}
 }
 
+// verifies SPEC §4.2
+func TestAnOverflowingDeltaKeepsItsWholeTailAsUnspoken(t *testing.T) {
+	r := newRig(t)
+	r.synth.mu.Lock()
+	r.synth.release = make(chan struct{})
+	r.synth.entered = make(chan string, 1)
+	r.synth.mu.Unlock()
+
+	st, cancel := r.open(t, "call-1")
+
+	// More sentences than the queue holds, so the queue fills partway through
+	// one delta. A speak call's text has no length limit.
+	text := strings.Repeat("One more. ", 300)
+	if err := st.Write(text); err == nil {
+		t.Fatal("write: nil error, want the overflow reported")
+	}
+	<-r.synth.entered
+	// After the hole, nothing may be queued: it would play past missing words.
+	if err := st.Write("And later."); err == nil {
+		t.Error("write after overflow: nil error, want it refused")
+	}
+
+	cancel()
+	pb := await(t, closeAsync(st))
+
+	if pb.Spoken != "" {
+		t.Errorf("Spoken = %q, want nothing: no audio reached the DAC", pb.Spoken)
+	}
+	// Generated text past the overflow is still generated: losing it would
+	// drop most of the unspoken half of the preference pair.
+	if want := text + "And later."; pb.Unspoken != want {
+		t.Errorf("Unspoken has %d bytes, want all %d generated", len(pb.Unspoken), len(want))
+	}
+}
+
 // verifies SPEC §3.2.1
 func TestASecondUtteranceRebasesOnTheCumulativePosition(t *testing.T) {
 	r := newRig(t)

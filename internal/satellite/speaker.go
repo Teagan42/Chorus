@@ -223,6 +223,9 @@ type stream struct {
 	total  uint64
 	slices int
 	closed bool
+	// overflowed is set once a segment could not be queued. Every segment after
+	// it is recorded but never synthesised.
+	overflowed bool
 }
 
 // Write queues a delta. It never blocks on synthesis or on the radio: the
@@ -241,18 +244,32 @@ func (s *stream) Write(text string) error {
 		return errors.New("satellite: write after close")
 	}
 	// Cut into segments here rather than at synthesis, because a segment is the
-	// unit the truncation point resolves to (see maxSegmentChars).
+	// unit the truncation point resolves to (see maxSegmentChars). Every part is
+	// recorded before any is queued: an overflow partway through must leave the
+	// rest of the delta in the record as unspoken text, not drop it.
+	first := len(s.segs)
 	for _, part := range chunk(text) {
 		s.segs = append(s.segs, segment{text: part})
+	}
+	if s.overflowed {
+		return s.overflowErr()
+	}
+	for i := first; i < len(s.segs); i++ {
 		select {
-		case s.in <- len(s.segs) - 1:
+		case s.in <- i:
 		default:
-			// The segment stays recorded with no frames, so an overflow
-			// degrades into unspoken text rather than text that vanishes.
-			return fmt.Errorf("satellite: %s has %d segments awaiting synthesis", s.callID, deltaQueue)
+			// Nothing after this segment may be queued, by this Write or a later
+			// one: the feeder would play past the hole and skip words mid-sentence.
+			// The unqueued segments keep no frames, so they report as unspoken.
+			s.overflowed = true
+			return s.overflowErr()
 		}
 	}
 	return nil
+}
+
+func (s *stream) overflowErr() error {
+	return fmt.Errorf("satellite: %s has %d segments awaiting synthesis", s.callID, deltaQueue)
 }
 
 // feed synthesises and paces queued deltas until Close or a barge-in.
