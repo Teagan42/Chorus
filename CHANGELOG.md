@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/Teagan42/Chorus/compare/v0.2.0...v0.3.0) (2026-10-07)
+
+
+### Features
+
+* **provider:** dial Ollama for a turn ([#14](https://github.com/Teagan42/Chorus/issues/14)) ([5caa4d4](https://github.com/Teagan42/Chorus/commit/5caa4d4aca53e9c53e6b4c1aac54327f5c0a3c30))
+
 ## [0.2.0](https://github.com/Teagan42/Chorus/compare/v0.1.0...v0.2.0) (2026-10-07)
 
 
