@@ -149,6 +149,7 @@ class ChorusBridge : public Component {
   bool mic_started_{false};
   uint8_t last_mute_flags_{0xff};
   uint32_t dropped_chunks_{0};
+  size_t next_channel_{0};  // round-robin cursor; see pump_uplink_
 };
 
 }  // namespace esphome::chorus_bridge
