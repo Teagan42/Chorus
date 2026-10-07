@@ -49,7 +49,9 @@ tasks:
 
   gen:cue:
     desc: Go types, JSON Schema, and docs from CUE schemas
-    sources: ["schema/**/*.cue"]
+    # The generator's own source counts: a renderer change with untouched CUE
+    # still changes every artifact, and the fingerprint would skip it.
+    sources: ["schema/**/*.cue", "internal/tools/schemagen/*.go"]
     cmds: [go run ./internal/tools/schemagen]
 
   gen:check:

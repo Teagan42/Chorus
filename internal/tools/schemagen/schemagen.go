@@ -143,11 +143,27 @@ func LLMToolSchemas(tools map[string]Tool) []map[string]any {
 		}
 		out = append(out, map[string]any{
 			"name":         t.Name,
-			"description":  t.Description,
+			"description":  describe(t),
 			"input_schema": schema,
 		})
 	}
 	return out
+}
+
+// slowHint is appended to a slow tool's model-facing description. Measured, not
+// assumed: with it, qwen3:14b and ornith:9b volunteer a `speak` alongside the
+// slow call; without it both call the tool alone and leave the user in silence.
+// The latency field is the registry's own, so the hint cannot drift from the
+// timeout policy generated beside it (SPEC §6, §14).
+const slowHint = " Takes several seconds to return."
+
+// describe is the tool description the model sees, which is not quite the one
+// the docs show: latency is policy the model has to act on, not just metadata.
+func describe(t Tool) string {
+	if t.Latency != "slow" {
+		return t.Description
+	}
+	return t.Description + slowHint
 }
 
 func renderToolsGo(tools map[string]Tool) string {

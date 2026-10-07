@@ -182,6 +182,32 @@ func TestLLMToolSchemasShape(t *testing.T) {
 	}
 }
 
+// A slow tool must say so in the description, because that is the only field
+// the model reads. Measured: without the hint, models call a slow tool alone
+// and leave the user in silence; with it they volunteer a speak alongside.
+//
+// verifies SPEC §6, §14
+func TestSlowToolsTellTheModelTheyAreSlow(t *testing.T) {
+	byName := map[string]string{}
+	for _, s := range LLMToolSchemas(fixtureTools()) {
+		byName[s["name"].(string)] = s["description"].(string)
+	}
+
+	if slow := byName["media_search"]; !strings.Contains(slow, slowHint) {
+		t.Errorf("slow tool description %q omits the latency hint", slow)
+	}
+	// The hint must not become a generic suffix: a fast tool the model thinks
+	// is slow earns an unnecessary filler before every call.
+	for _, name := range []string{"remember", "end_session"} {
+		if got := byName[name]; strings.Contains(got, slowHint) {
+			t.Errorf("fast tool %s claims to be slow: %q", name, got)
+		}
+	}
+	if got := byName["media_search"]; !strings.HasPrefix(got, "Search the media library.") {
+		t.Errorf("hint replaced the description instead of extending it: %q", got)
+	}
+}
+
 func TestToolDocsCoverEveryTool(t *testing.T) {
 	doc := renderToolDocs(fixtureTools())
 	for name := range fixtureTools() {

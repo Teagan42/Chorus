@@ -1,0 +1,2 @@
+{"model":"qwen3:14b","created_at":"2026-10-07T07:27:25.932093198Z","message":{"role":"assistant","content":"","tool_calls":[{"id":"call_v3d4os9t","function":{"index":0,"name":"speak","arguments":{"mode":"queue","text":"Hello!"}}}]},"done":false}
+{"model":"qwen3:14b","created_at":"2026-10-07T07:27:25.980963836Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","total_duration":948765868,"load_duration":4913933,"prompt_eval_count":342,"prompt_eval_cached_count":1,"prompt_eval_duration":289515000,"eval_count":27,"eval_duration":639226000}
