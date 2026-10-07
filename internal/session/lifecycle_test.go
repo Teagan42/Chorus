@@ -58,6 +58,56 @@ func TestModelClosesTheSessionWithEndSession(t *testing.T) {
 	}
 }
 
+// The model is told to speak before it ends the session, so a farewell and
+// end_session arrive in the same turn. Close interrupts the speech channel, so
+// closing on the call itself cuts the goodbye off mid-word.
+//
+// verifies SPEC §4.5
+func TestEndSessionLetsTheFarewellFinish(t *testing.T) {
+	const farewell = "Goodnight!"
+	steps := []step{
+		{act: session.SpeechDelta{CallID: "s1", Text: farewell, Last: true}},
+		{act: session.ToolCall{ID: "e1", Tool: "end_session", Args: "{}"}},
+		{act: session.TurnEnd{FinishReason: "stop", Completion: "{}"}},
+	}
+	r := newRig(t, steps, nil)
+	// Playback still in flight when end_session is dispatched, which is the
+	// ordinary case: speech is a child and the stream does not wait for it.
+	r.speaker.hold = true
+	r.speaker.cut = len("Good")
+
+	s := r.open(t, "alice")
+	errc := heard(s, "that's all, goodnight")
+	r.speaker.wrote(t)
+
+	// The closer is already running by the time end_session's result is
+	// recorded, so releasing playback after this is not a timing assumption.
+	r.awaitCall(t, s.ConversationID(), "e1")
+	close(r.speaker.release)
+	wait(t, errc)
+
+	select {
+	case <-s.Done():
+	case <-time.After(patience):
+		t.Fatal("end_session never closed the session")
+	}
+
+	st := r.state(t, s.ConversationID())
+	if !slices.Equal(st.Spoken, []string{farewell}) {
+		t.Errorf("spoken = %q, want the whole farewell %q", st.Spoken, farewell)
+	}
+	if len(st.Unspoken) != 0 {
+		t.Errorf("the close cut the farewell off: unspoken = %q", st.Unspoken)
+	}
+	// Ending a conversation is not an interruption of it.
+	if st.Interrupted {
+		t.Error("closing on the model's own request was recorded as a barge-in")
+	}
+	if st.Open || st.CloseReason != "model_ended" {
+		t.Errorf("state = %+v, want closed with reason model_ended", st)
+	}
+}
+
 // verifies SPEC §4.5
 func TestSilenceBackstopClosesAnAbandonedSession(t *testing.T) {
 	r := newRig(t, nil, nil)
