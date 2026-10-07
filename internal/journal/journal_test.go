@@ -2,6 +2,8 @@ package journal_test
 
 import (
 	"context"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,6 +39,117 @@ func TestAppendStampsMonotonicSequenceAndWallClock(t *testing.T) {
 		if !e.At.Equal(clk.Now()) {
 			t.Errorf("event %d: at = %v, want %v", i, e.At, clk.Now())
 		}
+	}
+}
+
+// A conversation has more than one writer by design: the same person waking a
+// second satellite inside the migration window resumes the same conversation,
+// so a second session appends to the same log (SPEC §4.5). Append reads the
+// last sequence number and then writes, and the store rejects a number that is
+// not exactly one past the last, so an unserialised pair of writers loses an
+// event rather than racing silently.
+//
+// verifies SPEC §8, §4.5
+func TestConcurrentWritersShareOneSequence(t *testing.T) {
+	j := journal.New(journal.NewMemStore(), journal.FixedClock(time.Unix(0, 0)), versions())
+
+	const writers = 32
+	errs := make(chan error, writers)
+	var start sync.WaitGroup
+	start.Add(1)
+	for i := range writers {
+		go func() {
+			start.Wait()
+			_, err := j.Append(context.Background(), "conv-1", journal.Record{
+				Kind:   journal.KindToolResult,
+				Fields: map[string]string{"call_id": "c" + strconv.Itoa(i), "outcome": "ok"},
+			})
+			errs <- err
+		}()
+	}
+	start.Done()
+	for range writers {
+		if err := <-errs; err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+
+	events, err := j.Events(context.Background(), "conv-1")
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if len(events) != writers {
+		t.Fatalf("got %d events, want %d", len(events), writers)
+	}
+	// Gapless and unique: replay reduces in sequence order, so a repeated or
+	// skipped number is a log it cannot read back.
+	for i, e := range events {
+		if want := uint64(i + 1); e.Seq != want {
+			t.Errorf("event %d: seq = %d, want %d", i, e.Seq, want)
+		}
+	}
+}
+
+// stallStore holds one conversation's LastSeq inside the store, modelling a
+// connection that has hung.
+type stallStore struct {
+	*journal.MemStore
+	conv   string
+	inside chan struct{} // closed once the stalled call is in the store
+	freed  chan struct{} // closed to let it finish
+	once   sync.Once
+}
+
+func (s *stallStore) LastSeq(ctx context.Context, conversationID string) (uint64, error) {
+	if conversationID == s.conv {
+		s.once.Do(func() { close(s.inside) })
+		<-s.freed
+	}
+	return s.MemStore.LastSeq(ctx, conversationID)
+}
+
+// One stalled conversation may not stop another from recording. A session
+// appends on a context with no cancellation and no deadline, so a lock shared
+// across conversations turns one hung connection into a household-wide outage:
+// nothing can be journalled, and the journal is the runtime (SPEC §8).
+//
+// verifies SPEC §8
+func TestAStalledConversationDoesNotBlockAnother(t *testing.T) {
+	store := &stallStore{
+		MemStore: journal.NewMemStore(), conv: "conv-hung",
+		inside: make(chan struct{}), freed: make(chan struct{}),
+	}
+	j := journal.New(store, journal.FixedClock(time.Unix(0, 0)), versions())
+
+	rec := journal.Record{
+		Kind:   journal.KindSessionOpened,
+		Fields: map[string]string{"satellite": "kitchen"},
+	}
+
+	hung := make(chan error, 1)
+	go func() {
+		_, err := j.Append(context.Background(), "conv-hung", rec)
+		hung <- err
+	}()
+	<-store.inside
+
+	live := make(chan error, 1)
+	go func() {
+		_, err := j.Append(context.Background(), "conv-live", rec)
+		live <- err
+	}()
+	select {
+	case err := <-live:
+		if err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a hung conversation blocked an unrelated one from recording")
+	}
+
+	close(store.freed)
+	if err := <-hung; err != nil {
+		t.Fatalf("append after the stall cleared: %v", err)
 	}
 }
 

@@ -110,10 +110,6 @@ type Session struct {
 	// activity defers the silence backstop without restarting its goroutine.
 	activity chan struct{}
 
-	// appendMu serialises writes: journal.Append reads the last sequence
-	// number then writes, and concurrent children would collide.
-	appendMu sync.Mutex
-
 	mu         sync.Mutex
 	children   map[string]int
 	turnCancel context.CancelFunc
@@ -127,6 +123,12 @@ type Session struct {
 // Open starts a session for a confirmed wake word, resuming the person's
 // conversation when they have moved to another satellite (SPEC §4.5).
 func (sup *Supervisor) Open(ctx context.Context, w Wake) (*Session, error) {
+	// Held for the whole handoff: the displaced session has to close before this
+	// one opens, or replay ends on the session that lost the race.
+	seat := sup.cfg.Conversations.seat(w.PersonID)
+	seat.Lock()
+	defer seat.Unlock()
+
 	convID, resumed := sup.cfg.Conversations.Open(w.PersonID)
 
 	s := &Session{
@@ -141,11 +143,27 @@ func (sup *Supervisor) Open(ctx context.Context, w Wake) (*Session, error) {
 	s.ctx, s.cancel = context.WithCancel(context.WithoutCancel(ctx))
 	s.speech = newSpeechChannel(s)
 
-	fields := map[string]string{"satellite": w.Satellite, "speaker_id": w.PersonID}
+	// A conversation has one live session: the person has one pair of ears, and
+	// each session runs its own silence backstop off its own activity channel,
+	// so a session left behind on the old satellite would close the conversation
+	// out from under the one in use (SPEC §4.5).
+	if prev := sup.cfg.Conversations.claim(convID, s); prev != nil {
+		if err := prev.yield(); err != nil {
+			sup.cfg.Conversations.release(convID, s)
+			s.cancel()
+			return nil, fmt.Errorf("yield %s: %w", convID, err)
+		}
+	}
+
+	fields := map[string]string{
+		"satellite": w.Satellite, "speaker_id": w.PersonID,
+		"resumed": strconv.FormatBool(resumed),
+	}
 	if w.Confidence > 0 {
 		fields["wake_confidence"] = strconv.FormatFloat(w.Confidence, 'f', -1, 64)
 	}
 	if err := s.record(journal.Record{Kind: journal.KindSessionOpened, Fields: fields}); err != nil {
+		sup.cfg.Conversations.release(convID, s)
 		s.cancel()
 		return nil, err
 	}
@@ -486,17 +504,29 @@ func (s *Session) BargeIn(_ context.Context, c Candidate) (bool, error) {
 
 // Close ends the session. Reason must be a declared session_closed reason.
 func (s *Session) Close(_ context.Context, reason string) error {
+	return s.end(reason, "session_closed")
+}
+
+// yield ends this session because the person woke another satellite. Only the
+// session ends: the conversation carries on in the same log, so speech cut off
+// here is still context the next turn replays (SPEC §4.5).
+func (s *Session) yield() error { return s.end("migrated", "migrated") }
+
+// end is the one shutdown path. The two reasons come from different enums --
+// why the session closed, and why its queued speech was never heard.
+func (s *Session) end(reason, discard string) error {
 	var err error
 	s.closeOnce.Do(func() {
 		// Discards are recorded before the close that caused them.
-		s.speech.interrupt("session_closed")
+		s.speech.interrupt(discard)
 		err = s.record(journal.Record{
 			Kind:   journal.KindSessionClosed,
-			Fields: map[string]string{"reason": reason},
+			Fields: map[string]string{"reason": reason, "satellite": s.satellite},
 		})
 		s.leave("listening")
 		s.cancel()
 		close(s.done)
+		s.sup.cfg.Conversations.release(s.convID, s)
 	})
 	return err
 }
@@ -547,9 +577,10 @@ func (s *Session) result(callID, outcome, result string) {
 
 // record stamps an event through the journal. WithoutCancel: a child that was
 // just cancelled still has to record what it did (SPEC §4.4).
+//
+// Unserialised here: the journal orders the sequence number against every
+// writer, which this session's children are only some of.
 func (s *Session) record(r journal.Record) error {
-	s.appendMu.Lock()
-	defer s.appendMu.Unlock()
 	_, err := s.sup.cfg.Journal.Append(context.WithoutCancel(s.ctx), s.convID, r)
 	return err
 }

@@ -9,8 +9,8 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | `barge_in_detected` | listening | yes |  | Interruption passed the detection gate. Timing is milliseconds into TTS playback, not wall clock, so replay reproduces the cut. |
 | `barge_in_rejected` | listening | yes |  | Candidate interruption failed the detection gate. Tuning corpus for SPEC §4.3. |
 | `model_completed` | thinking |  |  | Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8). |
-| `session_closed` | session |  |  | Conversation ended. |
-| `session_opened` | session |  |  | Wake word confirmed; a conversation begins. |
+| `session_closed` | session |  |  | Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). |
+| `session_opened` | session |  |  | Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5). |
 | `speech_discarded` | speaking |  | yes | Speech generated but never played, because a barge-in emptied the queue first. Distinct from truncation: nothing was heard. |
 | `speech_spoken` | speaking | yes |  | Audio the user actually heard, bounded by DAC-reported playback position. |
 | `speech_truncated` | speaking | yes | yes | Barge-in cut speech short. Carries the exact split between heard and unheard text. |
