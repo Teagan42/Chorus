@@ -84,9 +84,24 @@ type decoder struct {
 }
 
 // decode reads the stream until done, emitting actions as they arrive.
-func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Action) error {
+func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Action) (err error) {
 	var comp completion
-	var spokeInline bool
+	// inlineOpen tracks an implicit utterance that has no closing delta yet.
+	var inlineOpen bool
+	// Inline content streams with no end marker of its own, and Last is what
+	// closes the utterance (internal/session/speechchan.go). A stream that dies
+	// mid-utterance must still close it: speechChannel.play waits on the
+	// session context, so an unclosed one blocks waitIdle for the whole session.
+	defer func() {
+		if !inlineOpen {
+			return
+		}
+		cerr := emit(ctx, out, session.SpeechDelta{Mode: session.ModeQueue, Last: true})
+		if err == nil {
+			err = cerr
+		}
+	}()
+
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), maxLine)
 	for sc.Scan() {
@@ -111,7 +126,7 @@ func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Act
 			if err := emit(ctx, out, session.SpeechDelta{Text: text, Mode: session.ModeQueue}); err != nil {
 				return err
 			}
-			spokeInline = true
+			inlineOpen = true
 		}
 		for _, tc := range c.Message.ToolCalls {
 			act, err := action(tc.ID, tc.Function.Name, tc.Function.Arguments)
@@ -123,11 +138,10 @@ func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Act
 			}
 		}
 		if c.Done {
-			// Inline content streams with no end marker of its own, and Last is
-			// what closes the utterance (internal/session/speechchan.go). Only
-			// done identifies the final chunk, so the close is emitted here or
-			// the implicit speak never finishes.
-			if spokeInline {
+			// Closed before the turn ends so the journal reads in the order the
+			// session heard it, rather than from the deferred close above.
+			if inlineOpen {
+				inlineOpen = false
 				if err := emit(ctx, out, session.SpeechDelta{Mode: session.ModeQueue, Last: true}); err != nil {
 					return err
 				}

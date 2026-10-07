@@ -322,6 +322,26 @@ func TestThinkingIsRecordedInTheCompletion(t *testing.T) {
 	}
 }
 
+// A connection that drops mid-utterance must still close it. speechChannel.play
+// waits on the session context, not the turn's, so an unclosed utterance keeps
+// the channel busy and blocks waitIdle until the session itself ends.
+//
+// verifies SPEC §4.1
+func TestADroppedStreamStillClosesInlineSpeech(t *testing.T) {
+	body := `{"message":{"role":"assistant","content":"one moment"},"done":false}` + "\n"
+	acts, err := collect(t, decoder{speakInlineContent: true}, strings.NewReader(body))
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("err = %v, want unexpected EOF", err)
+	}
+	sp := speechOf(acts)
+	if len(sp) == 0 {
+		t.Fatal("no speech at all")
+	}
+	if last := sp[len(sp)-1]; !last.Last {
+		t.Error("a dropped stream left the utterance open, hanging the session")
+	}
+}
+
 // A stream that ends without done is a dropped connection. Reporting success
 // would record a turn that never finished as complete.
 func TestATruncatedStreamIsAnError(t *testing.T) {
