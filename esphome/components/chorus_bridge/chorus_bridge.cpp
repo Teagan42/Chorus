@@ -255,7 +255,14 @@ bool ChorusBridge::flush_tx_() {
 }
 
 void ChorusBridge::pump_uplink_() {
-  for (auto &ch : this->mic_channels_) {
+  // Round robin, resuming after the channel served last. Draining channel 0 to
+  // empty before touching channel 1 starves channel 1 outright once the socket
+  // ever blocks: measured on the device, channel 1's ring sat 100% full for a
+  // whole session while channel 0 stayed under 1 KB, so the raw channel never
+  // reached the host at all (SPEC §3.2 wants both).
+  const size_t count = this->mic_channels_.size();
+  for (size_t i = 0; i < count; i++) {
+    MicChannel &ch = this->mic_channels_[(this->next_channel_ + i) % count];
     if (ch.reader == nullptr) {
       continue;
     }
@@ -270,10 +277,13 @@ void ChorusBridge::pump_uplink_() {
       }
       this->queue_frame_(FrameType::MIC, ch.channel, ch.reader->data(), available);
       ch.reader->consume(available);
-      if (!this->flush_tx_()) {
-        return;  // socket is full or gone; stop draining the ring buffer
+      if (this->tx_.size() >= TX_CAPACITY) {
+        break;  // nothing more fits; give the next channel its turn anyway
       }
     }
+  }
+  if (count > 0) {
+    this->next_channel_ = (this->next_channel_ + 1) % count;
   }
 }
 
