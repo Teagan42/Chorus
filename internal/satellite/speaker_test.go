@@ -1,0 +1,516 @@
+package satellite_test
+
+import (
+	"context"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/teaganglenn/chorus/internal/bridge"
+	"github.com/teaganglenn/chorus/internal/bridge/bridgetest"
+	"github.com/teaganglenn/chorus/internal/satellite"
+	"github.com/teaganglenn/chorus/internal/session"
+)
+
+// framesPerByte scales the fake synthesiser so a delta's audio is long enough
+// to be cut partway through.
+const framesPerByte = 100
+
+// fakeSynth renders each byte of text as framesPerByte frames of silence, so a
+// frame count maps back to a text offset arithmetically.
+type fakeSynth struct {
+	mu      sync.Mutex
+	err     error
+	release chan struct{} // nil never blocks; otherwise held until closed
+	calls   []string
+	// entered reports each call as it starts, so a test can be sure the feeder
+	// is inside the synthesiser before it provokes a barge-in.
+	entered chan string
+	// deaf models a synthesiser that does not honour cancellation, such as an
+	// HTTP call already in flight. Barge-in latency may not depend on it.
+	deaf bool
+}
+
+func (f *fakeSynth) Synthesize(ctx context.Context, text string) ([]byte, error) {
+	f.mu.Lock()
+	err, release, deaf, entered := f.err, f.release, f.deaf, f.entered
+	f.calls = append(f.calls, text)
+	f.mu.Unlock()
+	if entered != nil {
+		entered <- text
+	}
+	if release != nil {
+		done := ctx.Done()
+		if deaf {
+			done = nil
+		}
+		select {
+		case <-release:
+		case <-done:
+			return nil, ctx.Err()
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return make([]byte, len(text)*framesPerByte*2), nil
+}
+
+// Deadlines the rig configures, chosen far apart so fakeTimers can tell them
+// from the sub-second pacing waits and from each other.
+const (
+	rigDrain  = 30 * time.Second
+	rigSettle = 5 * time.Second
+)
+
+// fakeTimers fires every pacing wait at once and hands the two deadlines a
+// test may care about to the test itself, which reaches them deliberately
+// rather than by waiting.
+type fakeTimers struct{ drain, settle chan time.Time }
+
+func (f fakeTimers) After(d time.Duration) <-chan time.Time {
+	switch {
+	case d >= rigDrain:
+		return f.drain
+	case d >= rigSettle:
+		return f.settle
+	default:
+		fired := make(chan time.Time, 1)
+		fired <- time.Now()
+		return fired
+	}
+}
+
+type rig struct {
+	sat    *satellite.Satellite
+	dev    *bridgetest.Device
+	synth  *fakeSynth
+	drain  chan time.Time
+	settle chan time.Time
+	served chan error
+}
+
+// newRig wires a satellite to an in-process device. By default the post-stop
+// settle expires at once; a tweak can lengthen it to assert what the wait is
+// for.
+func newRig(t *testing.T, tweak ...func(*satellite.Config)) *rig {
+	t.Helper()
+	link, dev := bridgetest.Dial(t, 2)
+	synth := &fakeSynth{}
+	r := &rig{
+		dev: dev, synth: synth, served: make(chan error, 1),
+		drain: make(chan time.Time), settle: make(chan time.Time),
+	}
+
+	cfg := satellite.Config{
+		Link:   link,
+		Synth:  synth,
+		Timers: fakeTimers{drain: r.drain, settle: r.settle},
+		Drain:  rigDrain,
+	}
+	for _, f := range tweak {
+		f(&cfg)
+	}
+	sat, err := satellite.New(cfg)
+	if err != nil {
+		t.Fatalf("new satellite: %v", err)
+	}
+	r.sat = sat
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { r.served <- link.Serve(ctx, sat) }()
+	return r
+}
+
+// open starts an utterance and returns its stream and the cancel that a
+// barge-in would call.
+func (r *rig) open(t *testing.T, callID string) (session.Stream, context.CancelFunc) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	st, err := r.sat.Open(ctx, callID)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	return st, cancel
+}
+
+// close runs Close off the test goroutine, because on the normal path it waits
+// for the DAC and the test is what advances it.
+func closeAsync(st session.Stream) <-chan session.Playback {
+	out := make(chan session.Playback, 1)
+	go func() { out <- st.Close() }()
+	return out
+}
+
+func await(t *testing.T, out <-chan session.Playback) session.Playback {
+	t.Helper()
+	select {
+	case pb := <-out:
+		return pb
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not return")
+		return session.Playback{}
+	}
+}
+
+// verifies SPEC §3.2.1
+func TestCompletedUtteranceReportsTheDeviceFrameCount(t *testing.T) {
+	r := newRig(t)
+	st, _ := r.open(t, "call-1")
+
+	if err := st.Write("hello"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	want := uint64(len("hello") * framesPerByte)
+	r.dev.AwaitTTS(t, int(want)*2)
+
+	done := closeAsync(st)
+	r.dev.AwaitFinish(t, 1)
+	r.dev.PlayAll(t)
+
+	pb := await(t, done)
+	if pb.Truncated {
+		t.Errorf("Truncated = true, want false for a fully played utterance")
+	}
+	if pb.Spoken != "hello" || pb.Unspoken != "" {
+		t.Errorf("split = (%q, %q), want (%q, %q)", pb.Spoken, pb.Unspoken, "hello", "")
+	}
+	// The point of the whole adapter: the count came from the device, not from
+	// len(text) arithmetic on the host.
+	if pb.Frames != int64(want) {
+		t.Errorf("Frames = %d, want %d", pb.Frames, want)
+	}
+}
+
+// verifies SPEC §4.4
+func TestBargeInTruncatesAtTheDACPosition(t *testing.T) {
+	r := newRig(t)
+	st, cancel := r.open(t, "call-1")
+
+	for _, delta := range []string{"Hello ", "world."} {
+		if err := st.Write(delta); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	total := len("Hello world.") * framesPerByte
+	r.dev.AwaitTTS(t, total*2)
+
+	// Cut partway through the first delta.
+	const heard = 3 * framesPerByte
+	if got := r.dev.Play(t, heard); got != heard {
+		t.Fatalf("played %d frames, want %d", got, heard)
+	}
+
+	cancel()
+	pb := await(t, closeAsync(st))
+
+	if !pb.Truncated {
+		t.Error("Truncated = false, want true")
+	}
+	if pb.Frames != heard {
+		t.Errorf("Frames = %d, want %d", pb.Frames, heard)
+	}
+	// The cut fell inside "Hello ", which the user did partly hear, so it is
+	// spoken. Only the delta that never reached the DAC is unspoken.
+	if pb.Spoken != "Hello " || pb.Unspoken != "world." {
+		t.Errorf("split = (%q, %q), want (%q, %q)", pb.Spoken, pb.Unspoken, "Hello ", "world.")
+	}
+	// Whatever the device still holds has to be discarded, or it plays over
+	// the next utterance.
+	r.dev.AwaitStop(t, 1)
+	if n := r.dev.Pending(); n != 0 {
+		t.Errorf("device still holds %d frames after the stop", n)
+	}
+}
+
+// verifies SPEC §4.4
+func TestBargeInBeforeAnyAudioPlayedSpeaksNothing(t *testing.T) {
+	r := newRig(t)
+	st, cancel := r.open(t, "call-1")
+
+	if err := st.Write("never heard"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, 2)
+
+	cancel()
+	pb := await(t, closeAsync(st))
+
+	if pb.Spoken != "" {
+		t.Errorf("Spoken = %q, want empty: the DAC never reported a frame", pb.Spoken)
+	}
+	if pb.Unspoken != "never heard" {
+		t.Errorf("Unspoken = %q, want %q", pb.Unspoken, "never heard")
+	}
+	if pb.Frames != 0 || !pb.Truncated {
+		t.Errorf("Frames = %d, Truncated = %v, want 0, true", pb.Frames, pb.Truncated)
+	}
+}
+
+// verifies SPEC §4.4
+func TestBargeInStopsTheDeviceBeforeWaitingOnSynthesis(t *testing.T) {
+	r := newRig(t)
+	held := make(chan struct{})
+	r.synth.mu.Lock()
+	// Deaf to cancellation, like an HTTP request already in flight. The user's
+	// ears may not wait on it.
+	r.synth.release, r.synth.deaf, r.synth.entered = held, true, make(chan string, 1)
+	r.synth.mu.Unlock()
+
+	st, cancel := r.open(t, "call-1")
+	if err := st.Write("held in synthesis"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	<-r.synth.entered // the feeder is now parked inside Synthesize
+
+	cancel()
+	done := closeAsync(st)
+
+	// The stop has to reach the device while the synthesiser is still stuck,
+	// because the device is playing buffered audio the whole time.
+	r.dev.AwaitStop(t, 1)
+
+	close(held)
+	await(t, done)
+}
+
+// verifies SPEC §4.4
+func TestTheCutUsesTheFinalPositionAfterTheStop(t *testing.T) {
+	// A long settle, so the split must come from the device's post-stop report
+	// rather than from the deadline expiring.
+	r := newRig(t, func(c *satellite.Config) { c.Settle = rigSettle })
+	st, cancel := r.open(t, "call-1")
+
+	for _, delta := range []string{"Hello ", "world."} {
+		if err := st.Write(delta); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	r.dev.AwaitTTS(t, len("Hello world.")*framesPerByte*2)
+
+	// Two frames reported before the barge-in, and the DAC gets through the
+	// rest of the first delta while the stop is in flight. Those frames were
+	// heard: a split sampled before the stop would call them unspoken.
+	const before = 2 * framesPerByte
+	r.dev.Play(t, before)
+	r.dev.PlayDuringStop(4 * framesPerByte)
+
+	cancel()
+	pb := await(t, closeAsync(st))
+
+	if want := int64(len("Hello ") * framesPerByte); pb.Frames != want {
+		t.Errorf("Frames = %d, want %d: the position after the stop is the cut", pb.Frames, want)
+	}
+	if pb.Spoken != "Hello " || pb.Unspoken != "world." {
+		t.Errorf("split = (%q, %q), want (%q, %q)", pb.Spoken, pb.Unspoken, "Hello ", "world.")
+	}
+	if !pb.Truncated {
+		t.Error("Truncated = false, want true")
+	}
+}
+
+// verifies SPEC §4.4
+func TestADeviceThatGoesQuietAfterTheStopStillReportsACut(t *testing.T) {
+	r := newRig(t, func(c *satellite.Config) { c.Settle = rigSettle })
+	st, cancel := r.open(t, "call-1")
+
+	if err := st.Write("Hello world."); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len("Hello world.")*framesPerByte*2)
+	const heard = 3 * framesPerByte
+	r.dev.Play(t, heard)
+
+	cancel()
+	done := closeAsync(st)
+	r.dev.AwaitStop(t, 1)
+
+	// The firmware only reports when the position moved, so a stop that lands
+	// between reports is answered with silence. Expiring must degrade to the
+	// position already known, not wedge the session.
+	r.settle <- time.Now()
+
+	pb := await(t, done)
+	if pb.Frames != heard || !pb.Truncated {
+		t.Errorf("Frames = %d, Truncated = %v, want %d, true", pb.Frames, pb.Truncated, heard)
+	}
+}
+
+// verifies SPEC §4.2
+func TestADeltaCutBeforeSynthesisIsStillUnspokenText(t *testing.T) {
+	r := newRig(t)
+	st, cancel := r.open(t, "call-1")
+
+	if err := st.Write("spoken "); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len("spoken ")*framesPerByte*2)
+	r.dev.PlayAll(t)
+
+	// Held in the synthesiser, so this delta has no frames of its own.
+	r.synth.mu.Lock()
+	r.synth.release = make(chan struct{})
+	r.synth.mu.Unlock()
+	if err := st.Write("stuck in synthesis"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cancel()
+	pb := await(t, closeAsync(st))
+
+	if pb.Spoken != "spoken " {
+		t.Errorf("Spoken = %q, want %q", pb.Spoken, "spoken ")
+	}
+	// Generated but never rendered is still generated: dropping it here would
+	// lose the unspoken half of the preference pair.
+	if pb.Unspoken != "stuck in synthesis" {
+		t.Errorf("Unspoken = %q, want %q", pb.Unspoken, "stuck in synthesis")
+	}
+}
+
+// verifies SPEC §3.2.1
+func TestASecondUtteranceRebasesOnTheCumulativePosition(t *testing.T) {
+	r := newRig(t)
+
+	first, _ := r.open(t, "call-1")
+	if err := first.Write("one"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len("one")*framesPerByte*2)
+	done := closeAsync(first)
+	r.dev.AwaitFinish(t, 1)
+	r.dev.PlayAll(t)
+	if pb := await(t, done); pb.Frames != int64(len("one")*framesPerByte) {
+		t.Fatalf("first utterance Frames = %d", pb.Frames)
+	}
+
+	// PLAYED is cumulative for the whole connection (internal/bridge/frame.go),
+	// so an utterance that did not subtract its starting position would report
+	// the previous one's audio as its own.
+	second, _ := r.open(t, "call-2")
+	if err := second.Write("two"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	want := int64(len("two") * framesPerByte)
+	r.dev.AwaitTTS(t, (len("one")+len("two"))*framesPerByte*2)
+	done = closeAsync(second)
+	r.dev.AwaitFinish(t, 2)
+	r.dev.PlayAll(t)
+
+	pb := await(t, done)
+	if pb.Frames != want {
+		t.Errorf("second utterance Frames = %d, want %d", pb.Frames, want)
+	}
+	if pb.Truncated {
+		t.Error("Truncated = true, want false")
+	}
+}
+
+// verifies SPEC §4.1
+func TestWriteDoesNotBlockOnSynthesis(t *testing.T) {
+	r := newRig(t)
+	held := make(chan struct{})
+	r.synth.mu.Lock()
+	r.synth.release = held
+	r.synth.mu.Unlock()
+
+	st, _ := r.open(t, "call-1")
+
+	// Write runs under the speech channel's lock (internal/session/speechchan.go),
+	// so blocking here would stall every other child of the session.
+	returned := make(chan error, 1)
+	go func() {
+		_ = st.Write("first")
+		returned <- st.Write("second")
+	}()
+	select {
+	case err := <-returned:
+		if err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Write blocked while the synthesiser was busy")
+	}
+	close(held)
+}
+
+// verifies SPEC §4.4
+func TestDrainDeadlineReportsTruncationRatherThanHanging(t *testing.T) {
+	r := newRig(t)
+	st, _ := r.open(t, "call-1")
+
+	if err := st.Write("half heard text"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len("half heard text")*framesPerByte*2)
+	r.dev.Play(t, 4*framesPerByte)
+
+	done := closeAsync(st)
+	r.dev.AwaitFinish(t, 1)
+
+	// A device that stops reporting must not wedge the session. Audio it never
+	// confirmed is audio the user cannot be said to have heard.
+	r.drain <- time.Now()
+
+	pb := await(t, done)
+	if !pb.Truncated {
+		t.Error("Truncated = false, want true: the DAC never confirmed the tail")
+	}
+	if pb.Frames != 4*framesPerByte {
+		t.Errorf("Frames = %d, want %d", pb.Frames, 4*framesPerByte)
+	}
+	if !strings.HasPrefix("half heard text", pb.Spoken) || pb.Spoken == "" {
+		t.Errorf("Spoken = %q, want a prefix of the utterance", pb.Spoken)
+	}
+}
+
+func TestNewRejectsIncompleteWiring(t *testing.T) {
+	link, _ := bridgetest.Dial(t, 1)
+	for name, cfg := range map[string]satellite.Config{
+		"link":   {Synth: &fakeSynth{}, Timers: fakeTimers{}},
+		"synth":  {Link: link, Timers: fakeTimers{}},
+		"timers": {Link: link, Synth: &fakeSynth{}},
+	} {
+		if _, err := satellite.New(cfg); err == nil {
+			t.Errorf("New without a %s succeeded, want an error", name)
+		}
+	}
+}
+
+// verifies SPEC §3.2
+func TestUplinkFramesReachTheConfiguredHooks(t *testing.T) {
+	link, dev := bridgetest.Dial(t, 1)
+	mic := make(chan []byte, 1)
+	wake := make(chan string, 1)
+	mute := make(chan bridge.Mute, 1)
+
+	sat, err := satellite.New(satellite.Config{
+		Link: link, Synth: &fakeSynth{}, Timers: fakeTimers{},
+		OnMic:  func(_ uint8, pcm []byte) error { mic <- pcm; return nil },
+		OnWake: func(w string) error { wake <- w; return nil },
+		OnMute: func(m bridge.Mute) error { mute <- m; return nil },
+	})
+	if err != nil {
+		t.Fatalf("new satellite: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = link.Serve(ctx, sat) }()
+
+	dev.SendMic(t, 0, []byte{1, 2, 3, 4})
+	dev.SendWake(t, "okay_nabu")
+	dev.SendMute(t, bridge.Mute{Hardware: true})
+
+	if got := <-mic; len(got) != 4 {
+		t.Errorf("mic payload = %d bytes, want 4", len(got))
+	}
+	if got := <-wake; got != "okay_nabu" {
+		t.Errorf("wake = %q, want %q", got, "okay_nabu")
+	}
+	if got := <-mute; !got.Hardware {
+		t.Error("mute did not report the hardware state")
+	}
+}
