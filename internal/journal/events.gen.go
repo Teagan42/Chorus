@@ -16,9 +16,9 @@ const (
 	KindBargeInRejected Kind = "barge_in_rejected"
 	// Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8).
 	KindModelCompleted Kind = "model_completed"
-	// Conversation ended.
+	// Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5).
 	KindSessionClosed Kind = "session_closed"
-	// Wake word confirmed; a conversation begins.
+	// Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5).
 	KindSessionOpened Kind = "session_opened"
 	// Speech generated but never played, because a barge-in emptied the queue first. Distinct from truncation: nothing was heard.
 	KindSpeechDiscarded Kind = "speech_discarded"
@@ -51,7 +51,7 @@ var Meta = map[Kind]EventMeta{
 	KindBargeInDetected:      {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"tts_position_ms"}},
 	KindBargeInRejected:      {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"stage"}},
 	KindModelCompleted:       {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: true, RequiredFields: []string{"completion_json", "finish_reason"}},
-	KindSessionClosed:        {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"reason"}},
+	KindSessionClosed:        {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"reason", "satellite"}},
 	KindSessionOpened:        {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"satellite"}},
 	KindSpeechDiscarded:      {Actor: "speaking", HasAudio: false, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"unspoken_text", "reason"}},
 	KindSpeechSpoken:         {Actor: "speaking", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"text", "frames_played"}},
