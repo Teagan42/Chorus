@@ -18,6 +18,16 @@ static const char *const TAG = "chorus_bridge";
 // absorb -- and a 400 ms hole is indistinguishable from going half duplex.
 static const size_t TX_CAPACITY = 2 * RING_BUFFER_SIZE;
 
+// Uplink coalescing. Mic audio is flushed once a full TCP segment has built up,
+// or once this long has passed, whichever comes first. A 32 ms chunk is 1028
+// bytes, and on a busy 2.4 GHz band a short frame costs nearly the same airtime
+// as a full one, so flushing per chunk spends the band on headers: measured on
+// the device, batching to an MSS halved the EAGAIN rate for the same bytes.
+// The deadline bounds the added capture latency, which only has to stay inside
+// the host's endpointing window -- barge-in latency is the downlink's STOP.
+static const size_t UPLINK_COALESCE_BYTES = 1400;
+static const uint32_t UPLINK_FLUSH_MS = 100;
+
 static void put_be16(std::vector<uint8_t> &out, uint16_t v) {
   out.push_back(v >> 8);
   out.push_back(v & 0xff);
@@ -117,7 +127,12 @@ void ChorusBridge::loop() {
   this->publish_played_();
   this->pump_uplink_();
   this->pump_speaker_();
-  this->flush_tx_();
+  if (this->tx_urgent_ || this->tx_.size() >= UPLINK_COALESCE_BYTES ||
+      now - this->last_flush_ms_ >= UPLINK_FLUSH_MS) {
+    this->tx_urgent_ = false;
+    this->last_flush_ms_ = now;
+    this->flush_tx_();
+  }
 }
 
 void ChorusBridge::start_connect_() {
@@ -211,9 +226,9 @@ void ChorusBridge::disconnect_(const char *reason) {
   }
 }
 
-void ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length) {
+bool ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length) {
   if (this->socket_ == nullptr || this->connecting_) {
-    return;
+    return false;
   }
   // Append whole frames only: a truncated header leaves the host unable to
   // find the next frame boundary.
@@ -223,12 +238,16 @@ void ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *pa
     // tearing the link down over a status report loses the whole utterance.
     if (type == FrameType::MIC || type == FrameType::PLAYED) {
       if (++this->dropped_chunks_ % 32 == 1) {
-        ESP_LOGW(TAG, "TX full, dropped %" PRIu32 " uplink frames", this->dropped_chunks_);
+        ESP_LOGW(TAG, "TX full, %" PRIu32 " uplink frames not queued", this->dropped_chunks_);
       }
-      return;
+      return false;
     }
     this->disconnect_("TX overflow on a control frame");
-    return;
+    return false;
+  }
+  // Not audio means control: flush it now rather than behind the deadline.
+  if (type != FrameType::MIC) {
+    this->tx_urgent_ = true;
   }
   this->tx_.push_back(static_cast<uint8_t>(type));
   this->tx_.push_back(flags);
@@ -236,6 +255,7 @@ void ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *pa
   if (length > 0) {
     this->tx_.insert(this->tx_.end(), payload, payload + length);
   }
+  return true;
 }
 
 bool ChorusBridge::flush_tx_() {
@@ -255,7 +275,14 @@ bool ChorusBridge::flush_tx_() {
 }
 
 void ChorusBridge::pump_uplink_() {
-  for (auto &ch : this->mic_channels_) {
+  // Round robin, resuming after the channel served last. Draining channel 0 to
+  // empty before touching channel 1 starves channel 1 outright once the socket
+  // ever blocks: measured on the device, channel 1's ring sat 100% full for a
+  // whole session while channel 0 stayed under 1 KB, so the raw channel never
+  // reached the host at all (SPEC §3.2 wants both).
+  const size_t count = this->mic_channels_.size();
+  for (size_t i = 0; i < count; i++) {
+    MicChannel &ch = this->mic_channels_[(this->next_channel_ + i) % count];
     if (ch.reader == nullptr) {
       continue;
     }
@@ -268,12 +295,22 @@ void ChorusBridge::pump_uplink_() {
       if (available == 0) {
         break;
       }
-      this->queue_frame_(FrameType::MIC, ch.channel, ch.reader->data(), available);
-      ch.reader->consume(available);
-      if (!this->flush_tx_()) {
-        return;  // socket is full or gone; stop draining the ring buffer
+      // Consumed only once queued. Consuming a dropped frame throws away the
+      // ring's congestion buffer the moment the queue is merely near full: 31
+      // chunks leave 900 bytes, which fits no frame, so this loop would consume
+      // and discard the whole ring rather than hold it until the socket drains.
+      // Leaving it exposed retries the same bytes next loop(), which is also why
+      // this breaks -- fill() returns 0 while an exposure is unconsumed, so
+      // continuing would spin.
+      if (!this->queue_frame_(FrameType::MIC, ch.channel, ch.reader->data(), available)) {
+        break;  // give the next channel its turn; this one keeps its data
       }
+      ch.reader->consume(available);
+      // Not flushed per frame: see UPLINK_COALESCE_BYTES. loop() decides.
     }
+  }
+  if (count > 0) {
+    this->next_channel_ = (this->next_channel_ + 1) % count;
   }
 }
 
