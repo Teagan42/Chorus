@@ -115,15 +115,38 @@ func (p *pacing) total() time.Duration {
 	return sum
 }
 
+// applied reports the playback positions the satellite has recorded, which is
+// later than the report reaching the wire: Device.Play returns once the host
+// has read the frame, and the Serve loop applies it after that. A test whose
+// subject is the position Close sampled has to wait for this, not the write.
+type applied struct {
+	bridge.Handler
+
+	mu     sync.Mutex
+	at     uint64
+	notify chan struct{}
+}
+
+func (a *applied) OnPlayed(p bridge.Played) error {
+	err := a.Handler.OnPlayed(p)
+	a.mu.Lock()
+	a.at = max(a.at, p.Frames)
+	close(a.notify)
+	a.notify = make(chan struct{})
+	a.mu.Unlock()
+	return err
+}
+
 type rig struct {
-	sat    *satellite.Satellite
-	dev    *bridgetest.Device
-	synth  *fakeSynth
-	blobs  *blob.Memory
-	paced  *pacing
-	drain  chan time.Time
-	settle chan time.Time
-	served chan error
+	sat     *satellite.Satellite
+	dev     *bridgetest.Device
+	synth   *fakeSynth
+	blobs   *blob.Memory
+	paced   *pacing
+	applied *applied
+	drain   chan time.Time
+	settle  chan time.Time
+	served  chan error
 }
 
 // newRig wires a satellite to an in-process device. By default the post-stop
@@ -136,7 +159,11 @@ func newRig(t *testing.T, tweak ...func(*satellite.Config)) *rig {
 	r := &rig{
 		dev: dev, synth: synth, blobs: blob.NewMemory(), served: make(chan error, 1),
 		paced: &pacing{},
-		drain: make(chan time.Time), settle: make(chan time.Time),
+		// Buffered: firing a deadline must not need the code to be listening.
+		// Both deadline waits return early when the position already answers
+		// them, without ever reading the channel, and an unbuffered send would
+		// then wedge the test instead of expiring the wait.
+		drain: make(chan time.Time, 1), settle: make(chan time.Time, 1),
 	}
 
 	cfg := satellite.Config{
@@ -154,11 +181,32 @@ func newRig(t *testing.T, tweak ...func(*satellite.Config)) *rig {
 		t.Fatalf("new satellite: %v", err)
 	}
 	r.sat = sat
+	r.applied = &applied{Handler: sat, notify: make(chan struct{})}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go func() { r.served <- link.Serve(ctx, sat) }()
+	go func() { r.served <- link.Serve(ctx, r.applied) }()
 	return r
+}
+
+// awaitPlayed blocks until the satellite has recorded a position of at least
+// frames.
+func (r *rig) awaitPlayed(t *testing.T, frames uint64) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		r.applied.mu.Lock()
+		at, changed := r.applied.at, r.applied.notify
+		r.applied.mu.Unlock()
+		if at >= frames {
+			return
+		}
+		select {
+		case <-changed:
+		case <-deadline:
+			t.Fatalf("the satellite recorded position %d, want at least %d", at, frames)
+		}
+	}
 }
 
 // open starts an utterance and returns its stream and the cancel that a
@@ -610,6 +658,10 @@ func TestADeviceThatGoesQuietAfterTheStopStillReportsACut(t *testing.T) {
 	r.dev.AwaitTTS(t, len("Hello world.")*framesPerByte*2)
 	const heard = 3 * framesPerByte
 	r.dev.Play(t, heard)
+	// This position has to be the one Close samples, or the settle it waits on
+	// is answered by the report arriving late and the deadline is never
+	// reached -- which is the only thing this test is about.
+	r.awaitPlayed(t, heard)
 
 	cancel()
 	done := closeAsync(st)
