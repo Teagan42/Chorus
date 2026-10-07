@@ -31,6 +31,14 @@ static const size_t RING_BUFFER_SIZE = 512 * SAMPLE_RATE_HZ / 1000 * sizeof(int1
 static const size_t SEND_BUFFER_SIZE = 32 * SAMPLE_RATE_HZ / 1000 * sizeof(int16_t);
 static const size_t SPEAKER_BUFFER_SIZE = 16 * 1024;
 
+// Read granularity, and the slack above SPEAKER_BUFFER_SIZE that rx_ and
+// speaker_pending_ are allowed. Both are reserved once in setup() and never
+// grown past it: a repeated 16 KB reallocation out of a fragmented internal
+// heap aborts the firmware, because exceptions are off and there is nothing to
+// catch std::bad_alloc.
+static const size_t RX_CHUNK_SIZE = 4 * 1024;
+static const size_t RX_CAPACITY = SPEAKER_BUFFER_SIZE + RX_CHUNK_SIZE;
+
 static const uint8_t PROTOCOL_VERSION = 1;
 static const size_t HEADER_SIZE = 4;
 
@@ -113,6 +121,8 @@ class ChorusBridge : public Component {
   uint32_t last_connect_attempt_{0};
 
   std::unique_ptr<socket::Socket> socket_;
+  struct sockaddr_storage connect_addr_{};
+  socklen_t connect_addrlen_{0};
   bool connecting_{false};
   bool handshake_sent_{false};
 
@@ -133,6 +143,8 @@ class ChorusBridge : public Component {
   std::atomic<int64_t> played_timestamp_{0};
   std::atomic<bool> played_dirty_{false};
 
+  std::atomic<bool> playing_{false};
+  bool finish_requested_{false};
   bool mic_requested_{true};
   bool mic_started_{false};
   uint8_t last_mute_flags_{0xff};

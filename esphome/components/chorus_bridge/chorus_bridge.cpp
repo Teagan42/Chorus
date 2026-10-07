@@ -12,9 +12,11 @@ namespace esphome::chorus_bridge {
 
 static const char *const TAG = "chorus_bridge";
 
-// Bounded so a stalled orchestrator cannot exhaust the heap. Uplink audio is
-// droppable; the host sees a gap. Control frames are not, hence the headroom.
-static const size_t TX_CAPACITY = 8 * (SEND_BUFFER_SIZE + HEADER_SIZE);
+// Sized to the mic ring buffers it drains, one per channel. Uplink audio is
+// droppable in principle, but a queue that holds less than the ring does turns
+// every brief loop() delay into a hole in the capture the ring was sized to
+// absorb -- and a 400 ms hole is indistinguishable from going half duplex.
+static const size_t TX_CAPACITY = 2 * RING_BUFFER_SIZE;
 
 static void put_be16(std::vector<uint8_t> &out, uint16_t v) {
   out.push_back(v >> 8);
@@ -40,8 +42,8 @@ void ChorusBridge::add_microphone_source(microphone::MicrophoneSource *source, u
 
 void ChorusBridge::setup() {
   this->tx_.reserve(TX_CAPACITY);
-  this->rx_.reserve(SPEAKER_BUFFER_SIZE);
-  this->speaker_pending_.reserve(SPEAKER_BUFFER_SIZE);
+  this->rx_.reserve(RX_CAPACITY);
+  this->speaker_pending_.reserve(RX_CAPACITY);
 
   for (auto &ch : this->mic_channels_) {
     // shared, not the returned unique_ptr: the audio source owns the buffer
@@ -79,6 +81,13 @@ void ChorusBridge::setup() {
 
     // Runs on the speaker's own task: copy and hand off, do no work (SPEC §3.2.1).
     this->speaker_->add_audio_output_callback([this](uint32_t frames, int64_t timestamp) {
+      // Gated, because stop() is asynchronous: the mixer and the i2s DMA keep
+      // draining for up to buffer_duration after it returns, and those frames
+      // belong to the stream that was torn down. Counting them charges the next
+      // utterance for the tail of the previous one.
+      if (!this->playing_.load(std::memory_order_acquire)) {
+        return;
+      }
       this->played_frames_.fetch_add(frames, std::memory_order_relaxed);
       this->played_timestamp_.store(timestamp, std::memory_order_relaxed);
       this->played_dirty_.store(true, std::memory_order_release);
@@ -123,14 +132,17 @@ void ChorusBridge::start_connect_() {
   // Nagle would coalesce the 32 ms chunks barge-in timing depends on.
   this->socket_->setsockopt(IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
-  struct sockaddr_storage addr{};
-  socklen_t len = socket::set_sockaddr((struct sockaddr *) &addr, sizeof(addr), this->host_, this->port_);
-  if (len == 0) {
+  this->connect_addr_ = {};
+  // Kept, because finish_connect_() completes the handshake by re-issuing it.
+  this->connect_addrlen_ =
+      socket::set_sockaddr((struct sockaddr *) &this->connect_addr_, sizeof(this->connect_addr_), this->host_, this->port_);
+  if (this->connect_addrlen_ == 0) {
     ESP_LOGW(TAG, "Bad host '%s'", this->host_.c_str());
     this->socket_ = nullptr;
     return;
   }
-  if (this->socket_->connect((struct sockaddr *) &addr, len) != 0 && errno != EINPROGRESS) {
+  if (this->socket_->connect((struct sockaddr *) &this->connect_addr_, this->connect_addrlen_) != 0 &&
+      errno != EINPROGRESS) {
     ESP_LOGW(TAG, "Connect to %s:%u failed: %s", this->host_.c_str(), this->port_, strerror(errno));
     this->socket_ = nullptr;
     return;
@@ -139,19 +151,19 @@ void ChorusBridge::start_connect_() {
 }
 
 bool ChorusBridge::finish_connect_() {
-  int err = 0;
-  socklen_t len = sizeof(err);
-  // SO_ERROR is the only portable completion signal for a non-blocking connect.
-  if (this->socket_->getsockopt(SOL_SOCKET, SO_ERROR, &err, &len) != 0) {
-    this->disconnect_("getsockopt failed");
-    return false;
-  }
-  if (err == EINPROGRESS || err == EALREADY) {
-    return false;
-  }
-  if (err != 0) {
-    this->disconnect_(strerror(err));
-    return false;
+  // A second connect(), not SO_ERROR. lwip leaves SO_ERROR at 0 while a
+  // connect is still in flight, so SO_ERROR cannot tell "connected" from
+  // "pending" -- it reports success early and the first read then fails with
+  // EINPROGRESS and tears the link down. Re-issuing connect() is unambiguous:
+  // EISCONN means established, EALREADY means keep waiting.
+  if (this->socket_->connect((struct sockaddr *) &this->connect_addr_, this->connect_addrlen_) != 0) {
+    if (errno == EALREADY || errno == EINPROGRESS) {
+      return false;
+    }
+    if (errno != EISCONN) {
+      this->disconnect_(strerror(errno));
+      return false;
+    }
   }
   this->connecting_ = false;
 
@@ -181,9 +193,17 @@ void ChorusBridge::disconnect_(const char *reason) {
   }
   this->connecting_ = false;
   this->handshake_sent_ = false;
+  // Before stop(), so no straggling callback is attributed to the next link.
+  this->playing_.store(false, std::memory_order_release);
   this->tx_.clear();
   this->rx_.clear();
   this->speaker_pending_.clear();
+  this->finish_requested_ = false;
+  // Frames are cumulative per connection (internal/bridge/frame.go), so the
+  // counter has to start from zero on the next one. Without this the first
+  // PLAYED of a new link reports a position from the previous one.
+  this->played_frames_.store(0, std::memory_order_relaxed);
+  this->played_dirty_.store(false, std::memory_order_relaxed);
   this->stop_microphones_();
   // Silence rather than play stale TTS when the link returns.
   if (this->speaker_ != nullptr) {
@@ -198,9 +218,12 @@ void ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *pa
   // Append whole frames only: a truncated header leaves the host unable to
   // find the next frame boundary.
   if (this->tx_.size() + HEADER_SIZE + length > TX_CAPACITY) {
-    if (type == FrameType::MIC) {
+    // MIC is droppable audio; the host sees a gap. PLAYED is droppable because
+    // it carries a cumulative frame count, so the next one supersedes it --
+    // tearing the link down over a status report loses the whole utterance.
+    if (type == FrameType::MIC || type == FrameType::PLAYED) {
       if (++this->dropped_chunks_ % 32 == 1) {
-        ESP_LOGW(TAG, "TX full, dropped %" PRIu32 " mic chunks", this->dropped_chunks_);
+        ESP_LOGW(TAG, "TX full, dropped %" PRIu32 " uplink frames", this->dropped_chunks_);
       }
       return;
     }
@@ -237,7 +260,10 @@ void ChorusBridge::pump_uplink_() {
       continue;
     }
     // Delivered chunk size is the mic task's choice; send chunks are sized here.
-    while (ch.reader->fill(0) > 0 || ch.reader->available() > 0) {
+    // fill(0, false): never block in loop(), and pre_shift is ignored by
+    // RingBufferAudioSource, which exposes the ring buffer's storage in place.
+    // It returns 0 while an exposure is unconsumed, hence the available() arm.
+    while (ch.reader->fill(0, false) > 0 || ch.reader->available() > 0) {
       size_t available = ch.reader->available();
       if (available == 0) {
         break;
@@ -252,11 +278,14 @@ void ChorusBridge::pump_uplink_() {
 }
 
 void ChorusBridge::pump_downlink_() {
-  // ready() obliges us to read until EAGAIN, or ready() stops reporting data.
-  while (true) {
+  // Bounded, not drained. An utterance is megabytes and this heap is not: an
+  // unbounded rx_ aborts the firmware in std::vector::insert the moment the
+  // allocator fails, because exceptions are off. Leaving the socket unread
+  // instead makes TCP flow control hold the remainder on the host.
+  while (this->rx_.size() + RX_CHUNK_SIZE <= RX_CAPACITY) {
     const size_t offset = this->rx_.size();
-    this->rx_.resize(offset + SPEAKER_BUFFER_SIZE);
-    ssize_t got = this->socket_->read(this->rx_.data() + offset, SPEAKER_BUFFER_SIZE);
+    this->rx_.resize(offset + RX_CHUNK_SIZE);
+    ssize_t got = this->socket_->read(this->rx_.data() + offset, RX_CHUNK_SIZE);
     this->rx_.resize(offset + (got > 0 ? got : 0));
     if (got > 0) {
       continue;
@@ -279,6 +308,11 @@ void ChorusBridge::pump_downlink_() {
     if (this->rx_.size() - consumed - HEADER_SIZE < length) {
       break;  // partial frame; wait for the rest
     }
+    // Same bound one level down: stop handing audio to the speaker queue while
+    // it is already full, and leave the frame in rx_ for a later loop().
+    if (static_cast<FrameType>(h[0]) == FrameType::TTS && this->speaker_pending_.size() >= SPEAKER_BUFFER_SIZE) {
+      break;
+    }
     this->handle_frame_(static_cast<FrameType>(h[0]), h[1], h + HEADER_SIZE, length);
     consumed += HEADER_SIZE + length;
     if (this->socket_ == nullptr) {
@@ -296,24 +330,37 @@ void ChorusBridge::handle_frame_(FrameType type, uint8_t flags, const uint8_t *p
       if (this->speaker_ == nullptr) {
         return;
       }
-      this->speaker_->start();
+      // Only on a genuine start. TTS arrives as many small frames, and
+      // re-entering start() on each one restarts the resampler/mixer chain
+      // underneath and audibly stalls it.
+      if (this->speaker_->is_stopped()) {
+        this->speaker_->start();
+      }
+      // Not a counter reset: frames stay cumulative for the whole connection
+      // (internal/bridge/frame.go), so the host's positions never go backwards.
+      this->playing_.store(true, std::memory_order_release);
       this->speaker_pending_.insert(this->speaker_pending_.end(), payload, payload + length);
       this->pump_speaker_();
       return;
 
     case FrameType::STOP:
-      // Barge-in: discard the buffer so the user stops hearing us now.
+      // Barge-in: discard the buffer so the user stops hearing us now. Gate
+      // first, so the frames the DAC drains after this are not reported as
+      // played -- the last position before a stop is the truncation point.
+      this->playing_.store(false, std::memory_order_release);
       this->speaker_pending_.clear();
+      this->finish_requested_ = false;
       if (this->speaker_ != nullptr) {
         this->speaker_->stop();
       }
       return;
 
     case FrameType::FINISH:
-      // Natural end: drain what is buffered, then stop.
-      if (this->speaker_ != nullptr && this->speaker_pending_.empty()) {
-        this->speaker_->finish();
-      }
+      // Deferred, not immediate: the downlink is bounded, so the tail of the
+      // utterance is normally still queued here. pump_speaker_() finishes once
+      // it has handed the last byte over.
+      this->finish_requested_ = true;
+      this->pump_speaker_();
       return;
 
     case FrameType::DUCK:
@@ -344,13 +391,19 @@ void ChorusBridge::handle_frame_(FrameType type, uint8_t flags, const uint8_t *p
 }
 
 void ChorusBridge::pump_speaker_() {
-  if (this->speaker_ == nullptr || this->speaker_pending_.empty()) {
+  if (this->speaker_ == nullptr) {
     return;
   }
-  // play() returns bytes actually buffered: that is the backpressure signal.
-  size_t written = this->speaker_->play(this->speaker_pending_.data(), this->speaker_pending_.size());
-  if (written > 0) {
-    this->speaker_pending_.erase(this->speaker_pending_.begin(), this->speaker_pending_.begin() + written);
+  if (!this->speaker_pending_.empty()) {
+    // play() returns bytes actually buffered: that is the backpressure signal.
+    size_t written = this->speaker_->play(this->speaker_pending_.data(), this->speaker_pending_.size());
+    if (written > 0) {
+      this->speaker_pending_.erase(this->speaker_pending_.begin(), this->speaker_pending_.begin() + written);
+    }
+  }
+  if (this->finish_requested_ && this->speaker_pending_.empty()) {
+    this->finish_requested_ = false;
+    this->speaker_->finish();
   }
 }
 
