@@ -36,11 +36,12 @@ events: [string]: #Event
 events: {
 	session_opened: {
 		name:        "session_opened", actor: "session"
-		description: "Wake word confirmed; a conversation begins."
+		description: "Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5)."
 		fields: [
 			{name: "satellite", type: "string", description: "Device that heard it.", required: true},
 			{name: "speaker_id", type: "string", description: "Identified person, empty when unknown."},
 			{name: "wake_confidence", type: "number", description: "Stage-two confirmation score."},
+			{name: "resumed", type: "boolean", description: "Joined an existing conversation rather than starting one."},
 		]
 	}
 	wake_rejected: {
@@ -87,7 +88,7 @@ events: {
 		training_signal: true
 		fields: [
 			{name: "unspoken_text", type: "string", description: "Generated but never played.", required: true},
-			{name: "reason", type: "string", description: "Why it was dropped.", required: true, enum: ["barge_in", "preempted", "session_closed"]},
+			{name: "reason", type: "string", description: "Why it was dropped.", required: true, enum: ["barge_in", "preempted", "session_closed", "migrated"]},
 		]
 	}
 	tool_called: {
@@ -136,9 +137,10 @@ events: {
 	}
 	session_closed: {
 		name:        "session_closed", actor: "session"
-		description: "Conversation ended."
+		description: "Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5)."
 		fields: [
-			{name: "reason", type: "string", description: "Why it ended.", required: true, enum: ["model_ended", "silence_timeout", "device_lost", "error"]},
+			{name: "reason", type: "string", description: "Why it ended.", required: true, enum: ["model_ended", "silence_timeout", "device_lost", "migrated", "error"]},
+			{name: "satellite", type: "string", description: "Device whose stream ended. Pairs the close with its open.", required: true},
 		]
 	}
 }
