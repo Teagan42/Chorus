@@ -342,6 +342,60 @@ func TestADroppedStreamStillClosesInlineSpeech(t *testing.T) {
 	}
 }
 
+// A turn that dies mid-stream still has to appear in the log. Turn's error
+// return is spent before the first chunk, so a dropped connection would
+// otherwise leave a turn with speech recorded and no model_completed at all.
+//
+// verifies SPEC §7, §8
+func TestAFailedTurnIsStillRecorded(t *testing.T) {
+	body := `{"message":{"role":"assistant","content":"half a th"},"done":false}` + "\n"
+	acts, err := collect(t, decoder{}, strings.NewReader(body))
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("err = %v, want the failure to still be reported", err)
+	}
+	end, ok := acts[len(acts)-1].(session.TurnEnd)
+	if !ok {
+		t.Fatalf("last action is %T, want a TurnEnd for the failed turn", acts[len(acts)-1])
+	}
+	if end.FinishReason != "error" {
+		t.Errorf("finish reason = %q, want error", end.FinishReason)
+	}
+	var got struct {
+		Content string `json:"content"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(end.Completion), &got); err != nil {
+		t.Fatalf("completion %q is not JSON: %v", end.Completion, err)
+	}
+	// Both halves: what the model produced, and why it stopped.
+	if got.Content != "half a th" {
+		t.Errorf("partial content = %q, want it kept", got.Content)
+	}
+	if got.Error == "" {
+		t.Error("the completion does not say why the turn stopped")
+	}
+}
+
+// A turn that ended normally must not also report a failure.
+func TestASuccessfulTurnReportsOneEnd(t *testing.T) {
+	acts, err := replay(t, "reply.ndjson", decoder{})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	var ends int
+	for _, a := range acts {
+		if e, ok := a.(session.TurnEnd); ok {
+			ends++
+			if e.FinishReason == "error" {
+				t.Error("a successful turn reported an error finish")
+			}
+		}
+	}
+	if ends != 1 {
+		t.Errorf("got %d TurnEnds, want 1: %v", ends, kinds(acts))
+	}
+}
+
 // A stream that ends without done is a dropped connection. Reporting success
 // would record a turn that never finished as complete.
 func TestATruncatedStreamIsAnError(t *testing.T) {
