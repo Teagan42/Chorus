@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.0](https://github.com/Teagan42/Chorus/compare/v0.1.0...v0.2.0) (2026-10-07)
+
+
+### Features
+
+* **blob:** store the audio a journal event refers to ([#11](https://github.com/Teagan42/Chorus/issues/11)) ([520bfac](https://github.com/Teagan42/Chorus/commit/520bfacda5375d47b177f744ab22ad8fa86cbd9a))
+* **bridge:** prove full duplex on real hardware ([#7](https://github.com/Teagan42/Chorus/issues/7)) ([c51eef6](https://github.com/Teagan42/Chorus/commit/c51eef6def699a2c1fcd373255ddcc8d152ab3ef))
+* **provider:** decode Ollama chat streams into session actions ([#13](https://github.com/Teagan42/Chorus/issues/13)) ([08cdd4f](https://github.com/Teagan42/Chorus/commit/08cdd4fee7f688012c428cba5b13ee181f7d7cd0))
+* **satellite:** resolve the truncation point to a clause ([#12](https://github.com/Teagan42/Chorus/issues/12)) ([197be0f](https://github.com/Teagan42/Chorus/commit/197be0fb00615bdbe36a69228026d3bdce8ab963))
+* **satellite:** take the truncation point from the device's DAC ([#10](https://github.com/Teagan42/Chorus/issues/10)) ([c16dd50](https://github.com/Teagan42/Chorus/commit/c16dd5059a6f280203067c967fe4b817ba70e872))
+
+
+### Bug Fixes
+
+* **chorus_bridge:** stop the uplink starving itself on a busy band ([#9](https://github.com/Teagan42/Chorus/issues/9)) ([d56e8f6](https://github.com/Teagan42/Chorus/commit/d56e8f69f3dd36f059fa8d3ca18eaf1ba8827969))
+
 ## 0.1.0 (2026-10-06)
 
 
