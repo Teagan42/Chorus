@@ -132,6 +132,8 @@ func (s *fakeStream) Close() session.Playback {
 		select {
 		case <-s.sp.release:
 		case <-s.ctx.Done():
+			// A test-chosen offset, not the clause a device cuts at
+			// (internal/satellite/chunk.go).
 			cut := min(s.sp.cut, len(s.text))
 			return session.Playback{
 				Spoken:    s.text[:cut],
