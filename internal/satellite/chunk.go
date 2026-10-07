@@ -11,10 +11,12 @@ import (
 // A segment counts as wholly spoken once the DAC enters it (see split), so an
 // utterance delivered as a single segment -- which is what the speak tool does,
 // a whole sentence per call (internal/session/session.go) -- reports a
-// mid-sentence cut as the entire sentence spoken. Kokoro reports no per-word
-// frame offsets, so a clause is the finest boundary available without inferring
-// the split from the length of the text, which is the guess this package exists
-// to avoid (SPEC §3.2.1, §15).
+// mid-sentence cut as the entire sentence spoken. Kokoro's speech endpoint
+// returns audio and nothing else -- per-word timings exist only on its
+// /dev/captioned_speech endpoint, which base64s the audio into JSON -- so a
+// clause is the finest boundary available without inferring the split from the
+// length of the text, which is the guess this package exists to avoid
+// (SPEC §3.2.1, §15).
 const maxSegmentChars = 32
 
 // chunk divides a delta into the pieces a truncation point may fall between.
