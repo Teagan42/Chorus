@@ -98,13 +98,21 @@ func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Act
 	// ended tracks whether the turn already reported its own end.
 	var inlineOpen, ended bool
 	defer func() {
+		// Closing events are sent on a context that cannot be cancelled. This
+		// path is reached *because* the turn was cut off, and cancellation is
+		// the ordinary way that happens -- barge-in cancels the turn -- so a
+		// select between the send and ctx.Done() drops them about half the
+		// time, exactly when they matter. Safe because the caller drains until
+		// the channel closes, which Engine.Turn requires of it.
+		closing := context.WithoutCancel(ctx)
+
 		// Inline content streams with no end marker of its own, and Last is
 		// what closes the utterance (internal/session/speechchan.go). A stream
 		// that dies mid-utterance must still close it: speechChannel.play waits
 		// on the session context, so an unclosed one blocks waitIdle for the
 		// whole session.
 		if inlineOpen {
-			if cerr := emit(ctx, out, session.SpeechDelta{Mode: session.ModeQueue, Last: true}); err == nil {
+			if cerr := emit(closing, out, session.SpeechDelta{Mode: session.ModeQueue, Last: true}); err == nil {
 				err = cerr
 			}
 		}
@@ -120,7 +128,7 @@ func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Act
 		if merr != nil {
 			return
 		}
-		_ = emit(ctx, out, session.TurnEnd{FinishReason: finishError, Completion: string(raw)})
+		_ = emit(closing, out, session.TurnEnd{FinishReason: finishError, Completion: string(raw)})
 	}()
 
 	sc := bufio.NewScanner(r)
