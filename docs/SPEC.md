@@ -173,7 +173,7 @@ channels}`, and the three claims below are asserted on every run of
 
 | Claim | Measured |
 |---|---|
-| Capture continues during playback (§3.3.1) | 448-628 mic frames across a 6 s utterance; longest uplink gap 137-393 ms against an idle baseline of 94-296 ms on the same link |
+| Capture continues during playback (§3.3.1) | 448-628 mic frames across a 6 s utterance; longest uplink gap 137-393 ms against an idle baseline of 94-296 ms on the same link. Holds whenever the radio has the airtime; see the congestion note below |
 | Playback position is the DAC's own (§3.2.1) | Final position within 40 ms of a 3 s utterance; frame advance tracks `esp_timer` to under 1 ms when playback does not stall |
 | Barge-in discards the buffer (§3.2) | Playback stops 20-60 ms in, and capture survives it |
 
@@ -190,13 +190,30 @@ Hardware notes that cost real time to find:
   that the DAC genuinely plays and therefore counts. The reported position can
   exceed the audio supplied; it cannot fall short of what was emitted.
 - The uplink's **idle** jitter is set by the radio, not by this component: with
-  the speaker switched off the device goes 170-468 ms between frames routinely,
-  and over a second occasionally. A duplex claim measured against a fixed gap
+  the speaker switched off the device still goes 120-210 ms between frames, and
+  on a bad evening over a second. A duplex claim measured against a fixed gap
   budget therefore tests the 2.4 GHz band, not the component. The test takes a
-  baseline on the same connection and asserts the excess over it.
-- **Open:** roughly one run in five still shows a ~2 s uplink stall during
-  playback, outside the idle population above. The hard ceiling in the test
-  catches it. Unexplained, and not yet attributed to the firmware.
+  baseline on the same connection seconds earlier and asserts the excess over
+  it, plus a hard ceiling no baseline can excuse.
+- **Airtime, not bandwidth, is the limit.** 512 kbps is nothing for WiFi, but a
+  32 ms chunk is a short 802.11 frame and a short frame costs nearly a full
+  frame's airtime, so flushing per chunk spends the band on headers. Batching
+  the uplink to an MSS halved the device's EAGAIN rate for the same bytes.
+- **When the band is congested the test fails and the firmware is not at
+  fault.** The measurement that settles this uses no project code: with the
+  device idle and no audio at all, plain ICMP at ~28 KB/s loses 3% of packets
+  and peaks at 717 ms RTT; under duplex audio, 8.3% loss and 1357 ms. Signal is
+  a strong -49 dBm, so it is ambient congestion, not range. Through all of it
+  the device held capture at a steady 32256 B/s with `loop()` at 17-23 ms: it
+  buffers its one second of TX and then correctly drops, and the host -- which
+  cannot see that drop counter -- reads it as a capture stall. No firmware
+  change recovers capacity the air does not have. Sustained duplex on this
+  satellite wants 5 GHz or a quieter channel, and a red `TestHardwareFullDuplex`
+  should be checked against the ICMP control before it is believed.
+- ESPHome's `RingBuffer::write()` **overwrites the oldest data rather than
+  blocking**, so a full mic ring discards silently and never backs pressure up
+  into the capture task. A starved channel is therefore invisible from the host
+  unless something counts it.
 - ESP-IDF builds with exceptions off, so an allocation failure is an `abort()`,
   not an error path. Every buffer in the audio path is fixed-capacity and
   reserved once.
