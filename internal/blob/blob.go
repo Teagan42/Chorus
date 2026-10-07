@@ -108,7 +108,8 @@ func NewDir(root string) (*Dir, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("blob: root %q is not a directory", root)
 	}
-	return &Dir{root: root}, nil
+	// Cleaned so a writer can walk back up to it by comparison.
+	return &Dir{root: filepath.Clean(root)}, nil
 }
 
 func (d *Dir) Create(_ context.Context, key string) (Writer, error) {
@@ -126,7 +127,7 @@ func (d *Dir) Create(_ context.Context, key string) (Writer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("blob: open %q: %w", key, err)
 	}
-	return &dirWriter{key: key, final: final, f: f}, nil
+	return &dirWriter{key: key, root: d.root, final: final, f: f}, nil
 }
 
 func (d *Dir) Open(_ context.Context, ref string) (io.ReadCloser, error) {
@@ -143,6 +144,7 @@ func (d *Dir) Open(_ context.Context, ref string) (io.ReadCloser, error) {
 
 type dirWriter struct {
 	key   string
+	root  string
 	final string
 	f     *os.File
 	done  bool
@@ -175,7 +177,40 @@ func (w *dirWriter) Commit() (string, error) {
 		_ = os.Remove(w.f.Name())
 		return "", fmt.Errorf("blob: publish %q: %w", w.key, err)
 	}
+	if err := w.syncAncestry(); err != nil {
+		return "", fmt.Errorf("blob: publish %q: %w", w.key, err)
+	}
 	return RefFor(w.key), nil
+}
+
+// syncAncestry makes the new directory entry durable, from the blob's own
+// directory up to the root. A rename is only as durable as the directory
+// holding it: on a filesystem that needs an explicit directory fsync, a power
+// loss can otherwise leave a journal reference whose path no longer exists.
+// The ancestry is walked because Create may have made those directories too,
+// and an entry for a directory that vanished loses everything under it.
+func (w *dirWriter) syncAncestry() error {
+	for dir := filepath.Dir(w.final); len(dir) >= len(w.root); dir = filepath.Dir(dir) {
+		if err := syncDir(dir); err != nil {
+			return err
+		}
+		if dir == w.root {
+			return nil
+		}
+	}
+	return nil
+}
+
+func syncDir(dir string) error {
+	f, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("open %q: %w", dir, err)
+	}
+	defer f.Close()
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("sync %q: %w", dir, err)
+	}
+	return nil
 }
 
 func (w *dirWriter) Abort() error {
