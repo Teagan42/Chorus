@@ -9,6 +9,7 @@ package satellite
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"strings"
@@ -165,10 +166,12 @@ func (s *Satellite) position() (uint64, <-chan struct{}) {
 // Open starts an utterance. Its frame offsets are relative to the position
 // now, because PLAYED counts the whole connection.
 func (s *Satellite) Open(ctx context.Context, callID string) (session.Stream, error) {
-	// Keyed on the call id alone, which is already unique. Partitioning by
-	// conversation is the journal's job, and the event that carries this
-	// reference is what links the two (SPEC §8).
-	w, err := s.cfg.Blobs.Create(ctx, "tts/"+callID)
+	// Keyed on an id of our own rather than the call id. An engine only
+	// promises a call id groups one utterance's deltas, so a later turn may
+	// reuse one, and a reused key would silently repoint every earlier journal
+	// reference at the new audio. The event carrying the reference is what ties
+	// it back to the call (SPEC §8).
+	w, err := s.cfg.Blobs.Create(ctx, "tts/"+rand.Text())
 	if err != nil {
 		return nil, fmt.Errorf("satellite: open audio for %s: %w", callID, err)
 	}
@@ -338,12 +341,6 @@ func (s *stream) Close() session.Playback {
 	close(s.quit)
 	<-s.done
 
-	// Committed once the feeder can no longer write. An empty ref on failure
-	// is deliberate: the audio is gone, journal.Append rejects an audio-bearing
-	// event without a reference, and that loud failure is better than a record
-	// pointing at a blob that does not exist.
-	ref, _ := s.audio.Commit()
-
 	if !cut {
 		_ = s.sat.cfg.Link.Finish()
 		s.awaitDrain()
@@ -360,6 +357,7 @@ func (s *stream) Close() session.Playback {
 	// flight time, and the firmware gates its counter at the stop precisely so
 	// that its last report is the truncation point.
 	played := s.playedFrames()
+	ref := s.keepAudio(played > 0)
 	// Every delta rendered *and* the DAC reached the end of all of it. The
 	// rendered test is not redundant: a delta cut before synthesis adds no
 	// frames, so without it an utterance whose tail never reached the
@@ -381,6 +379,25 @@ func (s *stream) Close() session.Playback {
 		Spoken: spoken, Unspoken: unspoken, AudioRef: ref,
 		Frames: int64(played), Truncated: true,
 	}
+}
+
+// keepAudio publishes the utterance's audio, or discards it when no event will
+// name it. Safe either way only once the feeder has stopped, since the feeder
+// is what writes.
+//
+// Audio nothing was heard of is dropped: the session journals that as
+// speech_discarded, which carries no reference (schema/event.cue), so a blob
+// kept here would be one no event names -- unreachable by replay or export,
+// and still occupying disk. An empty ref on a failed commit is deliberate too:
+// the audio is gone, journal.Append rejects an audio-bearing event without a
+// reference, and that loud failure beats a record pointing at nothing.
+func (s *stream) keepAudio(keep bool) string {
+	if !keep {
+		_ = s.audio.Abort()
+		return ""
+	}
+	ref, _ := s.audio.Commit()
+	return ref
 }
 
 // playedFrames is the DAC's position within this utterance.

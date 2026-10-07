@@ -3,6 +3,8 @@ package satellite_test
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -321,14 +323,84 @@ func TestACutKeepsTheUnheardAudioItHadAlreadyRendered(t *testing.T) {
 }
 
 // verifies SPEC §8
-func TestOpenFailsWhenTheAudioCannotBeStored(t *testing.T) {
+func TestAnUtteranceNothingWasHeardOfLeavesNoBlob(t *testing.T) {
 	r := newRig(t)
+	st, cancel := r.open(t, "call-1")
+
+	if err := st.Write("never heard"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, 2)
+	cancel()
+	pb := await(t, closeAsync(st))
+
+	// The session journals this as speech_discarded, which carries no reference
+	// (schema/event.cue), so audio committed here is audio no event can name:
+	// unreachable by replay or export, and growing on disk.
+	if pb.AudioRef != "" {
+		t.Errorf("AudioRef = %q, want empty: no event will carry it", pb.AudioRef)
+	}
+	if refs := r.blobs.Refs(); len(refs) != 0 {
+		t.Errorf("store holds %v, want nothing", refs)
+	}
+}
+
+// verifies SPEC §8
+func TestAReusedCallIDDoesNotOverwriteEarlierAudio(t *testing.T) {
+	r := newRig(t)
+
+	// Call ids come from the engine, which only promises they group an
+	// utterance's deltas. A second turn may reuse one, and a key that trusted
+	// it would repoint every earlier reference at the new audio.
+	var refs []string
+	var sent int
+	for i, text := range []string{"first", "second"} {
+		st, _ := r.open(t, "call-reused")
+		if err := st.Write(text); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		sent += len(text) * framesPerByte * 2
+		r.dev.AwaitTTS(t, sent)
+		done := closeAsync(st)
+		r.dev.AwaitFinish(t, i+1)
+		r.dev.PlayAll(t)
+		refs = append(refs, await(t, done).AudioRef)
+	}
+
+	if refs[0] == refs[1] {
+		t.Fatalf("both utterances stored at %q: the second overwrote the first", refs[0])
+	}
+	for i, want := range []string{"first", "second"} {
+		stored, ok := r.blobs.Bytes(refs[i])
+		if !ok {
+			t.Fatalf("AudioRef %q points at no blob", refs[i])
+		}
+		if n := len(want) * framesPerByte * 2; len(stored) != n {
+			t.Errorf("blob %d is %d bytes, want %d for %q", i, len(stored), n, want)
+		}
+	}
+}
+
+// verifies SPEC §8
+func TestOpenFailsWhenTheAudioCannotBeStored(t *testing.T) {
+	r := newRig(t, func(c *satellite.Config) { c.Blobs = failingStore{} })
 	// A session that cannot keep the audio must not speak: the event recording
 	// the speech would be rejected afterwards anyway, so failing at Open
 	// surfaces it before the device makes a sound.
-	if _, err := r.sat.Open(context.Background(), "../escape"); err == nil {
-		t.Error("Open with an unstorable call id succeeded, want an error")
+	if _, err := r.sat.Open(context.Background(), "call-1"); err == nil {
+		t.Error("Open succeeded with nowhere to store audio, want an error")
 	}
+}
+
+// failingStore has nowhere to put audio, like a full or unmounted disk.
+type failingStore struct{}
+
+func (failingStore) Create(context.Context, string) (blob.Writer, error) {
+	return nil, errors.New("no space left on device")
+}
+
+func (failingStore) Open(context.Context, string) (io.ReadCloser, error) {
+	return nil, errors.New("no space left on device")
 }
 
 // verifies SPEC §4.4
