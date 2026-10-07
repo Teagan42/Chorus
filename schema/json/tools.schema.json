@@ -8,7 +8,7 @@
     "name": "end_session"
   },
   {
-    "description": "Search the media library.",
+    "description": "Search the media library. Takes several seconds to return.",
     "input_schema": {
       "properties": {
         "limit": {
