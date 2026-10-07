@@ -38,9 +38,20 @@ const bytesPerFrame = bridge.BitsPerSample / 8
 const (
 	sliceDuration = 200 * time.Millisecond
 	sliceBytes    = int(sliceDuration/time.Millisecond) * bridge.SampleRate / 1000 * bytesPerFrame
-	paceFraction  = 3 // wait sliceDuration*(paceFraction-1)/paceFraction per slice
+	paceFraction  = 3 // wait (paceFraction-1)/paceFraction of each payload's own duration
 	primeSlices   = 2
 )
+
+// paceFor is how long to wait after handing over n bytes: most of what that
+// audio itself lasts. Proportional to the payload rather than a flat
+// sliceDuration because a payload shorter than one slice -- the last of an
+// utterance, or a short delta from a streaming model -- would otherwise be
+// followed by a wait longer than the audio it paces, starving the mixer while
+// the radio sits idle (SPEC §3.3.2).
+func paceFor(n int) time.Duration {
+	frames := time.Duration(n / bytesPerFrame)
+	return frames * time.Second / bridge.SampleRate * (paceFraction - 1) / paceFraction
+}
 
 // DefaultDrain bounds the wait for the DAC to confirm a finished utterance.
 const DefaultDrain = 10 * time.Second
@@ -292,7 +303,8 @@ func (s *stream) send(i int) bool {
 	s.mu.Unlock()
 
 	for off := 0; off < len(pcm); off += sliceBytes {
-		if err := s.sat.cfg.Link.SendTTS(pcm[off:min(off+sliceBytes, len(pcm))]); err != nil {
+		slice := pcm[off:min(off+sliceBytes, len(pcm))]
+		if err := s.sat.cfg.Link.SendTTS(slice); err != nil {
 			// ErrStopped means a barge-in overtook this payload, which is the
 			// stop working, not a failure.
 			return false
@@ -305,7 +317,7 @@ func (s *stream) send(i int) bool {
 			continue
 		}
 		select {
-		case <-s.sat.cfg.Timers.After(sliceDuration * (paceFraction - 1) / paceFraction):
+		case <-s.sat.cfg.Timers.After(paceFor(len(slice))):
 		case <-s.ctx.Done():
 			return false
 		}

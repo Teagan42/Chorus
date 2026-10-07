@@ -70,8 +70,12 @@ const (
 
 // fakeTimers fires every pacing wait at once and hands the two deadlines a
 // test may care about to the test itself, which reaches them deliberately
-// rather than by waiting.
-type fakeTimers struct{ drain, settle chan time.Time }
+// rather than by waiting. Pacing waits are recorded as they are asked for,
+// because how long they are is the only evidence of how the downlink is paced.
+type fakeTimers struct {
+	drain, settle chan time.Time
+	paced         *pacing
+}
 
 func (f fakeTimers) After(d time.Duration) <-chan time.Time {
 	switch {
@@ -80,10 +84,35 @@ func (f fakeTimers) After(d time.Duration) <-chan time.Time {
 	case d >= rigSettle:
 		return f.settle
 	default:
+		if f.paced != nil {
+			f.paced.add(d)
+		}
 		fired := make(chan time.Time, 1)
 		fired <- time.Now()
 		return fired
 	}
+}
+
+// pacing collects the pacing waits the feeder asked for, in order.
+type pacing struct {
+	mu  sync.Mutex
+	saw []time.Duration
+}
+
+func (p *pacing) add(d time.Duration) {
+	p.mu.Lock()
+	p.saw = append(p.saw, d)
+	p.mu.Unlock()
+}
+
+func (p *pacing) total() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var sum time.Duration
+	for _, d := range p.saw {
+		sum += d
+	}
+	return sum
 }
 
 type rig struct {
@@ -91,6 +120,7 @@ type rig struct {
 	dev    *bridgetest.Device
 	synth  *fakeSynth
 	blobs  *blob.Memory
+	paced  *pacing
 	drain  chan time.Time
 	settle chan time.Time
 	served chan error
@@ -105,13 +135,14 @@ func newRig(t *testing.T, tweak ...func(*satellite.Config)) *rig {
 	synth := &fakeSynth{}
 	r := &rig{
 		dev: dev, synth: synth, blobs: blob.NewMemory(), served: make(chan error, 1),
+		paced: &pacing{},
 		drain: make(chan time.Time), settle: make(chan time.Time),
 	}
 
 	cfg := satellite.Config{
 		Link:   link,
 		Synth:  synth,
-		Timers: fakeTimers{drain: r.drain, settle: r.settle},
+		Timers: fakeTimers{drain: r.drain, settle: r.settle, paced: r.paced},
 		Blobs:  r.blobs,
 		Drain:  rigDrain,
 	}
@@ -559,6 +590,36 @@ func TestASecondUtteranceRebasesOnTheCumulativePosition(t *testing.T) {
 	}
 	if pb.Truncated {
 		t.Error("Truncated = true, want false")
+	}
+}
+
+// verifies SPEC §3.3.2
+func TestPacingNeverOutlastsTheAudioItPaced(t *testing.T) {
+	r := newRig(t)
+	st, _ := r.open(t, "call-1")
+
+	// Eight short deltas, each rendering to well under one slice of audio. A
+	// streaming model emits words, so this is the ordinary case.
+	var chars int
+	for _, delta := range []string{"a, ", "b, ", "c, ", "d, ", "e, ", "f, ", "g, ", "h."} {
+		if err := st.Write(delta); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		chars += len(delta)
+	}
+	r.dev.AwaitTTS(t, chars*framesPerByte*2)
+
+	done := closeAsync(st)
+	r.dev.AwaitFinish(t, 1)
+	r.dev.PlayAll(t)
+	await(t, done)
+
+	// Pacing exists to stop the downlink crowding the mic uplink off the shared
+	// radio. Waiting longer in total than the utterance itself lasts inverts it:
+	// the radio goes idle, the mixer underruns, and every later delta is late.
+	audio := time.Duration(chars*framesPerByte) * time.Second / bridge.SampleRate
+	if total := r.paced.total(); total > audio {
+		t.Errorf("paced %v of waits for %v of audio", total, audio)
 	}
 }
 
