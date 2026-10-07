@@ -226,9 +226,9 @@ void ChorusBridge::disconnect_(const char *reason) {
   }
 }
 
-void ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length) {
+bool ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length) {
   if (this->socket_ == nullptr || this->connecting_) {
-    return;
+    return false;
   }
   // Append whole frames only: a truncated header leaves the host unable to
   // find the next frame boundary.
@@ -238,12 +238,12 @@ void ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *pa
     // tearing the link down over a status report loses the whole utterance.
     if (type == FrameType::MIC || type == FrameType::PLAYED) {
       if (++this->dropped_chunks_ % 32 == 1) {
-        ESP_LOGW(TAG, "TX full, dropped %" PRIu32 " uplink frames", this->dropped_chunks_);
+        ESP_LOGW(TAG, "TX full, %" PRIu32 " uplink frames not queued", this->dropped_chunks_);
       }
-      return;
+      return false;
     }
     this->disconnect_("TX overflow on a control frame");
-    return;
+    return false;
   }
   // Not audio means control: flush it now rather than behind the deadline.
   if (type != FrameType::MIC) {
@@ -255,6 +255,7 @@ void ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *pa
   if (length > 0) {
     this->tx_.insert(this->tx_.end(), payload, payload + length);
   }
+  return true;
 }
 
 bool ChorusBridge::flush_tx_() {
@@ -294,12 +295,18 @@ void ChorusBridge::pump_uplink_() {
       if (available == 0) {
         break;
       }
-      this->queue_frame_(FrameType::MIC, ch.channel, ch.reader->data(), available);
+      // Consumed only once queued. Consuming a dropped frame throws away the
+      // ring's congestion buffer the moment the queue is merely near full: 31
+      // chunks leave 900 bytes, which fits no frame, so this loop would consume
+      // and discard the whole ring rather than hold it until the socket drains.
+      // Leaving it exposed retries the same bytes next loop(), which is also why
+      // this breaks -- fill() returns 0 while an exposure is unconsumed, so
+      // continuing would spin.
+      if (!this->queue_frame_(FrameType::MIC, ch.channel, ch.reader->data(), available)) {
+        break;  // give the next channel its turn; this one keeps its data
+      }
       ch.reader->consume(available);
       // Not flushed per frame: see UPLINK_COALESCE_BYTES. loop() decides.
-      if (this->tx_.size() >= TX_CAPACITY) {
-        break;  // nothing more fits; give the next channel its turn anyway
-      }
     }
   }
   if (count > 0) {

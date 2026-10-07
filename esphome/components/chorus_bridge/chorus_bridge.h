@@ -101,8 +101,10 @@ class ChorusBridge : public Component {
   bool finish_connect_();
   void disconnect_(const char *reason);
 
-  void queue_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length);
-  void queue_frame_(FrameType type, uint8_t flags) { this->queue_frame_(type, flags, nullptr, 0); }
+  /// Appends a whole frame to tx_. False means it did not fit: a MIC caller
+  /// must keep its data rather than consume it (see pump_uplink_).
+  bool queue_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length);
+  bool queue_frame_(FrameType type, uint8_t flags) { return this->queue_frame_(type, flags, nullptr, 0); }
   bool flush_tx_();
 
   void pump_uplink_();
