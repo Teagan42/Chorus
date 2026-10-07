@@ -18,6 +18,16 @@ static const char *const TAG = "chorus_bridge";
 // absorb -- and a 400 ms hole is indistinguishable from going half duplex.
 static const size_t TX_CAPACITY = 2 * RING_BUFFER_SIZE;
 
+// Uplink coalescing. Mic audio is flushed once a full TCP segment has built up,
+// or once this long has passed, whichever comes first. A 32 ms chunk is 1028
+// bytes, and on a busy 2.4 GHz band a short frame costs nearly the same airtime
+// as a full one, so flushing per chunk spends the band on headers: measured on
+// the device, batching to an MSS halved the EAGAIN rate for the same bytes.
+// The deadline bounds the added capture latency, which only has to stay inside
+// the host's endpointing window -- barge-in latency is the downlink's STOP.
+static const size_t UPLINK_COALESCE_BYTES = 1400;
+static const uint32_t UPLINK_FLUSH_MS = 100;
+
 static void put_be16(std::vector<uint8_t> &out, uint16_t v) {
   out.push_back(v >> 8);
   out.push_back(v & 0xff);
@@ -117,7 +127,12 @@ void ChorusBridge::loop() {
   this->publish_played_();
   this->pump_uplink_();
   this->pump_speaker_();
-  this->flush_tx_();
+  if (this->tx_urgent_ || this->tx_.size() >= UPLINK_COALESCE_BYTES ||
+      now - this->last_flush_ms_ >= UPLINK_FLUSH_MS) {
+    this->tx_urgent_ = false;
+    this->last_flush_ms_ = now;
+    this->flush_tx_();
+  }
 }
 
 void ChorusBridge::start_connect_() {
@@ -230,6 +245,10 @@ void ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *pa
     this->disconnect_("TX overflow on a control frame");
     return;
   }
+  // Not audio means control: flush it now rather than behind the deadline.
+  if (type != FrameType::MIC) {
+    this->tx_urgent_ = true;
+  }
   this->tx_.push_back(static_cast<uint8_t>(type));
   this->tx_.push_back(flags);
   put_be16(this->tx_, length);
@@ -277,6 +296,7 @@ void ChorusBridge::pump_uplink_() {
       }
       this->queue_frame_(FrameType::MIC, ch.channel, ch.reader->data(), available);
       ch.reader->consume(available);
+      // Not flushed per frame: see UPLINK_COALESCE_BYTES. loop() decides.
       if (this->tx_.size() >= TX_CAPACITY) {
         break;  // nothing more fits; give the next channel its turn anyway
       }
