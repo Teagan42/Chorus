@@ -1,5 +1,5 @@
-# Local development stack (SPEC §13). Model sidecars pinned to GPU land with
-# the provider work; this file carries the journal's storage only.
+# Local development stack (SPEC §13): the journal's storage, and the model
+# sidecars a tier of tests needs a real one of.
 services:
   postgres:
     # Pinned for the same reason as the Go tools: a server release must not
@@ -22,6 +22,22 @@ services:
       retries: 15
     volumes:
       - journal:/var/lib/postgresql/data
+
+  # TTS (SPEC §10). The CPU image: a dev box has no GPU, and the API is the
+  # same one the GPU image serves, so only the render time differs -- roughly a
+  # third of real time here.
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.9.0
+    ports:
+      - "127.0.0.1:8880:8880"
+    # The model loads at boot, so the port opens well before a request can be
+    # served. start_period covers the warm-up without lengthening a retry.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8880/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
 
 volumes:
   journal:
