@@ -2,6 +2,8 @@ package journal_test
 
 import (
 	"context"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -36,6 +38,54 @@ func TestAppendStampsMonotonicSequenceAndWallClock(t *testing.T) {
 		}
 		if !e.At.Equal(clk.Now()) {
 			t.Errorf("event %d: at = %v, want %v", i, e.At, clk.Now())
+		}
+	}
+}
+
+// A conversation has more than one writer by design: the same person waking a
+// second satellite inside the migration window resumes the same conversation,
+// so a second session appends to the same log (SPEC §4.5). Append reads the
+// last sequence number and then writes, and the store rejects a number that is
+// not exactly one past the last, so an unserialised pair of writers loses an
+// event rather than racing silently.
+//
+// verifies SPEC §8, §4.5
+func TestConcurrentWritersShareOneSequence(t *testing.T) {
+	j := journal.New(journal.NewMemStore(), journal.FixedClock(time.Unix(0, 0)), versions())
+
+	const writers = 32
+	errs := make(chan error, writers)
+	var start sync.WaitGroup
+	start.Add(1)
+	for i := range writers {
+		go func() {
+			start.Wait()
+			_, err := j.Append(context.Background(), "conv-1", journal.Record{
+				Kind:   journal.KindToolResult,
+				Fields: map[string]string{"call_id": "c" + strconv.Itoa(i), "outcome": "ok"},
+			})
+			errs <- err
+		}()
+	}
+	start.Done()
+	for range writers {
+		if err := <-errs; err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+
+	events, err := j.Events(context.Background(), "conv-1")
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if len(events) != writers {
+		t.Fatalf("got %d events, want %d", len(events), writers)
+	}
+	// Gapless and unique: replay reduces in sequence order, so a repeated or
+	// skipped number is a log it cannot read back.
+	for i, e := range events {
+		if want := uint64(i + 1); e.Seq != want {
+			t.Errorf("event %d: seq = %d, want %d", i, e.Seq, want)
 		}
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"sync"
 	"time"
 )
 
@@ -64,6 +65,18 @@ type Journal struct {
 	store    Store
 	clock    Clock
 	versions Versions
+
+	// seq serialises the read-then-write of a sequence number. Here and not in
+	// the caller because the gap is Append's own, and the log has more than one
+	// writer by design: the same person waking a second satellite resumes the
+	// same conversation (SPEC §4.5), and a lock held by one of those sessions
+	// does not cover the other.
+	//
+	// One lock rather than one per conversation. An append is a single round
+	// trip and a household runs a handful of sessions, so the contention is
+	// nothing next to a keyed lock table, which has to be reference-counted to
+	// not leak a mutex per conversation for the process's whole life.
+	seq sync.Mutex
 }
 
 // New binds a journal to a store, clock, and the versions currently in effect.
@@ -91,6 +104,9 @@ func (j *Journal) Append(ctx context.Context, conversationID string, r Record) (
 	if meta.RequiresVersions && !j.versions.complete() {
 		return Event{}, fmt.Errorf("append %s: versions incomplete, pair cannot be attributed", r.Kind)
 	}
+
+	j.seq.Lock()
+	defer j.seq.Unlock()
 
 	seq, err := j.store.LastSeq(ctx, conversationID)
 	if err != nil {

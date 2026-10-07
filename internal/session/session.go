@@ -110,10 +110,6 @@ type Session struct {
 	// activity defers the silence backstop without restarting its goroutine.
 	activity chan struct{}
 
-	// appendMu serialises writes: journal.Append reads the last sequence
-	// number then writes, and concurrent children would collide.
-	appendMu sync.Mutex
-
 	mu         sync.Mutex
 	children   map[string]int
 	turnCancel context.CancelFunc
@@ -547,9 +543,10 @@ func (s *Session) result(callID, outcome, result string) {
 
 // record stamps an event through the journal. WithoutCancel: a child that was
 // just cancelled still has to record what it did (SPEC §4.4).
+//
+// Unserialised here: the journal orders the sequence number against every
+// writer, which this session's children are only some of.
 func (s *Session) record(r journal.Record) error {
-	s.appendMu.Lock()
-	defer s.appendMu.Unlock()
 	_, err := s.sup.cfg.Journal.Append(context.WithoutCancel(s.ctx), s.convID, r)
 	return err
 }
