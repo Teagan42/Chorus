@@ -38,9 +38,20 @@ const bytesPerFrame = bridge.BitsPerSample / 8
 const (
 	sliceDuration = 200 * time.Millisecond
 	sliceBytes    = int(sliceDuration/time.Millisecond) * bridge.SampleRate / 1000 * bytesPerFrame
-	paceFraction  = 3 // wait sliceDuration*(paceFraction-1)/paceFraction per slice
+	paceFraction  = 3 // wait (paceFraction-1)/paceFraction of each payload's own duration
 	primeSlices   = 2
 )
+
+// paceFor is how long to wait after handing over n bytes: most of what that
+// audio itself lasts. Proportional to the payload rather than a flat
+// sliceDuration because a payload shorter than one slice -- the last of an
+// utterance, or a short delta from a streaming model -- would otherwise be
+// followed by a wait longer than the audio it paces, starving the mixer while
+// the radio sits idle (SPEC §3.3.2).
+func paceFor(n int) time.Duration {
+	frames := time.Duration(n / bytesPerFrame)
+	return frames * time.Second / bridge.SampleRate * (paceFraction - 1) / paceFraction
+}
 
 // DefaultDrain bounds the wait for the DAC to confirm a finished utterance.
 const DefaultDrain = 10 * time.Second
@@ -50,8 +61,8 @@ const DefaultDrain = 10 * time.Second
 // has already gone out by then.
 const DefaultSettle = 250 * time.Millisecond
 
-// deltaQueue is how many deltas may be awaiting synthesis. Generous because
-// Write must not block, and a model's deltas are words.
+// deltaQueue is how many segments may be awaiting synthesis. Generous because
+// Write must not block, and one delta becomes several segments.
 const deltaQueue = 256
 
 // Config wires one satellite. Everything that reads a clock or does I/O is
@@ -212,6 +223,9 @@ type stream struct {
 	total  uint64
 	slices int
 	closed bool
+	// overflowed is set once a segment could not be queued. Every segment after
+	// it is recorded but never synthesised.
+	overflowed bool
 }
 
 // Write queues a delta. It never blocks on synthesis or on the radio: the
@@ -229,13 +243,33 @@ func (s *stream) Write(text string) error {
 	if s.closed {
 		return errors.New("satellite: write after close")
 	}
-	s.segs = append(s.segs, segment{text: text})
-	select {
-	case s.in <- len(s.segs) - 1:
-		return nil
-	default:
-		return fmt.Errorf("satellite: %s has %d deltas awaiting synthesis", s.callID, deltaQueue)
+	// Cut into segments here rather than at synthesis, because a segment is the
+	// unit the truncation point resolves to (see maxSegmentChars). Every part is
+	// recorded before any is queued: an overflow partway through must leave the
+	// rest of the delta in the record as unspoken text, not drop it.
+	first := len(s.segs)
+	for _, part := range chunk(text) {
+		s.segs = append(s.segs, segment{text: part})
 	}
+	if s.overflowed {
+		return s.overflowErr()
+	}
+	for i := first; i < len(s.segs); i++ {
+		select {
+		case s.in <- i:
+		default:
+			// Nothing after this segment may be queued, by this Write or a later
+			// one: the feeder would play past the hole and skip words mid-sentence.
+			// The unqueued segments keep no frames, so they report as unspoken.
+			s.overflowed = true
+			return s.overflowErr()
+		}
+	}
+	return nil
+}
+
+func (s *stream) overflowErr() error {
+	return fmt.Errorf("satellite: %s has %d segments awaiting synthesis", s.callID, deltaQueue)
 }
 
 // feed synthesises and paces queued deltas until Close or a barge-in.
@@ -292,7 +326,8 @@ func (s *stream) send(i int) bool {
 	s.mu.Unlock()
 
 	for off := 0; off < len(pcm); off += sliceBytes {
-		if err := s.sat.cfg.Link.SendTTS(pcm[off:min(off+sliceBytes, len(pcm))]); err != nil {
+		slice := pcm[off:min(off+sliceBytes, len(pcm))]
+		if err := s.sat.cfg.Link.SendTTS(slice); err != nil {
 			// ErrStopped means a barge-in overtook this payload, which is the
 			// stop working, not a failure.
 			return false
@@ -305,7 +340,7 @@ func (s *stream) send(i int) bool {
 			continue
 		}
 		select {
-		case <-s.sat.cfg.Timers.After(sliceDuration * (paceFraction - 1) / paceFraction):
+		case <-s.sat.cfg.Timers.After(paceFor(len(slice))):
 		case <-s.ctx.Done():
 			return false
 		}

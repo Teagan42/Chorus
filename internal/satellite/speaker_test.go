@@ -70,8 +70,12 @@ const (
 
 // fakeTimers fires every pacing wait at once and hands the two deadlines a
 // test may care about to the test itself, which reaches them deliberately
-// rather than by waiting.
-type fakeTimers struct{ drain, settle chan time.Time }
+// rather than by waiting. Pacing waits are recorded as they are asked for,
+// because how long they are is the only evidence of how the downlink is paced.
+type fakeTimers struct {
+	drain, settle chan time.Time
+	paced         *pacing
+}
 
 func (f fakeTimers) After(d time.Duration) <-chan time.Time {
 	switch {
@@ -80,10 +84,35 @@ func (f fakeTimers) After(d time.Duration) <-chan time.Time {
 	case d >= rigSettle:
 		return f.settle
 	default:
+		if f.paced != nil {
+			f.paced.add(d)
+		}
 		fired := make(chan time.Time, 1)
 		fired <- time.Now()
 		return fired
 	}
+}
+
+// pacing collects the pacing waits the feeder asked for, in order.
+type pacing struct {
+	mu  sync.Mutex
+	saw []time.Duration
+}
+
+func (p *pacing) add(d time.Duration) {
+	p.mu.Lock()
+	p.saw = append(p.saw, d)
+	p.mu.Unlock()
+}
+
+func (p *pacing) total() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var sum time.Duration
+	for _, d := range p.saw {
+		sum += d
+	}
+	return sum
 }
 
 type rig struct {
@@ -91,6 +120,7 @@ type rig struct {
 	dev    *bridgetest.Device
 	synth  *fakeSynth
 	blobs  *blob.Memory
+	paced  *pacing
 	drain  chan time.Time
 	settle chan time.Time
 	served chan error
@@ -105,13 +135,14 @@ func newRig(t *testing.T, tweak ...func(*satellite.Config)) *rig {
 	synth := &fakeSynth{}
 	r := &rig{
 		dev: dev, synth: synth, blobs: blob.NewMemory(), served: make(chan error, 1),
+		paced: &pacing{},
 		drain: make(chan time.Time), settle: make(chan time.Time),
 	}
 
 	cfg := satellite.Config{
 		Link:   link,
 		Synth:  synth,
-		Timers: fakeTimers{drain: r.drain, settle: r.settle},
+		Timers: fakeTimers{drain: r.drain, settle: r.settle, paced: r.paced},
 		Blobs:  r.blobs,
 		Drain:  rigDrain,
 	}
@@ -253,6 +284,109 @@ func TestBargeInBeforeAnyAudioPlayedSpeaksNothing(t *testing.T) {
 	}
 	if pb.Frames != 0 || !pb.Truncated {
 		t.Errorf("Frames = %d, Truncated = %v, want 0, true", pb.Frames, pb.Truncated)
+	}
+}
+
+// speakToolDelta is how a sentence actually arrives: the speak tool hands the
+// whole thing over in one call (internal/session/session.go).
+const speakToolDelta = "The weather today is sunny with a high of twenty degrees."
+
+// verifies SPEC §4.4
+func TestOneDeltaIsCutInsideItself(t *testing.T) {
+	r := newRig(t)
+	st, cancel := r.open(t, "call-1")
+
+	if err := st.Write(speakToolDelta); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len(speakToolDelta)*framesPerByte*2)
+	// Two characters in. The user heard "Th".
+	r.dev.Play(t, 2*framesPerByte)
+
+	cancel()
+	pb := await(t, closeAsync(st))
+
+	if !pb.Truncated {
+		t.Fatal("Truncated = false, want true")
+	}
+	// A whole delta credited as spoken teaches the corpus that the user heard a
+	// sentence they were two characters into (SPEC §15).
+	if pb.Spoken == speakToolDelta {
+		t.Error("Spoken is the entire utterance after a cut two characters in")
+	}
+	// speech_truncated requires unspoken_text and journal.Append rejects an
+	// empty required field, so nothing-unspoken records nothing at all.
+	if pb.Unspoken == "" {
+		t.Error("Unspoken is empty: journal.Append would reject the event")
+	}
+	if pb.Spoken+pb.Unspoken != speakToolDelta {
+		t.Errorf("split = (%q, %q), does not rejoin to the utterance", pb.Spoken, pb.Unspoken)
+	}
+}
+
+// verifies SPEC §4.2
+func TestTheCutFallsOnAWordBoundary(t *testing.T) {
+	r := newRig(t)
+	st, cancel := r.open(t, "call-1")
+
+	const text = "Sure, I can do that, but the kitchen light is already off."
+	if err := st.Write(text); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len(text)*framesPerByte*2)
+	// Inside the second clause.
+	r.dev.Play(t, uint64((len("Sure, ")+3)*framesPerByte))
+
+	cancel()
+	pb := await(t, closeAsync(st))
+
+	// Half a word recorded as heard is a token the user never got, and the
+	// unspoken half then starts mid-word.
+	if pb.Spoken == "" || !strings.HasSuffix(pb.Spoken, " ") {
+		t.Errorf("Spoken = %q, want it to end on a word boundary", pb.Spoken)
+	}
+	if !strings.HasPrefix(text, pb.Spoken) {
+		t.Errorf("Spoken = %q, want a prefix of the utterance", pb.Spoken)
+	}
+	if pb.Spoken+pb.Unspoken != text {
+		t.Errorf("split = (%q, %q), does not rejoin to the utterance", pb.Spoken, pb.Unspoken)
+	}
+}
+
+// verifies SPEC §4.4
+func TestAFullyPlayedMultiSegmentDeltaIsWhollySpoken(t *testing.T) {
+	r := newRig(t)
+	st, _ := r.open(t, "call-1")
+
+	if err := st.Write(speakToolDelta); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len(speakToolDelta)*framesPerByte*2)
+	done := closeAsync(st)
+	r.dev.AwaitFinish(t, 1)
+	r.dev.PlayAll(t)
+	pb := await(t, done)
+
+	if pb.Truncated {
+		t.Error("Truncated = true, want false: the DAC played all of it")
+	}
+	if pb.Spoken != speakToolDelta || pb.Unspoken != "" {
+		t.Errorf("split = (%q, %q), want the whole utterance spoken", pb.Spoken, pb.Unspoken)
+	}
+	// Segmenting only moves where a cut may land. What the device was sent, what
+	// the journal counts and what the blob holds are all unchanged.
+	if want := int64(len(speakToolDelta) * framesPerByte); pb.Frames != want {
+		t.Errorf("Frames = %d, want %d", pb.Frames, want)
+	}
+	stored, ok := r.blobs.Bytes(pb.AudioRef)
+	if !ok {
+		t.Fatalf("AudioRef %q points at no blob", pb.AudioRef)
+	}
+	if want := len(speakToolDelta) * framesPerByte * 2; len(stored) != want {
+		t.Errorf("blob is %d bytes, want %d", len(stored), want)
+	}
+	if !bytes.Equal(stored, r.dev.TTS()) {
+		t.Error("the stored blob is not the audio the device was sent")
 	}
 }
 
@@ -524,6 +658,41 @@ func TestADeltaCutBeforeSynthesisIsStillUnspokenText(t *testing.T) {
 	}
 }
 
+// verifies SPEC §4.2
+func TestAnOverflowingDeltaKeepsItsWholeTailAsUnspoken(t *testing.T) {
+	r := newRig(t)
+	r.synth.mu.Lock()
+	r.synth.release = make(chan struct{})
+	r.synth.entered = make(chan string, 1)
+	r.synth.mu.Unlock()
+
+	st, cancel := r.open(t, "call-1")
+
+	// More sentences than the queue holds, so the queue fills partway through
+	// one delta. A speak call's text has no length limit.
+	text := strings.Repeat("One more. ", 300)
+	if err := st.Write(text); err == nil {
+		t.Fatal("write: nil error, want the overflow reported")
+	}
+	<-r.synth.entered
+	// After the hole, nothing may be queued: it would play past missing words.
+	if err := st.Write("And later."); err == nil {
+		t.Error("write after overflow: nil error, want it refused")
+	}
+
+	cancel()
+	pb := await(t, closeAsync(st))
+
+	if pb.Spoken != "" {
+		t.Errorf("Spoken = %q, want nothing: no audio reached the DAC", pb.Spoken)
+	}
+	// Generated text past the overflow is still generated: losing it would
+	// drop most of the unspoken half of the preference pair.
+	if want := text + "And later."; pb.Unspoken != want {
+		t.Errorf("Unspoken has %d bytes, want all %d generated", len(pb.Unspoken), len(want))
+	}
+}
+
 // verifies SPEC §3.2.1
 func TestASecondUtteranceRebasesOnTheCumulativePosition(t *testing.T) {
 	r := newRig(t)
@@ -559,6 +728,36 @@ func TestASecondUtteranceRebasesOnTheCumulativePosition(t *testing.T) {
 	}
 	if pb.Truncated {
 		t.Error("Truncated = true, want false")
+	}
+}
+
+// verifies SPEC §3.3.2
+func TestPacingNeverOutlastsTheAudioItPaced(t *testing.T) {
+	r := newRig(t)
+	st, _ := r.open(t, "call-1")
+
+	// Eight short deltas, each rendering to well under one slice of audio. A
+	// streaming model emits words, so this is the ordinary case.
+	var chars int
+	for _, delta := range []string{"a, ", "b, ", "c, ", "d, ", "e, ", "f, ", "g, ", "h."} {
+		if err := st.Write(delta); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		chars += len(delta)
+	}
+	r.dev.AwaitTTS(t, chars*framesPerByte*2)
+
+	done := closeAsync(st)
+	r.dev.AwaitFinish(t, 1)
+	r.dev.PlayAll(t)
+	await(t, done)
+
+	// Pacing exists to stop the downlink crowding the mic uplink off the shared
+	// radio. Waiting longer in total than the utterance itself lasts inverts it:
+	// the radio goes idle, the mixer underruns, and every later delta is late.
+	audio := time.Duration(chars*framesPerByte) * time.Second / bridge.SampleRate
+	if total := r.paced.total(); total > audio {
+		t.Errorf("paced %v of waits for %v of audio", total, audio)
 	}
 }
 
