@@ -43,6 +43,11 @@ const (
 // DefaultDrain bounds the wait for the DAC to confirm a finished utterance.
 const DefaultDrain = 10 * time.Second
 
+// DefaultSettle bounds the wait for the device's final position after a stop.
+// Short because it only delays the journal record, not the silence: the stop
+// has already gone out by then.
+const DefaultSettle = 250 * time.Millisecond
+
 // deltaQueue is how many deltas may be awaiting synthesis. Generous because
 // Write must not block, and a model's deltas are words.
 const deltaQueue = 256
@@ -57,6 +62,10 @@ type Config struct {
 	// Drain bounds the wait for the DAC to reach the end of a finished
 	// utterance. Defaults to DefaultDrain.
 	Drain time.Duration
+
+	// Settle bounds the wait for the device's final position after a barge-in
+	// stop. Defaults to DefaultSettle.
+	Settle time.Duration
 
 	// OnMic, OnWake and OnMute forward the device's other uplink frames. A nil
 	// hook drops its frames.
@@ -92,6 +101,9 @@ func New(cfg Config) (*Satellite, error) {
 	}
 	if cfg.Drain == 0 {
 		cfg.Drain = DefaultDrain
+	}
+	if cfg.Settle == 0 {
+		cfg.Settle = DefaultSettle
 	}
 	return &Satellite{cfg: cfg, notify: make(chan struct{})}, nil
 }
@@ -279,12 +291,26 @@ func (s *stream) Close() session.Playback {
 	s.mu.Lock()
 	s.closed = true
 	s.mu.Unlock()
+
+	cut := s.ctx.Err() != nil
+	if cut {
+		// Sent first, before the feeder is even asked to exit. The device is
+		// playing buffered audio right now and this is the frame that silences
+		// it, so nothing may precede it: Synth is an injected interface,
+		// possibly an HTTP call to Kokoro, and a feeder parked inside it would
+		// otherwise hold the user's ears for that call's whole duration.
+		// Barge-in latency cannot depend on a synthesiser honouring its
+		// context (SPEC §4.4).
+		_ = s.sat.cfg.Link.Stop()
+	}
 	close(s.quit)
 	<-s.done
 
-	if s.ctx.Err() == nil {
+	if !cut {
 		_ = s.sat.cfg.Link.Finish()
 		s.awaitDrain()
+	} else {
+		s.settle()
 	}
 
 	s.mu.Lock()
@@ -292,6 +318,9 @@ func (s *stream) Close() session.Playback {
 	total := s.total
 	s.mu.Unlock()
 
+	// Read after the stop, never before: the DAC keeps going for the stop's
+	// flight time, and the firmware gates its counter at the stop precisely so
+	// that its last report is the truncation point.
 	played := s.playedFrames()
 	// Every delta rendered *and* the DAC reached the end of all of it. The
 	// rendered test is not redundant: a delta cut before synthesis adds no
@@ -302,9 +331,13 @@ func (s *stream) Close() session.Playback {
 		// the frame count the journal carries is this utterance's own audio.
 		return session.Playback{Spoken: allText(segs), Frames: int64(total)}
 	}
-	// Discard what the device still holds. Left queued it would play over the
-	// next utterance, and it is audio the barge-in already decided against.
-	_ = s.sat.cfg.Link.Stop()
+	if !cut {
+		// Truncated without a barge-in: the drain deadline expired. Discard
+		// what the device still holds, or it plays over the next utterance.
+		// No settle after this one -- the device reported nothing for the whole
+		// drain window, so there is nothing in flight to wait for.
+		_ = s.sat.cfg.Link.Stop()
+	}
 	spoken, unspoken := split(segs, played)
 	return session.Playback{
 		Spoken: spoken, Unspoken: unspoken,
@@ -319,6 +352,23 @@ func (s *stream) playedFrames() uint64 {
 		return 0
 	}
 	return p - s.base
+}
+
+// settle waits for the device's last playback report after a stop. The DAC
+// keeps emitting for as long as the stop takes to arrive, and a cumulative
+// report covering those frames can already be in flight; they were heard, so
+// leaving them out would understate what the user got.
+//
+// Bounded and allowed to expire: the context is already cancelled, so nothing
+// else will unblock this, and the firmware only sends a report when the
+// position actually moved. A timeout falls back to the position already known,
+// which is what this did before -- never worse, often exact.
+func (s *stream) settle() {
+	_, changed := s.sat.position()
+	select {
+	case <-changed:
+	case <-s.sat.cfg.Timers.After(s.sat.cfg.Settle):
+	}
 }
 
 // awaitDrain waits for the DAC to confirm the whole utterance, bounded by

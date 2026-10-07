@@ -30,15 +30,16 @@ type Device struct {
 	conn net.Conn
 	w    *bridge.Writer
 
-	mu        sync.Mutex
-	tts       []byte
-	available uint64 // frames handed over and not yet played
-	played    uint64 // cumulative frames emitted, as PLAYED reports them
-	stops     int
-	finishes  int
-	ducks     []bridge.Duck
-	micEnable []bool
-	notify    chan struct{}
+	mu         sync.Mutex
+	tts        []byte
+	available  uint64 // frames handed over and not yet played
+	played     uint64 // cumulative frames emitted, as PLAYED reports them
+	duringStop uint64 // frames the DAC gets through as a stop arrives
+	stops      int
+	finishes   int
+	ducks      []bridge.Duck
+	micEnable  []bool
+	notify     chan struct{}
 }
 
 // Dial returns a host Link joined to a device that has completed the
@@ -87,6 +88,9 @@ func (d *Device) read() {
 		if err != nil {
 			return
 		}
+		// Reported after the lock is released: writing a frame while holding mu
+		// would deadlock against a concurrent Play on an unbuffered pipe.
+		var report bool
 		d.mu.Lock()
 		switch f.Type {
 		case bridge.TypeTTS:
@@ -96,6 +100,11 @@ func (d *Device) read() {
 			// A stop discards the buffer, which is the whole point of one: the
 			// frames held here are never emitted and never reported played.
 			d.stops++
+			if n := min(d.duringStop, d.available); n > 0 {
+				d.played += n
+				report = true
+			}
+			d.duringStop = 0
 			d.available = 0
 		case bridge.TypeFinish:
 			d.finishes++
@@ -107,8 +116,27 @@ func (d *Device) read() {
 			d.micEnable = append(d.micEnable, f.Flags&1 != 0)
 		}
 		d.wakeLocked()
+		played := d.played
 		d.mu.Unlock()
+
+		if report {
+			_ = d.w.WriteFrame(bridge.Played{
+				Frames:          played,
+				TimestampMicros: int64(played) * int64(time.Second/time.Microsecond) / bridge.SampleRate,
+			}.Frame())
+		}
 	}
+}
+
+// PlayDuringStop arms the device to emit this many more frames when it next
+// processes a stop, modelling audio the DAC gets through while the stop is in
+// flight. The real firmware gates its frame counter at the stop and discards
+// the rest, so that last report is the authoritative truncation point
+// (chorus_bridge.cpp, FrameType::STOP). Capped by what the host has sent.
+func (d *Device) PlayDuringStop(frames uint64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.duringStop = frames
 }
 
 // wakeLocked releases everything waiting on a change. The caller holds mu.

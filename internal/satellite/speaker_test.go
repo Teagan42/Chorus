@@ -24,17 +24,30 @@ type fakeSynth struct {
 	err     error
 	release chan struct{} // nil never blocks; otherwise held until closed
 	calls   []string
+	// entered reports each call as it starts, so a test can be sure the feeder
+	// is inside the synthesiser before it provokes a barge-in.
+	entered chan string
+	// deaf models a synthesiser that does not honour cancellation, such as an
+	// HTTP call already in flight. Barge-in latency may not depend on it.
+	deaf bool
 }
 
 func (f *fakeSynth) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	f.mu.Lock()
-	err, release := f.err, f.release
+	err, release, deaf, entered := f.err, f.release, f.deaf, f.entered
 	f.calls = append(f.calls, text)
 	f.mu.Unlock()
+	if entered != nil {
+		entered <- text
+	}
 	if release != nil {
+		done := ctx.Done()
+		if deaf {
+			done = nil
+		}
 		select {
 		case <-release:
-		case <-ctx.Done():
+		case <-done:
 			return nil, ctx.Err()
 		}
 	}
@@ -44,17 +57,29 @@ func (f *fakeSynth) Synthesize(ctx context.Context, text string) ([]byte, error)
 	return make([]byte, len(text)*framesPerByte*2), nil
 }
 
-// fakeTimers fires every pacing wait at once and leaves the drain deadline to
-// the test, which reaches it by playing audio instead of by waiting.
-type fakeTimers struct{ drain chan time.Time }
+// Deadlines the rig configures, chosen far apart so fakeTimers can tell them
+// from the sub-second pacing waits and from each other.
+const (
+	rigDrain  = 30 * time.Second
+	rigSettle = 5 * time.Second
+)
+
+// fakeTimers fires every pacing wait at once and hands the two deadlines a
+// test may care about to the test itself, which reaches them deliberately
+// rather than by waiting.
+type fakeTimers struct{ drain, settle chan time.Time }
 
 func (f fakeTimers) After(d time.Duration) <-chan time.Time {
-	if d < time.Second {
+	switch {
+	case d >= rigDrain:
+		return f.drain
+	case d >= rigSettle:
+		return f.settle
+	default:
 		fired := make(chan time.Time, 1)
 		fired <- time.Now()
 		return fired
 	}
-	return f.drain
 }
 
 type rig struct {
@@ -62,21 +87,32 @@ type rig struct {
 	dev    *bridgetest.Device
 	synth  *fakeSynth
 	drain  chan time.Time
+	settle chan time.Time
 	served chan error
 }
 
-func newRig(t *testing.T) *rig {
+// newRig wires a satellite to an in-process device. By default the post-stop
+// settle expires at once; a tweak can lengthen it to assert what the wait is
+// for.
+func newRig(t *testing.T, tweak ...func(*satellite.Config)) *rig {
 	t.Helper()
 	link, dev := bridgetest.Dial(t, 2)
 	synth := &fakeSynth{}
-	r := &rig{dev: dev, synth: synth, drain: make(chan time.Time), served: make(chan error, 1)}
+	r := &rig{
+		dev: dev, synth: synth, served: make(chan error, 1),
+		drain: make(chan time.Time), settle: make(chan time.Time),
+	}
 
-	sat, err := satellite.New(satellite.Config{
+	cfg := satellite.Config{
 		Link:   link,
 		Synth:  synth,
-		Timers: fakeTimers{drain: r.drain},
-		Drain:  30 * time.Second,
-	})
+		Timers: fakeTimers{drain: r.drain, settle: r.settle},
+		Drain:  rigDrain,
+	}
+	for _, f := range tweak {
+		f(&cfg)
+	}
+	sat, err := satellite.New(cfg)
 	if err != nil {
 		t.Fatalf("new satellite: %v", err)
 	}
@@ -211,6 +247,95 @@ func TestBargeInBeforeAnyAudioPlayedSpeaksNothing(t *testing.T) {
 	}
 	if pb.Frames != 0 || !pb.Truncated {
 		t.Errorf("Frames = %d, Truncated = %v, want 0, true", pb.Frames, pb.Truncated)
+	}
+}
+
+// verifies SPEC §4.4
+func TestBargeInStopsTheDeviceBeforeWaitingOnSynthesis(t *testing.T) {
+	r := newRig(t)
+	held := make(chan struct{})
+	r.synth.mu.Lock()
+	// Deaf to cancellation, like an HTTP request already in flight. The user's
+	// ears may not wait on it.
+	r.synth.release, r.synth.deaf, r.synth.entered = held, true, make(chan string, 1)
+	r.synth.mu.Unlock()
+
+	st, cancel := r.open(t, "call-1")
+	if err := st.Write("held in synthesis"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	<-r.synth.entered // the feeder is now parked inside Synthesize
+
+	cancel()
+	done := closeAsync(st)
+
+	// The stop has to reach the device while the synthesiser is still stuck,
+	// because the device is playing buffered audio the whole time.
+	r.dev.AwaitStop(t, 1)
+
+	close(held)
+	await(t, done)
+}
+
+// verifies SPEC §4.4
+func TestTheCutUsesTheFinalPositionAfterTheStop(t *testing.T) {
+	// A long settle, so the split must come from the device's post-stop report
+	// rather than from the deadline expiring.
+	r := newRig(t, func(c *satellite.Config) { c.Settle = rigSettle })
+	st, cancel := r.open(t, "call-1")
+
+	for _, delta := range []string{"Hello ", "world."} {
+		if err := st.Write(delta); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	r.dev.AwaitTTS(t, len("Hello world.")*framesPerByte*2)
+
+	// Two frames reported before the barge-in, and the DAC gets through the
+	// rest of the first delta while the stop is in flight. Those frames were
+	// heard: a split sampled before the stop would call them unspoken.
+	const before = 2 * framesPerByte
+	r.dev.Play(t, before)
+	r.dev.PlayDuringStop(4 * framesPerByte)
+
+	cancel()
+	pb := await(t, closeAsync(st))
+
+	if want := int64(len("Hello ") * framesPerByte); pb.Frames != want {
+		t.Errorf("Frames = %d, want %d: the position after the stop is the cut", pb.Frames, want)
+	}
+	if pb.Spoken != "Hello " || pb.Unspoken != "world." {
+		t.Errorf("split = (%q, %q), want (%q, %q)", pb.Spoken, pb.Unspoken, "Hello ", "world.")
+	}
+	if !pb.Truncated {
+		t.Error("Truncated = false, want true")
+	}
+}
+
+// verifies SPEC §4.4
+func TestADeviceThatGoesQuietAfterTheStopStillReportsACut(t *testing.T) {
+	r := newRig(t, func(c *satellite.Config) { c.Settle = rigSettle })
+	st, cancel := r.open(t, "call-1")
+
+	if err := st.Write("Hello world."); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len("Hello world.")*framesPerByte*2)
+	const heard = 3 * framesPerByte
+	r.dev.Play(t, heard)
+
+	cancel()
+	done := closeAsync(st)
+	r.dev.AwaitStop(t, 1)
+
+	// The firmware only reports when the position moved, so a stop that lands
+	// between reports is answered with silence. Expiring must degrade to the
+	// position already known, not wedge the session.
+	r.settle <- time.Now()
+
+	pb := await(t, done)
+	if pb.Frames != heard || !pb.Truncated {
+		t.Errorf("Frames = %d, Truncated = %v, want %d, true", pb.Frames, pb.Truncated, heard)
 	}
 }
 
