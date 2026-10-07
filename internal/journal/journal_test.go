@@ -90,6 +90,69 @@ func TestConcurrentWritersShareOneSequence(t *testing.T) {
 	}
 }
 
+// stallStore holds one conversation's LastSeq inside the store, modelling a
+// connection that has hung.
+type stallStore struct {
+	*journal.MemStore
+	conv   string
+	inside chan struct{} // closed once the stalled call is in the store
+	freed  chan struct{} // closed to let it finish
+	once   sync.Once
+}
+
+func (s *stallStore) LastSeq(ctx context.Context, conversationID string) (uint64, error) {
+	if conversationID == s.conv {
+		s.once.Do(func() { close(s.inside) })
+		<-s.freed
+	}
+	return s.MemStore.LastSeq(ctx, conversationID)
+}
+
+// One stalled conversation may not stop another from recording. A session
+// appends on a context with no cancellation and no deadline, so a lock shared
+// across conversations turns one hung connection into a household-wide outage:
+// nothing can be journalled, and the journal is the runtime (SPEC §8).
+//
+// verifies SPEC §8
+func TestAStalledConversationDoesNotBlockAnother(t *testing.T) {
+	store := &stallStore{
+		MemStore: journal.NewMemStore(), conv: "conv-hung",
+		inside: make(chan struct{}), freed: make(chan struct{}),
+	}
+	j := journal.New(store, journal.FixedClock(time.Unix(0, 0)), versions())
+
+	rec := journal.Record{
+		Kind:   journal.KindSessionOpened,
+		Fields: map[string]string{"satellite": "kitchen"},
+	}
+
+	hung := make(chan error, 1)
+	go func() {
+		_, err := j.Append(context.Background(), "conv-hung", rec)
+		hung <- err
+	}()
+	<-store.inside
+
+	live := make(chan error, 1)
+	go func() {
+		_, err := j.Append(context.Background(), "conv-live", rec)
+		live <- err
+	}()
+	select {
+	case err := <-live:
+		if err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a hung conversation blocked an unrelated one from recording")
+	}
+
+	close(store.freed)
+	if err := <-hung; err != nil {
+		t.Fatalf("append after the stall cleared: %v", err)
+	}
+}
+
 // verifies SPEC §8
 func TestAppendRejectsMalformedWrites(t *testing.T) {
 	cases := map[string]struct {

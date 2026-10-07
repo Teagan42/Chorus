@@ -71,12 +71,57 @@ type Journal struct {
 	// writer by design: the same person waking a second satellite resumes the
 	// same conversation (SPEC §4.5), and a lock held by one of those sessions
 	// does not cover the other.
-	//
-	// One lock rather than one per conversation. An append is a single round
-	// trip and a household runs a handful of sessions, so the contention is
-	// nothing next to a keyed lock table, which has to be reference-counted to
-	// not leak a mutex per conversation for the process's whole life.
-	seq sync.Mutex
+	seq seqLocks
+}
+
+// seqLocks hands out one lock per conversation.
+//
+// Per conversation rather than one for the process: both halves of the
+// read-then-write are store round trips, and a session records on a context
+// with no cancellation or deadline (internal/session/session.go), so under a
+// shared lock one hung connection would stop every conversation in the
+// household from recording anything at all.
+type seqLocks struct {
+	mu   sync.Mutex
+	held map[string]*seqLock
+}
+
+// seqLock is one conversation's lock and the number of writers holding or
+// waiting for it. Counted so the entry can go when the last one leaves:
+// conversation ids are never reused, so a map that only grows keeps a mutex
+// per conversation for as long as the process lives.
+type seqLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// lock blocks until this conversation's turn and returns its release.
+func (l *seqLocks) lock(conversationID string) func() {
+	l.mu.Lock()
+	if l.held == nil {
+		l.held = map[string]*seqLock{}
+	}
+	e := l.held[conversationID]
+	if e == nil {
+		e = &seqLock{}
+		l.held[conversationID] = e
+	}
+	// Counted before the wait, not after. An entry dropped while this writer is
+	// still queued would leave it waiting on a lock the map no longer names,
+	// and hand the next writer a fresh one that serialises nothing.
+	e.refs++
+	l.mu.Unlock()
+
+	e.mu.Lock()
+	return func() {
+		e.mu.Unlock()
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		e.refs--
+		if e.refs == 0 {
+			delete(l.held, conversationID)
+		}
+	}
 }
 
 // New binds a journal to a store, clock, and the versions currently in effect.
@@ -105,8 +150,7 @@ func (j *Journal) Append(ctx context.Context, conversationID string, r Record) (
 		return Event{}, fmt.Errorf("append %s: versions incomplete, pair cannot be attributed", r.Kind)
 	}
 
-	j.seq.Lock()
-	defer j.seq.Unlock()
+	defer j.seq.lock(conversationID)()
 
 	seq, err := j.store.LastSeq(ctx, conversationID)
 	if err != nil {
