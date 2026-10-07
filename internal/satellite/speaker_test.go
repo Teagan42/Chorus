@@ -1,12 +1,16 @@
 package satellite_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/teaganglenn/chorus/internal/blob"
 	"github.com/teaganglenn/chorus/internal/bridge"
 	"github.com/teaganglenn/chorus/internal/bridge/bridgetest"
 	"github.com/teaganglenn/chorus/internal/satellite"
@@ -86,6 +90,7 @@ type rig struct {
 	sat    *satellite.Satellite
 	dev    *bridgetest.Device
 	synth  *fakeSynth
+	blobs  *blob.Memory
 	drain  chan time.Time
 	settle chan time.Time
 	served chan error
@@ -99,7 +104,7 @@ func newRig(t *testing.T, tweak ...func(*satellite.Config)) *rig {
 	link, dev := bridgetest.Dial(t, 2)
 	synth := &fakeSynth{}
 	r := &rig{
-		dev: dev, synth: synth, served: make(chan error, 1),
+		dev: dev, synth: synth, blobs: blob.NewMemory(), served: make(chan error, 1),
 		drain: make(chan time.Time), settle: make(chan time.Time),
 	}
 
@@ -107,6 +112,7 @@ func newRig(t *testing.T, tweak ...func(*satellite.Config)) *rig {
 		Link:   link,
 		Synth:  synth,
 		Timers: fakeTimers{drain: r.drain, settle: r.settle},
+		Blobs:  r.blobs,
 		Drain:  rigDrain,
 	}
 	for _, f := range tweak {
@@ -248,6 +254,153 @@ func TestBargeInBeforeAnyAudioPlayedSpeaksNothing(t *testing.T) {
 	if pb.Frames != 0 || !pb.Truncated {
 		t.Errorf("Frames = %d, Truncated = %v, want 0, true", pb.Frames, pb.Truncated)
 	}
+}
+
+// verifies SPEC §8
+func TestSpeechCarriesABlobReferenceTheJournalWillAccept(t *testing.T) {
+	r := newRig(t)
+	st, _ := r.open(t, "call-1")
+
+	if err := st.Write("hello"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len("hello")*framesPerByte*2)
+	done := closeAsync(st)
+	r.dev.AwaitFinish(t, 1)
+	r.dev.PlayAll(t)
+	pb := await(t, done)
+
+	// journal.Append rejects an audio-bearing event without a reference, and
+	// speech.spoken is audio-bearing, so an empty ref here loses the record.
+	if pb.AudioRef == "" {
+		t.Fatal("AudioRef is empty: journal.Append would reject this event")
+	}
+	stored, ok := r.blobs.Bytes(pb.AudioRef)
+	if !ok {
+		t.Fatalf("AudioRef %q points at no blob", pb.AudioRef)
+	}
+	// The reference has to resolve to the audio actually rendered, or the
+	// corpus is annotated against the wrong sound.
+	if want := len("hello") * framesPerByte * 2; len(stored) != want {
+		t.Errorf("blob is %d bytes, want %d", len(stored), want)
+	}
+	if !bytes.Equal(stored, r.dev.TTS()) {
+		t.Error("the stored blob is not the audio the device was sent")
+	}
+}
+
+// verifies SPEC §9.1
+func TestACutKeepsTheUnheardAudioItHadAlreadyRendered(t *testing.T) {
+	r := newRig(t)
+	st, cancel := r.open(t, "call-1")
+
+	for _, delta := range []string{"Hello ", "world."} {
+		if err := st.Write(delta); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	rendered := len("Hello world.") * framesPerByte * 2
+	r.dev.AwaitTTS(t, rendered)
+
+	const heard = 3 * framesPerByte
+	r.dev.Play(t, heard)
+	cancel()
+	pb := await(t, closeAsync(st))
+
+	stored, ok := r.blobs.Bytes(pb.AudioRef)
+	if !ok {
+		t.Fatalf("AudioRef %q points at no blob", pb.AudioRef)
+	}
+	// Everything rendered is kept, not just the heard prefix: Frames marks
+	// where the ear stopped so a reader can trim, and the tail beyond it is the
+	// unspoken half of the preference pair. Trimming here would destroy it.
+	if len(stored) != rendered {
+		t.Errorf("blob is %d bytes, want all %d rendered", len(stored), rendered)
+	}
+	if pb.Frames != heard {
+		t.Errorf("Frames = %d, want %d to mark the cut inside the blob", pb.Frames, heard)
+	}
+}
+
+// verifies SPEC §8
+func TestAnUtteranceNothingWasHeardOfLeavesNoBlob(t *testing.T) {
+	r := newRig(t)
+	st, cancel := r.open(t, "call-1")
+
+	if err := st.Write("never heard"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, 2)
+	cancel()
+	pb := await(t, closeAsync(st))
+
+	// The session journals this as speech_discarded, which carries no reference
+	// (schema/event.cue), so audio committed here is audio no event can name:
+	// unreachable by replay or export, and growing on disk.
+	if pb.AudioRef != "" {
+		t.Errorf("AudioRef = %q, want empty: no event will carry it", pb.AudioRef)
+	}
+	if refs := r.blobs.Refs(); len(refs) != 0 {
+		t.Errorf("store holds %v, want nothing", refs)
+	}
+}
+
+// verifies SPEC §8
+func TestAReusedCallIDDoesNotOverwriteEarlierAudio(t *testing.T) {
+	r := newRig(t)
+
+	// Call ids come from the engine, which only promises they group an
+	// utterance's deltas. A second turn may reuse one, and a key that trusted
+	// it would repoint every earlier reference at the new audio.
+	var refs []string
+	var sent int
+	for i, text := range []string{"first", "second"} {
+		st, _ := r.open(t, "call-reused")
+		if err := st.Write(text); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		sent += len(text) * framesPerByte * 2
+		r.dev.AwaitTTS(t, sent)
+		done := closeAsync(st)
+		r.dev.AwaitFinish(t, i+1)
+		r.dev.PlayAll(t)
+		refs = append(refs, await(t, done).AudioRef)
+	}
+
+	if refs[0] == refs[1] {
+		t.Fatalf("both utterances stored at %q: the second overwrote the first", refs[0])
+	}
+	for i, want := range []string{"first", "second"} {
+		stored, ok := r.blobs.Bytes(refs[i])
+		if !ok {
+			t.Fatalf("AudioRef %q points at no blob", refs[i])
+		}
+		if n := len(want) * framesPerByte * 2; len(stored) != n {
+			t.Errorf("blob %d is %d bytes, want %d for %q", i, len(stored), n, want)
+		}
+	}
+}
+
+// verifies SPEC §8
+func TestOpenFailsWhenTheAudioCannotBeStored(t *testing.T) {
+	r := newRig(t, func(c *satellite.Config) { c.Blobs = failingStore{} })
+	// A session that cannot keep the audio must not speak: the event recording
+	// the speech would be rejected afterwards anyway, so failing at Open
+	// surfaces it before the device makes a sound.
+	if _, err := r.sat.Open(context.Background(), "call-1"); err == nil {
+		t.Error("Open succeeded with nowhere to store audio, want an error")
+	}
+}
+
+// failingStore has nowhere to put audio, like a full or unmounted disk.
+type failingStore struct{}
+
+func (failingStore) Create(context.Context, string) (blob.Writer, error) {
+	return nil, errors.New("no space left on device")
+}
+
+func (failingStore) Open(context.Context, string) (io.ReadCloser, error) {
+	return nil, errors.New("no space left on device")
 }
 
 // verifies SPEC §4.4
@@ -470,9 +623,10 @@ func TestDrainDeadlineReportsTruncationRatherThanHanging(t *testing.T) {
 func TestNewRejectsIncompleteWiring(t *testing.T) {
 	link, _ := bridgetest.Dial(t, 1)
 	for name, cfg := range map[string]satellite.Config{
-		"link":   {Synth: &fakeSynth{}, Timers: fakeTimers{}},
-		"synth":  {Link: link, Timers: fakeTimers{}},
-		"timers": {Link: link, Synth: &fakeSynth{}},
+		"link":   {Synth: &fakeSynth{}, Timers: fakeTimers{}, Blobs: blob.NewMemory()},
+		"synth":  {Link: link, Timers: fakeTimers{}, Blobs: blob.NewMemory()},
+		"timers": {Link: link, Synth: &fakeSynth{}, Blobs: blob.NewMemory()},
+		"blobs":  {Link: link, Synth: &fakeSynth{}, Timers: fakeTimers{}},
 	} {
 		if _, err := satellite.New(cfg); err == nil {
 			t.Errorf("New without a %s succeeded, want an error", name)
@@ -488,7 +642,7 @@ func TestUplinkFramesReachTheConfiguredHooks(t *testing.T) {
 	mute := make(chan bridge.Mute, 1)
 
 	sat, err := satellite.New(satellite.Config{
-		Link: link, Synth: &fakeSynth{}, Timers: fakeTimers{},
+		Link: link, Synth: &fakeSynth{}, Timers: fakeTimers{}, Blobs: blob.NewMemory(),
 		OnMic:  func(_ uint8, pcm []byte) error { mic <- pcm; return nil },
 		OnWake: func(w string) error { wake <- w; return nil },
 		OnMute: func(m bridge.Mute) error { mute <- m; return nil },

@@ -9,12 +9,14 @@ package satellite
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/teaganglenn/chorus/internal/blob"
 	"github.com/teaganglenn/chorus/internal/bridge"
 	"github.com/teaganglenn/chorus/internal/session"
 )
@@ -59,6 +61,12 @@ type Config struct {
 	Synth  Synth
 	Timers session.Timers
 
+	// Blobs keeps the audio that journal events reference. Required: speech
+	// events are audio-bearing, and journal.Append rejects one without a
+	// reference, so a satellite with nowhere to put audio cannot record what
+	// it said (ADR-0007).
+	Blobs blob.Store
+
 	// Drain bounds the wait for the DAC to reach the end of a finished
 	// utterance. Defaults to DefaultDrain.
 	Drain time.Duration
@@ -98,6 +106,8 @@ func New(cfg Config) (*Satellite, error) {
 		return nil, errors.New("satellite: synth is required")
 	case cfg.Timers == nil:
 		return nil, errors.New("satellite: timers is required")
+	case cfg.Blobs == nil:
+		return nil, errors.New("satellite: blobs is required")
 	}
 	if cfg.Drain == 0 {
 		cfg.Drain = DefaultDrain
@@ -156,9 +166,18 @@ func (s *Satellite) position() (uint64, <-chan struct{}) {
 // Open starts an utterance. Its frame offsets are relative to the position
 // now, because PLAYED counts the whole connection.
 func (s *Satellite) Open(ctx context.Context, callID string) (session.Stream, error) {
+	// Keyed on an id of our own rather than the call id. An engine only
+	// promises a call id groups one utterance's deltas, so a later turn may
+	// reuse one, and a reused key would silently repoint every earlier journal
+	// reference at the new audio. The event carrying the reference is what ties
+	// it back to the call (SPEC §8).
+	w, err := s.cfg.Blobs.Create(ctx, "tts/"+rand.Text())
+	if err != nil {
+		return nil, fmt.Errorf("satellite: open audio for %s: %w", callID, err)
+	}
 	base, _ := s.position()
 	st := &stream{
-		sat: s, ctx: ctx, callID: callID, base: base,
+		sat: s, ctx: ctx, callID: callID, base: base, audio: w,
 		in: make(chan int, deltaQueue), quit: make(chan struct{}), done: make(chan struct{}),
 	}
 	go st.feed()
@@ -183,6 +202,10 @@ type stream struct {
 	in   chan int      // indexes into segs, in generation order
 	quit chan struct{} // Close asked the feeder to stop
 	done chan struct{} // the feeder has finished
+
+	// audio accumulates everything rendered for this utterance. Written only
+	// by the feeder, committed by Close once the feeder has stopped.
+	audio blob.Writer
 
 	mu     sync.Mutex
 	segs   []segment
@@ -256,6 +279,13 @@ func (s *stream) send(i int) bool {
 		return false
 	}
 
+	// Everything rendered is kept, including audio a barge-in stopped before
+	// the DAC reached it: Frames marks where the ear stopped, so a reader can
+	// trim, and the untrimmed tail is the unspoken half of the pair (SPEC §9.1).
+	if _, err := s.audio.Write(pcm); err != nil {
+		return false
+	}
+
 	s.mu.Lock()
 	s.total += uint64(len(pcm) / bytesPerFrame)
 	s.segs[i].end = s.total
@@ -293,6 +323,11 @@ func (s *stream) Close() session.Playback {
 	s.mu.Unlock()
 
 	cut := s.ctx.Err() != nil
+	// Sampled before the stop goes out, together with the channel that fires on
+	// the next change. Waiting for a change observed only after the stop would
+	// miss the report the stop itself provoked, and then block for the whole
+	// settle on a position that had already arrived.
+	before, changed := s.sat.position()
 	if cut {
 		// Sent first, before the feeder is even asked to exit. The device is
 		// playing buffered audio right now and this is the frame that silences
@@ -310,7 +345,7 @@ func (s *stream) Close() session.Playback {
 		_ = s.sat.cfg.Link.Finish()
 		s.awaitDrain()
 	} else {
-		s.settle()
+		s.settle(before, changed)
 	}
 
 	s.mu.Lock()
@@ -322,6 +357,7 @@ func (s *stream) Close() session.Playback {
 	// flight time, and the firmware gates its counter at the stop precisely so
 	// that its last report is the truncation point.
 	played := s.playedFrames()
+	ref := s.keepAudio(played > 0)
 	// Every delta rendered *and* the DAC reached the end of all of it. The
 	// rendered test is not redundant: a delta cut before synthesis adds no
 	// frames, so without it an utterance whose tail never reached the
@@ -329,7 +365,7 @@ func (s *stream) Close() session.Playback {
 	if played >= total && rendered(segs) {
 		// Clamped: a device that over-reports must not invent spoken text, and
 		// the frame count the journal carries is this utterance's own audio.
-		return session.Playback{Spoken: allText(segs), Frames: int64(total)}
+		return session.Playback{Spoken: allText(segs), AudioRef: ref, Frames: int64(total)}
 	}
 	if !cut {
 		// Truncated without a barge-in: the drain deadline expired. Discard
@@ -340,9 +376,28 @@ func (s *stream) Close() session.Playback {
 	}
 	spoken, unspoken := split(segs, played)
 	return session.Playback{
-		Spoken: spoken, Unspoken: unspoken,
+		Spoken: spoken, Unspoken: unspoken, AudioRef: ref,
 		Frames: int64(played), Truncated: true,
 	}
+}
+
+// keepAudio publishes the utterance's audio, or discards it when no event will
+// name it. Safe either way only once the feeder has stopped, since the feeder
+// is what writes.
+//
+// Audio nothing was heard of is dropped: the session journals that as
+// speech_discarded, which carries no reference (schema/event.cue), so a blob
+// kept here would be one no event names -- unreachable by replay or export,
+// and still occupying disk. An empty ref on a failed commit is deliberate too:
+// the audio is gone, journal.Append rejects an audio-bearing event without a
+// reference, and that loud failure beats a record pointing at nothing.
+func (s *stream) keepAudio(keep bool) string {
+	if !keep {
+		_ = s.audio.Abort()
+		return ""
+	}
+	ref, _ := s.audio.Commit()
+	return ref
 }
 
 // playedFrames is the DAC's position within this utterance.
@@ -361,13 +416,21 @@ func (s *stream) playedFrames() uint64 {
 //
 // Bounded and allowed to expire: the context is already cancelled, so nothing
 // else will unblock this, and the firmware only sends a report when the
-// position actually moved. A timeout falls back to the position already known,
-// which is what this did before -- never worse, often exact.
-func (s *stream) settle() {
-	_, changed := s.sat.position()
-	select {
-	case <-changed:
-	case <-s.sat.cfg.Timers.After(s.sat.cfg.Settle):
+// position actually moved. A timeout falls back to the position already known:
+// never worse than not waiting, usually exact.
+func (s *stream) settle(before uint64, changed <-chan struct{}) {
+	deadline := s.sat.cfg.Timers.After(s.sat.cfg.Settle)
+	for {
+		played, next := s.sat.position()
+		if played != before {
+			return
+		}
+		select {
+		case <-changed:
+			changed = next
+		case <-deadline:
+			return
+		}
 	}
 }
 
