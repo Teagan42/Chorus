@@ -104,6 +104,9 @@ func Reduce(s State, e Event) (State, error) {
 		s.Open = true
 		s.Satellite = e.Fields["satellite"]
 		s.Speaker = e.Fields["speaker_id"]
+		// A resumed wake reopens the log the migration closed, so the reason the
+		// previous session ended no longer describes this conversation (§4.5).
+		s.CloseReason = ""
 	case KindSessionClosed:
 		s.Open = false
 		s.CloseReason = e.Fields["reason"]

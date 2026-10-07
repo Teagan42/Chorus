@@ -23,7 +23,7 @@ func conversationRecords() []journal.Record {
 		{Kind: journal.KindSpeechTruncated, AudioRef: "blob/4", Fields: map[string]string{
 			"spoken_text": "I found three", "unspoken_text": " albums by that artist", "frames_played": "6720",
 		}},
-		{Kind: journal.KindSessionClosed, Fields: map[string]string{"reason": "model_ended"}},
+		{Kind: journal.KindSessionClosed, Fields: map[string]string{"reason": "model_ended", "satellite": "kitchen"}},
 	}
 }
 
@@ -141,6 +141,54 @@ func TestReplayKeepsSpeculativeWorkOutOfCommittedState(t *testing.T) {
 	}
 	if state.Speculative != 1 {
 		t.Errorf("speculative count = %d, want 1", state.Speculative)
+	}
+}
+
+// A migration closes one session and opens another in the same log, so the
+// reducer sees Open go false and back to true. What it must end on is the
+// satellite the person is actually at, with no close reason left over: the
+// conversation never ended, only its device changed (SPEC §4.5).
+//
+// verifies SPEC §4.5, §8
+func TestReplayFollowsAConversationToItsNewSatellite(t *testing.T) {
+	store := journal.NewMemStore()
+	j := journal.New(store, journal.FixedClock(time.Unix(0, 0)), versions())
+	ctx := context.Background()
+
+	for _, r := range []journal.Record{
+		{Kind: journal.KindSessionOpened, Fields: map[string]string{
+			"satellite": "kitchen", "speaker_id": "alice", "resumed": "false",
+		}},
+		{Kind: journal.KindUtteranceTranscribed, AudioRef: "blob/1", Fields: map[string]string{"text": "turn it down"}},
+		{Kind: journal.KindSpeechDiscarded, Fields: map[string]string{
+			"unspoken_text": "which room", "reason": "migrated",
+		}},
+		{Kind: journal.KindSessionClosed, Fields: map[string]string{"reason": "migrated", "satellite": "kitchen"}},
+		{Kind: journal.KindSessionOpened, Fields: map[string]string{
+			"satellite": "office", "speaker_id": "alice", "resumed": "true",
+		}},
+		{Kind: journal.KindUtteranceTranscribed, AudioRef: "blob/2", Fields: map[string]string{"text": "and the lights"}},
+	} {
+		if _, err := j.Append(ctx, "conv-1", r); err != nil {
+			t.Fatalf("append %s: %v", r.Kind, err)
+		}
+	}
+
+	st, err := journal.Replay(ctx, store, "conv-1", journal.Overrides{})
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if !st.Open || st.Satellite != "office" || st.CloseReason != "" {
+		t.Errorf("state = open %v on %q closed %q, want open on office with no close reason",
+			st.Open, st.Satellite, st.CloseReason)
+	}
+	// What was cut off on the old device is still the conversation's context,
+	// and still on the unheard side of it (SPEC §4.4).
+	if want := []string{"turn it down", "and the lights"}; !reflect.DeepEqual(st.Heard, want) {
+		t.Errorf("heard = %v, want %v", st.Heard, want)
+	}
+	if want := []string{"which room"}; !reflect.DeepEqual(st.Unspoken, want) {
+		t.Errorf("unspoken = %v, want %v", st.Unspoken, want)
 	}
 }
 
