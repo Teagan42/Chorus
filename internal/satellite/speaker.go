@@ -61,8 +61,8 @@ const DefaultDrain = 10 * time.Second
 // has already gone out by then.
 const DefaultSettle = 250 * time.Millisecond
 
-// deltaQueue is how many deltas may be awaiting synthesis. Generous because
-// Write must not block, and a model's deltas are words.
+// deltaQueue is how many segments may be awaiting synthesis. Generous because
+// Write must not block, and one delta becomes several segments.
 const deltaQueue = 256
 
 // Config wires one satellite. Everything that reads a clock or does I/O is
@@ -240,13 +240,19 @@ func (s *stream) Write(text string) error {
 	if s.closed {
 		return errors.New("satellite: write after close")
 	}
-	s.segs = append(s.segs, segment{text: text})
-	select {
-	case s.in <- len(s.segs) - 1:
-		return nil
-	default:
-		return fmt.Errorf("satellite: %s has %d deltas awaiting synthesis", s.callID, deltaQueue)
+	// Cut into segments here rather than at synthesis, because a segment is the
+	// unit the truncation point resolves to (see maxSegmentChars).
+	for _, part := range chunk(text) {
+		s.segs = append(s.segs, segment{text: part})
+		select {
+		case s.in <- len(s.segs) - 1:
+		default:
+			// The segment stays recorded with no frames, so an overflow
+			// degrades into unspoken text rather than text that vanishes.
+			return fmt.Errorf("satellite: %s has %d segments awaiting synthesis", s.callID, deltaQueue)
+		}
 	}
+	return nil
 }
 
 // feed synthesises and paces queued deltas until Close or a barge-in.
