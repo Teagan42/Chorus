@@ -19,6 +19,10 @@ const toolSpeak = "speak"
 // so the default scanner limit is not enough.
 const maxLine = 1 << 20
 
+// finishError marks a turn the endpoint never finished. It cannot collide with
+// a real done_reason, which this endpoint only ever reports as stop or length.
+const finishError = "error"
+
 // chunk is one NDJSON line of a /api/chat stream.
 type chunk struct {
 	Message struct {
@@ -57,6 +61,10 @@ type completion struct {
 	Content   string     `json:"content,omitempty"`
 	Thinking  string     `json:"thinking,omitempty"`
 	ToolCalls []toolCall `json:"tool_calls,omitempty"`
+
+	// Error is why the stream stopped early, recorded beside the partial
+	// output. A failure is an event in its own right, not an absence (SPEC §7).
+	Error string `json:"error,omitempty"`
 }
 
 // speakArgs is the speak tool's own schema (schema/tool.cue).
@@ -86,20 +94,41 @@ type decoder struct {
 // decode reads the stream until done, emitting actions as they arrive.
 func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Action) (err error) {
 	var comp completion
-	// inlineOpen tracks an implicit utterance that has no closing delta yet.
-	var inlineOpen bool
-	// Inline content streams with no end marker of its own, and Last is what
-	// closes the utterance (internal/session/speechchan.go). A stream that dies
-	// mid-utterance must still close it: speechChannel.play waits on the
-	// session context, so an unclosed one blocks waitIdle for the whole session.
+	// inlineOpen tracks an implicit utterance that has no closing delta yet;
+	// ended tracks whether the turn already reported its own end.
+	var inlineOpen, ended bool
 	defer func() {
-		if !inlineOpen {
+		// Closing events are sent on a context that cannot be cancelled. This
+		// path is reached *because* the turn was cut off, and cancellation is
+		// the ordinary way that happens -- barge-in cancels the turn -- so a
+		// select between the send and ctx.Done() drops them about half the
+		// time, exactly when they matter. Safe because the caller drains until
+		// the channel closes, which Engine.Turn requires of it.
+		closing := context.WithoutCancel(ctx)
+
+		// Inline content streams with no end marker of its own, and Last is
+		// what closes the utterance (internal/session/speechchan.go). A stream
+		// that dies mid-utterance must still close it: speechChannel.play waits
+		// on the session context, so an unclosed one blocks waitIdle for the
+		// whole session.
+		if inlineOpen {
+			if cerr := emit(closing, out, session.SpeechDelta{Mode: session.ModeQueue, Last: true}); err == nil {
+				err = cerr
+			}
+		}
+		// Turn reports a mid-stream failure nowhere else: its error return is
+		// spent before the first chunk arrives, and the session only reads the
+		// action channel. So the turn ends here with what it managed to produce
+		// and why it stopped, rather than vanishing from the log (SPEC §8).
+		if ended || err == nil {
 			return
 		}
-		cerr := emit(ctx, out, session.SpeechDelta{Mode: session.ModeQueue, Last: true})
-		if err == nil {
-			err = cerr
+		comp.Error = err.Error()
+		raw, merr := json.Marshal(comp)
+		if merr != nil {
+			return
 		}
+		_ = emit(closing, out, session.TurnEnd{FinishReason: finishError, Completion: string(raw)})
 	}()
 
 	sc := bufio.NewScanner(r)
@@ -150,6 +179,7 @@ func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Act
 			if err != nil {
 				return fmt.Errorf("encode completion: %w", err)
 			}
+			ended = true
 			// done_reason is "stop" even for a tool call: this endpoint has no
 			// tool_calls equivalent, so nothing may infer tool use from it.
 			return emit(ctx, out, session.TurnEnd{

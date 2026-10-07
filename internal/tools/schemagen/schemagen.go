@@ -189,10 +189,27 @@ const (
 	ScopeGuest     Scope = "guest"
 )
 
+// ParamSpec is one declared parameter. Providers map these onto their own wire
+// shape, so every backend offers the model the same tool (SPEC §12).
+type ParamSpec struct {
+	Name        string
+	Type        string
+	Description string
+	Required    bool
+	Enum        []string
+	Items       string
+}
+
 // ToolSpec is the generated policy for one tool.
 type ToolSpec struct {
-	Name                 string
-	Description          string
+	Name        string
+	Description string
+
+	// ModelDescription is what the model is told, which is not what the docs
+	// show: a slow tool carries a latency hint it has to act on (SPEC §14).
+	ModelDescription string
+
+	Params               []ParamSpec
 	OnInterrupt          InterruptPolicy
 	Scope                Scope
 	Timeout              time.Duration
@@ -208,6 +225,8 @@ type ToolSpec struct {
 		b.WriteString(fmt.Sprintf("\t%q: {\n", t.Name))
 		b.WriteString(fmt.Sprintf("\t\tName: %q,\n", t.Name))
 		b.WriteString(fmt.Sprintf("\t\tDescription: %q,\n", t.Description))
+		b.WriteString(fmt.Sprintf("\t\tModelDescription: %q,\n", describe(t)))
+		b.WriteString(renderParams(t.Params))
 		b.WriteString(fmt.Sprintf("\t\tOnInterrupt: %q,\n", t.OnInterrupt))
 		b.WriteString(fmt.Sprintf("\t\tScope: %q,\n", t.Scope))
 		b.WriteString(fmt.Sprintf("\t\tTimeout: %d * time.Millisecond,\n", t.TimeoutMS))
@@ -219,6 +238,31 @@ type ToolSpec struct {
 		b.WriteString("\t},\n")
 	}
 	b.WriteString("}\n")
+	return b.String()
+}
+
+func renderParams(params []Param) string {
+	if len(params) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\t\tParams: []ParamSpec{\n")
+	for _, p := range params {
+		b.WriteString(fmt.Sprintf("\t\t\t{Name: %q, Type: %q, Description: %q, Required: %t",
+			p.Name, p.Type, p.Description, p.Required))
+		if len(p.Enum) > 0 {
+			quoted := make([]string, len(p.Enum))
+			for i, e := range p.Enum {
+				quoted[i] = fmt.Sprintf("%q", e)
+			}
+			b.WriteString(fmt.Sprintf(", Enum: []string{%s}", strings.Join(quoted, ", ")))
+		}
+		if p.Items != "" {
+			b.WriteString(fmt.Sprintf(", Items: %q", p.Items))
+		}
+		b.WriteString("},\n")
+	}
+	b.WriteString("\t\t},\n")
 	return b.String()
 }
 

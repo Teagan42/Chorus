@@ -22,10 +22,27 @@ const (
 	ScopeGuest     Scope = "guest"
 )
 
+// ParamSpec is one declared parameter. Providers map these onto their own wire
+// shape, so every backend offers the model the same tool (SPEC §12).
+type ParamSpec struct {
+	Name        string
+	Type        string
+	Description string
+	Required    bool
+	Enum        []string
+	Items       string
+}
+
 // ToolSpec is the generated policy for one tool.
 type ToolSpec struct {
-	Name                 string
-	Description          string
+	Name        string
+	Description string
+
+	// ModelDescription is what the model is told, which is not what the docs
+	// show: a slow tool carries a latency hint it has to act on (SPEC §14).
+	ModelDescription string
+
+	Params               []ParamSpec
 	OnInterrupt          InterruptPolicy
 	Scope                Scope
 	Timeout              time.Duration
@@ -39,6 +56,7 @@ var Specs = map[string]ToolSpec{
 	"end_session": {
 		Name:                 "end_session",
 		Description:          "Close the conversation. Call when the task is complete rather than waiting for silence.",
+		ModelDescription:     "Close the conversation. Call when the task is complete rather than waiting for silence.",
 		OnInterrupt:          "cancel",
 		Scope:                "household",
 		Timeout:              10000 * time.Millisecond,
@@ -46,8 +64,13 @@ var Specs = map[string]ToolSpec{
 		Slow:                 false,
 	},
 	"media_search": {
-		Name:                 "media_search",
-		Description:          "Search the media library.",
+		Name:             "media_search",
+		Description:      "Search the media library.",
+		ModelDescription: "Search the media library. Takes several seconds to return.",
+		Params: []ParamSpec{
+			{Name: "query", Type: "string", Description: "Free-text search.", Required: true},
+			{Name: "limit", Type: "integer", Description: "Maximum results.", Required: false},
+		},
 		OnInterrupt:          "detach",
 		Scope:                "household",
 		Timeout:              20000 * time.Millisecond,
@@ -55,8 +78,13 @@ var Specs = map[string]ToolSpec{
 		Slow:                 true,
 	},
 	"remember": {
-		Name:                 "remember",
-		Description:          "Store a durable fact about the current speaker.",
+		Name:             "remember",
+		Description:      "Store a durable fact about the current speaker.",
+		ModelDescription: "Store a durable fact about the current speaker.",
+		Params: []ParamSpec{
+			{Name: "fact", Type: "string", Description: "The fact to retain.", Required: true},
+			{Name: "shareable", Type: "boolean", Description: "Whether other household members may see this.", Required: false},
+		},
 		OnInterrupt:          "cancel",
 		Scope:                "person",
 		Timeout:              10000 * time.Millisecond,
@@ -65,8 +93,13 @@ var Specs = map[string]ToolSpec{
 		UnknownSpeaker:       "deny",
 	},
 	"speak": {
-		Name:                 "speak",
-		Description:          "Say something to the user. Runs concurrently with other tools; the model chooses when and whether to speak.",
+		Name:             "speak",
+		Description:      "Say something to the user. Runs concurrently with other tools; the model chooses when and whether to speak.",
+		ModelDescription: "Say something to the user. Runs concurrently with other tools; the model chooses when and whether to speak.",
+		Params: []ParamSpec{
+			{Name: "text", Type: "string", Description: "What to say.", Required: true},
+			{Name: "mode", Type: "string", Description: "queue appends after current speech; preempt cancels it; interject ducks and cuts in.", Required: false, Enum: []string{"queue", "preempt", "interject"}},
+		},
 		OnInterrupt:          "cancel",
 		Scope:                "household",
 		Timeout:              10000 * time.Millisecond,

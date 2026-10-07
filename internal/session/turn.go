@@ -52,7 +52,10 @@ func (TurnEnd) action()     {}
 // Engine is the turn engine seam (SPEC §12). Phase 1 is the streaming cascade;
 // a speech-to-speech provider later maps its events onto these.
 type Engine interface {
-	// Turn emits actions until it closes the channel. The caller cancels ctx.
+	// Turn emits actions until it closes the channel. The caller cancels ctx,
+	// and must keep draining afterwards: a cancelled turn still closes its open
+	// utterance and still reports its TurnEnd, and abandoning the channel both
+	// loses those and strands the provider.
 	Turn(ctx context.Context, in Input) (<-chan Action, error)
 }
 

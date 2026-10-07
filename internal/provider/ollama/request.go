@@ -1,0 +1,126 @@
+package ollama
+
+import (
+	"sort"
+
+	"github.com/teaganglenn/chorus/internal/registry"
+)
+
+// DefaultPrompt is the persona and protocol the model is given. SPEC §13 keeps
+// this as a versioned artifact: prompt versions are recorded per event, so a
+// persona change is A/B-testable against replayed traces.
+//
+// Three clauses are measured rather than stylistic:
+//
+// Speech is tool-only because content is not speech here. With think:false,
+// qwen3:4b streams its reasoning as content and phi4-mini echoed the entire
+// tool schema there. The decoder drops content by default, so a model that
+// writes an answer there is simply not heard (SPEC §4.1).
+//
+// The ordering clause is sequential, not parallel. Told it may issue several
+// calls at once, qwen3:14b put the slow tool ahead of the speak meant to cover
+// it and ornith:9b dropped the speak entirely. Sequential framing is the only
+// wording that produced speech first on both, and the decoder cannot fix the
+// order afterwards: calls arrive on separate lines (SPEC §14).
+//
+// Brevity is here because one speak call carries a whole paragraph in one
+// delta, which is the unit a barge-in has to truncate (SPEC §15 item 1).
+const DefaultPrompt = `You are a voice assistant in a home. Everything you say is spoken aloud, so keep replies short and plain -- no lists, no markdown, no emoji.
+
+Speak only by calling the speak tool. Never answer in ordinary message content: it does not reach the speakers and nobody hears it.
+
+When a tool will take a moment, FIRST call speak to tell the person you are working on it, and then call the tool. Never leave them in silence waiting.
+
+Call end_session once the conversation is finished.`
+
+// message is one chat message. Only role and content are sent: tool results
+// come back on a later turn, which the session does not drive yet.
+type message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// request is one POST /api/chat body.
+type request struct {
+	Model    string     `json:"model"`
+	Messages []message  `json:"messages"`
+	Tools    []wireTool `json:"tools,omitempty"`
+	Stream   bool       `json:"stream"`
+
+	// Think is a pointer because a model that does not support it answers 400
+	// rather than ignoring it: llama3.1 and every model under 9B tried so far
+	// reject the field outright, so it has to be absent, not false.
+	Think *bool `json:"think,omitempty"`
+
+	// KeepAlive holds the model resident between turns. A cold load costs ~71 s
+	// against SPEC §11's ~700 ms first-audio budget.
+	KeepAlive string `json:"keep_alive,omitempty"`
+}
+
+// wireTool is a tool in this endpoint's shape, which is OpenAI's rather than
+// the generated artifact's `input_schema` one.
+type wireTool struct {
+	Type     string       `json:"type"`
+	Function wireFunction `json:"function"`
+}
+
+type wireFunction struct {
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Parameters  wireSchema `json:"parameters"`
+}
+
+type wireSchema struct {
+	Type string `json:"type"`
+	// Never omitted: a tool with no parameters still needs an object schema,
+	// and some models answer a null one by inventing arguments.
+	Properties map[string]wireProp `json:"properties"`
+	Required   []string            `json:"required,omitempty"`
+}
+
+type wireProp struct {
+	Type        string    `json:"type"`
+	Description string    `json:"description,omitempty"`
+	Enum        []string  `json:"enum,omitempty"`
+	Items       *wireProp `json:"items,omitempty"`
+}
+
+// wireTools maps the generated declaration onto the wire. Name-sorted, and
+// required within a tool kept in declaration order, so the same registry always
+// marshals to the same bytes -- which is what lets the tool-schema version be a
+// hash of them (SPEC §8).
+func wireTools(specs map[string]registry.ToolSpec) []wireTool {
+	names := make([]string, 0, len(specs))
+	for name := range specs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	out := make([]wireTool, 0, len(names))
+	for _, name := range names {
+		spec := specs[name]
+		props := make(map[string]wireProp, len(spec.Params))
+		var required []string
+		for _, p := range spec.Params {
+			prop := wireProp{Type: p.Type, Description: p.Description, Enum: p.Enum}
+			if p.Items != "" {
+				prop.Items = &wireProp{Type: p.Items}
+			}
+			props[p.Name] = prop
+			if p.Required {
+				required = append(required, p.Name)
+			}
+		}
+		out = append(out, wireTool{
+			Type: "function",
+			Function: wireFunction{
+				Name: spec.Name,
+				// ModelDescription, not Description: a slow tool has to tell the
+				// model it is slow or the model calls it without speaking first.
+				Description: spec.ModelDescription,
+				Parameters:  wireSchema{Type: "object", Properties: props, Required: required},
+			},
+		})
+	}
+	return out
+}

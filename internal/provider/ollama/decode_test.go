@@ -29,6 +29,11 @@ func replay(t *testing.T, name string, d decoder) ([]session.Action, error) {
 // deadlock: decode emits per content delta and a long turn outruns any buffer.
 func collect(t *testing.T, d decoder, r io.Reader) ([]session.Action, error) {
 	t.Helper()
+	return collectCtx(t, context.Background(), d, r)
+}
+
+func collectCtx(t *testing.T, ctx context.Context, d decoder, r io.Reader) ([]session.Action, error) {
+	t.Helper()
 	out := make(chan session.Action)
 	done := make(chan []session.Action, 1)
 	go func() {
@@ -38,7 +43,7 @@ func collect(t *testing.T, d decoder, r io.Reader) ([]session.Action, error) {
 		}
 		done <- got
 	}()
-	err := d.decode(context.Background(), r, out)
+	err := d.decode(ctx, r, out)
 	close(out)
 	return <-done, err
 }
@@ -339,6 +344,98 @@ func TestADroppedStreamStillClosesInlineSpeech(t *testing.T) {
 	}
 	if last := sp[len(sp)-1]; !last.Last {
 		t.Error("a dropped stream left the utterance open, hanging the session")
+	}
+}
+
+// A turn that dies mid-stream still has to appear in the log. Turn's error
+// return is spent before the first chunk, so a dropped connection would
+// otherwise leave a turn with speech recorded and no model_completed at all.
+//
+// verifies SPEC §7, §8
+func TestAFailedTurnIsStillRecorded(t *testing.T) {
+	body := `{"message":{"role":"assistant","content":"half a th"},"done":false}` + "\n"
+	acts, err := collect(t, decoder{}, strings.NewReader(body))
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("err = %v, want the failure to still be reported", err)
+	}
+	end, ok := acts[len(acts)-1].(session.TurnEnd)
+	if !ok {
+		t.Fatalf("last action is %T, want a TurnEnd for the failed turn", acts[len(acts)-1])
+	}
+	if end.FinishReason != "error" {
+		t.Errorf("finish reason = %q, want error", end.FinishReason)
+	}
+	var got struct {
+		Content string `json:"content"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(end.Completion), &got); err != nil {
+		t.Fatalf("completion %q is not JSON: %v", end.Completion, err)
+	}
+	// Both halves: what the model produced, and why it stopped.
+	if got.Content != "half a th" {
+		t.Errorf("partial content = %q, want it kept", got.Content)
+	}
+	if got.Error == "" {
+		t.Error("the completion does not say why the turn stopped")
+	}
+}
+
+// Cancellation is how a turn normally dies -- barge-in cancels it -- so the
+// terminal event cannot be guarded by the cancelled context that caused it. A
+// select between the send and ctx.Done() picks either when both are ready, so
+// the only record of the turn would be lost about half the time.
+//
+// verifies SPEC §7, §8
+func TestACancelledTurnStillReportsItsEnd(t *testing.T) {
+	body := `{"message":{"role":"assistant","content":"half a th"},"done":false}` + "\n"
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Repeated because what this guards is a race: a single run can win the
+	// coin flip and report a passing turn on broken code.
+	for i := range 64 {
+		acts, err := collectCtx(t, ctx, decoder{speakInlineContent: true}, strings.NewReader(body))
+		if err == nil {
+			t.Fatalf("run %d: a truncated stream must still fail", i)
+		}
+		if len(acts) == 0 {
+			t.Fatalf("run %d: the turn vanished entirely", i)
+		}
+		end, ok := acts[len(acts)-1].(session.TurnEnd)
+		if !ok {
+			t.Fatalf("run %d: last action is %T, want TurnEnd", i, acts[len(acts)-1])
+		}
+		if end.FinishReason != finishError {
+			t.Fatalf("run %d: finish reason = %q, want %q", i, end.FinishReason, finishError)
+		}
+		// Speech itself may be dropped here -- a cancelled turn is not heard,
+		// and the session discards post-cancel deltas anyway. What must not
+		// happen is an utterance left open: speechChannel would keep the
+		// session busy for as long as it lives.
+		if sp := speechOf(acts); len(sp) > 0 && !sp[len(sp)-1].Last {
+			t.Fatalf("run %d: the cancelled turn left its utterance open", i)
+		}
+	}
+}
+
+// A turn that ended normally must not also report a failure.
+func TestASuccessfulTurnReportsOneEnd(t *testing.T) {
+	acts, err := replay(t, "reply.ndjson", decoder{})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	var ends int
+	for _, a := range acts {
+		if e, ok := a.(session.TurnEnd); ok {
+			ends++
+			if e.FinishReason == "error" {
+				t.Error("a successful turn reported an error finish")
+			}
+		}
+	}
+	if ends != 1 {
+		t.Errorf("got %d TurnEnds, want 1: %v", ends, kinds(acts))
 	}
 }
 

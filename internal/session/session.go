@@ -344,8 +344,16 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 		return
 	case toolEndSession:
 		s.result(tc.ID, "ok", "")
-		// Close cancels this turn, so it cannot run on the turn goroutine.
-		go func() { s.fail(s.Close(context.Background(), "model_ended")) }()
+		// Close interrupts the speech channel, and the model is asked to say
+		// goodbye before it ends the session, so closing on the call itself
+		// truncates the farewell it was told to speak. Drain the queue first.
+		//
+		// Off the turn goroutine for two reasons now: Close cancels this turn,
+		// and the queue cannot drain while the turn is blocked waiting for it.
+		go func() {
+			s.speech.waitIdle()
+			s.fail(s.Close(context.Background(), "model_ended"))
+		}()
 		return
 	}
 
