@@ -25,22 +25,38 @@ type chunk struct {
 		Content string `json:"content"`
 		// Thinking is reasoning the endpoint separates from Content. Not every
 		// model uses it: some emit reasoning as Content instead, which is why
-		// SpeakInlineContent exists and defaults to off.
-		Thinking  string `json:"thinking"`
-		ToolCalls []struct {
-			ID       string `json:"id"`
-			Function struct {
-				Index int    `json:"index"`
-				Name  string `json:"name"`
-				// Arguments is a native JSON object, not the string the
-				// OpenAI shape uses, so no fragment reassembly is needed.
-				Arguments json.RawMessage `json:"arguments"`
-			} `json:"function"`
-		} `json:"tool_calls"`
+		// speakInlineContent exists and defaults to off.
+		Thinking  string     `json:"thinking"`
+		ToolCalls []toolCall `json:"tool_calls"`
 	} `json:"message"`
 	Done       bool   `json:"done"`
 	DoneReason string `json:"done_reason"`
 	Error      string `json:"error"`
+}
+
+// toolCall is one call as this endpoint frames it.
+type toolCall struct {
+	ID       string `json:"id,omitempty"`
+	Function struct {
+		Index int    `json:"index"`
+		Name  string `json:"name"`
+		// Arguments is a native JSON object, not the string the OpenAI shape
+		// uses, so no fragment reassembly is needed.
+		Arguments json.RawMessage `json:"arguments"`
+	} `json:"function"`
+}
+
+// completion is the assistant message reassembled across the stream, which the
+// journal keeps verbatim because replay cannot regenerate it (SPEC §8).
+//
+// The whole message, not just content: a turn is often nothing but tool calls,
+// and content alone would record those turns as empty. Marshalling always
+// yields at least "{}", which matters because completion_json is a required
+// journal field and an empty one fails the turn (internal/journal/journal.go).
+type completion struct {
+	Content   string     `json:"content,omitempty"`
+	Thinking  string     `json:"thinking,omitempty"`
+	ToolCalls []toolCall `json:"tool_calls,omitempty"`
 }
 
 // speakArgs is the speak tool's own schema (schema/tool.cue).
@@ -69,7 +85,7 @@ type decoder struct {
 
 // decode reads the stream until done, emitting actions as they arrive.
 func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Action) error {
-	var completion string
+	var comp completion
 	var spokeInline bool
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), maxLine)
@@ -85,9 +101,9 @@ func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Act
 		if c.Error != "" {
 			return fmt.Errorf("ollama: %s", c.Error)
 		}
-		// Kept for the journal's raw completion whether or not it is spoken:
-		// replay cannot regenerate it (SPEC §8).
-		completion += c.Message.Content
+		comp.Content += c.Message.Content
+		comp.Thinking += c.Message.Thinking
+		comp.ToolCalls = append(comp.ToolCalls, c.Message.ToolCalls...)
 
 		if text := c.Message.Content; text != "" && d.speakInlineContent {
 			// No call id: the session records it as an implicit speak
@@ -116,11 +132,15 @@ func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Act
 					return err
 				}
 			}
+			raw, err := json.Marshal(comp)
+			if err != nil {
+				return fmt.Errorf("encode completion: %w", err)
+			}
 			// done_reason is "stop" even for a tool call: this endpoint has no
 			// tool_calls equivalent, so nothing may infer tool use from it.
 			return emit(ctx, out, session.TurnEnd{
 				FinishReason: c.DoneReason,
-				Completion:   completion,
+				Completion:   string(raw),
 			})
 		}
 	}

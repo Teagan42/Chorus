@@ -254,6 +254,74 @@ func TestSeparateThinkingIsNotSpoken(t *testing.T) {
 	}
 }
 
+// A tool-only turn still has a completion. completion_json is a required
+// journal field, so an empty one fails an otherwise successful turn
+// (internal/journal/journal.go), and content alone is empty whenever the model
+// did nothing but call tools.
+//
+// verifies SPEC §8
+func TestAToolOnlyTurnStillRecordsItsCompletion(t *testing.T) {
+	acts, err := replay(t, "speak_then_slow_tool.ndjson", decoder{})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	end, ok := acts[len(acts)-1].(session.TurnEnd)
+	if !ok {
+		t.Fatalf("last action is %T, want TurnEnd", acts[len(acts)-1])
+	}
+	if end.Completion == "" {
+		t.Fatal("empty completion: the journal rejects the event and the turn fails")
+	}
+
+	var got struct {
+		Content   string `json:"content"`
+		ToolCalls []struct {
+			Function struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			} `json:"function"`
+		} `json:"tool_calls"`
+	}
+	if err := json.Unmarshal([]byte(end.Completion), &got); err != nil {
+		t.Fatalf("completion %q is not JSON: %v", end.Completion, err)
+	}
+	if got.Content != "" {
+		t.Errorf("content = %q, want empty for this fixture", got.Content)
+	}
+	// The calls are the turn: dropping them loses what the model actually did.
+	var names []string
+	for _, c := range got.ToolCalls {
+		names = append(names, c.Function.Name)
+		if len(c.Function.Arguments) == 0 {
+			t.Errorf("%s recorded with no arguments", c.Function.Name)
+		}
+	}
+	if want := []string{"speak", "media_search"}; !equal(names, want) {
+		t.Errorf("recorded calls = %v, want %v", names, want)
+	}
+}
+
+// Reasoning the endpoint separates out is not spoken, but it is still part of
+// the raw completion the journal keeps.
+//
+// verifies SPEC §8
+func TestThinkingIsRecordedInTheCompletion(t *testing.T) {
+	acts, err := replay(t, "thinking.ndjson", decoder{})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	end := acts[len(acts)-1].(session.TurnEnd)
+	var got struct {
+		Thinking string `json:"thinking"`
+	}
+	if err := json.Unmarshal([]byte(end.Completion), &got); err != nil {
+		t.Fatalf("completion is not JSON: %v", err)
+	}
+	if got.Thinking == "" {
+		t.Error("the completion dropped the model's reasoning")
+	}
+}
+
 // A stream that ends without done is a dropped connection. Reporting success
 // would record a turn that never finished as complete.
 func TestATruncatedStreamIsAnError(t *testing.T) {
