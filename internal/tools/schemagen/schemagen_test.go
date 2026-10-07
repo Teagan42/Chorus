@@ -20,6 +20,7 @@ func fixtureTools() map[string]Tool {
 			Params: []Param{
 				{Name: "query", Type: "string", Description: "Free-text search.", Required: true},
 				{Name: "limit", Type: "integer", Description: "Maximum results."},
+				{Name: "kind", Type: "string", Description: "What to search.", Enum: []string{"music", "film"}},
 			},
 		},
 		"remember": {
@@ -91,6 +92,36 @@ func TestRenderToolsGoIsValidGo(t *testing.T) {
 	// A household-scoped tool has no unknown-speaker policy to emit.
 	if strings.Contains(src, `"end_session"`) && strings.Count(src, "UnknownSpeaker") != 2 {
 		t.Errorf("UnknownSpeaker should appear once in the field and once for remember")
+	}
+}
+
+// A provider has to build its own request shape, and it cannot read the JSON
+// artifact: go:embed has no `../`, so schema/json is unreachable from a
+// provider package. The declaration therefore has to reach Go.
+//
+// verifies SPEC §6, §12
+func TestParamsReachTheGeneratedRegistry(t *testing.T) {
+	src := renderToolsGo(fixtureTools())
+	parses(t, src)
+
+	for _, want := range []string{
+		`{Name: "query", Type: "string", Description: "Free-text search.", Required: true}`,
+		`{Name: "limit", Type: "integer", Description: "Maximum results.", Required: false}`,
+		// The closed enum is what lets a provider reject an out-of-enum value
+		// the endpoint accepted; without it that check has to be hand-written.
+		`Enum: []string{"music", "film"}`,
+		// What the model is told, beside what the docs show, so a provider
+		// cannot send a slow tool's description without its latency hint.
+		`ModelDescription: "Search the media library.` + slowHint + `"`,
+		`Description: "Search the media library.",`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("missing %q in generated tools", want)
+		}
+	}
+	// A no-param tool emits no empty slice to range over.
+	if strings.Contains(src, "Params: []ParamSpec{\n\t\t},") {
+		t.Error("end_session emitted an empty Params slice")
 	}
 }
 
