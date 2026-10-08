@@ -23,4 +23,8 @@ esphome/*.bin
 .task/
 __pycache__/
 .esphome/
+# The uv workspace's environment and the sidecar test caches.
+.venv/
+.pytest_cache/
+.ruff_cache/
 .claude/worktrees/

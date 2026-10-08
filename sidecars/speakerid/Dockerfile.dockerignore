@@ -1,0 +1,8 @@
+# The build context is the repo root, for the workspace lockfile. Only the
+# workspace manifests and this sidecar go in; the Go tree, firmware and git
+# history would otherwise be sent on every build.
+*
+!pyproject.toml
+!uv.lock
+!sidecars/speakerid/pyproject.toml
+!sidecars/speakerid/src/
