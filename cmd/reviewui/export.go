@@ -1,88 +1,58 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/teaganglenn/chorus/internal/harvest"
-	"github.com/teaganglenn/chorus/internal/journal"
 	"github.com/teaganglenn/chorus/internal/reviewui/ui"
 )
-
-// dpoRow is one training example. The export is derived on read from the
-// journal and the verdicts (ADR-0026, ADR-0034), so the format can evolve:
-// nothing stores these rows.
-type dpoRow struct {
-	// Prompt is the shared context both sides answer, chat-shaped, ending
-	// with the user utterance the rejected turn replied to.
-	Prompt []harvest.Message `json:"prompt"`
-	// Chosen is the reviewer's fixed answer to that prompt; Rejected is the
-	// turn as generated, the unheard tail included (SPEC §9.1).
-	Chosen   string  `json:"chosen"`
-	Rejected string  `json:"rejected"`
-	Meta     dpoMeta `json:"meta"`
-}
-
-type dpoMeta struct {
-	Pair         string      `json:"pair"`
-	Conversation string      `json:"conversation"`
-	Source       string      `json:"source"`
-	Versions     dpoVersions `json:"versions"`
-}
-
-// dpoVersions pins the dataset's key spelling: journal.Versions has no JSON
-// tags, and a training file must not change shape when that struct does.
-type dpoVersions struct {
-	Model      string `json:"model"`
-	Prompt     string `json:"prompt"`
-	ToolSchema string `json:"tool_schema"`
-	STT        string `json:"stt,omitempty"`
-	TTS        string `json:"tts,omitempty"`
-}
-
-func versionsOf(v journal.Versions) dpoVersions {
-	return dpoVersions{Model: v.Model, Prompt: v.Prompt, ToolSchema: v.ToolSchema, STT: v.STT, TTS: v.TTS}
-}
 
 // exportable is the one rule of the dataset: accepted, fixed, and attributed
 // to a configuration a trainer can hold responsible.
 func exportable(p pair) bool { return p.Exportable() && p.H.Attributed }
 
-func dpoRowOf(p pair) dpoRow {
-	return dpoRow{
-		Prompt:   p.H.Prompt,
-		Chosen:   p.Chosen,
-		Rejected: p.H.Rejected + p.H.RejectedUnheard,
-		Meta: dpoMeta{
-			Pair: p.ID, Conversation: p.conversationID,
-			Source: string(p.H.Source), Versions: versionsOf(p.H.Versions),
-		},
+// dataset is the curated corpus as harvest.Export writes it: each exportable
+// candidate with the reviewer's chosen side applied. Rows are derived on
+// read (ADR-0026, ADR-0034); nothing stores them.
+func dataset(pairs []pair) []harvest.Pair {
+	var out []harvest.Pair
+	for _, p := range pairs {
+		if !exportable(p) {
+			continue
+		}
+		h := p.H
+		h.Chosen, h.Curated = p.Chosen, true
+		out = append(out, h)
 	}
+	return out
 }
 
-// exportJSONL serves the dataset: one row per exportable pair, in log order.
-func (s *server) exportJSONL(w http.ResponseWriter, r *http.Request) {
+// curated reads the dataset under the lock and returns it detached, so a
+// slow client streaming it holds nothing the other pages need.
+func (s *server) curated(r *http.Request) ([]pair, []harvest.Pair, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	pairs, err := s.pairs(r.Context())
+	if err != nil {
+		return nil, nil, err
+	}
+	return pairs, dataset(pairs), nil
+}
+
+// exportJSONL serves the dataset in harvest.Export's conversational shape.
+func (s *server) exportJSONL(w http.ResponseWriter, r *http.Request) {
+	_, rows, err := s.curated(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/jsonl")
 	w.Header().Set("Content-Disposition", `attachment; filename="chorus-dpo.jsonl"`)
-	enc := json.NewEncoder(w)
-	for _, p := range pairs {
-		if !exportable(p) {
-			continue
-		}
-		if err := enc.Encode(dpoRowOf(p)); err != nil {
-			return
-		}
-	}
+	// Headers are sent; a mid-stream failure can only truncate the body.
+	_ = harvest.Export(w, rows)
 }
 
 // exportCounts are the piles the page explains: what ships and what each
@@ -112,31 +82,43 @@ func countExport(pairs []pair) exportCounts {
 	return c
 }
 
-func (s *server) export(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// previewRows is how many rows the page shows before the download.
+const previewRows = 3
 
-	pairs, err := s.pairs(r.Context())
+// preview renders the first rows exactly as the download writes them,
+// indented for reading.
+func preview(rows []harvest.Pair) (string, error) {
+	var raw bytes.Buffer
+	if err := harvest.Export(&raw, rows[:min(len(rows), previewRows)]); err != nil {
+		return "", err
+	}
+	var out bytes.Buffer
+	dec := json.NewDecoder(&raw)
+	for dec.More() {
+		var line json.RawMessage
+		if err := dec.Decode(&line); err != nil {
+			return "", err
+		}
+		if err := json.Indent(&out, line, "", "  "); err != nil {
+			return "", err
+		}
+		out.WriteString("\n")
+	}
+	return out.String(), nil
+}
+
+func (s *server) export(w http.ResponseWriter, r *http.Request) {
+	pairs, rows, err := s.curated(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	text, err := preview(rows)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	c := countExport(pairs)
-
-	var preview strings.Builder
-	n := 0
-	for _, p := range pairs {
-		if !exportable(p) || n == 3 {
-			continue
-		}
-		b, err := json.MarshalIndent(dpoRowOf(p), "", "  ")
-		if err != nil {
-			continue
-		}
-		preview.Write(b)
-		preview.WriteString("\n")
-		n++
-	}
 
 	data := map[string]any{
 		"Doc":    ui.Doc{Title: "Export · DPO dataset", Static: "/static"},
@@ -157,7 +139,7 @@ func (s *server) export(w http.ResponseWriter, r *http.Request) {
 			{Label: "Held · unattributed", Value: fmt.Sprint(c.Unattributed), Tone: ui.ToneConv},
 			{Label: "Discarded", Value: fmt.Sprint(c.Discarded)},
 		}},
-		"Preview": preview.String(),
+		"Preview": text,
 		"Empty":   (*ui.EmptyState)(nil),
 	}
 	if c.Exportable == 0 {
