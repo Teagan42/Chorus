@@ -1,0 +1,12 @@
+{{/* Export · the DPO dataset as curation currently stands. */}}
+
+{{define "page-export"}}{{template "doc-start" .Doc}}
+{{template "app-header" .Header}}
+{{template "page-head" .Head}}
+{{template "metric-strip" .Stats}}
+{{with .Empty}}{{template "empty-state" .}}{{end}}
+{{with .Preview}}<div class="stack" style="margin-top: 18px">
+<span class="cap">Preview · first rows</span>
+<pre class="mono" style="margin: 0; padding: 14px 16px; border: 1px solid var(--c-rule); border-radius: 8px; overflow-x: auto; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word">{{.}}</pre>
+</div>{{end}}
+{{template "doc-end"}}{{end}}

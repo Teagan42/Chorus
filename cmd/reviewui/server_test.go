@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -291,4 +293,145 @@ func TestHeardPlaybackIsBoundedAtTheConfirmedCut(t *testing.T) {
 	if !strings.Contains(h, "/audio?ref="+url.QueryEscape("blob://tts/s1")+"&amp;from=2080") {
 		t.Error("the unheard tail is not offered as its own clip")
 	}
+}
+
+// accept stores the verdict that makes the fixture pair exportable.
+func accept(t *testing.T, decisions curation.Store, chosen string) {
+	t.Helper()
+	err := decisions.Put(context.Background(), curation.Decision{
+		PairID: pairID, ConversationID: "conv-1",
+		Status: curation.StatusAccepted, Chosen: chosen,
+		DecidedAt: time.Unix(1_760_000_100, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
+}
+
+// verifies SPEC §9.1
+func TestExportCarriesOnlyAcceptedFixedPairs(t *testing.T) {
+	s, decisions := newTestServer(t)
+
+	if body := get(t, s, "/export/dpo.jsonl"); strings.TrimSpace(body) != "" {
+		t.Fatalf("an unreviewed pair exported: %q", body)
+	}
+
+	accept(t, decisions, "Playing the first Led Zeppelin album.")
+	body := get(t, s, "/export/dpo.jsonl")
+	lines := strings.Split(strings.TrimSpace(body), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("exported %d rows, want 1: %q", len(lines), body)
+	}
+	// The download is harvest.Export's conversational preference shape: every
+	// side a message array, so TRL-style loaders read it unchanged.
+	type msg struct{ Role, Content string }
+	var row struct {
+		Prompt   []msg `json:"prompt"`
+		Chosen   []msg `json:"chosen"`
+		Rejected []msg `json:"rejected"`
+		Meta     struct {
+			ID       string `json:"id"`
+			Curated  bool   `json:"curated"`
+			Versions struct {
+				Model string `json:"model"`
+			} `json:"versions"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &row); err != nil {
+		t.Fatalf("not the conversational shape: %v", err)
+	}
+	if n := len(row.Prompt); n == 0 || row.Prompt[n-1].Content != "play something by zeppelin" {
+		t.Errorf("prompt = %+v, want it to end with the shared prompt", row.Prompt)
+	}
+	if len(row.Chosen) != 1 || row.Chosen[0] != (msg{"assistant", "Playing the first Led Zeppelin album."}) {
+		t.Errorf("chosen = %+v", row.Chosen)
+	}
+	// Rejected is the turn as generated: the heard half and the unheard tail.
+	if len(row.Rejected) != 1 || row.Rejected[0] != (msg{"assistant", "I found three albums by that artist"}) {
+		t.Errorf("rejected = %+v", row.Rejected)
+	}
+	if row.Meta.ID != pairID || !row.Meta.Curated || row.Meta.Versions.Model != "qwen3-32b@1" {
+		t.Errorf("meta = %+v", row.Meta)
+	}
+}
+
+// verifies SPEC §9.1
+func TestUnfixedAcceptIsHeldOutOfTheExport(t *testing.T) {
+	s, decisions := newTestServer(t)
+	err := decisions.Put(context.Background(), curation.Decision{
+		PairID: pairID, ConversationID: "conv-1",
+		Status: curation.StatusAccepted, Chosen: "Playing Led Zeppelin one.", Unfixed: true,
+		DecidedAt: time.Unix(1_760_000_100, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	if body := get(t, s, "/export/dpo.jsonl"); strings.TrimSpace(body) != "" {
+		t.Errorf("an unfixed accept exported: %q", body)
+	}
+}
+
+// verifies SPEC §9.2
+func TestExportPageCountsThePilesAndPreviewsTheRows(t *testing.T) {
+	s, decisions := newTestServer(t)
+	h := get(t, s, "/export")
+	if !strings.Contains(h, "Nothing to export yet.") {
+		t.Error("an empty dataset should say so")
+	}
+
+	accept(t, decisions, "Playing the first Led Zeppelin album.")
+	h = get(t, s, "/export")
+	for _, want := range []string{
+		"/export/dpo.jsonl",                     // the download
+		"Playing the first Led Zeppelin album.", // the preview shows the row
+		"Exportable",
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("page is missing %q", want)
+		}
+	}
+}
+
+// verifies SPEC §9.2
+func TestASlowDownloadDoesNotHoldTheReviewUI(t *testing.T) {
+	s, decisions := newTestServer(t)
+	accept(t, decisions, "Playing the first Led Zeppelin album.")
+
+	// A client that never reads: the handler blocks on its first write.
+	stalled := &blockingWriter{header: http.Header{}, release: make(chan struct{}), writing: make(chan struct{})}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.routes().ServeHTTP(stalled, httptest.NewRequest(http.MethodGet, "/export/dpo.jsonl", nil))
+	}()
+	<-stalled.writing
+
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		get(t, s, "/curate/pairs")
+	}()
+	select {
+	case <-served:
+	case <-time.After(2 * time.Second):
+		t.Error("a stalled download held the lock every page needs")
+	}
+	close(stalled.release)
+	<-done
+}
+
+// blockingWriter stalls on Write until released, like a client that stopped reading.
+type blockingWriter struct {
+	header  http.Header
+	release chan struct{}
+	writing chan struct{}
+	once    sync.Once
+}
+
+func (b *blockingWriter) Header() http.Header { return b.header }
+func (b *blockingWriter) WriteHeader(int)     {}
+func (b *blockingWriter) Write(p []byte) (int, error) {
+	b.once.Do(func() { close(b.writing) })
+	<-b.release
+	return len(p), nil
 }
