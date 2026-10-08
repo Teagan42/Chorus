@@ -212,15 +212,28 @@ func unreviewedCount(pairs []pair) int {
 	return n
 }
 
-// find returns the selected pair, falling back to the first.
+// find returns the pair with the exact id.
 func find(pairs []pair, id string) (pair, bool) {
 	for _, p := range pairs {
 		if p.ID == id {
 			return p, true
 		}
 	}
-	if len(pairs) > 0 {
-		return pairs[0], true
+	return pair{}, false
+}
+
+// select returns the detail-pane pair for the active status tab: the asked-for
+// pair when the filter admits it, else the filter's first pair, so the pane
+// never shows a pair the list beside it hides.
+func selectPair(pairs []pair, id, status string) (pair, bool) {
+	admitted := func(p pair) bool { return status == "all" || string(p.Status) == status }
+	if p, ok := find(pairs, id); ok && admitted(p) {
+		return p, true
+	}
+	for _, p := range pairs {
+		if admitted(p) {
+			return p, true
+		}
 	}
 	return pair{}, false
 }
@@ -248,7 +261,7 @@ func (s *server) curate(w http.ResponseWriter, r *http.Request) {
 	if status == "" {
 		status = "all"
 	}
-	sel, selected := find(pairs, q.Get("pair"))
+	sel, selected := selectPair(pairs, q.Get("pair"), status)
 
 	data := map[string]any{
 		"Doc":    ui.Doc{Title: "Curate · DPO pairs", Static: "/static"},
@@ -287,7 +300,7 @@ func (s *server) pairAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, ok := find(pairs, id)
-	if !ok || p.ID != id {
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}

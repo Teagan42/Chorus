@@ -184,3 +184,26 @@ func TestAnUnknownPairOrActionIsRefused(t *testing.T) {
 		t.Errorf("unknown action = %d, want 400", code)
 	}
 }
+
+// verifies SPEC §9.2
+func TestSwitchingStatusTabsDropsASelectionOutsideTheFilter(t *testing.T) {
+	s, _ := newTestServer(t)
+	// The one pair is unreviewed, so the Accepted tab must not keep showing
+	// it in the detail pane while the list says the pile is empty.
+	h := get(t, s, "/curate/pairs?status=accepted&pair="+url.QueryEscape(pairID))
+	if !strings.Contains(h, "Nothing in this pile.") {
+		t.Fatal("the accepted tab should list nothing")
+	}
+	if strings.Contains(h, "/pairs/"+pairID+"/edit") {
+		t.Error("a pair outside the active filter is still in the detail pane")
+	}
+
+	// Once the pair is accepted, that tab selects it again.
+	if code, _ := post(t, s, "/pairs/"+pairID+"/accept-anyway", url.Values{}); code != http.StatusOK {
+		t.Fatal("accept-anyway failed")
+	}
+	h = get(t, s, "/curate/pairs?status=accepted")
+	if !strings.Contains(h, "/pairs/"+pairID+"/edit") {
+		t.Error("the accepted tab did not select its one pair")
+	}
+}
