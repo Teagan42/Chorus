@@ -21,16 +21,24 @@ tasks:
   # ---------------------------------------------------------------- toolchain
   tools:
     desc: Install pinned dev tools into GOPATH/bin
+    vars:
+      # A tool formats with the go/printer it was built by, so protoc-gen-go
+      # from a Go 1.24 regenerates a diff CI cannot see. go.mod's line is the
+      # Go CI builds with. sed, not `go list`: under GOTOOLCHAIN=local an
+      # older Go cannot load this module at all.
+      GO_PIN:
+        sh: sed -n 's/^go /go/p' go.mod
     cmds:
       # Pinned, not @latest: the hook and CI must agree, and a linter or gofumpt
       # release must not turn a green PR red with no code change. Bump on purpose.
-      - go install github.com/bufbuild/buf/cmd/buf@v1.73.0
-      - go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
-      - go install cuelang.org/go/cmd/cue@v0.17.1
-      - go install mvdan.cc/gofumpt@v0.12.0
+      # GOTOOLCHAIN per command: setup-go exports one, and that beats a task env.
+      - GOTOOLCHAIN={{.GO_PIN}} go install github.com/bufbuild/buf/cmd/buf@v1.73.0
+      - GOTOOLCHAIN={{.GO_PIN}} go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+      - GOTOOLCHAIN={{.GO_PIN}} go install cuelang.org/go/cmd/cue@v0.17.1
+      - GOTOOLCHAIN={{.GO_PIN}} go install mvdan.cc/gofumpt@v0.12.0
       # Separate command: two modules in one `go install` fails.
       # CGO_ENABLED=0: the only cgo build here, and it breaks on a bad macOS SDK.
-      - CGO_ENABLED=0 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
+      - CGO_ENABLED=0 GOTOOLCHAIN={{.GO_PIN}} go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
       # Quoted: the unquoted ": " in the URL would parse as a YAML mapping.
       - 'command -v uv >/dev/null || echo "install uv -> https://docs.astral.sh/uv/"'
       # Hooks are opt-in per clone; git will not enable them automatically.
