@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/Teagan42/Chorus/compare/v0.4.0...v0.5.0) (2026-10-08)
+
+
+### Features
+
+* run the phase-1 cascade end to end ([#20](https://github.com/Teagan42/Chorus/issues/20)) ([e01ae44](https://github.com/Teagan42/Chorus/commit/e01ae4423b08598a70b363d825762418e5afc40f))
+
 ## [0.4.0](https://github.com/Teagan42/Chorus/compare/v0.3.0...v0.4.0) (2026-10-08)
 
 
