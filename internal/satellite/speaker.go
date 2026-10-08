@@ -102,6 +102,10 @@ type Satellite struct {
 
 	mu     sync.Mutex
 	played uint64
+	// base is the DAC position the newest utterance's frames count from. Kept
+	// after that utterance ends rather than cleared, so a candidate arriving
+	// just behind the cut still resolves against the speech it interrupted.
+	base uint64
 	// stopped is the tag of the last stop the device has answered. The report
 	// carrying it is the one taken after the device gated its counter, so it
 	// is the only report that can place a cut (ADR-0033).
@@ -183,6 +187,25 @@ func (s *Satellite) position() (uint64, <-chan struct{}) {
 	return s.played, s.notify
 }
 
+// rebase takes the position an opening utterance counts from and publishes it
+// in the same lock, so the base the listener reads is the base the stream kept.
+func (s *Satellite) rebase() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.base = s.played
+	return s.base
+}
+
+// SpeechBase is the DAC position the newest utterance's frames count from.
+// The Listening child subtracts it so a barge-in's recorded position is an
+// offset into the speech it interrupted and not into the whole connection,
+// which is what PLAYED counts (SPEC §3.2.1, ADR-0030).
+func (s *Satellite) SpeechBase() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.base
+}
+
 // answered reports the last stop tag the device has answered and a channel
 // closed on the next report.
 func (s *Satellite) answered() (uint8, <-chan struct{}) {
@@ -203,7 +226,7 @@ func (s *Satellite) Open(ctx context.Context, callID string) (session.Stream, er
 	if err != nil {
 		return nil, fmt.Errorf("satellite: open audio for %s: %w", callID, err)
 	}
-	base, _ := s.position()
+	base := s.rebase()
 	st := &stream{
 		sat: s, ctx: ctx, callID: callID, base: base, audio: w,
 		in: make(chan int, deltaQueue), quit: make(chan struct{}), done: make(chan struct{}),

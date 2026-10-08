@@ -926,6 +926,46 @@ func TestASecondUtteranceRebasesOnTheCumulativePosition(t *testing.T) {
 	}
 }
 
+// The Listening child measures a barge-in from the same origin this Speaker
+// truncates on, and the only way to share it is to read it: SpeechBase plus a
+// Playback's Frames is the cumulative position the device reported (ADR-0030).
+//
+// verifies SPEC §3.2.1, §8
+func TestSpeechBaseIsWhereThisUtterancesFramesStart(t *testing.T) {
+	r := newRig(t)
+
+	first, _ := r.open(t, "call-1")
+	if base := r.sat.SpeechBase(); base != 0 {
+		t.Errorf("SpeechBase = %d before anything played, want 0", base)
+	}
+	if err := first.Write("one"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len("one")*framesPerByte*2)
+	done := closeAsync(first)
+	r.dev.AwaitFinish(t, 1)
+	r.playAll(t)
+	await(t, done)
+
+	second, _ := r.open(t, "call-2")
+	base := r.sat.SpeechBase()
+	if want := uint64(len("one") * framesPerByte); base != want {
+		t.Fatalf("SpeechBase = %d for the second utterance, want %d", base, want)
+	}
+	if err := second.Write("two"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, (len("one")+len("two"))*framesPerByte*2)
+	done = closeAsync(second)
+	r.dev.AwaitFinish(t, 2)
+	r.playAll(t)
+
+	pb := await(t, done)
+	if got, want := base+uint64(pb.Frames), r.played; got != want {
+		t.Errorf("base + Frames = %d, want the device's cumulative %d", got, want)
+	}
+}
+
 // verifies SPEC §3.3.2
 func TestPacingNeverOutlastsTheAudioItPaced(t *testing.T) {
 	r := newRig(t)
