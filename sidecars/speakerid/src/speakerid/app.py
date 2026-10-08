@@ -6,18 +6,19 @@ import numpy as np
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 
-# The satellite's format, fixed by the device (internal/bridge): 16 kHz,
+from speakerid.embedder import SAMPLE_RATE
+
+# The satellite's format, fixed by the device (internal/bridge): SAMPLE_RATE,
 # signed 16-bit, mono, little-endian, no header.
-SAMPLE_RATE = 16_000
 CONTENT_TYPE = "audio/pcm"
 
-# Below this the convolution stack sees fewer frames than its kernel and
-# fails deep inside torch; the refusal belongs at the contract instead.
+# Below this the runtime has fewer frames than it pools over and never marks
+# the stream ready; the refusal belongs at the contract instead.
 MIN_SAMPLES = SAMPLE_RATE // 10
 
 
 class Embedder(Protocol):
-    """One utterance in, one vector out. ECAPA fills it; tests use a fake."""
+    """One utterance in, one vector out. The ONNX model fills it; tests use a fake."""
 
     model: str
     dim: int
@@ -54,8 +55,9 @@ def create_app(embedder: Embedder) -> FastAPI:
             raise HTTPException(
                 400, f"{len(samples)} samples is under the {MIN_SAMPLES}-sample minimum"
             )
-        # The model is synchronous and takes tens of milliseconds on a GPU;
-        # off the event loop so a health check still answers meanwhile.
+        # The model is synchronous and costs tens of milliseconds per second
+        # of audio on a CPU; off the event loop so a health check still
+        # answers meanwhile.
         vec = await run_in_threadpool(embedder.embed, samples)
         return {"embedding": vec.tolist(), "dim": embedder.dim, "model": embedder.model}
 

@@ -1,17 +1,20 @@
 [project]
 name = "speakerid"
 version = "0.1.0"
-description = "Speaker embeddings over HTTP for Chorus: ECAPA-TDNN behind POST /v1/embed (SPEC §10)"
-requires-python = ">=3.13"
-# Exact pins, like the Go tools: a model or framework release must not change
+description = "Speaker embeddings over HTTP for Chorus: TitaNet-L on ONNX behind POST /v1/embed (SPEC §10)"
+# Bounded above: the 1.13.8 cp314 wheel on PyPI ships without
+# libonnxruntime.so and fails at import; the cp313 wheel bundles it.
+requires-python = ">=3.13,<3.14"
+# Exact pins, like the Go tools: a model or runtime release must not change
 # every embedding under an enrolled household with no code change.
 dependencies = [
   "fastapi==0.142.4",
   "uvicorn==0.54.0",
   "numpy==2.5.3",
-  "speechbrain==1.1.1",
-  "torch==2.11.0",
-  "torchaudio==2.11.0",
+  "sherpa-onnx==1.13.8",
+  # Pinned by hand: uv locks sherpa-onnx from a distribution that does not
+  # declare it, and without it the runtime library is never installed.
+  "sherpa-onnx-core==1.13.8",
 ]
 
 [project.scripts]

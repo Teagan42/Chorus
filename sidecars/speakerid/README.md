@@ -1,10 +1,12 @@
 # speakerid
 
-Speaker embeddings over HTTP: SpeechBrain's ECAPA-TDNN
-(`speechbrain/spkrec-ecapa-voxceleb`, 192 dims) behind one endpoint. It is
-the model half of SPEC §5 and the Speaker ID row of SPEC §10; the Go client
-is `internal/provider/speakerid` and the matching lives in
-`internal/identity`. Why the contract looks like this is ADR-0025.
+Speaker embeddings over HTTP: TitaNet-L (`nemo_en_titanet_large`, 192 dims),
+one of the two models SPEC §10 names, as the ONNX export sherpa-onnx
+publishes, behind one endpoint. It is the model half of SPEC §5 and the
+Speaker ID row of SPEC §10; the Go client is `internal/provider/speakerid`
+and the matching lives in `internal/identity`. Why the contract looks like
+this is ADR-0025; why the backend is ONNX and how the model is pinned is
+ADR-0029.
 
 ## Contract
 
@@ -19,12 +21,12 @@ The Go client and this README are its two copies; change both.
 - Response `200`, `application/json`:
 
   ```json norun
-  {"embedding": [0.0123, ...], "dim": 192, "model": "speechbrain/spkrec-ecapa-voxceleb"}
+  {"embedding": [0.0123, ...], "dim": 192, "model": "nemo_en_titanet_large"}
   ```
 
   `embedding` is L2-normalised, so a cosine against it is a dot product.
   `dim` and `model` are declared on every reply so a client built for one
-  checkpoint can refuse another.
+  model can refuse another.
 - `400` with `{"detail": "..."}` for an empty body, an odd byte count, or
   fewer than 1600 samples (100 ms).
 - `500` if the model fails on the audio.
@@ -33,12 +35,21 @@ The Go client and this README are its two copies; change both.
 model is loaded. The port does not open before that, so a healthcheck on it
 is a readiness check.
 
+## The model
+
+One file, `nemo_en_titanet_large.onnx` (97 MiB), from the sherpa-onnx
+`speaker-recongition-models` release (upstream's spelling), pinned in
+`embedder.py` by URL and sha256. `speakerid --download-only` fetches it into
+the model directory and verifies the digest; a file already there is kept
+only if it matches, and the server re-checks it at every boot. Nothing else
+is downloaded at any point: the runtime is the `sherpa-onnx` wheel, CPU only.
+
 ## Running
 
 From the repo root, which is the uv workspace root:
 
 ```sh norun
-task speakerid:up                 # builds the image, bakes the checkpoint, serves on 127.0.0.1:8890
+task speakerid:up                 # builds the image, bakes the model, serves on 127.0.0.1:8890
 task test:models -- ./internal/provider/speakerid -speakerid-url http://127.0.0.1:8890
 ```
 
@@ -46,16 +57,14 @@ Without Docker:
 
 ```sh norun
 uv sync --all-packages
-uv run --package speakerid speakerid --model-dir ./.models/ecapa --port 8890
+uv run speakerid --download-only --model-dir .models/speakerid
+uv run speakerid --model-dir .models/speakerid --port 8890
 ```
 
 Configuration is environment or flags: `SPEAKERID_HOST`, `SPEAKERID_PORT`,
-`SPEAKERID_MODEL_DIR`, `SPEAKERID_MODEL_REVISION` (a Hub commit; `main`
-until one is recorded), `SPEAKERID_DEVICE` (`cuda` when available, else
-`cpu`).
-
-The `torch` pinned here is the PyPI build, which carries CUDA. It runs on a
-CPU-only box too, just large; SPEC §13 puts model sidecars on the GPU host.
+`SPEAKERID_MODEL_DIR`, `SPEAKERID_THREADS` (runtime threads; the CPU count
+capped at four by default). On a dev box an utterance of a few seconds
+embeds in about 100 ms.
 
 ## Tests
 
@@ -64,7 +73,12 @@ uv sync --all-packages
 uv run pytest sidecars/speakerid
 ```
 
-These exercise the contract against a fake embedder and need neither the
-checkpoint nor a GPU. The real model is only exercised by the models tier
-above, which is the test that would catch a checkpoint changing its width.
-`task test` runs nothing in Python.
+These exercise the contract against a fake embedder and the asset pin
+against `file://` sources; they need neither the model nor the network. The
+real model runs under `tests/test_model.py` when `SPEAKERID_MODEL_DIR` holds
+the asset and `SPEAKERID_CORPUS` points at `<dir>/<speaker>/*.wav` (16 kHz
+s16le mono), and skips otherwise. That corpus is never committed
+(CONTRIBUTING §7). The models tier of the Go tests covers the same ground
+over HTTP, and with `-speakerid-wavs` runs a real enrollment and
+identification pass, which is where the thresholds in `internal/identity`
+come from. `task test` runs nothing in Python.

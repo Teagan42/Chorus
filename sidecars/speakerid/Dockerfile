@@ -14,8 +14,8 @@ ENV UV_LINK_MODE=copy \
 
 WORKDIR /src
 
-# Dependencies first, in their own layer: torch is gigabytes and a change to
-# the sidecar's own source must not re-download it.
+# Dependencies first, in their own layer: a change to the sidecar's own
+# source must not reinstall the runtime.
 COPY pyproject.toml uv.lock ./
 COPY sidecars/speakerid/pyproject.toml sidecars/speakerid/
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -25,12 +25,10 @@ COPY sidecars/speakerid/src sidecars/speakerid/src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --package speakerid
 
-# The checkpoint is baked in, so a running container never reaches the Hub
-# and serves the revision it was built with. "main" until a commit is
-# recorded (ADR-0025).
-ARG SPEAKERID_MODEL_REVISION=main
-ENV SPEAKERID_MODEL_DIR=/models/ecapa \
-    SPEAKERID_MODEL_REVISION=$SPEAKERID_MODEL_REVISION \
+# The model is baked in: one release asset, fetched here and verified against
+# the digest pinned in embedder.py, so a running container never reaches the
+# network and serves exactly the bytes it was built with (ADR-0029).
+ENV SPEAKERID_MODEL_DIR=/models/speakerid \
     SPEAKERID_PORT=8890
 RUN /opt/venv/bin/speakerid --download-only
 
