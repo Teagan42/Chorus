@@ -33,6 +33,7 @@ decision rather than by clause: facets of one choice share one record.
 | [0021](0021-journal-sequence-enforced-in-postgres.md) | Hash-partition the journal; enforce its sequence in Postgres | §8, §13 |
 | [0022](0022-one-live-session-per-conversation.md) | One live session per conversation; migration hands it over | §4.5, §8 |
 | [0023](0023-kokoro-renders-at-24-khz-the-host-resamples.md) | Raw PCM from Kokoro, resampled 24→16 kHz on the host | §10, §3.2 |
+| [0026](0026-harvest-barge-ins-as-uncurated-pairs.md) | Harvest a barge-in as an uncurated preference candidate | §9.1, §4.4, §8 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
