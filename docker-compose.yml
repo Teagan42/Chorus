@@ -41,8 +41,10 @@ services:
 
   # STT (SPEC §10). Parakeet TDT 0.6B v2 behind speaches' OpenAI-compatible
   # /v1/audio/transcriptions, as an ONNX export on CPU. 0.9.0-rc.1 is the
-  # first tag that serves Parakeet and, as of 2026-10-08, the last one
-  # published; a pre-release, pinned because `latest-cpu` moves (ADR-0024).
+  # first tag that serves Parakeet. rc.2 and rc.3 are published too (rc.3
+  # refactored its STT executors); rc.1 stays because its source is what the
+  # provider's behaviour was read from, and it is the only tag any measurement
+  # touched (ADR-0024). A pre-release, pinned because `latest-cpu` moves.
   speaches:
     image: ghcr.io/speaches-ai/speaches:0.9.0-rc.1-cpu
     ports:
