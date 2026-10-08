@@ -35,12 +35,16 @@ today:
 | Piece | State |
 |---|---|
 | `internal/esphome` — native API client, Noise transport | dials real hardware |
-| in-process fake satellite (the primary test asset) | not yet extracted from `pipe_test.go` |
+| `internal/bridge` — the audio link, and `bridgetest`, the in-process satellite that is the primary test asset | under test; full duplex proven on hardware (§3.3.2) |
 | `internal/session` — actor/supervisor, speech channel, barge-in gate | under test |
-| `internal/journal` — append-only log on Postgres | under test |
-| `esphome/components/chorus_bridge` — firmware component | config schema + wire protocol |
+| `internal/journal` — append-only log on Postgres, `replay()` | under test |
+| `internal/satellite` — renders speech onto a device; the truncation point is the DAC's | under test |
+| `internal/blob` — the audio a journal event refers to | under test |
+| `esphome/components/chorus_bridge` — firmware component | runs on a Satellite1 |
 | `cmd/probe` — connect to a satellite and dump what it exposes | works |
-| STT / LLM / TTS / speaker-ID sidecars | not started |
+| LLM — `internal/provider/ollama`, the turn engine | dials a real endpoint |
+| TTS — `internal/provider/kokoro`, resampled to the device's rate | dials a real endpoint |
+| STT / speaker-ID | not started |
 
 `task spec` reports which spec clauses have tests behind them.
 
