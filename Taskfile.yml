@@ -132,6 +132,22 @@ tasks:
     cmds:
       - docker compose stop speaches
 
+  speakerid:up:
+    desc: Start the local speaker-ID sidecar. First run builds the image and bakes the model.
+    cmds:
+      - docker compose up -d --wait --build speakerid
+
+  speakerid:down:
+    desc: Stop the local speaker-ID sidecar
+    cmds:
+      - docker compose stop speakerid
+
+  speakerid:test:
+    desc: The sidecar's own contract tests. Hermetic, but Python, so not part of `task test`.
+    cmds:
+      - uv sync --all-packages
+      - uv run pytest sidecars/speakerid
+
   test:hardware:
     desc: Requires a reachable satellite from devices.yaml.
     cmds:

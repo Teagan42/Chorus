@@ -66,6 +66,27 @@ services:
       retries: 12
       start_period: 30s
 
+  # Speaker ID (SPEC §10, §5). Built here rather than pulled: there is no
+  # published image for this contract, which is the repo's own
+  # (sidecars/speakerid/README.md). The checkpoint is baked into the image at
+  # build, so the container never reaches the Hub.
+  speakerid:
+    build:
+      # The repo root is the uv workspace root, which is where the lockfile
+      # the image installs from lives.
+      context: .
+      dockerfile: sidecars/speakerid/Dockerfile
+    ports:
+      - "127.0.0.1:8890:8890"
+    # The port opens only after the model is loaded, so the check is a
+    # readiness check. start_period covers a cold load on a CPU box.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8890/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
 volumes:
   journal:
   stt-models:
