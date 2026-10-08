@@ -435,3 +435,64 @@ func (b *blockingWriter) Write(p []byte) (int, error) {
 	<-b.release
 	return len(p), nil
 }
+
+// withFailure adds a second conversation whose one tool timed out, recorded
+// later than the barge-in so it heads the queue.
+func withFailure(t *testing.T, store *journal.MemStore) *journal.MemStore {
+	t.Helper()
+	v := journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7"}
+	j := journal.New(store, journal.FixedClock(time.Unix(1_760_003_600, 0)), v)
+	for _, r := range []journal.Record{
+		{Kind: journal.KindSessionOpened, Fields: map[string]string{"satellite": "office", "speaker_id": "teagan", "resumed": "false"}},
+		{Kind: journal.KindUtteranceTranscribed, AudioRef: "blob://mic/9", Fields: map[string]string{"text": "is the garage door closed", "speaker_id": "teagan"}},
+		{Kind: journal.KindToolCalled, Fields: map[string]string{"tool": "cover.state", "call_id": "c1", "args_json": "{}"}},
+		{Kind: journal.KindToolResult, Fields: map[string]string{"call_id": "c1", "outcome": "timed_out"}},
+		{Kind: journal.KindModelCompleted, Fields: map[string]string{"completion_json": "{}", "finish_reason": "stop"}},
+	} {
+		if _, err := j.Append(context.Background(), "conv-2", r); err != nil {
+			t.Fatalf("append %s: %v", r.Kind, err)
+		}
+	}
+	return store
+}
+
+func newTriageServer(t *testing.T) *server {
+	t.Helper()
+	return newServer(withFailure(t, bargeInLog(t)), curation.NewMemStore(), fixtureBlobs(t), time.Now)
+}
+
+// verifies SPEC §9.2
+func TestTriageQueuesEverySignalNewestFirst(t *testing.T) {
+	h := get(t, newTriageServer(t), "/queue")
+	failure := strings.Index(h, "is the garage door closed")
+	barge := strings.Index(h, "play something by zeppelin")
+	if failure < 0 || barge < 0 {
+		t.Fatalf("queue is missing a signal (failure at %d, barge-in at %d)", failure, barge)
+	}
+	if failure > barge {
+		t.Error("the later conversation should head the queue")
+	}
+	for _, want := range []string{
+		"cover.state timed_out",                   // why the failure is here
+		"cut → “just the first one”",              // why the barge-in is here
+		"/review?pair=" + url.QueryEscape(pairID), // a barge-in opens its pair
+		"teagan · office",                         // who and where
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("queue is missing %q", want)
+		}
+	}
+}
+
+// verifies SPEC §9.2
+func TestTriageTabsFilterBySignal(t *testing.T) {
+	s := newTriageServer(t)
+	h := get(t, s, "/queue?tab=failure")
+	if !strings.Contains(h, "is the garage door closed") || strings.Contains(h, "play something by zeppelin") {
+		t.Error("the failures tab should hold the failure and only it")
+	}
+	h = get(t, s, "/queue?tab=speaker-flip")
+	if !strings.Contains(h, "Nothing in this pile.") {
+		t.Error("an empty tab should say so")
+	}
+}

@@ -248,3 +248,15 @@ func TestTheShellServesHtmxFromItsOwnStatic(t *testing.T) {
 		_ = f.Close()
 	}
 }
+
+// A row with nowhere to go must not be a link to the page it is on.
+func TestListRowWithoutAHrefIsNotALink(t *testing.T) {
+	h := render(t, "list-row", ui.ListRow{Title: "Is the garage door closed?"})
+	if strings.Contains(h, "<a") || strings.Contains(h, "href") {
+		t.Errorf("hrefless row rendered as a link: %s", h)
+	}
+	mustContain(t, "hrefless row", h, `class="list__row"`, "Is the garage door closed?")
+
+	h = render(t, "list-row", ui.ListRow{Href: "/review?pair=x", Title: "linked"})
+	mustContain(t, "linked row", h, `<a class="list__row" href="/review?pair=x"`)
+}

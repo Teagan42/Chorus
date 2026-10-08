@@ -7,12 +7,13 @@
 {{- if and (not .Rows) .Empty}}{{template "empty-state" .Empty}}{{end}}
 </div>{{end}}
 
-{{/* list-row · dot: ui.ListRow */}}
-{{define "list-row"}}<a class="list__row" href="{{.Href}}">
+{{/* list-row · dot: ui.ListRow — a plain row when Href is empty, so a row with
+     nowhere to go is not a link back to the page it is on. */}}
+{{define "list-row"}}{{if .Href}}<a class="list__row" href="{{.Href}}">{{else}}<div class="list__row">{{end}}
 <span>{{template "sig-tag" .Tag}}</span>
 <span class="list__text"><span class="list__title">{{.Title}}</span>{{with .Detail}}<span class="list__detail">{{.}}</span>{{end}}</span>
 <span>{{with .Thumb}}{{template "conv-thumb" .}}{{end}}</span>
 <span class="list__who">{{.Who}}</span>
 <span class="{{cls "list__figure" (tone .FigureTone)}}">{{.Figure}}</span>
 <span class="list__when">{{.When}}</span>
-</a>{{end}}
+{{if .Href}}</a>{{else}}</div>{{end}}{{end}}
