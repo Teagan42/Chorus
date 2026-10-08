@@ -1,0 +1,20 @@
+{{/* Curate · DPO pairs, the kit's page over the real journal. */}}
+
+{{define "page-curate"}}{{template "doc-start" .Doc}}
+{{template "app-header" .Header}}
+{{template "page-head" .Head}}
+{{template "tabs" .Tabs}}
+<div class="cols" style="align-items: flex-start">
+<div style="flex: 1 1 440px; min-width: 0">{{template "pair-rows" .Rows}}</div>
+<div style="flex: 1.3 1 520px; min-width: 0">{{template "pair-actions" .Pair}}</div>
+</div>
+{{template "doc-end"}}{{end}}
+
+{{define "pair-rows"}}<nav id="pair-rows" aria-label="Pairs"{{if .OOB}} hx-swap-oob="true"{{end}}>
+{{- range .Rows}}<a href="{{.Href}}" class="list__row" style="grid-template-columns: minmax(0, 1fr) auto; {{if .On}}background: var(--c-raised); box-shadow: inset 3px 0 0 var(--c-text){{end}}"{{if .On}} aria-current="true"{{end}}>
+<span class="list__text"><span class="list__detail">− {{.Rejected}}</span><span class="list__title" style="font-size: 14px">+ {{.Chosen}}</span></span>
+<span class="stack" style="gap: 6px; align-items: flex-end">{{template "sig-tag" .Tag}}{{template "sig-tag" .Status}}</span></a>{{end}}
+{{- with .Empty}}{{template "empty-state" .}}{{end}}
+</nav>{{end}}
+
+{{define "pair-action-curate"}}{{template "pair-actions" .Pair}}{{template "pair-rows" .Rows}}{{template "tabs" .Tabs}}{{end}}
