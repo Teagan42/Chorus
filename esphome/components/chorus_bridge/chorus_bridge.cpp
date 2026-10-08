@@ -214,6 +214,7 @@ void ChorusBridge::disconnect_(const char *reason) {
   this->rx_.clear();
   this->speaker_pending_.clear();
   this->finish_requested_ = false;
+  this->stop_ack_ = 0;
   // Frames are cumulative per connection (internal/bridge/frame.go), so the
   // counter has to start from zero on the next one. Without this the first
   // PLAYED of a new link reports a position from the previous one.
@@ -390,6 +391,10 @@ void ChorusBridge::handle_frame_(FrameType type, uint8_t flags, const uint8_t *p
       if (this->speaker_ != nullptr) {
         this->speaker_->stop();
       }
+      // Answered with a PLAYED carrying this tag even if the position did not
+      // move: a routine report can be in flight when the host sends the stop,
+      // so the host waits for the one report that follows it (ADR-0033).
+      this->stop_ack_ = flags;
       return;
 
     case FrameType::FINISH:
@@ -445,13 +450,18 @@ void ChorusBridge::pump_speaker_() {
 }
 
 void ChorusBridge::publish_played_() {
-  if (!this->played_dirty_.exchange(false, std::memory_order_acquire)) {
+  const uint8_t ack = this->stop_ack_;
+  if (!this->played_dirty_.exchange(false, std::memory_order_acquire) && ack == 0) {
     return;
   }
   std::vector<uint8_t> p;
   put_be64(p, this->played_frames_.load(std::memory_order_relaxed));
   put_be64(p, static_cast<uint64_t>(this->played_timestamp_.load(std::memory_order_relaxed)));
-  this->queue_frame_(FrameType::PLAYED, 0, p.data(), p.size());
+  // A stop's answer is retried, not dropped: the host waits for this one
+  // report, and no later routine report can stand in for it.
+  if (this->queue_frame_(FrameType::PLAYED, ack, p.data(), p.size())) {
+    this->stop_ack_ = 0;
+  }
 }
 
 void ChorusBridge::publish_mute_() {

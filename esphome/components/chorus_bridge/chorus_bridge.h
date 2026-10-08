@@ -39,7 +39,7 @@ static const size_t SPEAKER_BUFFER_SIZE = 16 * 1024;
 static const size_t RX_CHUNK_SIZE = 4 * 1024;
 static const size_t RX_CAPACITY = SPEAKER_BUFFER_SIZE + RX_CHUNK_SIZE;
 
-static const uint8_t PROTOCOL_VERSION = 1;
+static const uint8_t PROTOCOL_VERSION = 2;
 static const size_t HEADER_SIZE = 4;
 
 // Frame types. See internal/bridge/frame.go, which must stay in step.
@@ -146,6 +146,7 @@ class ChorusBridge : public Component {
   std::atomic<bool> played_dirty_{false};
 
   std::atomic<bool> playing_{false};
+  uint8_t stop_ack_{0};  // a STOP's tag until its PLAYED answer is queued
   bool finish_requested_{false};
   bool mic_requested_{true};
   bool mic_started_{false};
