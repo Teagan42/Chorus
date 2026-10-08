@@ -1,5 +1,5 @@
 // Package speakerid is the phase-1 speaker-embedding provider: an HTTP client
-// for sidecars/speakerid, which serves ECAPA-TDNN behind POST /v1/embed
+// for sidecars/speakerid, which serves TitaNet-L behind POST /v1/embed
 // (SPEC §10, §14 item 4). It fills identity.Embedder.
 //
 // There is no standard speaker-embedding HTTP contract the way there is for
@@ -24,11 +24,12 @@ import (
 	"github.com/teaganglenn/chorus/internal/identity"
 )
 
-// DefaultModel is the checkpoint SPEC §10 names. The sidecar reports which
-// one it loaded and anything else is refused.
-const DefaultModel = "speechbrain/spkrec-ecapa-voxceleb"
+// DefaultModel is TitaNet-L, one of the two models SPEC §10 names, under
+// the name the sidecar reports for its ONNX export (ADR-0029). Anything
+// else is refused.
+const DefaultModel = "nemo_en_titanet_large"
 
-// DefaultDim is what that checkpoint emits. The sidecar declares it per
+// DefaultDim is what that model emits. The sidecar declares it per
 // response; this is only what the client expects to see.
 const DefaultDim = 192
 

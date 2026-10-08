@@ -216,8 +216,8 @@ func TestDefaultsNameTheSpecifiedModel(t *testing.T) {
 	if c.Model() != speakerid.DefaultModel || c.Dim() != speakerid.DefaultDim {
 		t.Errorf("defaults are %s at %d", c.Model(), c.Dim())
 	}
-	if !strings.Contains(c.Model(), "ecapa") {
-		t.Errorf("default model %q is not the ECAPA-TDNN SPEC §10 names", c.Model())
+	if !strings.Contains(c.Model(), "titanet") {
+		t.Errorf("default model %q is not the TitaNet-L SPEC §10 names", c.Model())
 	}
 }
 
