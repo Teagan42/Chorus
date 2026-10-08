@@ -199,3 +199,7 @@ tasks:
   probe:
     desc: Probe a real satellite (needs devices.yaml)
     cmds: ["go run ./cmd/probe {{.CLI_ARGS}}"]
+
+  harvest:
+    desc: Export a conversation's barge-in DPO candidates as JSONL (needs Postgres)
+    cmds: ["go run ./cmd/harvest {{.CLI_ARGS}}"]
