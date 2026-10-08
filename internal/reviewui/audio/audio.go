@@ -25,9 +25,26 @@ const maxBlobBytes = 32 << 20
 // headerLen is the fixed PCM WAV preamble this package writes.
 const headerLen = 44
 
-// Handler serves GET ?ref=blob://... as audio/wav from the store.
+// Handler serves GET ?ref=blob://... as audio/wav from the store. Optional
+// from and to bound the slice in device frames: the journal records the cut
+// as a frame count, and a reviewer replaying what was heard needs playback
+// to stop where the DAC did, with the unheard tail servable on its own.
 func Handler(store blob.Store) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		from, err := frameBound(r, "from", 0)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		to, err := frameBound(r, "to", maxBlobBytes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if to < from {
+			http.Error(w, fmt.Sprintf("empty range: from=%d to=%d", from, to), http.StatusBadRequest)
+			return
+		}
 		ref := r.URL.Query().Get("ref")
 		rc, err := store.Open(r.Context(), ref)
 		switch {
@@ -52,6 +69,7 @@ func Handler(store blob.Store) http.Handler {
 			http.Error(w, fmt.Sprintf("%s exceeds %d bytes", ref, maxBlobBytes), http.StatusInsufficientStorage)
 			return
 		}
+		pcm = pcm[min(from*bytesPerFrame, len(pcm)):min(to*bytesPerFrame, len(pcm))]
 
 		w.Header().Set("Content-Type", "audio/wav")
 		w.Header().Set("Content-Length", strconv.Itoa(headerLen+len(pcm)))
@@ -64,12 +82,25 @@ func Handler(store blob.Store) http.Handler {
 	})
 }
 
+// bytesPerFrame is the size of one mono device-format sample.
+const bytesPerFrame = bridge.BitsPerSample / 8
+
+// frameBound reads one frame-offset query parameter, absent meaning def.
+func frameBound(r *http.Request, name string, def int) (int, error) {
+	v := r.URL.Query().Get(name)
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("%s: not a frame count: %q", name, v)
+	}
+	return n, nil
+}
+
 // header is the 44-byte PCM WAV preamble for n bytes of device-format audio.
 func header(n int) []byte {
-	const (
-		channels      = 1
-		bytesPerFrame = channels * bridge.BitsPerSample / 8
-	)
+	const channels = 1
 	h := make([]byte, 0, headerLen)
 	le32 := func(v uint32) []byte { return binary.LittleEndian.AppendUint32(nil, v) }
 	le16 := func(v uint16) []byte { return binary.LittleEndian.AppendUint16(nil, v) }

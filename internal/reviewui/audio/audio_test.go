@@ -91,3 +91,33 @@ func TestDurationMatchesTheDeviceFormat(t *testing.T) {
 		t.Errorf("duration = %dms, want 1000", ms)
 	}
 }
+
+// verifies SPEC §9.2
+func TestFrameBoundsTrimTheServedAudio(t *testing.T) {
+	s, ref, pcm := store(t)
+	h := audio.Handler(s)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/audio?ref="+url.QueryEscape(ref)+"&to=2080", nil))
+	if n := len(w.Body.Bytes()); n != 44+2080*2 {
+		t.Errorf("to=2080 served %d bytes, want header + 4160", n)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/audio?ref="+url.QueryEscape(ref)+"&from=2080", nil))
+	b := w.Body.Bytes()
+	if n := len(b); n != 44+len(pcm)-2080*2 {
+		t.Errorf("from=2080 served %d bytes, want header + %d", n, len(pcm)-2080*2)
+	}
+	if string(b[44:48]) != string(pcm[4160:4164]) {
+		t.Error("from=2080 does not start at the 2080th frame")
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/audio?ref="+url.QueryEscape(ref)+"&to=junk", nil))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("bad bound = %d, want 400", w.Code)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/audio?ref="+url.QueryEscape(ref)+"&from=10&to=5", nil))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("inverted range = %d, want 400", w.Code)
+	}
+}
