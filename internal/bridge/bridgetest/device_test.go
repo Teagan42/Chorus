@@ -11,13 +11,22 @@ import (
 
 const patience = 5 * time.Second
 
-// sink records what Serve dispatched, on a channel so a test can wait for it.
-type sink struct{ wakes chan string }
+// sink records what Serve dispatched, on channels so a test can wait for it.
+type sink struct {
+	wakes  chan string
+	played chan bridge.Played
+}
 
-func (s sink) OnMic(uint8, []byte) error    { return nil }
-func (s sink) OnWake(w string) error        { s.wakes <- w; return nil }
-func (s sink) OnPlayed(bridge.Played) error { return nil }
-func (s sink) OnMute(bridge.Mute) error     { return nil }
+func (s sink) OnMic(uint8, []byte) error { return nil }
+func (s sink) OnWake(w string) error     { s.wakes <- w; return nil }
+func (s sink) OnMute(bridge.Mute) error  { return nil }
+
+func (s sink) OnPlayed(p bridge.Played) error {
+	if s.played != nil {
+		s.played <- p
+	}
+	return nil
+}
 
 // A daemon accepts the connection and completes the handshake itself, so the
 // device has to be able to join a connection it did not create: that is how
@@ -84,4 +93,57 @@ func TestDialStillJoinsBothEnds(t *testing.T) {
 		t.Fatalf("SendTTS: %v", err)
 	}
 	dev.AwaitTTS(t, 64)
+}
+
+// A report the DAC has emitted is not yet a report the host has read. Holding
+// the uplink is what lets a test place one on each side of a stop.
+func TestHoldUplinkDelaysReportsWithoutReorderingThem(t *testing.T) {
+	link, dev := bridgetest.Dial(t, 1)
+	s := sink{played: make(chan bridge.Played, 4)}
+	go func() { _ = link.Serve(t.Context(), s) }()
+
+	if err := link.SendTTS(make([]byte, 8)); err != nil {
+		t.Fatalf("SendTTS: %v", err)
+	}
+	dev.AwaitTTS(t, 8)
+
+	hold := dev.HoldUplink(t)
+	dev.Play(t, 1)
+	dev.Play(t, 1)
+	dev.Play(t, 1)
+	select {
+	case p := <-s.played:
+		t.Fatalf("a held report reached the host: %+v", p)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// One at a time, so a test can act between two reports that were both
+	// already in flight.
+	hold.Release(1)
+	expectPlayed(t, s.played, 1)
+	select {
+	case p := <-s.played:
+		t.Fatalf("a report still held reached the host: %+v", p)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	hold.Lift()
+	expectPlayed(t, s.played, 2)
+	expectPlayed(t, s.played, 3)
+
+	// Lifted means the wire is back to normal, not open for one frame.
+	dev.Play(t, 1)
+	expectPlayed(t, s.played, 4)
+}
+
+func expectPlayed(t *testing.T, played <-chan bridge.Played, frames uint64) {
+	t.Helper()
+	select {
+	case p := <-played:
+		if p.Frames != frames {
+			t.Errorf("Frames = %d, want %d: reports arrived out of order", p.Frames, frames)
+		}
+	case <-time.After(patience):
+		t.Fatalf("the report of %d frames never reached the host", frames)
+	}
 }

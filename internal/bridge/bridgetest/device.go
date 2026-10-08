@@ -8,6 +8,7 @@
 package bridgetest
 
 import (
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -31,9 +32,11 @@ type Device struct {
 
 	// wmu serialises the test goroutine's frames against the read loop's own
 	// reports; ready holds every frame behind the hello.
-	wmu   sync.Mutex
-	w     *bridge.Writer
-	ready chan struct{}
+	wmu     sync.Mutex
+	w       *bridge.Writer
+	ready   chan struct{}
+	holding bool           // HoldUplink is in force
+	held    []bridge.Frame // frames in flight, in order, until released
 
 	mu         sync.Mutex
 	tts        []byte
@@ -110,7 +113,61 @@ func (d *Device) write(f bridge.Frame) error {
 	<-d.ready
 	d.wmu.Lock()
 	defer d.wmu.Unlock()
+	if d.holding {
+		d.held = append(d.held, f)
+		return nil
+	}
 	return d.w.WriteFrame(f)
+}
+
+// Hold is a run of uplink frames parked in flight. See Device.HoldUplink.
+type Hold struct {
+	t *testing.T
+	d *Device
+}
+
+// HoldUplink parks every frame the device would send, in order, until the
+// hold releases it. It models the wire's latency: a report the DAC has
+// emitted but the host has not yet read, which is what lets a test put one
+// report on each side of a stop and see which the host believes.
+func (d *Device) HoldUplink(t *testing.T) *Hold {
+	t.Helper()
+	d.wmu.Lock()
+	d.holding = true
+	d.wmu.Unlock()
+	return &Hold{t: t, d: d}
+}
+
+// Release lets the oldest n held frames reach the host, in order, and keeps
+// holding the rest. Fewer than n held is a failure: a test releasing a frame
+// it never staged is asserting on nothing.
+func (h *Hold) Release(n int) {
+	h.t.Helper()
+	h.d.wmu.Lock()
+	defer h.d.wmu.Unlock()
+	if len(h.d.held) < n {
+		h.t.Fatalf("release %d held frames, only %d are held", n, len(h.d.held))
+	}
+	h.d.writeHeldLocked(n)
+}
+
+// Lift releases everything held and lets later frames through as they come.
+func (h *Hold) Lift() {
+	h.t.Helper()
+	h.d.wmu.Lock()
+	defer h.d.wmu.Unlock()
+	h.d.holding = false
+	h.d.writeHeldLocked(len(h.d.held))
+}
+
+// writeHeldLocked writes the oldest n held frames. The caller holds wmu.
+func (d *Device) writeHeldLocked(n int) {
+	for _, f := range d.held[:n] {
+		if err := d.w.WriteFrame(f); err != nil {
+			panic(fmt.Sprintf("bridgetest: release held %s: %v", f.Type, err))
+		}
+	}
+	d.held = d.held[n:]
 }
 
 // Gone closes once the host has hung up: the downlink read failed, which is
