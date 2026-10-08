@@ -56,9 +56,10 @@ func paceFor(n int) time.Duration {
 // DefaultDrain bounds the wait for the DAC to confirm a finished utterance.
 const DefaultDrain = 10 * time.Second
 
-// DefaultSettle bounds the wait for the device's final position after a stop.
-// Short because it only delays the journal record, not the silence: the stop
-// has already gone out by then.
+// DefaultSettle bounds the wait for the device's answer to a stop. Short
+// because it only delays the journal record, not the silence: the stop has
+// already gone out by then. The device answers every stop, so this expires
+// only when the link has failed under it.
 const DefaultSettle = 250 * time.Millisecond
 
 // deltaQueue is how many segments may be awaiting synthesis. Generous because
@@ -82,8 +83,8 @@ type Config struct {
 	// utterance. Defaults to DefaultDrain.
 	Drain time.Duration
 
-	// Settle bounds the wait for the device's final position after a barge-in
-	// stop. Defaults to DefaultSettle.
+	// Settle bounds the wait for the device's answer to a barge-in stop.
+	// Defaults to DefaultSettle.
 	Settle time.Duration
 
 	// OnMic, OnWake and OnMute forward the device's other uplink frames. A nil
@@ -101,8 +102,12 @@ type Satellite struct {
 
 	mu     sync.Mutex
 	played uint64
-	// notify is closed and replaced on every position change, so a waiter
-	// cannot miss an advance between reading the position and sleeping.
+	// stopped is the tag of the last stop the device has answered. The report
+	// carrying it is the one taken after the device gated its counter, so it
+	// is the only report that can place a cut (ADR-0033).
+	stopped uint8
+	// notify is closed and replaced on every report, so a waiter cannot miss
+	// one between reading the position and sleeping.
 	notify chan struct{}
 }
 
@@ -129,7 +134,8 @@ func New(cfg Config) (*Satellite, error) {
 	return &Satellite{cfg: cfg, notify: make(chan struct{})}, nil
 }
 
-// OnPlayed records the DAC's cumulative position.
+// OnPlayed records the DAC's cumulative position and which stop, if any, the
+// report answers.
 func (s *Satellite) OnPlayed(p bridge.Played) error {
 	s.mu.Lock()
 	// Monotonic by protocol: the firmware only resets on a new connection, and
@@ -138,6 +144,9 @@ func (s *Satellite) OnPlayed(p bridge.Played) error {
 	// has already been journalled.
 	if p.Frames > s.played {
 		s.played = p.Frames
+	}
+	if p.Stop != 0 {
+		s.stopped = p.Stop
 	}
 	close(s.notify)
 	s.notify = make(chan struct{})
@@ -166,12 +175,20 @@ func (s *Satellite) OnMute(m bridge.Mute) error {
 	return s.cfg.OnMute(m)
 }
 
-// position reports the DAC's cumulative frame count and a channel closed when
-// it next changes.
+// position reports the DAC's cumulative frame count and a channel closed on
+// the next report.
 func (s *Satellite) position() (uint64, <-chan struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.played, s.notify
+}
+
+// answered reports the last stop tag the device has answered and a channel
+// closed on the next report.
+func (s *Satellite) answered() (uint8, <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stopped, s.notify
 }
 
 // Open starts an utterance. Its frame offsets are relative to the position
@@ -363,11 +380,8 @@ func (s *stream) Close() session.Playback {
 	s.mu.Unlock()
 
 	cut := s.ctx.Err() != nil
-	// Sampled before the stop goes out, together with the channel that fires on
-	// the next change. Waiting for a change observed only after the stop would
-	// miss the report the stop itself provoked, and then block for the whole
-	// settle on a position that had already arrived.
-	before, changed := s.sat.position()
+	var tag uint8
+	var stopErr error
 	if cut {
 		// Sent first, before the feeder is even asked to exit. The device is
 		// playing buffered audio right now and this is the frame that silences
@@ -376,16 +390,17 @@ func (s *stream) Close() session.Playback {
 		// otherwise hold the user's ears for that call's whole duration.
 		// Barge-in latency cannot depend on a synthesiser honouring its
 		// context (SPEC §4.4).
-		_, _ = s.sat.cfg.Link.Stop()
+		tag, stopErr = s.sat.cfg.Link.Stop()
 	}
 	close(s.quit)
 	<-s.done
 
-	if !cut {
+	switch {
+	case !cut:
 		_ = s.sat.cfg.Link.Finish()
 		s.awaitDrain()
-	} else {
-		s.settle(before, changed)
+	case stopErr == nil:
+		s.settle(tag)
 	}
 
 	s.mu.Lock()
@@ -393,9 +408,11 @@ func (s *stream) Close() session.Playback {
 	total := s.total
 	s.mu.Unlock()
 
-	// Read after the stop, never before: the DAC keeps going for the stop's
-	// flight time, and the firmware gates its counter at the stop precisely so
-	// that its last report is the truncation point.
+	// Read after the device has answered the stop, never before: the DAC keeps
+	// going for the stop's flight time, and the firmware gates its counter at
+	// the stop precisely so that the report answering it is the truncation
+	// point. A stop the link could not deliver has no answer to wait for, and
+	// the position already known is then the honest one.
 	played := s.playedFrames()
 	ref := s.keepAudio(played > 0)
 	// Every delta rendered *and* the DAC reached the end of all of it. The
@@ -449,25 +466,27 @@ func (s *stream) playedFrames() uint64 {
 	return p - s.base
 }
 
-// settle waits for the device's last playback report after a stop. The DAC
-// keeps emitting for as long as the stop takes to arrive, and a cumulative
-// report covering those frames can already be in flight; they were heard, so
-// leaving them out would understate what the user got.
+// settle waits for the report that answers this stop. The DAC keeps emitting
+// for as long as the stop takes to arrive, and those frames were heard, so the
+// cut has to be the position the device gated when the stop reached it. That
+// position is on the one report echoing the stop's tag, and on no other: a
+// routine report emitted just before the stop can still be in flight when it
+// is sent, and the first change to arrive would then be a round trip stale
+// (ADR-0033).
 //
 // Bounded and allowed to expire: the context is already cancelled, so nothing
-// else will unblock this, and the firmware only sends a report when the
-// position actually moved. A timeout falls back to the position already known:
-// never worse than not waiting, usually exact.
-func (s *stream) settle(before uint64, changed <-chan struct{}) {
+// else will unblock this, and a link that fails under the stop never answers.
+// A timeout falls back to the position already known: never worse than not
+// waiting.
+func (s *stream) settle(tag uint8) {
 	deadline := s.sat.cfg.Timers.After(s.sat.cfg.Settle)
 	for {
-		played, next := s.sat.position()
-		if played != before {
+		stopped, next := s.sat.answered()
+		if stopped == tag {
 			return
 		}
 		select {
-		case <-changed:
-			changed = next
+		case <-next:
 		case <-deadline:
 			return
 		}

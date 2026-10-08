@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -673,6 +674,70 @@ func TestTheCutUsesTheFinalPositionAfterTheStop(t *testing.T) {
 }
 
 // verifies SPEC §4.4
+//
+// The DAC reports at its own cadence and a report takes time to arrive, so a
+// routine report can already be on the wire when the stop goes out. It
+// predates the stop and says nothing about where the device cut; the report
+// the stop provokes does, and it lands behind it. A cut taken from the first
+// change after the stop is the DAC's position a round trip ago (SPEC §15.1).
+func TestTheCutIsTheReportTheStopProvokedNotTheFirstChange(t *testing.T) {
+	// A long settle, so the cut has to come from the device, not the deadline.
+	r := newRig(t, func(c *satellite.Config) { c.Settle = rigSettle })
+	st, cancel := r.open(t, "call-1")
+
+	for _, delta := range []string{"Hello ", "there ", "world."} {
+		if err := st.Write(delta); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	r.dev.AwaitTTS(t, len("Hello there world.")*framesPerByte*2)
+
+	// The host knows of two characters. The DAC then gets through three more
+	// and reports them, but that report is still in flight at the barge-in,
+	// and the device plays two more before the stop reaches it.
+	r.play(t, 2*framesPerByte)
+	hold := r.dev.HoldUplink(t)
+	r.dev.Play(t, 3*framesPerByte)
+	r.dev.PlayDuringStop(2 * framesPerByte)
+
+	cancel()
+	done := closeAsync(st)
+	r.dev.AwaitStop(t, 1)
+
+	// The stale report lands first and is applied before the answer to the
+	// stop is even on the wire. A Close that takes it for the cut is given
+	// the processor to return on it before the answer is let through, so
+	// the answer cannot rescue it: yielding is what keeps this check from
+	// racing the code it checks, and a Close that is waiting yields nothing.
+	hold.Release(1)
+	r.awaitPlayed(t, 5*framesPerByte)
+	for range 1024 {
+		select {
+		case pb := <-done:
+			t.Fatalf("Close returned on a report that predates the stop: Frames = %d, split = (%q, %q)",
+				pb.Frames, pb.Spoken, pb.Unspoken)
+		default:
+			runtime.Gosched()
+		}
+	}
+	hold.Lift()
+
+	pb := await(t, done)
+	const cut = 7 * framesPerByte
+	if pb.Frames != cut {
+		t.Errorf("Frames = %d, want %d: the cut is where the device gated at the stop, "+
+			"not the first report to arrive after it", pb.Frames, cut)
+	}
+	// Seven characters in is inside "there ", which the user began to hear.
+	if pb.Spoken != "Hello there " || pb.Unspoken != "world." {
+		t.Errorf("split = (%q, %q), want (%q, %q)", pb.Spoken, pb.Unspoken, "Hello there ", "world.")
+	}
+	if !pb.Truncated {
+		t.Error("Truncated = false, want true")
+	}
+}
+
+// verifies SPEC §4.4
 func TestADeviceThatGoesQuietAfterTheStopStillReportsACut(t *testing.T) {
 	r := newRig(t, func(c *satellite.Config) { c.Settle = rigSettle })
 	st, cancel := r.open(t, "call-1")
@@ -682,18 +747,16 @@ func TestADeviceThatGoesQuietAfterTheStopStillReportsACut(t *testing.T) {
 	}
 	r.dev.AwaitTTS(t, len("Hello world.")*framesPerByte*2)
 	const heard = 3 * framesPerByte
-	// This position has to be the one Close samples, or the settle it waits on
-	// is answered by the report arriving late and the deadline is never
-	// reached -- which is the only thing this test is about.
 	r.play(t, heard)
 
+	// The device answers every stop, so the only way to have no answer is a
+	// wire that never delivers it: a satellite that drops off mid-stop.
+	// Expiring must degrade to the position already known, not wedge the
+	// session.
+	r.dev.HoldUplink(t)
 	cancel()
 	done := closeAsync(st)
 	r.dev.AwaitStop(t, 1)
-
-	// The firmware only reports when the position moved, so a stop that lands
-	// between reports is answered with silence. Expiring must degrade to the
-	// position already known, not wedge the session.
 	r.settle <- time.Now()
 
 	pb := await(t, done)
