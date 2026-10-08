@@ -17,34 +17,34 @@ import (
 )
 
 // Embedder turns one utterance into a speaker embedding. It is the seam
-// SPEC §10 names ECAPA-TDNN for; a test fills it with vectors it chose.
+// SPEC §10 names TitaNet-L for; a test fills it with vectors it chose.
 type Embedder interface {
 	// Embed takes one utterance as PCM at bridge.SampleRate and
 	// bridge.BitsPerSample, mono, little-endian, and returns Dim() values.
 	Embed(ctx context.Context, pcm []byte) ([]float32, error)
 
-	// Model names the checkpoint. Centroids from one model are noise against
+	// Model names the model. Centroids from one model are noise against
 	// another, so the identities file records it and a swap is refused.
 	Model() string
 
-	// Dim is the embedder's to declare. 192 is ECAPA-TDNN's width, not this
+	// Dim is the embedder's to declare. 192 is TitaNet-L's width, not this
 	// package's assumption, and the file records whatever was enrolled.
 	Dim() int
 }
 
-// Thresholds decide an identification. Both defaults are placeholders:
-// nothing has been measured against the real embedder on household voices or
-// on 16 kHz satellite audio yet, and ADR-0025 says what the measurement is.
+// Thresholds decide an identification. Measured 2026-10-08 with TitaNet-L on
+// 37 speakers of sr-data and AudioMNIST (ADR-0029); a household's own
+// recordings should replace them through the models tier's -speakerid-wavs.
 const (
-	// DefaultAccept is the cosine below which the best match is a guest. The
-	// value is what SpeechBrain's own verify_batch defaults to, tuned on
-	// VoxCeleb trials rather than on this household.
-	DefaultAccept = 0.25
+	// DefaultAccept is the cosine below which the best match is a guest. At
+	// 0.70 no cross-speaker take of 2748 passed (max 0.676) and 2 of 80 own
+	// takes were refused (min 0.659): a wrong value fails to guest.
+	DefaultAccept = 0.70
 
 	// DefaultMargin is how far the best match must lead the runner-up before
-	// it is believed. Without it two similar household voices flip-flop a
-	// conversation's attribution on every utterance.
-	DefaultMargin = 0.05
+	// it is believed, so two similar voices cannot flip-flop a conversation.
+	// Correct identifications led by at least 0.138 (p05 0.182, n=80).
+	DefaultMargin = 0.10
 )
 
 // Thresholds overrides the defaults. A zero field keeps the default.
