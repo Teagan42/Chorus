@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/Teagan42/Chorus/compare/v0.3.0...v0.4.0) (2026-10-08)
+
+
+### Features
+
+* **provider:** render speech with Kokoro at the device's rate ([#19](https://github.com/Teagan42/Chorus/issues/19)) ([15cdb53](https://github.com/Teagan42/Chorus/commit/15cdb53fbcac8a998d2f98931765e7577b9755f4))
+
+
+### Bug Fixes
+
+* **session:** one live session per conversation, one sequence per log ([#17](https://github.com/Teagan42/Chorus/issues/17)) ([f465001](https://github.com/Teagan42/Chorus/commit/f46500101276067daa7ca27ed473e4974af19ac0))
+
 ## [0.3.0](https://github.com/Teagan42/Chorus/compare/v0.2.0...v0.3.0) (2026-10-07)
 
 
