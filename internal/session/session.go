@@ -92,6 +92,11 @@ type Transcript struct {
 	Text      string
 	SpeakerID string
 	AudioRef  string
+
+	// Embedding is the utterance's speaker vector, recorded whether or not it
+	// matched anyone so voices can be clustered later (SPEC §5). Nil when the
+	// embedder was unavailable.
+	Embedding []float32
 }
 
 // Session is the supervisor of one conversation's concurrent children. It
@@ -203,10 +208,17 @@ func (s *Session) State(ctx context.Context) (journal.State, error) {
 
 // Heard journals an utterance and runs a turn over it.
 func (s *Session) Heard(ctx context.Context, t Transcript) error {
+	fields := map[string]string{"text": t.Text, "speaker_id": t.SpeakerID}
+	if len(t.Embedding) > 0 {
+		// Fails only on a non-finite value, which the matcher refuses upstream.
+		b, err := json.Marshal(t.Embedding)
+		if err != nil {
+			return fmt.Errorf("encode embedding for %s: %w", s.convID, err)
+		}
+		fields["embedding_json"] = string(b)
+	}
 	if err := s.record(journal.Record{
-		Kind:     journal.KindUtteranceTranscribed,
-		AudioRef: t.AudioRef,
-		Fields:   map[string]string{"text": t.Text, "speaker_id": t.SpeakerID},
+		Kind: journal.KindUtteranceTranscribed, AudioRef: t.AudioRef, Fields: fields,
 	}); err != nil {
 		return err
 	}
