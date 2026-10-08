@@ -107,15 +107,21 @@ func (e *Energy) Reset() { e.voiced, e.quiet = false, 0 }
 
 // RMS is a chunk's level as a fraction of full scale, so Candidate.Energy and
 // session.Gate.MinEnergy share a unit. A torn trailing byte is ignored.
-func RMS(pcm []byte) float64 {
-	n := len(pcm) / bytesPerFrame
-	if n == 0 {
-		return 0
-	}
+func RMS(pcm []byte) float64 { return rms(sumSquares(pcm), len(pcm)/bytesPerFrame) }
+
+// sumSquares is the energy of the whole samples in a chunk.
+func sumSquares(pcm []byte) float64 {
 	var sum float64
-	for i := range n {
-		s := float64(int16(binary.LittleEndian.Uint16(pcm[i*bytesPerFrame:])))
+	for i := 0; i+bytesPerFrame <= len(pcm); i += bytesPerFrame {
+		s := float64(int16(binary.LittleEndian.Uint16(pcm[i:])))
 		sum += s * s
 	}
-	return math.Sqrt(sum/float64(n)) / -math.MinInt16
+	return sum
+}
+
+func rms(sumsq float64, samples int) float64 {
+	if samples == 0 {
+		return 0
+	}
+	return math.Sqrt(sumsq/float64(samples)) / -math.MinInt16
 }
