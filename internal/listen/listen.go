@@ -40,6 +40,13 @@ type Speakers interface {
 	Resolve(ctx context.Context, pcm []byte) (identity.Outcome, error)
 }
 
+// Playback is where the speech now playing started on the DAC's cumulative
+// count. *satellite.Satellite fills it; nil counts positions from the
+// connection instead, which is only right before the first utterance.
+type Playback interface {
+	SpeechBase() uint64
+}
+
 // DefaultWakeWindow is how much audio may follow a wake word before it is
 // given up as a false accept: the session's own silence backstop, counted in
 // bytes so a test drives it without a clock (session.DefaultSilence).
@@ -58,6 +65,10 @@ type Config struct {
 	Sessions    Opener
 	Transcriber stt.Transcriber
 	Speakers    Speakers
+
+	// Playback is the Speaking side of the same link, which owns the origin a
+	// candidate's position is measured from.
+	Playback Playback
 
 	// Blobs keeps every utterance and candidate the journal refers to.
 	Blobs blob.Store
@@ -479,7 +490,7 @@ func (l *Listener) candidate(u *utterance, r stt.Result) {
 		return
 	}
 	ok, err := sess.BargeIn(l.ctx, session.Candidate{
-		PositionMS: int(bridge.Played{Frames: played}.Position(bridge.SampleRate).Milliseconds()),
+		PositionMS: int(l.offset(played).Milliseconds()),
 		AudioRef:   ref,
 		SpeakerID:  out.PersonID,
 		Energy:     energy,
@@ -491,6 +502,19 @@ func (l *Listener) candidate(u *utterance, r stt.Result) {
 	// One interruption per utterance: speech is already stopping, and a
 	// second detection would journal a cut that did not happen.
 	u.bargedIn = ok
+}
+
+// offset turns the DAC's cumulative frame count into how far into the speech
+// being interrupted the cut lands: the quantity the pair is reproducible
+// against (SPEC §8), and the one the satellite's frames_played already counts.
+// Clamped, because the two origins come from separate locks and a base taken
+// after this position would otherwise read as a negative offset.
+func (l *Listener) offset(played uint64) time.Duration {
+	if l.cfg.Playback != nil {
+		base := l.cfg.Playback.SpeechBase()
+		played -= min(played, base)
+	}
+	return bridge.Played{Frames: played}.Position(bridge.SampleRate)
 }
 
 // complete finishes an ended utterance: the final decode, the speaker, the

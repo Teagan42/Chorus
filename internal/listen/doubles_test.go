@@ -148,6 +148,26 @@ func (s *fakeStream) Close() session.Playback {
 	return session.Playback{Spoken: s.text, Frames: int64(len(s.text)) * 160, AudioRef: "blob://tts/" + s.callID}
 }
 
+// fakePlayback stands in for the Speaking side's origin: where on the DAC's
+// cumulative count the speech now playing began. *satellite.Satellite is the
+// real one.
+type fakePlayback struct {
+	mu   sync.Mutex
+	base uint64
+}
+
+func (f *fakePlayback) SpeechBase() uint64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.base
+}
+
+func (f *fakePlayback) rebase(frames uint64) {
+	f.mu.Lock()
+	f.base = frames
+	f.mu.Unlock()
+}
+
 // neverTimers never fires: no silence backstop and no tool timeout can end a
 // session behind a test's back.
 type neverTimers struct{}

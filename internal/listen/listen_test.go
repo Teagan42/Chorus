@@ -220,6 +220,43 @@ func TestSpeechDuringPlaybackStopsItAtTheDACPosition(t *testing.T) {
 	}
 }
 
+// PLAYED counts the whole connection, so after any earlier speech the raw
+// position is not how far into this answer the person interrupted. The cut
+// has to share its origin with speech_truncated's frames_played, or the pair
+// the cut produces cannot be reproduced from the record (SPEC §8).
+//
+// verifies SPEC §3.2.1, §8
+func TestTheCutIsMeasuredFromTheSpeechItInterrupts(t *testing.T) {
+	play := &fakePlayback{}
+	r := newRig(t, talking(), func(c *listen.Config) { c.Playback = play })
+	r.speaker.hold = true
+
+	r.dev.SendWake(t, "hey_eddie")
+	r.utter(t, r.line("find zeppelin", alan), 4*chunkBytes)
+	s := r.session(t)
+	r.speaker.wrote(t)
+	await(t, "the speaking child", func() bool { return slices.Contains(s.Children(), "speaking") })
+
+	// Two seconds of audio, in bytes: two frames each.
+	if err := r.link.SendTTS(quiet(2 * 2 * 16000)); err != nil {
+		t.Fatal(err)
+	}
+	r.dev.AwaitTTS(t, 2*2*16000)
+	// A second of the connection is behind the DAC before the speech that gets
+	// interrupted begins, and a second of that speech is heard.
+	r.dev.Play(t, 16000)
+	play.rebase(16000)
+	r.dev.Play(t, 16000)
+
+	r.speak(t, r.line("no the other one", alan), 2*rigPartials)
+
+	cut := r.awaitKind(t, s.ConversationID(), journal.KindBargeInDetected, 1)
+	if cut.Fields["tts_position_ms"] != "1000" {
+		t.Errorf("tts_position_ms = %q, want 1000: the offset into the speech cut, not into the connection",
+			cut.Fields["tts_position_ms"])
+	}
+}
+
 // The television during playback: loud, wordy, and nobody's. The gate rejects
 // it at speaker identity and journals the rejection; playback continues.
 //
