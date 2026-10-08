@@ -84,11 +84,13 @@ func TestBargeInKeepsToolResultsThatAlreadyArrived(t *testing.T) {
 		{act: session.TurnEnd{FinishReason: "tool_calls", Completion: "{}"}},
 	}
 	r := newRig(t, steps, map[string]session.Tool{
-		"media_search": session.ToolFunc(func(_ context.Context, _ string) (string, error) {
-			close(landed)
+		"media_search": session.ToolFunc(func(context.Context, string) (string, error) {
 			return `{"hits":3}`, nil
 		}),
 	})
+	// Gated on the record, not the tool's return: the outcome is stamped after
+	// the tool returns, and a gate opened inside the tool races that stamp.
+	r.store.recorded(journal.KindToolResult, "c1", landed)
 	r.speaker.hold = true
 	r.speaker.cut = len("I found three")
 
@@ -101,7 +103,7 @@ func TestBargeInKeepsToolResultsThatAlreadyArrived(t *testing.T) {
 	wait(t, errc)
 
 	// The model must see "I said this much, and this tool already answered".
-	if got := r.awaitCall(t, s.ConversationID(), "c1"); got.Outcome != "ok" || got.Result != `{"hits":3}` {
+	if got := callByID(t, r.state(t, s.ConversationID()), "c1"); got.Outcome != "ok" || got.Result != `{"hits":3}` {
 		t.Errorf("call = %+v; an arrived result must survive the interruption", got)
 	}
 }
