@@ -1,0 +1,340 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"sync"
+	"time"
+
+	"github.com/teaganglenn/chorus/internal/blob"
+	"github.com/teaganglenn/chorus/internal/bridge"
+	"github.com/teaganglenn/chorus/internal/config"
+	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teaganglenn/chorus/internal/listen"
+	"github.com/teaganglenn/chorus/internal/satellite"
+	"github.com/teaganglenn/chorus/internal/session"
+)
+
+// helloTimeout bounds the opening handshake, so a connection from something
+// that is not a satellite cannot hold a serve goroutine forever.
+const helloTimeout = 10 * time.Second
+
+// minBargeInWords is the gate's third stage: one word is usually "uh" (SPEC §4.3).
+const minBargeInWords = 2
+
+// deps is everything the daemon composes that does I/O or reads a clock, so
+// a test runs the whole daemon over doubles (CONTRIBUTING §1).
+type deps struct {
+	// Listener accepts satellites dialing the audio port.
+	Listener net.Listener
+
+	// Native dials each satellite's native API. Nil holds none.
+	Native nativeDialer
+
+	Store  journal.Store
+	Blobs  blob.Store
+	Clock  journal.Clock
+	Timers session.Timers
+	providers
+	Log *slog.Logger
+}
+
+// daemon is one process: shared stack, one supervisor per link.
+type daemon struct {
+	deps
+	inv     *config.Config
+	byHost  map[string]*config.Satellite
+	journal *journal.Journal
+	// convs is the one thing per-satellite supervisors share: the person's
+	// conversation follows them from device to device (SPEC §4.5, ADR-0022).
+	convs *session.Conversations
+	gate  session.Gate
+	wg    sync.WaitGroup
+}
+
+// run serves satellites until ctx ends, then returns once every link is
+// closed and every goroutine it started has exited. A listener that dies
+// otherwise is the error, and ends everything else the same way.
+func run(ctx context.Context, inv *config.Config, d deps) error {
+	byHost, err := indexByHost(inv)
+	if err != nil {
+		return err
+	}
+	if d.Log == nil {
+		d.Log = slog.New(slog.DiscardHandler)
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	dm := &daemon{
+		deps:    d,
+		inv:     inv,
+		byHost:  byHost,
+		journal: journal.New(d.Store, d.Clock, d.versions),
+		convs:   session.NewConversations(d.Clock, session.MigrationWindow),
+		gate: session.Gate{
+			MinEnergy: listen.DefaultSpeechEnergy,
+			MinWords:  minBargeInWords,
+			Household: d.household,
+		},
+	}
+	if d.Native != nil {
+		for i := range inv.Satellites {
+			sat := &inv.Satellites[i]
+			dm.wg.Add(1)
+			go func() {
+				defer dm.wg.Done()
+				dm.keep(ctx, sat)
+			}()
+		}
+	}
+	err = dm.accept(ctx)
+	cancel()
+	dm.wg.Wait()
+	return err
+}
+
+// indexByHost maps each inventory address's host to its satellite. The audio
+// link's hello carries no name (internal/bridge), so the source address is
+// how a device is known; a host two satellites share, or one that is not an
+// IP literal, cannot be matched and is refused up front.
+func indexByHost(inv *config.Config) (map[string]*config.Satellite, error) {
+	byHost := make(map[string]*config.Satellite, len(inv.Satellites))
+	for i := range inv.Satellites {
+		sat := &inv.Satellites[i]
+		host, _, err := net.SplitHostPort(sat.Address)
+		if err != nil {
+			return nil, fmt.Errorf("satellite %s: address %q: %w", sat.Name, sat.Address, err)
+		}
+		ip := net.ParseIP(host)
+		if ip == nil {
+			return nil, fmt.Errorf("satellite %s: address host %q is not an IP literal, and the audio link identifies a device by its source address", sat.Name, host)
+		}
+		key := ip.String()
+		if other, dup := byHost[key]; dup {
+			return nil, fmt.Errorf("satellites %s and %s share the host %s, so their audio links cannot be told apart", other.Name, sat.Name, key)
+		}
+		byHost[key] = sat
+	}
+	return byHost, nil
+}
+
+// accept hands each connection to its own goroutine until ctx ends. Closing
+// the listener is the only way to unblock Accept, so the close rides on ctx.
+func (d *daemon) accept(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		<-ctx.Done()
+		_ = d.Listener.Close()
+	}()
+	for {
+		conn, err := d.Listener.Accept()
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("accept on %s: %w", d.Listener.Addr(), err)
+		}
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			d.serve(ctx, conn)
+		}()
+	}
+}
+
+// satelliteAt names the device behind a remote address, or nil.
+func (d *daemon) satelliteAt(addr net.Addr) *config.Satellite {
+	var ip net.IP
+	if tcp, ok := addr.(*net.TCPAddr); ok {
+		ip = tcp.IP
+	} else {
+		host, _, err := net.SplitHostPort(addr.String())
+		if err != nil {
+			return nil
+		}
+		ip = net.ParseIP(host)
+	}
+	if ip == nil {
+		return nil
+	}
+	return d.byHost[ip.String()]
+}
+
+// serve is one connection's whole life: identify, handshake, attach the
+// stack, serve the link, tear down in order.
+func (d *daemon) serve(ctx context.Context, conn net.Conn) {
+	remote := conn.RemoteAddr().String()
+	sat := d.satelliteAt(conn.RemoteAddr())
+	if sat == nil {
+		// Before a frame is read: nothing from an address the inventory does
+		// not name is worth parsing (SPEC §13).
+		d.Log.Warn("refused a connection from an address not in the inventory", "remote", remote)
+		_ = conn.Close()
+		return
+	}
+	log := d.Log.With("satellite", sat.Name, "remote", remote)
+
+	link, err := d.handshake(ctx, conn)
+	if err != nil {
+		log.Warn("audio link handshake failed", "err", err)
+		return
+	}
+	log.Info("satellite connected", "mic_channels", link.Hello().MicChannels)
+	defer func() { _ = link.Close() }()
+
+	if err := d.attach(ctx, sat, link, log); err != nil {
+		log.Warn("audio link failed", "err", err)
+		return
+	}
+	log.Info("satellite disconnected")
+}
+
+// handshake completes the hello, bounded by the injected timers rather than
+// a socket deadline, so no wall clock is read here.
+func (d *daemon) handshake(ctx context.Context, conn net.Conn) (*bridge.Link, error) {
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		// Nagle would coalesce the 32 ms chunks barge-in timing depends on.
+		_ = tcp.SetNoDelay(true)
+	}
+	link, err := within(ctx, d.Timers, helloTimeout, func(ctx context.Context) (*bridge.Link, error) {
+		// A net.Conn read is not cancellable; closing it is. Only while the
+		// read is in flight: within ends its context on return too, and a
+		// handshake that succeeded must keep its connection, so done is
+		// checked again once the context ends rather than raced against it.
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+			}
+			select {
+			case <-done:
+			default:
+				_ = conn.Close()
+			}
+		}()
+		return bridge.NewLink(conn)
+	})
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return link, nil
+}
+
+// attach builds this link's Speaking and Listening sides on a supervisor of
+// its own and serves until the link drops. The Speaker is per device, which
+// is why the supervisor is too; the Conversations are shared (ADR-0022).
+//
+// Teardown order: Serve returns, the link's context ends, the listener
+// closes the session as device_lost and finishes its goroutines, then the
+// link is closed by the caller (ADR-0030).
+func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge.Link, log *slog.Logger) error {
+	linkCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	speaker, err := satellite.New(satellite.Config{
+		Link: link, Synth: d.synth, Timers: d.Timers, Blobs: d.Blobs,
+	})
+	if err != nil {
+		return err
+	}
+	sup, err := session.New(session.Config{
+		Journal: d.journal, Store: d.Store, Clock: d.Clock, Timers: d.Timers,
+		Engine: d.engine, Speaker: speaker, Conversations: d.convs,
+		Tools: d.tools, Gate: d.gate,
+	})
+	if err != nil {
+		return err
+	}
+	lst, err := listen.Open(linkCtx, listen.Config{
+		Satellite: sat.Name, Sessions: sup, Transcriber: d.stt, Speakers: d.speakers,
+		Blobs: d.Blobs, Journal: d.journal, Log: log,
+	})
+	if err != nil {
+		return err
+	}
+
+	err = link.Serve(linkCtx, handlers{speaker, lst})
+	cancel()
+	<-lst.Done()
+	if errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return err
+}
+
+// handlers fans one link's frames out to both children: the satellite
+// tracks the DAC position it truncates on, the listener tracks its own copy
+// for the candidates it offers, from the same Played frames (ADR-0030).
+type handlers []bridge.Handler
+
+func (hs handlers) OnMic(channel uint8, pcm []byte) error {
+	for _, h := range hs {
+		if err := h.OnMic(channel, pcm); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (hs handlers) OnWake(word string) error {
+	for _, h := range hs {
+		if err := h.OnWake(word); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (hs handlers) OnPlayed(p bridge.Played) error {
+	for _, h := range hs {
+		if err := h.OnPlayed(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (hs handlers) OnMute(m bridge.Mute) error {
+	for _, h := range hs {
+		if err := h.OnMute(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// within runs f under a context the injected timers end after d. It exists
+// so a bound on a dial or a handshake never reads the wall clock.
+func within[T any](ctx context.Context, timers session.Timers, d time.Duration, f func(context.Context) (T, error)) (T, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type result struct {
+		v   T
+		err error
+	}
+	res := make(chan result, 1)
+	go func() {
+		v, err := f(ctx)
+		res <- result{v, err}
+	}()
+	select {
+	case r := <-res:
+		return r.v, r.err
+	case <-timers.After(d):
+		cancel()
+		r := <-res
+		if r.err == nil {
+			return r.v, nil
+		}
+		var zero T
+		return zero, fmt.Errorf("gave up after %v: %w", d, r.err)
+	}
+}
