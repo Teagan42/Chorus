@@ -122,8 +122,9 @@ Candidates are offered while the Speaking child is live and only then:
 `Session.Children()` is the truth about that, and a `barge_in_detected` with
 nothing playing would record a cut that never happened. One candidate per
 partial, each with its own blob (`barge_in_rejected` is audio-bearing), the
-DAC position from `Played` frames, the speaker from the resolver on the audio
-so far, and the RMS so far as energy; the gate decides and journals
+DAC position from `Played` frames less the speech's own base (below), the
+speaker from the resolver on the audio so far, and the RMS so far as energy;
+the gate decides and journals
 (ADR-0004). After a detection the utterance offers no more.
 
 ## The embedding on the trace record
@@ -149,15 +150,21 @@ utterance. Loses migration for every wake and journals a `session_opened`
 that stage two or three then has to undo, which the schema has no event for.
 
 Wrapping the listener around the satellite so one handler sees `Played`.
-`satellite.Satellite` tracks the DAC position privately and `satellite.Config`
-has no `OnPlayed` hook, so the listener tracks its own copy from the same
-frames under the same monotonic rule. One accessor on the satellite would
-let it share; that is a satellite change and is not made here.
+`satellite.Config` has no `OnPlayed` hook, so the listener tracks its own copy
+of the position from the same frames under the same monotonic rule.
 
-## Forecloses
+## The origin a candidate's position is measured from
 
-`Candidate.PositionMS` is the connection-cumulative DAC position in
-milliseconds, because that is what `Played` carries and the utterance base
-the satellite subtracts for `frames_played` is private to it. Correlating a
-`barge_in_detected` with its `speech_truncated` needs that base; until the
-satellite exposes it, the two share a clock but not an origin.
+`PLAYED` counts the whole connection, so the cumulative count is not an
+answer to "how far into this speech was the person cut off". `Candidate.PositionMS`
+has to share an origin with `speech_truncated`'s `frames_played` or a pair
+cannot be reproduced from the record, and after the first utterance of a
+connection the two numbers would otherwise disagree by everything spoken
+before.
+
+`Satellite.SpeechBase` is that origin: the position the newest utterance's
+frames count from, which the satellite already subtracted privately, now
+read by `listen.Config.Playback`. It is kept after the utterance ends rather
+than cleared, so a partial that arrives just behind the cut still measures
+against the speech it interrupted. The two sides hold separate locks, so the
+subtraction is clamped at zero.
