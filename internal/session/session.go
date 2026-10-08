@@ -400,11 +400,11 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 // runTool is one tool child. Its context comes from the declared interrupt
 // policy, so barge-in needs no special case here (SPEC §4.4).
 func (s *Session) runTool(parent context.Context, wg *sync.WaitGroup, tc ToolCall, spec registry.ToolSpec, tool Tool) {
-	defer s.leave("tool:" + tc.ID)
-
 	var once sync.Once
 	release := func() { once.Do(wg.Done) }
+	// Deferred first so it runs last: a released turn must not still see this child.
 	defer release()
+	defer s.leave("tool:" + tc.ID)
 
 	ctx, cancel := s.policyContext(parent, spec.OnInterrupt)
 	defer cancel()
