@@ -144,7 +144,7 @@ tasks:
       - docker compose stop speaches
 
   speakerid:up:
-    desc: Start the local speaker-ID sidecar. First run builds the image and bakes the model.
+    desc: Start the local speaker-ID sidecar. First run builds the image and bakes the ~100 MB model.
     cmds:
       - docker compose up -d --wait --build speakerid
 
@@ -152,6 +152,15 @@ tasks:
     desc: Stop the local speaker-ID sidecar
     cmds:
       - docker compose stop speakerid
+
+  speakerid:serve:
+    desc: Serve the speaker-ID sidecar without Docker on 127.0.0.1:8890. First run fetches the model into .models/.
+    cmds:
+      - uv sync --all-packages
+      # The runtime is CPU only and the model is one verified file, so a dev
+      # box needs no image; this is also what the models tier here ran against.
+      - uv run --package speakerid speakerid --download-only --model-dir .models/speakerid
+      - uv run --package speakerid speakerid --model-dir .models/speakerid --host 127.0.0.1 --port 8890
 
   speakerid:test:
     desc: The sidecar's own contract tests. Hermetic, but Python, so not part of `task test`.

@@ -18,6 +18,9 @@ esphome/*.bin
 *.wav
 *.pcm
 
+# The speaker-ID model `task speakerid:serve` fetches; pinned, so never committed.
+.models/
+
 # Tool caches
 .buf-cache/
 .task/
