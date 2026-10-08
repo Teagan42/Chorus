@@ -1,18 +1,20 @@
 //go:build models
 
 // Model tier: needs a reachable speaches with the Parakeet model downloaded.
-// Run with `task test:models`, pointing it at one:
+// Run with `task test:models`, pointing it at one and, for the transcript and
+// cost tests, at a WAV of consented speech:
 //
-//	go test -tags=models ./internal/provider/speaches/ -stt-url http://127.0.0.1:8000
+//	go test -tags=models ./internal/provider/speaches/ -stt-url http://127.0.0.1:8000 -stt-wav /path/to/0.wav
 //
 // The endpoint is a flag with no default so no household address lives in the
-// repo. Without it these skip.
+// repo, and the audio is a flag so no recording does (CONTRIBUTING §7).
+// Without the endpoint everything here skips; without the WAV, only the
+// synthetic-noise checks run.
 //
 // What is tested here is the half the hermetic tier cannot reach: that the
 // sidecar still accepts the upload this package builds and answers in the
-// shape it decodes, and what a decode costs against SPEC §11. The audio is
-// synthetic -- a household recording never enters the repo (CONTRIBUTING §7)
-// -- so nothing asserts on the words, only on shape and latency.
+// shape it decodes, that it hears the words in real speech, and what a decode
+// costs against SPEC §11.
 package speaches_test
 
 import (
@@ -25,8 +27,12 @@ import (
 	"math/rand/v2"
 	"mime/multipart"
 	"net/http"
+	"os"
+	"slices"
+	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/teaganglenn/chorus/internal/bridge"
 	"github.com/teaganglenn/chorus/internal/provider/speaches"
@@ -35,10 +41,15 @@ import (
 var (
 	endpoint = flag.String("stt-url", "", "speaches base URL; skips when empty")
 	model    = flag.String("stt-model", speaches.DefaultModel, "model to exercise")
+	wavPath  = flag.String("stt-wav", "", "16 kHz s16le mono WAV of consented speech; the transcript tests skip when empty")
+	// The default names words in `test_wavs/0.wav` of sherpa-onnx's published
+	// Parakeet bundle, the one consented clip a dev box can fetch without
+	// Hugging Face; its transcript is in that project's NeMo notes.
+	expect = flag.String("stt-expect", "turning,certainly,portrait", "comma-separated words -stt-wav is known to contain")
 )
 
 // decodeBudget is generous on purpose: the first request after an idle period
-// reloads the model, and the CPU image's decode rate is not yet measured.
+// reloads the model, and a slow CPU decodes below real time.
 const decodeBudget = 2 * time.Minute
 
 func transcriberAt(t *testing.T) *speaches.Transcriber {
@@ -55,7 +66,7 @@ func transcriberAt(t *testing.T) *speaches.Transcriber {
 
 // noise is d of low-level white noise at the device's rate, seeded so every
 // run uploads the same bytes. Not speech, so the model hears near-silence;
-// the point is a decode of realistic length, not a transcript.
+// the point is that the upload is accepted, not a transcript.
 func noise(d time.Duration) []byte {
 	frames := int(d * bridge.SampleRate / time.Second)
 	out := make([]byte, 2*frames)
@@ -64,6 +75,68 @@ func noise(d time.Duration) []byte {
 		binary.LittleEndian.PutUint16(out[2*i:], uint16(int16(r.IntN(2048)-1024)))
 	}
 	return out
+}
+
+// clip is the -stt-wav recording as device PCM. The header is checked rather
+// than converted: a clip at another rate must be resampled before it is
+// handed over, or the cost measured here is ffmpeg's, not the model's.
+func clip(t *testing.T) []byte {
+	t.Helper()
+	if *wavPath == "" {
+		t.Skip("no -stt-wav")
+	}
+	raw, err := os.ReadFile(*wavPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", *wavPath, err)
+	}
+	if len(raw) < 44 || string(raw[:4]) != "RIFF" || string(raw[8:12]) != "WAVE" {
+		t.Fatalf("%s is not a RIFF/WAVE file", *wavPath)
+	}
+	var pcm []byte
+	for off := 12; off+8 <= len(raw); {
+		id, size := string(raw[off:off+4]), int(binary.LittleEndian.Uint32(raw[off+4:]))
+		body := raw[off+8 : min(off+8+size, len(raw))]
+		switch id {
+		case "fmt ":
+			format, channels := binary.LittleEndian.Uint16(body[0:]), binary.LittleEndian.Uint16(body[2:])
+			rate, bits := binary.LittleEndian.Uint32(body[4:]), binary.LittleEndian.Uint16(body[14:])
+			if format != 1 || channels != 1 || rate != bridge.SampleRate || bits != bridge.BitsPerSample {
+				t.Fatalf("%s is format %d, %d ch, %d Hz, %d-bit; want pcm mono %d Hz %d-bit (resample with ffmpeg)",
+					*wavPath, format, channels, rate, bits, bridge.SampleRate, bridge.BitsPerSample)
+			}
+		case "data":
+			pcm = body
+		}
+		// Chunks are word-aligned; an odd-sized one is padded.
+		off += 8 + size + size%2
+	}
+	if len(pcm) == 0 {
+		t.Fatalf("%s has no data chunk", *wavPath)
+	}
+	return pcm
+}
+
+// seconds is the first d of the clip, looped when d outruns it: the same
+// speech twice is still speech to the encoder, where padding with silence
+// would measure a decode of nothing.
+func seconds(pcm []byte, d time.Duration) []byte {
+	want := int(d*bridge.SampleRate/time.Second) * (bridge.BitsPerSample / 8)
+	out := make([]byte, 0, want)
+	for len(out) < want {
+		out = append(out, pcm[:min(len(pcm), want-len(out))]...)
+	}
+	return out
+}
+
+// words lower-cases a transcript and strips its punctuation, so "portrait."
+// and "Portrait" both count as the word.
+func words(text string) []string {
+	return strings.Fields(strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '\'' {
+			return unicode.ToLower(r)
+		}
+		return ' '
+	}, text))
 }
 
 // decode runs one utterance and logs what it cost.
@@ -97,13 +170,33 @@ func TestARealEndpointDecodesAnUtterance(t *testing.T) {
 	decode(t, transcriberAt(t), noise(2*time.Second))
 }
 
-// The costs the utterance stream's cadence is tuned against: a half-second
-// partial, a few seconds, and the bound. Each is a whole decode of a growing
-// buffer, which is what makes this quadratic and worth watching.
+// Real speech has to come back as its words. The clip is whatever -stt-wav
+// names and -stt-expect lists what it is known to say, so the check survives
+// swapping the clip, and a server that silently served the wrong model or
+// resampled to the wrong pitch fails here rather than in the kitchen.
+//
+// verifies SPEC §10
+func TestARealEndpointHearsTheWords(t *testing.T) {
+	tr := transcriberAt(t)
+	heard := words(decode(t, tr, clip(t)))
+	for _, w := range strings.Split(*expect, ",") {
+		if w = strings.TrimSpace(strings.ToLower(w)); w != "" && !slices.Contains(heard, w) {
+			t.Errorf("the transcript is missing %q", w)
+		}
+	}
+}
+
+// The costs the utterance stream's cadence is tuned against, measured on
+// speech rather than noise: a transducer's decoder steps once per token it
+// emits, so silence is cheaper than a sentence. One second is roughly the
+// first partial that can pass the gate's length stage (SPEC §4.3), three is
+// a command, ten is a long turn; each is a whole decode of a growing buffer,
+// which is what makes the stream quadratic and worth watching.
 func TestWhatAGrowingBufferCosts(t *testing.T) {
 	tr := transcriberAt(t)
-	for _, d := range []time.Duration{500 * time.Millisecond, 3 * time.Second, 10 * time.Second} {
-		decode(t, tr, noise(d))
+	pcm := clip(t)
+	for _, d := range []time.Duration{time.Second, 3 * time.Second, 10 * time.Second} {
+		decode(t, tr, seconds(pcm, d))
 	}
 }
 
