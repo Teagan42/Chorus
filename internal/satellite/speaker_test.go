@@ -22,7 +22,8 @@ import (
 const framesPerByte = 100
 
 // fakeSynth renders each byte of text as framesPerByte frames of silence, so a
-// frame count maps back to a text offset arithmetically.
+// frame count maps back to a text offset arithmetically. Blank text renders as
+// no frames at all, as the Kokoro provider does (internal/provider/kokoro).
 type fakeSynth struct {
 	mu      sync.Mutex
 	err     error
@@ -57,6 +58,9 @@ func (f *fakeSynth) Synthesize(ctx context.Context, text string) ([]byte, error)
 	}
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil, nil
 	}
 	return make([]byte, len(text)*framesPerByte*2), nil
 }
@@ -742,6 +746,62 @@ func TestAnOverflowingDeltaKeepsItsWholeTailAsUnspoken(t *testing.T) {
 	// drop most of the unspoken half of the preference pair.
 	if want := text + "And later."; pb.Unspoken != want {
 		t.Errorf("Unspoken has %d bytes, want all %d generated", len(pb.Unspoken), len(want))
+	}
+}
+
+// verifies SPEC §4.4
+func TestABlankDeltaThatRendersNoFramesIsNotATruncation(t *testing.T) {
+	r := newRig(t)
+	st, _ := r.open(t, "call-1")
+
+	// Streamed speech can open with whitespace, and blank text renders as
+	// silence: zero frames, but synthesised all the same.
+	const lead, text = " ", "The light is off."
+	for _, d := range []string{lead, text} {
+		if err := st.Write(d); err != nil {
+			t.Fatalf("write %q: %v", d, err)
+		}
+	}
+	r.dev.AwaitTTS(t, len(text)*framesPerByte*2)
+	r.dev.PlayAll(t)
+
+	pb := await(t, closeAsync(st))
+
+	// A false truncation records a speech_truncated event and cancels a turn
+	// the user heard in full.
+	if pb.Truncated {
+		t.Errorf("Truncated = true, Spoken = %q, Unspoken = %q; want the whole utterance spoken",
+			pb.Spoken, pb.Unspoken)
+	}
+	if pb.Spoken != lead+text {
+		t.Errorf("Spoken = %q, want %q", pb.Spoken, lead+text)
+	}
+}
+
+// verifies SPEC §4.4
+func TestACutAfterABlankLeadingDeltaKeepsTheUtteranceInOrder(t *testing.T) {
+	r := newRig(t)
+	st, cancel := r.open(t, "call-1")
+
+	const lead, text = " ", "Sure, I can do that, but the kitchen light is already off."
+	for _, d := range []string{lead, text} {
+		if err := st.Write(d); err != nil {
+			t.Fatalf("write %q: %v", d, err)
+		}
+	}
+	r.dev.AwaitTTS(t, len(text)*framesPerByte*2)
+	r.dev.Play(t, 3*framesPerByte)
+
+	cancel()
+	pb := await(t, closeAsync(st))
+
+	// The blank delta was heard as much as anything was: filing it as unspoken
+	// would put it after words the user heard, and the pair would not rejoin.
+	if pb.Spoken+pb.Unspoken != lead+text {
+		t.Errorf("split = (%q, %q), does not rejoin to the utterance", pb.Spoken, pb.Unspoken)
+	}
+	if !strings.HasPrefix(pb.Spoken, lead+"Sure,") {
+		t.Errorf("Spoken = %q, want it to start with the clause the DAC entered", pb.Spoken)
 	}
 }
 
