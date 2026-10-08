@@ -259,6 +259,13 @@ func newRig(t *testing.T, steps []step, tools map[string]session.Tool) *rig {
 // combination no shipped tool declares yet.
 func newRigSpecs(t *testing.T, steps []step, tools map[string]session.Tool, specs map[string]registry.ToolSpec) *rig {
 	t.Helper()
+	return newRigWith(t, steps, tools, specs, nil)
+}
+
+// newRigWith lets a test change the supervisor's configuration after the
+// defaults are set, such as the gate's speaker-identification mode.
+func newRigWith(t *testing.T, steps []step, tools map[string]session.Tool, specs map[string]registry.ToolSpec, tweak func(*session.Config)) *rig {
+	t.Helper()
 
 	store := &watchedStore{MemStore: journal.NewMemStore()}
 	clk := newClock()
@@ -267,7 +274,7 @@ func newRigSpecs(t *testing.T, steps []step, tools map[string]session.Tool, spec
 	if tools == nil {
 		tools = map[string]session.Tool{}
 	}
-	sup, err := session.New(session.Config{
+	cfg := session.Config{
 		Journal:       journal.New(store, clk, versions()),
 		Store:         store,
 		Clock:         clk,
@@ -278,7 +285,11 @@ func newRigSpecs(t *testing.T, steps []step, tools map[string]session.Tool, spec
 		Specs:         specs,
 		Conversations: session.NewConversations(clk, session.MigrationWindow),
 		Gate:          session.Gate{MinEnergy: 0.2, MinWords: 2, Household: []string{"alice", "bob"}},
-	})
+	}
+	if tweak != nil {
+		tweak(&cfg)
+	}
+	sup, err := session.New(cfg)
 	if err != nil {
 		t.Fatalf("new supervisor: %v", err)
 	}
@@ -363,6 +374,22 @@ func (r *rig) kinds(t *testing.T, convID string) []journal.Kind {
 	out := make([]journal.Kind, 0, len(events))
 	for _, e := range events {
 		out = append(out, e.Kind)
+	}
+	return out
+}
+
+// stages lists which gate stage refused each rejected barge-in, in order.
+func (r *rig) stages(t *testing.T, convID string) []string {
+	t.Helper()
+	events, err := r.store.Events(context.Background(), convID)
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	var out []string
+	for _, e := range events {
+		if e.Kind == journal.KindBargeInRejected {
+			out = append(out, e.Fields["stage"])
+		}
 	}
 	return out
 }
