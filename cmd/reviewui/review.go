@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/teaganglenn/chorus/internal/bridge"
 	"github.com/teaganglenn/chorus/internal/harvest"
 	"github.com/teaganglenn/chorus/internal/reviewui/audio"
 	"github.com/teaganglenn/chorus/internal/reviewui/ui"
@@ -22,6 +23,9 @@ type clipView struct {
 }
 
 func audioSrc(ref string) string { return "/audio?ref=" + url.QueryEscape(ref) }
+
+// framesMS is how long n device frames play.
+func framesMS(n int) int { return n * 1000 / bridge.SampleRate }
 
 // durations reads each ref's length from the blob store. A missing blob is
 // zero: the page still renders, the timeline just cannot size that clip.
@@ -61,6 +65,31 @@ type reviewLayout struct {
 // gapMS separates clips whose true spacing the clips themselves cannot say.
 const gapMS = 250
 
+// cutMS places the cut on the turn's axis. frames_played is the
+// DAC-confirmed point within the cut clip, which plays after every clip the
+// user already heard; the detection snapshot is the fallback for a cut that
+// discarded unstarted clips and so confirmed no frames.
+func cutMS(p harvest.Pair, dur map[string]int) int {
+	if p.CutFrames == 0 {
+		return p.BargeInPositionMS
+	}
+	ms := framesMS(p.CutFrames)
+	for _, ref := range heardBefore(p) {
+		ms += dur[ref]
+	}
+	return ms
+}
+
+// heardBefore is every rejected clip that finished before the cut one. The
+// cut clip is the last: Audio.Rejected is in the order the user heard, and
+// nothing plays after a truncation.
+func heardBefore(p harvest.Pair) []string {
+	if p.CutFrames == 0 || len(p.Audio.Rejected) == 0 {
+		return p.Audio.Rejected
+	}
+	return p.Audio.Rejected[:len(p.Audio.Rejected)-1]
+}
+
 func layout(p harvest.Pair, dur map[string]int) reviewLayout {
 	sum := func(refs []string) int {
 		n := 0
@@ -69,7 +98,7 @@ func layout(p harvest.Pair, dur map[string]int) reviewLayout {
 		}
 		return n
 	}
-	l := reviewLayout{cut: p.BargeInPositionMS}
+	l := reviewLayout{cut: cutMS(p, dur)}
 	l.rejEnd = max(sum(p.Audio.Rejected), l.cut)
 	if l.rejEnd == 0 {
 		l.rejEnd = gapMS // an unsized, uncut turn still gets a visible region
@@ -145,6 +174,17 @@ func clips(p harvest.Pair) []clipView {
 		}
 		out = add(out, label, ui.ToneVoice, ref, p.Rejected)
 	}
+	// The cut clip's blob keeps the rendered tail the user never heard
+	// (SPEC §9.1), so its heard player stops at the DAC-confirmed frame and
+	// the tail plays on its own.
+	if n := len(out); p.CutFrames > 0 && n > 0 {
+		out[n-1].Src += fmt.Sprintf("&to=%d", p.CutFrames)
+		out = append(out, clipView{
+			Label: "rejected · unheard tail", Tone: ui.ToneVoice,
+			Src:  audioSrc(p.Audio.Rejected[len(p.Audio.Rejected)-1]) + fmt.Sprintf("&from=%d", p.CutFrames),
+			Text: p.RejectedUnheard,
+		})
+	}
 	out = add(out, "barge-in", ui.TonePeople, p.Audio.BargeIn, "")
 	out = add(out, "correction", ui.TonePeople, p.Audio.Correction, p.Heard)
 	for i, ref := range p.Audio.AsSaid {
@@ -157,9 +197,9 @@ func clips(p harvest.Pair) []clipView {
 	return out
 }
 
-func reviewInspector(p harvest.Pair) ui.Inspector {
+func reviewInspector(p harvest.Pair, l reviewLayout) ui.Inspector {
 	return ui.Inspector{
-		Cap:     fmt.Sprintf("#%04d · cut at %s · barge-in", p.Seq.Cut, ui.Timecode(float64(p.BargeInPositionMS)/1000)),
+		Cap:     fmt.Sprintf("#%04d · cut at %s · barge-in", p.Seq.Cut, ui.Timecode(float64(l.cut)/1000)),
 		Body:    p.Rejected,
 		Unheard: p.RejectedUnheard,
 		Meta:    "correction · " + p.HeardSpeaker + ": " + p.Heard,
@@ -228,7 +268,7 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 			Actions: actions,
 		},
 		"Timeline":  reviewTimeline(sel.H, l),
-		"Inspector": reviewInspector(sel.H),
+		"Inspector": reviewInspector(sel.H, l),
 		"Clips":     clips(sel.H),
 		"Pair":      s.pairView(sel, ui.PairModeView, ""),
 	})

@@ -236,7 +236,7 @@ func TestReviewPageDrawsTheCutOnTheTimeline(t *testing.T) {
 	s, _ := newTestServer(t)
 	h := get(t, s, "/review")
 	for _, want := range []string{
-		"cut · 00:00.420",            // the overlay, at the recorded position
+		"cut · 00:00.130",            // the DAC-confirmed 2080 frames, not the detection snapshot
 		"I found three",              // the heard half of the rejected turn
 		" albums by that artist",     // the unheard tail, drawn hatched
 		"just the first one",         // the correction on the mic track
@@ -278,5 +278,17 @@ func TestReviewPageWithoutBargeInsSaysSo(t *testing.T) {
 	h := get(t, s, "/review")
 	if !strings.Contains(h, "Nothing to review.") {
 		t.Error("an empty journal should show the empty state")
+	}
+}
+
+// verifies SPEC §9.2
+func TestHeardPlaybackIsBoundedAtTheConfirmedCut(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := get(t, s, "/review")
+	if !strings.Contains(h, "/audio?ref="+url.QueryEscape("blob://tts/s1")+"&amp;to=2080") {
+		t.Error("the heard player is not bounded at frames_played; it would play the unheard tail")
+	}
+	if !strings.Contains(h, "/audio?ref="+url.QueryEscape("blob://tts/s1")+"&amp;from=2080") {
+		t.Error("the unheard tail is not offered as its own clip")
 	}
 }
