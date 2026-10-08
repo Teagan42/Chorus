@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.0](https://github.com/Teagan42/Chorus/compare/v0.5.0...v0.6.0) (2026-10-08)
+
+
+### Features
+
+* **reviewui:** the Curate screen over the journal ([#22](https://github.com/Teagan42/Chorus/issues/22)) ([856d5b7](https://github.com/Teagan42/Chorus/commit/856d5b71b08e365165803f8669e1e3aa41aecf17))
+* **reviewui:** the Export screen and DPO JSONL download ([#25](https://github.com/Teagan42/Chorus/issues/25)) ([7bfb0cf](https://github.com/Teagan42/Chorus/commit/7bfb0cfc28ccad00c79c92f0a64f066401910cea))
+* **reviewui:** the Review screen with inline playback ([#24](https://github.com/Teagan42/Chorus/issues/24)) ([8251d9e](https://github.com/Teagan42/Chorus/commit/8251d9e6f95619e350ab453ce692013b8ae25335))
+* **reviewui:** the Triage screen over journal signals ([#26](https://github.com/Teagan42/Chorus/issues/26)) ([b65fe66](https://github.com/Teagan42/Chorus/commit/b65fe66f7da5239deb399749f4c673a9c694fd90))
+
 ## [0.5.0](https://github.com/Teagan42/Chorus/compare/v0.4.0...v0.5.0) (2026-10-08)
 
 
