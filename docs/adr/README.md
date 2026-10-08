@@ -39,6 +39,7 @@ decision rather than by clause: facets of one choice share one record.
 | [0027](0027-home-assistant-service-call-detaches.md) | Act on the home through a detached Home Assistant service call | §6, §4.4, §14 |
 | [0029](0029-speaker-id-on-onnx-runtime-pinned-by-digest.md) | Supersedes part of 0025: TitaNet-L on ONNX Runtime, pinned by asset digest, thresholds measured | §5, §10, §13 |
 | [0030](0030-the-listening-child-owns-the-mic-stream.md) | The Listening child owns the mic stream, one per link; the endpointer seam; the embedding on the trace record | §4, §4.3, §4.5, §5, §9.3 |
+| [0031](0031-skip-the-speaker-stage-when-nothing-identifies-speakers.md) | Refines 0004: skip the gate's speaker stage when nothing identifies speakers; the mode is the composition root's, never a candidate's | §4.3, §5 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
