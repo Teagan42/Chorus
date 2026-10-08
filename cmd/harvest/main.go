@@ -18,6 +18,9 @@ import (
 	"github.com/teaganglenn/chorus/internal/journal"
 )
 
+// version is set by the release build (-X main.version=...).
+var version = "dev"
+
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(),
@@ -39,6 +42,7 @@ func main() {
 }
 
 func run(ctx context.Context, ids []string, out, report io.Writer) error {
+	fmt.Fprintf(report, "harvest %s\n", version)
 	conn, err := pgx.Connect(ctx, journal.DSN())
 	if err != nil {
 		return fmt.Errorf("connect journal: %w", err)

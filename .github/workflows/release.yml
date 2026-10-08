@@ -100,8 +100,7 @@ jobs:
       # CGO_ENABLED=0: a static binary, and nothing here needs libc. One
       # tarball per command so a bare-metal household installs the daemon
       # without the probe, and the image job's -X main.version is the same
-      # flag here: chorusd reports it; probe and harvest have no version var
-      # and the linker ignores it for them.
+      # flag here, so every command reports the release it came from.
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
