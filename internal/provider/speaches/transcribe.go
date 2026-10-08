@@ -96,6 +96,10 @@ func New(cfg Config) (*Transcriber, error) {
 	}, nil
 }
 
+// Version names what hears a turn, for the journal's STT slot (SPEC §8). The
+// model id is already a stable name, so unlike a prompt it needs no hash.
+func (t *Transcriber) Version() string { return t.cfg.Model }
+
 // response is the `json` response format: text, and nothing the Parakeet path
 // fills. The Whisper path adds usage, which nothing here reads.
 type response struct {

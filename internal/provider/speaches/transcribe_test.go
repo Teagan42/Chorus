@@ -268,3 +268,28 @@ func TestNewRequiresAnEndpoint(t *testing.T) {
 		t.Fatal("a transcriber with no base url must not build")
 	}
 }
+
+// The journal stamps this on every event, so an utterance_transcribed can
+// say which recogniser produced it (SPEC §8). The model id is already a
+// stable name, so unlike the prompt it needs no fingerprint; it is spelled
+// out here rather than read back from the sidecar, so an upgrade cannot
+// move it.
+//
+// verifies SPEC §8
+func TestVersionNamesTheModel(t *testing.T) {
+	cases := map[string]struct {
+		cfg  speaches.Config
+		want string
+	}{
+		"default":            {speaches.Config{}, speaches.DefaultModel},
+		"a configured model": {speaches.Config{Model: "Systran/faster-whisper-small"}, "Systran/faster-whisper-small"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			tr := transcriber(t, &roundTrip{}, tc.cfg)
+			if got := tr.Version(); got != tc.want {
+				t.Errorf("version = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
