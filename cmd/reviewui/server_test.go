@@ -14,6 +14,7 @@ import (
 	"github.com/teaganglenn/chorus/internal/blob"
 	"github.com/teaganglenn/chorus/internal/curation"
 	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teaganglenn/chorus/internal/triage"
 )
 
 // bargeInLog writes one barge-in conversation through a real journal, the
@@ -578,5 +579,33 @@ func TestTriageFailureRowsOpenTheirConversationAtTheEvent(t *testing.T) {
 	h := get(t, newTriageServer(t), "/queue?tab=failure")
 	if !strings.Contains(h, `href="/conversations/conv-2#seq-4"`) {
 		t.Error("a failure row should open its conversation at the failing event")
+	}
+}
+
+// A detached tool's failure can land after the conversation moved rooms; the
+// lane it flags is the one whose turn called it.
+//
+// verifies SPEC §9.2
+func TestALateFailureFlagsTheSessionThatCalledTheTool(t *testing.T) {
+	at := time.Unix(1_760_000_000, 0)
+	ev := func(seq uint64, kind journal.Kind, fields ...string) journal.Event {
+		e := journal.Event{Seq: seq, At: at, Kind: kind, Fields: map[string]string{}}
+		for i := 0; i+1 < len(fields); i += 2 {
+			e.Fields[fields[i]] = fields[i+1]
+		}
+		return e
+	}
+	events := []journal.Event{
+		ev(1, journal.KindSessionOpened, "satellite", "kitchen"),
+		ev(2, journal.KindUtteranceTranscribed, "text", "download the new album"),
+		ev(3, journal.KindToolCalled, "tool", "media.fetch", "call_id", "c1"),
+		ev(4, journal.KindSessionOpened, "satellite", "office"),
+		ev(5, journal.KindToolResult, "call_id", "c1", "outcome", "error"),
+	}
+	sig := triage.Signal{Kind: triage.KindFailure, Seq: 5, Satellite: "kitchen", Session: 1}
+	c := summarize("conv-1", events, []triage.Signal{sig})
+	if len(c.sessions[0].signals) != 1 || len(c.sessions[1].signals) != 0 {
+		t.Errorf("kitchen has %d signals, office %d; want the failure on the kitchen",
+			len(c.sessions[0].signals), len(c.sessions[1].signals))
 	}
 }

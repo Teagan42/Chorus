@@ -57,10 +57,11 @@ func summarize(id string, events []journal.Event, sigs []triage.Signal) convSumm
 			}
 		}
 	}
-	// A signal belongs to the last session opened before it.
+	// A signal belongs to the session its turn ran under, which for a late
+	// tool result is not the last one opened before it.
 	for _, sig := range sigs {
 		for i := len(c.sessions) - 1; i >= 0; i-- {
-			if c.sessions[i].seq <= sig.Seq {
+			if c.sessions[i].seq <= sig.Session {
 				c.sessions[i].signals = append(c.sessions[i].signals, sig)
 				break
 			}

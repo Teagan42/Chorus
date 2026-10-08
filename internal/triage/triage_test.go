@@ -199,4 +199,7 @@ func TestALateToolFailureKeepsTheTurnThatCalledIt(t *testing.T) {
 	if s.Utterance != "download the new album" || s.Satellite != "kitchen" {
 		t.Errorf("late failure filed under %q on %s, want the calling turn in the kitchen", s.Utterance, s.Satellite)
 	}
+	if s.Session != 1 {
+		t.Errorf("late failure filed under session #%d, want the kitchen's opening at #1", s.Session)
+	}
 }
