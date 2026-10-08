@@ -4,9 +4,11 @@
 //
 // speaches rather than NVIDIA's own NIM because the NIM wants an NGC key, a
 // GPU and an unpinned `latest` tag, while speaches publishes a semver-tagged
-// CPU image serving the same multipart contract. Pinned at 0.9.0-rc.1, the
-// first tag carrying Parakeet and, as of 2026-10-08, the last one published
-// (ADR-0024).
+// CPU image serving the same multipart contract.
+//
+// Pinned at 0.9.0-rc.1, the first Parakeet tag. rc.2 and rc.3 exist; rc.1
+// stays: its source is what this behaviour was read from, and the only tag
+// any measurement touched (ADR-0024).
 //
 // The Parakeet path answers `json` and `text` only and refuses `verbose_json`
 // before decoding, so stt.Result carries text and nothing else. `language` is
