@@ -121,8 +121,7 @@ func (p *pacing) total() time.Duration {
 
 // applied reports the playback positions the satellite has recorded, which is
 // later than the report reaching the wire: Device.Play returns once the host
-// has read the frame, and the Serve loop applies it after that. A test whose
-// subject is the position Close sampled has to wait for this, not the write.
+// has read the frame, and the Serve loop applies it after that.
 type applied struct {
 	bridge.Handler
 
@@ -148,6 +147,7 @@ type rig struct {
 	blobs   *blob.Memory
 	paced   *pacing
 	applied *applied
+	played  uint64 // frames the test has had the device emit so far
 	drain   chan time.Time
 	settle  chan time.Time
 	served  chan error
@@ -213,6 +213,27 @@ func (r *rig) awaitPlayed(t *testing.T, frames uint64) {
 	}
 }
 
+// play advances the DAC and waits for the satellite to record it. With the
+// settle expiring at once, a barge-in before the report applies cuts at a
+// stale position.
+func (r *rig) play(t *testing.T, frames uint64) uint64 {
+	t.Helper()
+	return r.recorded(t, r.dev.Play(t, frames))
+}
+
+// playAll emits everything the device holds, recorded like play.
+func (r *rig) playAll(t *testing.T) uint64 {
+	t.Helper()
+	return r.recorded(t, r.dev.PlayAll(t))
+}
+
+func (r *rig) recorded(t *testing.T, emitted uint64) uint64 {
+	t.Helper()
+	r.played += emitted
+	r.awaitPlayed(t, r.played)
+	return emitted
+}
+
 // open starts an utterance and returns its stream and the cancel that a
 // barge-in would call.
 func (r *rig) open(t *testing.T, callID string) (session.Stream, context.CancelFunc) {
@@ -258,7 +279,7 @@ func TestCompletedUtteranceReportsTheDeviceFrameCount(t *testing.T) {
 
 	done := closeAsync(st)
 	r.dev.AwaitFinish(t, 1)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 
 	pb := await(t, done)
 	if pb.Truncated {
@@ -289,7 +310,7 @@ func TestBargeInTruncatesAtTheDACPosition(t *testing.T) {
 
 	// Cut partway through the first delta.
 	const heard = 3 * framesPerByte
-	if got := r.dev.Play(t, heard); got != heard {
+	if got := r.play(t, heard); got != heard {
 		t.Fatalf("played %d frames, want %d", got, heard)
 	}
 
@@ -353,7 +374,7 @@ func TestOneDeltaIsCutInsideItself(t *testing.T) {
 	}
 	r.dev.AwaitTTS(t, len(speakToolDelta)*framesPerByte*2)
 	// Two characters in. The user heard "Th".
-	r.dev.Play(t, 2*framesPerByte)
+	r.play(t, 2*framesPerByte)
 
 	cancel()
 	pb := await(t, closeAsync(st))
@@ -387,7 +408,7 @@ func TestTheCutFallsOnAWordBoundary(t *testing.T) {
 	}
 	r.dev.AwaitTTS(t, len(text)*framesPerByte*2)
 	// Inside the second clause.
-	r.dev.Play(t, uint64((len("Sure, ")+3)*framesPerByte))
+	r.play(t, uint64((len("Sure, ")+3)*framesPerByte))
 
 	cancel()
 	pb := await(t, closeAsync(st))
@@ -416,7 +437,7 @@ func TestAFullyPlayedMultiSegmentDeltaIsWhollySpoken(t *testing.T) {
 	r.dev.AwaitTTS(t, len(speakToolDelta)*framesPerByte*2)
 	done := closeAsync(st)
 	r.dev.AwaitFinish(t, 1)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 	pb := await(t, done)
 
 	if pb.Truncated {
@@ -453,7 +474,7 @@ func TestSpeechCarriesABlobReferenceTheJournalWillAccept(t *testing.T) {
 	r.dev.AwaitTTS(t, len("hello")*framesPerByte*2)
 	done := closeAsync(st)
 	r.dev.AwaitFinish(t, 1)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 	pb := await(t, done)
 
 	// journal.Append rejects an audio-bearing event without a reference, and
@@ -489,7 +510,7 @@ func TestACutKeepsTheUnheardAudioItHadAlreadyRendered(t *testing.T) {
 	r.dev.AwaitTTS(t, rendered)
 
 	const heard = 3 * framesPerByte
-	r.dev.Play(t, heard)
+	r.play(t, heard)
 	cancel()
 	pb := await(t, closeAsync(st))
 
@@ -549,7 +570,7 @@ func TestAReusedCallIDDoesNotOverwriteEarlierAudio(t *testing.T) {
 		r.dev.AwaitTTS(t, sent)
 		done := closeAsync(st)
 		r.dev.AwaitFinish(t, i+1)
-		r.dev.PlayAll(t)
+		r.playAll(t)
 		refs = append(refs, await(t, done).AudioRef)
 	}
 
@@ -634,7 +655,7 @@ func TestTheCutUsesTheFinalPositionAfterTheStop(t *testing.T) {
 	// rest of the first delta while the stop is in flight. Those frames were
 	// heard: a split sampled before the stop would call them unspoken.
 	const before = 2 * framesPerByte
-	r.dev.Play(t, before)
+	r.play(t, before)
 	r.dev.PlayDuringStop(4 * framesPerByte)
 
 	cancel()
@@ -661,11 +682,10 @@ func TestADeviceThatGoesQuietAfterTheStopStillReportsACut(t *testing.T) {
 	}
 	r.dev.AwaitTTS(t, len("Hello world.")*framesPerByte*2)
 	const heard = 3 * framesPerByte
-	r.dev.Play(t, heard)
 	// This position has to be the one Close samples, or the settle it waits on
 	// is answered by the report arriving late and the deadline is never
 	// reached -- which is the only thing this test is about.
-	r.awaitPlayed(t, heard)
+	r.play(t, heard)
 
 	cancel()
 	done := closeAsync(st)
@@ -691,7 +711,7 @@ func TestADeltaCutBeforeSynthesisIsStillUnspokenText(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	r.dev.AwaitTTS(t, len("spoken ")*framesPerByte*2)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 
 	// Held in the synthesiser, so this delta has no frames of its own.
 	r.synth.mu.Lock()
@@ -763,7 +783,7 @@ func TestABlankDeltaThatRendersNoFramesIsNotATruncation(t *testing.T) {
 		}
 	}
 	r.dev.AwaitTTS(t, len(text)*framesPerByte*2)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 
 	pb := await(t, closeAsync(st))
 
@@ -790,7 +810,7 @@ func TestACutAfterABlankLeadingDeltaKeepsTheUtteranceInOrder(t *testing.T) {
 		}
 	}
 	r.dev.AwaitTTS(t, len(text)*framesPerByte*2)
-	r.dev.Play(t, 3*framesPerByte)
+	r.play(t, 3*framesPerByte)
 
 	cancel()
 	pb := await(t, closeAsync(st))
@@ -816,7 +836,7 @@ func TestASecondUtteranceRebasesOnTheCumulativePosition(t *testing.T) {
 	r.dev.AwaitTTS(t, len("one")*framesPerByte*2)
 	done := closeAsync(first)
 	r.dev.AwaitFinish(t, 1)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 	if pb := await(t, done); pb.Frames != int64(len("one")*framesPerByte) {
 		t.Fatalf("first utterance Frames = %d", pb.Frames)
 	}
@@ -832,7 +852,7 @@ func TestASecondUtteranceRebasesOnTheCumulativePosition(t *testing.T) {
 	r.dev.AwaitTTS(t, (len("one")+len("two"))*framesPerByte*2)
 	done = closeAsync(second)
 	r.dev.AwaitFinish(t, 2)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 
 	pb := await(t, done)
 	if pb.Frames != want {
@@ -861,7 +881,7 @@ func TestPacingNeverOutlastsTheAudioItPaced(t *testing.T) {
 
 	done := closeAsync(st)
 	r.dev.AwaitFinish(t, 1)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 	await(t, done)
 
 	// Pacing exists to stop the downlink crowding the mic uplink off the shared
@@ -910,7 +930,7 @@ func TestDrainDeadlineReportsTruncationRatherThanHanging(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	r.dev.AwaitTTS(t, len("half heard text")*framesPerByte*2)
-	r.dev.Play(t, 4*framesPerByte)
+	r.play(t, 4*framesPerByte)
 
 	done := closeAsync(st)
 	r.dev.AwaitFinish(t, 1)
