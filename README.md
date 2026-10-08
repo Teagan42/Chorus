@@ -44,9 +44,9 @@ today:
 | `cmd/probe` — connect to a satellite and dump what it exposes | works |
 | LLM — `internal/provider/ollama`, the turn engine | dials a real endpoint |
 | TTS — `internal/provider/kokoro`, resampled to the device's rate | dials a real endpoint |
-| STT — `internal/stt` partials over `internal/provider/speaches` | hermetic; unmeasured against a real sidecar |
-| speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` | hermetic; the sidecar has not yet run the real model |
-| `internal/hass` — the one real tool (SPEC §14 item 5) | under test |
+| STT — `internal/stt` partials over `internal/provider/speaches` | measured against real Parakeet TDT 0.6B v2 on CPU |
+| speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX) | thresholds measured on 37 speakers; sidecar runs without Docker |
+| `internal/hass` — the one real tool (SPEC §14 item 5) | verified against Home Assistant 2026.10 |
 | `internal/harvest`, `cmd/harvest` — barge-ins as DPO candidates | under test |
 
 `task spec` reports which spec clauses have tests behind them.
