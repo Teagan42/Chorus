@@ -25,6 +25,18 @@ const helloTimeout = 10 * time.Second
 // minBargeInWords is the gate's third stage: one word is usually "uh" (SPEC §4.3).
 const minBargeInWords = 2
 
+// bargeInGate is the detector every link's supervisor shares. Only this place
+// knows whether a resolver was configured, so the speaker mode is set here,
+// not from an empty id (ADR-0031).
+func (p providers) bargeInGate() session.Gate {
+	return session.Gate{
+		MinEnergy:            listen.DefaultSpeechEnergy,
+		MinWords:             minBargeInWords,
+		Household:            p.household,
+		SpeakerIDUnavailable: p.speakers == nil,
+	}
+}
+
 // deps is everything the daemon composes that does I/O or reads a clock, so
 // a test runs the whole daemon over doubles (CONTRIBUTING §1).
 type deps struct {
@@ -74,11 +86,7 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 		byHost:  byHost,
 		journal: journal.New(d.Store, d.Clock, d.versions),
 		convs:   session.NewConversations(d.Clock, session.MigrationWindow),
-		gate: session.Gate{
-			MinEnergy: listen.DefaultSpeechEnergy,
-			MinWords:  minBargeInWords,
-			Household: d.household,
-		},
+		gate:    d.bargeInGate(),
 	}
 	if d.Native != nil {
 		for i := range inv.Satellites {

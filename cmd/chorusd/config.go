@@ -141,10 +141,9 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger) (pro
 	}
 
 	if cfg.SpeakerIDURL == "" {
-		// The gate's second stage needs a speaker id, so no barge-in can pass
-		// without one (session.Gate); said here because the symptom is a house
-		// that will not stop talking, and nothing else explains it.
-		log.Warn("speaker identification is off: "+speakerIDURLEnv+" is not set, so every speaker is a guest and no barge-in can pass the gate",
+		// Said here because the symptom is a house the television can
+		// interrupt, and nothing else explains it (ADR-0031).
+		log.Warn("speaker identification is off: "+speakerIDURLEnv+" is not set, so every speaker is a guest and barge-in gates on energy and partial length alone: any voice loud enough and long enough interrupts, the television included",
 			"enrolled", enrolled(ids))
 	} else {
 		emb, err := speakerid.New(speakerid.Config{BaseURL: cfg.SpeakerIDURL})

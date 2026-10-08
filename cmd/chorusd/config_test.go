@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -88,9 +89,10 @@ func TestValidateRefusesHalfAHomeAssistant(t *testing.T) {
 }
 
 // An absent sidecar is a degraded mode, not a failure, but never a silent
-// one: without speaker identification everyone is a guest and no barge-in
-// can pass the gate; without Home Assistant the declared ha_* tools answer
-// not_implemented, which the model sees (SPEC §5, §7).
+// one: without speaker identification everyone is a guest and barge-in
+// gates on energy and words alone, so the television can interrupt; without
+// Home Assistant the declared ha_* tools answer not_implemented, which the
+// model sees (SPEC §5, §7, ADR-0031).
 //
 // verifies SPEC §5
 func TestOptionalSidecarsDegradeWithALogLine(t *testing.T) {
@@ -111,10 +113,14 @@ func TestOptionalSidecarsDegradeWithALogLine(t *testing.T) {
 	if len(p.tools) != 0 {
 		t.Errorf("tools = %v, want none wired", p.tools)
 	}
-	for _, want := range []string{"guest", "barge-in", "not_implemented"} {
+	for _, want := range []string{"guest", "barge-in", "television", "not_implemented"} {
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("log does not say %q:\n%s", want, logs.String())
 		}
+	}
+	// The line says what barge-in does now, not what it once could not.
+	if strings.Contains(logs.String(), "no barge-in") {
+		t.Errorf("log still says barge-in is impossible:\n%s", logs.String())
 	}
 	if p.versions.Model != "qwen3:32b" || p.versions.Prompt == "" || p.versions.ToolSchema == "" {
 		t.Errorf("versions = %+v, want the engine's", p.versions)
@@ -142,6 +148,46 @@ func TestFullyConfiguredProvidersWireEverything(t *testing.T) {
 		if strings.Contains(logs.String(), off) {
 			t.Errorf("a fully configured daemon logged %q:\n%s", off, logs.String())
 		}
+	}
+}
+
+// The gate's speaker stage runs exactly when something identifies speakers:
+// the mode follows SPEAKERID_URL, never an empty id at candidate time, so an
+// unidentified voice with the sidecar up is still the television (ADR-0031).
+//
+// verifies SPEC §4.3
+func TestBargeInGateSkipsTheSpeakerStageOnlyWithoutSpeakerID(t *testing.T) {
+	ids := &identity.Identities{Model: "nemo_en_titanet_large", Dim: 192}
+	voice := make([]float32, ids.Dim)
+	voice[0] = 1
+	if err := ids.Enroll("alan", "Alan", [][]float32{voice, voice, voice}); err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+	log := slog.New(slog.DiscardHandler)
+
+	with, err := buildProviders(configFromEnv(lookup(complete())), ids, log)
+	if err != nil {
+		t.Fatalf("providers with speaker id: %v", err)
+	}
+	gate := with.bargeInGate()
+	if gate.SpeakerIDUnavailable {
+		t.Error("the speaker stage is skipped with " + speakerIDURLEnv + " set")
+	}
+	if !reflect.DeepEqual(gate.Household, []string{"alan"}) {
+		t.Errorf("household = %q, want the enrolled one", gate.Household)
+	}
+
+	env := complete()
+	delete(env, speakerIDURLEnv)
+	without, err := buildProviders(configFromEnv(lookup(env)), ids, log)
+	if err != nil {
+		t.Fatalf("providers without speaker id: %v", err)
+	}
+	if gate := without.bargeInGate(); !gate.SpeakerIDUnavailable {
+		t.Error("the speaker stage runs with " + speakerIDURLEnv + " unset, so nothing could barge in")
+	}
+	if with.bargeInGate().MinEnergy != without.bargeInGate().MinEnergy || with.bargeInGate().MinWords != without.bargeInGate().MinWords {
+		t.Error("the other stages changed with the speaker mode; only the speaker stage may")
 	}
 }
 
