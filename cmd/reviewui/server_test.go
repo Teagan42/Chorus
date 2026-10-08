@@ -572,3 +572,11 @@ func TestConversationPageReplaysTheLogWithItsAudio(t *testing.T) {
 		t.Errorf("unknown conversation = %d, want 404", w.Code)
 	}
 }
+
+// verifies SPEC §9.2
+func TestTriageFailureRowsOpenTheirConversationAtTheEvent(t *testing.T) {
+	h := get(t, newTriageServer(t), "/queue?tab=failure")
+	if !strings.Contains(h, `href="/conversations/conv-2#seq-4"`) {
+		t.Error("a failure row should open its conversation at the failing event")
+	}
+}
