@@ -330,23 +330,7 @@ func renderToolDocs(tools map[string]Tool) string {
 		if t.UnknownSpeaker != "" {
 			b.WriteString(fmt.Sprintf("Unknown speaker: `%s`.\n\n", t.UnknownSpeaker))
 		}
-		if len(t.Params) == 0 {
-			b.WriteString("No parameters.\n\n")
-			continue
-		}
-		b.WriteString("| Parameter | Type | Required | Description |\n|---|---|---|---|\n")
-		for _, p := range t.Params {
-			req := ""
-			if p.Required {
-				req = "yes"
-			}
-			desc := p.Description
-			if len(p.Enum) > 0 {
-				desc += fmt.Sprintf(" One of: `%s`.", strings.Join(p.Enum, "`, `"))
-			}
-			b.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s |\n", p.Name, p.Type, req, desc))
-		}
-		b.WriteString("\n")
+		b.WriteString(renderParamTable("Parameter", t.Params, "No parameters."))
 	}
 	return b.String()
 }
@@ -361,14 +345,54 @@ func renderEventDocs(events map[string]Event) string {
 		b.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s | %s |\n",
 			e.Name, e.Actor, yn(e.HasAudio), yn(e.TrainingSignal), e.Description))
 	}
+	b.WriteString("\n")
+	for _, key := range sortedKeys(events) {
+		e := events[key]
+		b.WriteString(fmt.Sprintf("## `%s`\n\n%s\n\n", e.Name, e.Description))
+		// Named as in schema/event.cue, so a reader can find the declaration.
+		b.WriteString(fmt.Sprintf("Actor: `%s`. `has_audio`: %s. `training_signal`: %s. `speculative`: %s. `requires_versions`: %s.\n\n",
+			e.Actor, yesNo(e.HasAudio), yesNo(e.TrainingSignal), yesNo(e.Speculative), yesNo(e.RequiresVersion)))
+		b.WriteString(renderParamTable("Field", e.Fields, "No fields."))
+	}
 	return b.String()
 }
 
+// renderParamTable is shared by tools and events so their docs cannot drift
+// apart in shape. An empty list is stated, not left as a blank section.
+func renderParamTable(column string, params []Param, none string) string {
+	if len(params) == 0 {
+		return none + "\n\n"
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("| %s | Type | Required | Description |\n|---|---|---|---|\n", column))
+	for _, p := range params {
+		req := ""
+		if p.Required {
+			req = "yes"
+		}
+		desc := p.Description
+		if len(p.Enum) > 0 {
+			desc += fmt.Sprintf(" One of: `%s`.", strings.Join(p.Enum, "`, `"))
+		}
+		b.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s |\n", p.Name, p.Type, req, desc))
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// yn is for table cells, where a blank reads better than a column of "no".
 func yn(b bool) string {
 	if b {
 		return "yes"
 	}
 	return ""
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 func goName(s string) string {
