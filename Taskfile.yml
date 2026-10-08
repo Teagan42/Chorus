@@ -249,6 +249,14 @@ tasks:
       - uvx --from 'esphome=={{.ESPHOME_VERSION}}' esphome logs {{.CLI_ARGS | default "satellite1.yaml"}}
 
   # ----------------------------------------------------------------- dev loops
+  run:
+    desc: Run the orchestrator daemon (needs devices.yaml, .env and `task db:up`)
+    # The daemon reads its endpoints from the environment; .env is where the
+    # gitignored copy of .env.example lives, and this is the one task that
+    # loads it so the test tiers keep seeing exactly what CI does.
+    dotenv: [".env"]
+    cmds: ["go run ./cmd/chorusd {{.CLI_ARGS}}"]
+
   probe:
     desc: Probe a real satellite (needs devices.yaml)
     cmds: ["go run ./cmd/probe {{.CLI_ARGS}}"]
