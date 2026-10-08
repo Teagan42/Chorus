@@ -67,18 +67,25 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 		cutPairs[p.Seq.Cut] = p
 	}
 
+	// A call keeps the turn that made it: a detach-policy tool outlives the
+	// barge-in, so its result can land after the next utterance.
+	type pending struct {
+		tool string
+		turn turnContext
+	}
 	var (
-		out  []Signal
-		cur  turnContext
-		tool = map[string]string{} // call id → tool name
+		out   []Signal
+		cur   turnContext
+		calls = map[string]pending{}
 	)
-	raise := func(e journal.Event, k Kind, detail string) {
+	raiseIn := func(turn turnContext, e journal.Event, k Kind, detail string) {
 		out = append(out, Signal{
 			Kind: k, ConversationID: conversationID, Seq: e.Seq, At: e.At,
-			Utterance: cur.utterance, Speaker: cur.speaker, Satellite: cur.satellite,
+			Utterance: turn.utterance, Speaker: turn.speaker, Satellite: turn.satellite,
 			Detail: detail,
 		})
 	}
+	raise := func(e journal.Event, k Kind, detail string) { raiseIn(cur, e, k, detail) }
 	for _, e := range events {
 		if e.Speculative {
 			continue
@@ -101,12 +108,16 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 				cur.utterance = e.Fields["text"]
 			}
 		case journal.KindToolCalled:
-			tool[e.Fields["call_id"]] = e.Fields["tool"]
+			calls[e.Fields["call_id"]] = pending{tool: e.Fields["tool"], turn: cur}
 		case journal.KindToolResult:
+			c, ok := calls[e.Fields["call_id"]]
+			if !ok {
+				c.turn = cur
+			}
 			// Cancelled is a barge-in working; detached is a tool outliving
 			// the turn by design. Neither failed.
 			if o := e.Fields["outcome"]; o == "error" || o == "timed_out" {
-				raise(e, KindFailure, tool[e.Fields["call_id"]]+" "+o)
+				raiseIn(c.turn, e, KindFailure, c.tool+" "+o)
 			}
 		case journal.KindModelCompleted:
 			if e.Fields["finish_reason"] == "error" {

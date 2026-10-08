@@ -178,3 +178,25 @@ func TestABargeInIsSignalledWithItsPair(t *testing.T) {
 		t.Errorf("utterance %q detail %q", s.Utterance, s.Detail)
 	}
 }
+
+// A detach-policy tool outlives the barge-in that ended its turn, so its
+// failure can land after the correction. The row belongs to the turn that
+// called it, not to whoever spoke last.
+//
+// verifies SPEC §9.1
+func TestALateToolFailureKeepsTheTurnThatCalledIt(t *testing.T) {
+	s := one(t, scan(t,
+		opened("kitchen", "alice"),
+		heard("download the new album", "alice"),
+		called("media.fetch", "c1"),
+		completed("stop"),
+		record(journal.KindSessionClosed, "", "reason", "migrated", "satellite", "kitchen"),
+		opened("office", "alice"),
+		heard("never mind", "alice"),
+		result("c1", "error"),
+		completed("stop"),
+	))
+	if s.Utterance != "download the new album" || s.Satellite != "kitchen" {
+		t.Errorf("late failure filed under %q on %s, want the calling turn in the kitchen", s.Utterance, s.Satellite)
+	}
+}
