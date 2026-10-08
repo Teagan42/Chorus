@@ -34,10 +34,10 @@ without breaking an older host.
 | `0x01` hello | device | version:u8, sample_rate:u32, bits:u8, mic_channels:u8 |
 | `0x02` mic | device | 16 kHz s16le PCM; `flags` is the channel (0 AEC'd, 1 raw) |
 | `0x03` wake | device | wake word name, UTF-8 |
-| `0x04` played | device | cumulative DAC frames:u64, `esp_timer` micros:i64 |
+| `0x04` played | device | cumulative DAC frames:u64, `esp_timer` micros:i64; `flags` echoes the tag of the stop this report answers, 0 otherwise |
 | `0x05` mute | device | none; `flags` bit 0 hardware, bit 1 software |
 | `0x10` tts | host | 16 kHz s16le PCM |
-| `0x11` stop | host | none — barge-in, discards the speaker buffer |
+| `0x11` stop | host | none — barge-in, discards the speaker buffer; `flags` is a tag, never 0 |
 | `0x12` finish | host | none — drains the buffer, then stops |
 | `0x13` duck | host | decibels:u8, duration_ms:u32 |
 | `0x14` mic_enable | host | none; `flags` bit 0 enables the uplink |
@@ -48,6 +48,15 @@ the DAC with a microsecond stamp, so `frames / sample_rate` is what the user
 *heard*. The best proxy available on the stock path is roughly ±128 ms — about
 100x worse — and ADR-0005 makes this precision load-bearing for the whole DPO
 corpus (SPEC §3.2.1).
+
+Every `stop` is answered. The device gates its frame counter, discards the
+buffer, and then emits exactly one `played` whose `flags` echo the stop's tag,
+whether or not the position moved since its last report. That report is the
+truncation point: a routine `played` can already be in flight when the host
+sends the stop, and it predates the stop by up to a round trip, so the host
+waits for the echoed tag rather than for the next position to arrive
+(ADR-0033). Protocol version 2 is this change; a host at version 2 refuses a
+device still announcing 1.
 
 `mute` has no host-to-device counterpart. Hardware mute is authoritative.
 
@@ -91,7 +100,8 @@ the speaker is playing. That cannot be proven without a device.
 3. Accept the bridge connection on port 6055, send `0x10` TTS frames, and check
    that `0x02` mic frames keep arriving *during* playback. Half duplex shows up
    as a gap in mic frames for the length of the utterance.
-4. Speak over the playback, send `0x11` stop, and compare the last `0x04`
-   played position against the text offset you stopped at. SPEC §3.2.1 expects
-   sub-millisecond error; anything near ±100 ms means the position is being
-   estimated from bytes sent rather than read from the DAC callback.
+4. Speak over the playback, send `0x11` stop with a non-zero `flags` tag, and
+   compare the `0x04` played report that echoes it against the text offset
+   you stopped at. No echo means firmware older than the host. SPEC §3.2.1
+   expects sub-millisecond error; anything near ±100 ms means the position is
+   being estimated from bytes sent rather than read from the DAC callback.
