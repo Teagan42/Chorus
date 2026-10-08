@@ -37,6 +37,11 @@ var ErrUnauthorized = errors.New("home assistant rejected the access token")
 // ErrUnknownEntity is HA's 404 for an entity id it has never heard of.
 var ErrUnknownEntity = errors.New("unknown entity")
 
+// ErrUnknownService is a domain.service HA does not have. HA answers it with
+// the same bare 400 as rejected service data, so it is told apart by reading
+// the service catalogue after the fact.
+var ErrUnknownService = errors.New("unknown service")
+
 // URLEnv and TokenEnv name the environment a composition root reads, as
 // .env.example documents them.
 const (
@@ -117,19 +122,61 @@ func (c *Client) EntityState(ctx context.Context, entityID string) (State, error
 
 // CallService invokes domain.service with data as the service data, which is
 // where HA takes the target too: entity_id and area_id are top-level fields.
-// It returns the states that changed while the call ran.
+// It returns the states that changed while the call ran. A target HA does
+// not know is not an error: the call lands on nothing and the list is empty.
 func (c *Client) CallService(ctx context.Context, domain, service string, data map[string]any) ([]State, error) {
 	var out []State
 	path := "/services/" + url.PathEscape(domain) + "/" + url.PathEscape(service)
-	if err := c.do(ctx, http.MethodPost, path, data, &out); err != nil {
+	err := c.do(ctx, http.MethodPost, path, data, &out)
+	if errors.Is(err, errBadRequest) {
+		err = c.explainBadRequest(ctx, domain, service)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("call %s.%s: %w", domain, service, err)
 	}
 	return out, nil
 }
 
-// errNotFound is the raw 404, classified by the caller that knows what was
-// looked up.
-var errNotFound = errors.New("not found")
+// explainBadRequest reads the catalogue to say which of the two things a
+// bare 400 means. The read itself failing leaves the 400 unexplained rather
+// than misattributed.
+func (c *Client) explainBadRequest(ctx context.Context, domain, service string) error {
+	known, err := c.hasService(ctx, domain, service)
+	if err != nil {
+		return fmt.Errorf("400 Bad Request, and the service catalogue could not say why: %w", err)
+	}
+	if !known {
+		return fmt.Errorf("%w %s.%s", ErrUnknownService, domain, service)
+	}
+	return errors.New("home assistant rejected the service data")
+}
+
+// serviceDomain is one entry of /api/services, read only for its names.
+type serviceDomain struct {
+	Domain   string                     `json:"domain"`
+	Services map[string]json.RawMessage `json:"services"`
+}
+
+func (c *Client) hasService(ctx context.Context, domain, service string) (bool, error) {
+	var out []serviceDomain
+	if err := c.do(ctx, http.MethodGet, "/services", nil, &out); err != nil {
+		return false, fmt.Errorf("list services: %w", err)
+	}
+	for _, d := range out {
+		if d.Domain == domain {
+			_, ok := d.Services[service]
+			return ok, nil
+		}
+	}
+	return false, nil
+}
+
+// errNotFound and errBadRequest are the raw statuses, classified by the
+// caller that knows what was asked.
+var (
+	errNotFound   = errors.New("not found")
+	errBadRequest = errors.New("bad request")
+)
 
 func (c *Client) do(ctx context.Context, method, path string, body any, into any) error {
 	var payload io.Reader
@@ -162,16 +209,35 @@ func (c *Client) do(ctx context.Context, method, path string, body any, into any
 		return ErrUnauthorized
 	case http.StatusNotFound:
 		return errNotFound
+	case http.StatusBadRequest:
+		// HA explains a validation error in a JSON message; an unknown
+		// service and a schema failure both come back as aiohttp's bare page.
+		msg, explained := message(resp.Body)
+		if !explained {
+			return errBadRequest
+		}
+		return fmt.Errorf("%s: %s", resp.Status, c.redact(msg))
 	default:
-		// Quoted because the status alone does not separate an unknown service
-		// from bad service data: both are 400 and only the body says which.
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, errBody))
-		return fmt.Errorf("%s: %s", resp.Status, c.redact(strings.TrimSpace(string(msg))))
+		msg, _ := message(resp.Body)
+		return fmt.Errorf("%s: %s", resp.Status, c.redact(msg))
 	}
 	if err := json.NewDecoder(resp.Body).Decode(into); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
+}
+
+// message reads a failed response's explanation: HA's {"message": ...} when
+// the body is one, else the bounded raw body, which a proxy may have written.
+func message(r io.Reader) (string, bool) {
+	raw, _ := io.ReadAll(io.LimitReader(r, errBody))
+	var m struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(raw, &m) == nil && m.Message != "" {
+		return m.Message, true
+	}
+	return strings.TrimSpace(string(raw)), false
 }
 
 // redact keeps the token out of an error even if a misconfigured proxy

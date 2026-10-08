@@ -64,13 +64,24 @@ func TestEntityStateReadsOneEntity(t *testing.T) {
 // A 404 here means one thing, and the model needs to hear it as that thing
 // rather than as a status code (SPEC §7).
 func TestAnUnknownEntityIsNamed(t *testing.T) {
-	c := clientOn(t, newTransport(http.StatusNotFound, `{"message":"Entity not found."}`))
+	c := clientOn(t, newTransport(http.StatusNotFound, entityNotFound))
 	_, err := c.EntityState(context.Background(), "light.nope")
 	if !errors.Is(err, hass.ErrUnknownEntity) {
 		t.Fatalf("err = %v, want ErrUnknownEntity", err)
 	}
 	if !strings.Contains(err.Error(), "light.nope") {
 		t.Errorf("err = %v, want the entity named", err)
+	}
+}
+
+// HA answers a bad token with 401 and no detail. 403 is kept for whatever sits
+// in front of it, since the two mean the same to the model.
+func TestARejectedTokenIsErrUnauthorized(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		c := clientOn(t, newTransport(status, unauthorized))
+		if _, err := c.States(context.Background()); !errors.Is(err, hass.ErrUnauthorized) {
+			t.Errorf("%d: err = %v, want ErrUnauthorized", status, err)
+		}
 	}
 }
 
@@ -95,13 +106,61 @@ func TestAnEchoedTokenIsRedactedFromOtherErrors(t *testing.T) {
 	}
 }
 
-// Only the body separates an unknown service from bad service data: both are
-// 400. Quoted, but bounded, so a proxy's HTML page cannot become a log line.
+// An unknown service and rejected service data are the same opaque 400 from
+// HA. The service catalogue is what tells them apart, and it is read only on
+// that failure, so the common path stays one request.
+func TestAnOpaqueBadRequestIsExplainedFromTheCatalogue(t *testing.T) {
+	tr := newTransport(http.StatusBadRequest, badRequest)
+	tr.route("/api/services", http.StatusOK, catalogue)
+	c := clientOn(t, tr)
+
+	_, err := c.CallService(context.Background(), "light", "explode", map[string]any{"entity_id": "light.kitchen"})
+	if !errors.Is(err, hass.ErrUnknownService) || !strings.Contains(err.Error(), "light.explode") {
+		t.Errorf("err = %v, want ErrUnknownService naming light.explode", err)
+	}
+	if n := tr.count(); n != 2 {
+		t.Errorf("%d requests, want the call and one catalogue read", n)
+	}
+
+	_, err = c.CallService(context.Background(), "light", "turn_on", map[string]any{"entity_id": "light.kitchen", "brightness_pct": 999})
+	if err == nil || errors.Is(err, hass.ErrUnknownService) || !strings.Contains(err.Error(), "service data") {
+		t.Errorf("err = %v, want the data blamed, not the service", err)
+	}
+
+	_, err = c.CallService(context.Background(), "nope", "turn_on", map[string]any{"entity_id": "light.kitchen"})
+	if !errors.Is(err, hass.ErrUnknownService) || !strings.Contains(err.Error(), "nope.turn_on") {
+		t.Errorf("err = %v, want ErrUnknownService naming nope.turn_on", err)
+	}
+
+	tr.route("/api/services", http.StatusBadGateway, "proxy down")
+	_, err = c.CallService(context.Background(), "light", "explode", map[string]any{"entity_id": "light.kitchen"})
+	if err == nil || errors.Is(err, hass.ErrUnknownService) || !strings.Contains(err.Error(), "400") {
+		t.Errorf("err = %v, want the bare 400 when the catalogue is unreadable", err)
+	}
+}
+
+// A 400 that carries HA's own explanation (a service validation error) is
+// quoted as that explanation, not as a JSON envelope the model has to parse.
+func TestAnExplainedBadRequestQuotesTheMessage(t *testing.T) {
+	msg := "Value 99999.0 for number.volume is outside valid range 0.0 - 100.0"
+	tr := newTransport(http.StatusBadRequest, `{"message":"`+msg+`"}`)
+	c := clientOn(t, tr)
+	_, err := c.CallService(context.Background(), "number", "set_value", map[string]any{"entity_id": "number.volume", "value": 99999})
+	if err == nil || !strings.Contains(err.Error(), msg) || strings.Contains(err.Error(), `"message"`) {
+		t.Errorf("err = %v, want %q quoted bare", err, msg)
+	}
+	if n := tr.count(); n != 1 {
+		t.Errorf("%d requests; an explained 400 needs no catalogue read", n)
+	}
+}
+
+// Other failures are quoted, but bounded, so a proxy's HTML page cannot
+// become a log line.
 func TestTheErrorBodyIsQuotedButBounded(t *testing.T) {
-	c := clientOn(t, newTransport(http.StatusBadRequest, `{"message":"Service light.explode not found."}`))
-	_, err := c.CallService(context.Background(), "light", "explode", nil)
-	if err == nil || !strings.Contains(err.Error(), "Service light.explode not found") {
-		t.Errorf("err = %v, want the endpoint's explanation", err)
+	c := clientOn(t, newTransport(http.StatusInternalServerError, `{"message":"Error during service call"}`))
+	_, err := c.CallService(context.Background(), "light", "turn_on", nil)
+	if err == nil || !strings.Contains(err.Error(), "500 Internal Server Error: Error during service call") {
+		t.Errorf("err = %v, want the status and HA's message", err)
 	}
 
 	huge := strings.Repeat("x", 64<<10)

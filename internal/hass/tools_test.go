@@ -68,7 +68,7 @@ func sample(p registry.ParamSpec) any {
 // handler's reads line up with the declaration.
 func TestHandlersReadOnlyDeclaredParameters(t *testing.T) {
 	tr := newTransport(http.StatusOK, kitchenOn)
-	tr.routes = map[string]string{"/api/states/light.kitchen": kitchenOn[1 : len(kitchenOn)-1]}
+	tr.route("/api/states/light.kitchen", http.StatusOK, kitchenOn[1:len(kitchenOn)-1])
 	tools := hass.Tools(clientOn(t, tr))
 
 	for name, tool := range tools {
@@ -174,7 +174,8 @@ func TestNullArgumentsAreAbsent(t *testing.T) {
 }
 
 // Every HA failure is an error the session turns into a result the model
-// reasons about; none of them is a crash (SPEC §7).
+// reasons about; none of them is a crash (SPEC §7). The bodies are what HA
+// really sends, which for a 400 is nothing the model could read.
 func TestHAFailuresAreErrorsTheModelCanRead(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -186,24 +187,36 @@ func TestHAFailuresAreErrorsTheModelCanRead(t *testing.T) {
 		is     error
 	}{
 		{
-			"rejected token", http.StatusUnauthorized, `{"message":"Unauthorized"}`,
+			"rejected token", http.StatusUnauthorized, unauthorized,
 			"ha_call_service", `{"domain":"light","service":"turn_on","entity_id":"light.kitchen"}`,
 			"rejected the access token", hass.ErrUnauthorized,
 		},
 		{
-			"unknown entity", http.StatusNotFound, `{"message":"Entity not found."}`,
+			"unknown entity", http.StatusNotFound, entityNotFound,
 			"ha_get_state", `{"entity_id":"light.nope"}`,
 			"unknown entity light.nope", hass.ErrUnknownEntity,
 		},
 		{
-			"unknown service", http.StatusBadRequest, `{"message":"Service light.explode not found."}`,
+			"unknown service", http.StatusBadRequest, badRequest,
 			"ha_call_service", `{"domain":"light","service":"explode","entity_id":"light.kitchen"}`,
-			"call light.explode: 400 Bad Request: {\"message\":\"Service light.explode not found.\"}", nil,
+			"call light.explode: unknown service light.explode", hass.ErrUnknownService,
+		},
+		{
+			"rejected service data", http.StatusBadRequest, badRequest,
+			"ha_call_service", `{"domain":"light","service":"turn_on","entity_id":"light.kitchen","data":{"brightness_pct":999}}`,
+			"call light.turn_on: home assistant rejected the service data", nil,
+		},
+		{
+			"explained service data", http.StatusBadRequest, `{"message":"Value 999.0 for number.volume is outside valid range 0.0 - 100.0"}`,
+			"ha_call_service", `{"domain":"number","service":"set_value","entity_id":"number.volume","data":{"value":999}}`,
+			"call number.set_value: 400 Bad Request: Value 999.0 for number.volume is outside valid range 0.0 - 100.0", nil,
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			tools := hass.Tools(clientOn(t, newTransport(c.status, c.body)))
+			tr := newTransport(c.status, c.body)
+			tr.route("/api/services", http.StatusOK, catalogue)
+			tools := hass.Tools(clientOn(t, tr))
 			_, err := tools[c.tool].Invoke(context.Background(), c.args)
 			if err == nil {
 				t.Fatal("want an error")
