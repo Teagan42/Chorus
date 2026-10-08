@@ -232,3 +232,19 @@ func TestPairIDsWithSlashesRenderSelectorSafeTargets(t *testing.T) {
 		t.Error("a raw slash reached a DOM id, which no CSS selector can address")
 	}
 }
+
+// verifies SPEC §9.2
+func TestTheShellServesHtmxFromItsOwnStatic(t *testing.T) {
+	h := render(t, "doc-start", ui.Doc{Title: "Curate", Static: "/static"})
+	if !strings.Contains(h, `src="/static/js/htmx.min.js"`) {
+		t.Error("htmx is not served from the embedded bundle")
+	}
+	if strings.Contains(h, "unpkg.com") {
+		t.Error("the shell still reaches for unpkg; an offline review box gets inert controls")
+	}
+	if f, err := ui.StaticFS().Open("js/htmx.min.js"); err != nil {
+		t.Errorf("the vendored htmx is not in the bundle: %v", err)
+	} else {
+		_ = f.Close()
+	}
+}
