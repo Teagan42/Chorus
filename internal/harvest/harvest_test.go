@@ -153,6 +153,7 @@ func TestBargeInYieldsACandidateWithTheCorrectionAndWhatFollowed(t *testing.T) {
 			{ID: "s1", Tool: "speak", Args: `{"mode":"queue","streamed":true}`, Outcome: "cancelled"},
 		},
 		BargeInPositionMS: 420,
+		CutFrames:         2080,
 		Seq:               harvest.Seq{Prompt: 2, BargeIn: 6, Cut: 7, Correction: 10},
 		Audio: harvest.Audio{
 			Rejected: []string{"blob://tts/s1"}, BargeIn: "blob://mic/2",
@@ -467,3 +468,35 @@ func (f failingStore) Events(context.Context, string) ([]journal.Event, error) {
 	return nil, f.err
 }
 func (f failingStore) LastSeq(context.Context, string) (uint64, error) { return 0, f.err }
+
+// The detection snapshot lags the DAC by the stop's flight time, so the
+// truncation's frames_played is the confirmed cut, and it is relative to the
+// cut clip's own audio. A cut that only discarded queued clips played none
+// of them, so it carries no frames.
+//
+// verifies SPEC §9.2
+func TestPairCarriesTheDACConfirmedCutFrames(t *testing.T) {
+	store := conversation(t, versions(), concat(
+		[]journal.Record{opened("kitchen")}, cutTurn(), correctedTurn(),
+	))
+	if p := onePair(t, scan(t, store)); p.CutFrames != 2080 {
+		t.Errorf("CutFrames = %d, want the truncation's frames_played", p.CutFrames)
+	}
+
+	discardOnly := []journal.Record{
+		opened("kitchen"),
+		heard("play something by zeppelin", "blob://mic/1"),
+		speak("s1"),
+		bargeIn("0", "blob://mic/2"),
+		discarded("I found three albums by that artist"),
+		cancelled("s1"),
+		completed(),
+		heard("just the first one", "blob://mic/3"),
+		spoken("Playing Led Zeppelin one.", "blob://tts/s2"),
+		completed(),
+	}
+	store = conversation(t, versions(), discardOnly)
+	if p := onePair(t, scan(t, store)); p.CutFrames != 0 {
+		t.Errorf("CutFrames = %d, want 0 when nothing of the cut clip played", p.CutFrames)
+	}
+}

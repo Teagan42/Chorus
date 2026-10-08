@@ -11,9 +11,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/teaganglenn/chorus/internal/blob"
 	"github.com/teaganglenn/chorus/internal/curation"
 	"github.com/teaganglenn/chorus/internal/harvest"
 	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teaganglenn/chorus/internal/reviewui/audio"
 	"github.com/teaganglenn/chorus/internal/reviewui/ui"
 )
 
@@ -33,6 +35,7 @@ type server struct {
 	tpl       *template.Template
 	journal   Journal
 	decisions curation.Store
+	blobs     blob.Store
 	now       func() time.Time
 
 	// One reviewer at a time is the household reality; the lock keeps a
@@ -40,11 +43,12 @@ type server struct {
 	mu sync.Mutex
 }
 
-func newServer(j Journal, d curation.Store, now func() time.Time) *server {
+func newServer(j Journal, d curation.Store, b blob.Store, now func() time.Time) *server {
 	return &server{
 		tpl:       template.Must(ui.MustTemplates().ParseFS(pagesFS, "pages/*.tmpl")),
 		journal:   j,
 		decisions: d,
+		blobs:     b,
 		now:       now,
 	}
 }
@@ -56,13 +60,17 @@ func (s *server) routes() *http.ServeMux {
 		http.Redirect(w, r, ui.Routes[ui.StepCurate], http.StatusSeeOther)
 	})
 	mux.HandleFunc("GET "+ui.Routes[ui.StepCurate], s.curate)
+	mux.HandleFunc("GET "+ui.Routes[ui.StepReview], s.review)
+	mux.Handle("GET /audio", audio.Handler(s.blobs))
 	mux.HandleFunc("POST /pairs/{rest...}", s.pairAction)
 	return mux
 }
 
-// pair is one harvested candidate with any verdict applied, ready for the kit.
+// pair is one harvested candidate with any verdict applied, ready for the
+// kit. H keeps the harvested side: Review needs its audio refs and seqs.
 type pair struct {
 	conversationID string
+	H              harvest.Pair
 	ui.Pair
 }
 
@@ -86,7 +94,7 @@ func (s *server) pairs(ctx context.Context) ([]pair, error) {
 		}
 		for _, h := range harvested {
 			d, decided := verdicts[h.ID]
-			out = append(out, pair{conversationID: conv, Pair: toUIPair(h, d, decided)})
+			out = append(out, pair{conversationID: conv, H: h, Pair: toUIPair(h, d, decided)})
 		}
 	}
 	return out, nil
