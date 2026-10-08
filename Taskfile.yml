@@ -103,6 +103,7 @@ tasks:
       # No endpoint is committed, so an endpoint flag comes from the caller --
       # and one package at a time, since a test binary rejects a flag it does
       # not define: `task test:models -- ./internal/provider/kokoro -kokoro-url http://127.0.0.1:8880`
+      # or `task test:models -- ./internal/provider/speaches -stt-url http://127.0.0.1:8000`
       - go test -race -count=1 -tags=models {{.CLI_ARGS | default "./..."}}
 
   tts:up:
@@ -114,6 +115,22 @@ tasks:
     desc: Stop the local TTS sidecar
     cmds:
       - docker compose stop kokoro
+
+  stt:up:
+    desc: Start the local STT sidecar and download Parakeet into it
+    cmds:
+      - docker compose up -d --wait speaches
+      # The image ships no model, and compose cannot run a request against a
+      # healthy container, so the download is a second step. The reply is
+      # printed rather than checked: the server's answer to a model it already
+      # holds is not verified, and a failure here shows up as a 404 from
+      # `task test:models` naming the model.
+      - curl -sS -X POST http://127.0.0.1:8000/v1/models/istupakov/parakeet-tdt-0.6b-v2-onnx; echo
+
+  stt:down:
+    desc: Stop the local STT sidecar, keeping the downloaded model
+    cmds:
+      - docker compose stop speaches
 
   test:hardware:
     desc: Requires a reachable satellite from devices.yaml.
