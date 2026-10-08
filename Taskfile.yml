@@ -111,7 +111,9 @@ tasks:
       # No endpoint is committed, so an endpoint flag comes from the caller --
       # and one package at a time, since a test binary rejects a flag it does
       # not define: `task test:models -- ./internal/provider/kokoro -kokoro-url http://127.0.0.1:8880`
-      # or `task test:models -- ./internal/provider/speaches -stt-url http://127.0.0.1:8000`
+      # or `task test:models -- ./internal/provider/speaches -stt-url http://127.0.0.1:8000 -stt-wav /path/to/0.wav`
+      # (the STT tiers take a WAV of consented speech the same way, since no
+      # recording lives in the repo; `./internal/stt` takes the same two flags)
       # or `task test:models -- ./internal/hass -hass-url http://127.0.0.1:8123 -hass-token "$HASS_TOKEN"`
       - go test -race -count=1 -tags=models {{.CLI_ARGS | default "./..."}}
 
