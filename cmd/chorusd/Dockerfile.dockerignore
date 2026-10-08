@@ -1,0 +1,8 @@
+# The build context is the repo root, for the module. Only what `go build`
+# reads goes in; the firmware, sidecars, schemas and git history would
+# otherwise be sent on every build.
+*
+!go.mod
+!go.sum
+!cmd/
+!internal/
