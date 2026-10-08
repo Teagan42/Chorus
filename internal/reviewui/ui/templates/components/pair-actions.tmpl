@@ -4,7 +4,7 @@
   {{.Endpoint}}/<action> and the server returns this partial (see
   ui.ServePairAction). States: view · guard · edit · discard · done.
 */}}
-{{define "pair-actions"}}<div class="pair-actions" id="pair-{{.ID}}" hx-target="this" hx-swap="outerHTML">
+{{define "pair-actions"}}<div class="pair-actions" id="pair-{{.DomID}}" hx-target="this" hx-swap="outerHTML">
 <div class="pair-actions__head"><span class="cap">{{.Cap}}</span>{{template "sig-tag" .Status}}</div>
 
 {{- if or (eq .Mode "view") (eq .Mode "guard")}}
@@ -29,8 +29,8 @@
 <dt>Heard</dt><dd class="pair-actions__heard">{{.Heard}}</dd>
 </dl>
 <div class="field">
-<label class="cap" for="pair-{{.ID}}-chosen">Chosen · answer the prompt, the way the correction asked</label>
-<textarea id="pair-{{.ID}}-chosen" name="chosen" rows="3" hx-post="{{.Endpoint}}/check" hx-trigger="input changed delay:250ms" hx-target="#pair-{{.ID}}-checks" hx-swap="outerHTML">{{.Draft}}</textarea>
+<label class="cap" for="pair-{{.DomID}}-chosen">Chosen · answer the prompt, the way the correction asked</label>
+<textarea id="pair-{{.DomID}}-chosen" name="chosen" rows="3" hx-post="{{.Endpoint}}/check" hx-trigger="input changed delay:250ms" hx-target="#pair-{{.DomID}}-checks" hx-swap="outerHTML">{{.Draft}}</textarea>
 </div>
 {{template "pair-checks" .}}
 <div class="btn-row">
@@ -52,4 +52,4 @@
 </div>{{end}}
 
 {{/* pair-checks · dot: ui.PairActions — re-rendered alone while typing. */}}
-{{define "pair-checks"}}<div id="pair-{{.ID}}-checks">{{template "checks" .Checks}}</div>{{end}}
+{{define "pair-checks"}}<div id="pair-{{.DomID}}-checks">{{template "checks" .Checks}}</div>{{end}}

@@ -214,3 +214,21 @@ func TestSavingTheSameMismatchedTextKeepsTheFlag(t *testing.T) {
 		t.Error("fixing the chosen side left the flag set")
 	}
 }
+
+// verifies SPEC §9.2
+func TestPairIDsWithSlashesRenderSelectorSafeTargets(t *testing.T) {
+	p := *demo.Pairs()["p41"]
+	p.ID = "conv-1/5"
+	pa := ui.NewPairActions(p, ui.PairModeEdit, p.Chosen, "/pairs/conv-1/5", "DPO PAIR", nil)
+	h := render(t, "pair-actions", pa)
+	for _, want := range []string{
+		`id="pair-conv-1-5-checks"`, `hx-target="#pair-conv-1-5-checks"`, `id="pair-conv-1-5-chosen"`,
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("edit mode is missing %q", want)
+		}
+	}
+	if strings.Contains(h, `id="pair-conv-1/5`) {
+		t.Error("a raw slash reached a DOM id, which no CSS selector can address")
+	}
+}

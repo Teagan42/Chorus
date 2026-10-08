@@ -144,6 +144,18 @@ type PairReason struct {
 	Vals  string // hx-vals JSON
 }
 
+// DomID is the pair id made selector-safe: a harvested id carries a slash
+// (conversation/cut-seq), which no CSS selector can address unescaped.
+func (pa PairActions) DomID() string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			return r
+		}
+		return '-'
+	}, pa.ID)
+}
+
 // PairActions is the view model for the "pair-actions" partial.
 type PairActions struct {
 	ID              string
