@@ -113,7 +113,10 @@ func (p *Pair) Apply(action string, form url.Values) (mode PairMode, draft strin
 		if c := strings.TrimSpace(form.Get("chosen")); c != "" {
 			p.Chosen = c
 		}
-		p.Unfixed = false
+		// A save that leaves the mismatch in place fixes nothing.
+		if !p.Mismatch() {
+			p.Unfixed = false
+		}
 		if p.Status == PairUnreviewed {
 			p.PrevStatus, p.Status = p.Status, PairEdited
 		}

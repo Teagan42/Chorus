@@ -187,3 +187,30 @@ func TestAxes(t *testing.T) {
 		t.Errorf("overlapping pins share a row: %+v", pins)
 	}
 }
+
+// verifies SPEC §9.1
+func TestSavingTheSameMismatchedTextKeepsTheFlag(t *testing.T) {
+	form := url.Values{}
+	p := demo.Pairs()["p41"]
+	_, _, _ = p.Apply("accept-anyway", form)
+	if !p.Unfixed {
+		t.Fatal("accept-anyway did not flag the pair")
+	}
+
+	// Saving the mismatched text unchanged fixes nothing, so the flag stays.
+	form.Set("chosen", p.AsSaid)
+	_, _, _ = p.Apply("save", form)
+	if !p.Unfixed {
+		t.Error("a no-op save cleared the mismatch flag")
+	}
+	if p.Exportable() {
+		t.Error("a still-mismatched pair became exportable")
+	}
+
+	// A real fix clears it.
+	form.Set("chosen", "Dentist at nine, and the lights are off.")
+	_, _, _ = p.Apply("save", form)
+	if p.Unfixed {
+		t.Error("fixing the chosen side left the flag set")
+	}
+}
