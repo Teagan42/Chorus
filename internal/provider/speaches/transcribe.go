@@ -38,8 +38,12 @@ const DefaultModel = "istupakov/parakeet-tdt-0.6b-v2-onnx"
 
 // DefaultTimeout bounds one request. An utterance is at most 30 s of audio
 // (stt.DefaultMaxUtterance), and a hung sidecar would otherwise park the
-// utterance's decode goroutine for the whole session. Unmeasured on the CPU
-// image; the models tier logs what a decode costs.
+// utterance's decode goroutine for the whole session. Measured 2026-10-08
+// (int8 ONNX export behind a stand-in for the pinned server, 4-vCPU Xeon
+// 2.8 GHz; models tier): 1 s of speech in 0.2-0.6 s, 3 s in ~0.5 s, 10 s in
+// 1.2-2.8 s, and a 7.4 s final in 2.4 s while the partial Finish abandoned
+// was still decoding server-side -- a cancel frees the client, not the
+// sidecar's CPU. A 30 s final would cost under 10 s there; this is 3x that.
 const DefaultTimeout = 30 * time.Second
 
 // errBody bounds how much of a failed response is quoted. The unsupported-model
