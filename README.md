@@ -29,11 +29,12 @@ Assistant integration; Home Assistant is one tool backend among several.
 ## Status
 
 **Phase 1, in progress.** The device bridge, session engine, and event journal
-are under construction; there is no orchestrator daemon to run yet. What exists
-today:
+are built, and `cmd/chorusd` now runs them together as the orchestrator daemon;
+it has not yet been run against a real satellite. What exists today:
 
 | Piece | State |
 |---|---|
+| `cmd/chorusd` — the orchestrator daemon: accepts satellites, one session supervisor per link over a shared journal, holds each device's native API open | under test against the in-process satellite; unproven on hardware |
 | `internal/esphome` — native API client, Noise transport | dials real hardware |
 | `internal/bridge` — the audio link, and `bridgetest`, the in-process satellite that is the primary test asset | under test; full duplex proven on hardware (§3.3.2) |
 | `internal/session` — actor/supervisor, speech channel, barge-in gate | under test |
@@ -157,6 +158,25 @@ task db:up        # Postgres, waits until healthy
 task test:db      # the db-tagged tier
 task db:down      # stop, keep the volume
 ```
+
+### Run the orchestrator
+
+The daemon reads the satellite inventory from `devices.yaml` and everything
+else from the environment, which `task run` loads from a gitignored `.env`.
+
+```sh
+task db:up                                # the journal; migrations run at startup
+cp .env.example .env                      # model endpoints, blob directory, HA token
+task run                                  # go run ./cmd/chorusd
+```
+
+It fails at startup naming every variable that is missing. The speaker-ID
+sidecar and Home Assistant are optional and say so in the log when absent:
+without the first everyone is a guest and nothing can barge in; without the
+second the `ha_*` tools answer `not_implemented`, which the model sees. Point
+`orchestrator_host` in the device YAML at this machine, and the satellites
+dial in on port 6055. `docker compose up chorusd` runs the same daemon as an
+image beside the database.
 
 ## Tests
 
