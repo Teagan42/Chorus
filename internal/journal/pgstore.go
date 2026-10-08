@@ -105,8 +105,9 @@ func Migrate(ctx context.Context, db Querier) error {
 const insertEvent = `
 INSERT INTO journal_events (
 	conversation_id, seq, kind, actor, wall_clock, speculative, audio_ref,
-	model_version, prompt_version, tool_schema_version, fields)
-SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+	model_version, prompt_version, tool_schema_version, stt_version, tts_version,
+	fields)
+SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
 WHERE $2::bigint = (
 	SELECT coalesce(max(seq), 0) + 1 FROM journal_events WHERE conversation_id = $1
 )`
@@ -127,7 +128,10 @@ func (p *PgStore) Append(ctx context.Context, e Event) error {
 		// Explicit, though pgx also truncates: Postgres itself rounds, so the
 		// resolution the log keeps must not depend on the driver.
 		e.At.Truncate(StoredClockResolution), e.Speculative, e.AudioRef,
-		e.Versions.Model, e.Versions.Prompt, e.Versions.ToolSchema, fields,
+		e.Versions.Model, e.Versions.Prompt, e.Versions.ToolSchema,
+		// Written as '' rather than NULL: NULL is reserved for rows that predate
+		// the columns (migration 0002), and an unconfigured ear is not that.
+		e.Versions.STT, e.Versions.TTS, fields,
 	)
 	if err != nil {
 		if seqTaken(err) {
@@ -162,7 +166,8 @@ func seqTaken(err error) bool {
 
 const selectEvents = `
 SELECT seq, kind, actor, wall_clock, speculative, audio_ref,
-       model_version, prompt_version, tool_schema_version, fields
+       model_version, prompt_version, tool_schema_version,
+       stt_version, tts_version, fields
 FROM journal_events WHERE conversation_id = $1 ORDER BY seq`
 
 // Events returns one conversation's log in sequence order. ORDER BY is
@@ -181,13 +186,18 @@ func (p *PgStore) Events(ctx context.Context, conversationID string) ([]Event, e
 			seq    int64
 			at     time.Time
 			fields []byte
+			// Pointers because a row from before migration 0002 holds NULL
+			// here, and a NULL into a string is a scan error, not an empty one.
+			stt, tts *string
 		)
 		if err := rows.Scan(
 			&seq, &e.Kind, &e.Actor, &at, &e.Speculative, &e.AudioRef,
-			&e.Versions.Model, &e.Versions.Prompt, &e.Versions.ToolSchema, &fields,
+			&e.Versions.Model, &e.Versions.Prompt, &e.Versions.ToolSchema,
+			&stt, &tts, &fields,
 		); err != nil {
 			return nil, fmt.Errorf("scan event %s: %w", conversationID, err)
 		}
+		e.Versions.STT, e.Versions.TTS = deref(stt), deref(tts)
 		if err := json.Unmarshal(fields, &e.Fields); err != nil {
 			return nil, fmt.Errorf("unmarshal fields %s seq %d: %w", conversationID, seq, err)
 		}
@@ -213,6 +223,15 @@ func (p *PgStore) LastSeq(ctx context.Context, conversationID string) (uint64, e
 		return 0, fmt.Errorf("last seq %s: %w", conversationID, err)
 	}
 	return uint64(last), nil
+}
+
+// deref reads a nullable text column as the empty string a Versions slot
+// holds when nothing was recorded.
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // nonNil keeps an absent payload indistinguishable across backends; a nil map

@@ -1,5 +1,7 @@
 # Secrets — device PSKs live here, never in git.
 devices.yaml
+# Enrolled voiceprints: biometric, and unlike a PSK they cannot be rotated.
+identities.yaml
 *.local.yaml
 .env
 # ESPHome resolves !secret from here; it holds the same PSK as devices.yaml.
@@ -16,8 +18,16 @@ esphome/*.bin
 *.wav
 *.pcm
 
+# The speaker-ID model `task speakerid:serve` fetches; pinned, so never committed.
+.models/
+
 # Tool caches
 .buf-cache/
 .task/
 __pycache__/
 .esphome/
+# The uv workspace's environment and the sidecar test caches.
+.venv/
+.pytest_cache/
+.ruff_cache/
+.claude/worktrees/

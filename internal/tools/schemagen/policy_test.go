@@ -116,6 +116,11 @@ func TestPolicyViolationsAreRejected(t *testing.T) {
 			"a training signal with no recorded versions cannot be attributed",
 			"requires_versions",
 		},
+		{
+			"ha_call_service_cancelled.cue",
+			"a service call is committed when sent, so its interrupt policy cannot be loosened to cancel",
+			"on_interrupt",
+		},
 	}
 
 	for _, c := range cases {

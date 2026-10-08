@@ -99,6 +99,11 @@ func New(cfg Config) (*Synth, error) {
 	}, nil
 }
 
+// Version names what voices a turn, as model/voice, for the journal's TTS
+// slot (SPEC §8). One string because a voice id means nothing outside its
+// model (ADR-0032); named, not hashed, because both are already stable ids.
+func (s *Synth) Version() string { return s.cfg.Model + "/" + s.cfg.Voice }
+
 // request is one POST /v1/audio/speech body.
 type request struct {
 	Model          string  `json:"model"`

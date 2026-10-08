@@ -29,18 +29,26 @@ Assistant integration; Home Assistant is one tool backend among several.
 ## Status
 
 **Phase 1, in progress.** The device bridge, session engine, and event journal
-are under construction; there is no orchestrator daemon to run yet. What exists
-today:
+are built, and `cmd/chorusd` now runs them together as the orchestrator daemon;
+it has not yet been run against a real satellite. What exists today:
 
 | Piece | State |
 |---|---|
+| `cmd/chorusd` — the orchestrator daemon: accepts satellites, one session supervisor per link over a shared journal, holds each device's native API open | under test against the in-process satellite; unproven on hardware |
 | `internal/esphome` — native API client, Noise transport | dials real hardware |
-| in-process fake satellite (the primary test asset) | not yet extracted from `pipe_test.go` |
+| `internal/bridge` — the audio link, and `bridgetest`, the in-process satellite that is the primary test asset | under test; full duplex proven on hardware (§3.3.2) |
 | `internal/session` — actor/supervisor, speech channel, barge-in gate | under test |
-| `internal/journal` — append-only log on Postgres | under test |
-| `esphome/components/chorus_bridge` — firmware component | config schema + wire protocol |
+| `internal/journal` — append-only log on Postgres, `replay()` | under test |
+| `internal/satellite` — renders speech onto a device; the truncation point is the DAC's | under test |
+| `internal/blob` — the audio a journal event refers to | under test |
+| `esphome/components/chorus_bridge` — firmware component | runs on a Satellite1 |
 | `cmd/probe` — connect to a satellite and dump what it exposes | works |
-| STT / LLM / TTS / speaker-ID sidecars | not started |
+| LLM — `internal/provider/ollama`, the turn engine | dials a real endpoint |
+| TTS — `internal/provider/kokoro`, resampled to the device's rate | dials a real endpoint |
+| STT — `internal/stt` partials over `internal/provider/speaches` | measured against real Parakeet TDT 0.6B v2 on CPU |
+| speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX) | thresholds measured on 37 speakers; sidecar runs without Docker |
+| `internal/hass` — the one real tool (SPEC §14 item 5) | verified against Home Assistant 2026.10 |
+| `internal/harvest`, `cmd/harvest` — barge-ins as DPO candidates | under test |
 
 `task spec` reports which spec clauses have tests behind them.
 
@@ -150,6 +158,26 @@ task db:up        # Postgres, waits until healthy
 task test:db      # the db-tagged tier
 task db:down      # stop, keep the volume
 ```
+
+### Run the orchestrator
+
+The daemon reads the satellite inventory from `devices.yaml` and everything
+else from the environment, which `task run` loads from a gitignored `.env`.
+
+```sh
+task db:up                                # the journal; migrations run at startup
+cp .env.example .env                      # model endpoints, blob directory, HA token
+task run                                  # go run ./cmd/chorusd
+```
+
+It fails at startup naming every variable that is missing. The speaker-ID
+sidecar and Home Assistant are optional and say so in the log when absent:
+without the first everyone is a guest and barge-in gates on energy and words
+alone, so the television can interrupt (ADR-0031); without the second the
+`ha_*` tools answer `not_implemented`, which the model sees. Point
+`orchestrator_host` in the device YAML at this machine, and the satellites
+dial in on port 6055. `docker compose up chorusd` runs the same daemon as an
+image beside the database.
 
 ## Tests
 

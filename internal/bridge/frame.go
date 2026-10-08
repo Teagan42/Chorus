@@ -13,7 +13,13 @@ import (
 
 // ProtocolVersion is bumped on any incompatible frame change. The firmware
 // states it in the opening Hello so a mismatched pair fails loudly.
-const ProtocolVersion = 1
+//
+// Version 2 tags each STOP and has the device echo the tag on the PLAYED
+// report it emits once the stop has taken effect (ADR-0033). A version 1
+// device ignores the tag and answers nothing, so the host would wait out
+// every settle and then record a cut a round trip old; refusing the link is
+// what makes a stale flash surface as an error instead.
+const ProtocolVersion = 2
 
 // Audio format is fixed by the device: the XMOS pipeline and micro_wake_word
 // both run at 16 kHz, and resampling on an ESP32 buys nothing (SPEC §3.2).
@@ -36,11 +42,11 @@ const (
 	TypeHello  Type = 0x01 // device: protocol version and audio format
 	TypeMic    Type = 0x02 // device: uplink PCM, Flags carries the channel
 	TypeWake   Type = 0x03 // device: micro_wake_word fired, payload is its name
-	TypePlayed Type = 0x04 // device: DAC playback position (SPEC §3.2.1)
+	TypePlayed Type = 0x04 // device: DAC playback position (SPEC §3.2.1); Flags echoes a STOP tag
 	TypeMute   Type = 0x05 // device: mute state changed, Flags carries it
 
 	TypeTTS       Type = 0x10 // host: downlink PCM
-	TypeStop      Type = 0x11 // host: barge-in, discard the speaker buffer
+	TypeStop      Type = 0x11 // host: barge-in, discard the speaker buffer; Flags carries a tag
 	TypeFinish    Type = 0x12 // host: utterance ended, drain the buffer
 	TypeDuck      Type = 0x13 // host: mixer ducking
 	TypeMicEnable Type = 0x14 // host: start or stop the uplink
@@ -182,7 +188,8 @@ func ParseHello(p []byte) (Hello, error) {
 		MicChannels:   p[6],
 	}
 	if h.Version != ProtocolVersion {
-		return Hello{}, fmt.Errorf("hello: protocol version %d, want %d", h.Version, ProtocolVersion)
+		return Hello{}, fmt.Errorf("hello: device speaks chorus_bridge protocol %d, this host speaks %d: "+
+			"flash firmware from the same checkout", h.Version, ProtocolVersion)
 	}
 	return h, nil
 }
@@ -193,22 +200,28 @@ func ParseHello(p []byte) (Hello, error) {
 type Played struct {
 	Frames          uint64
 	TimestampMicros int64 // esp_timer, device boot epoch
+	// Stop is the tag of the STOP this report answers, or zero for a routine
+	// report. The device emits exactly one report per stop, after the stop
+	// has gated its counter, so Frames on that report is the position the
+	// device cut at; a routine report can predate the stop (ADR-0033).
+	Stop uint8
 }
 
 func (p Played) Frame() Frame {
 	b := make([]byte, 16)
 	binary.BigEndian.PutUint64(b[0:8], p.Frames)
 	binary.BigEndian.PutUint64(b[8:16], uint64(p.TimestampMicros))
-	return Frame{Type: TypePlayed, Payload: b}
+	return Frame{Type: TypePlayed, Flags: p.Stop, Payload: b}
 }
 
-func ParsePlayed(p []byte) (Played, error) {
+func ParsePlayed(flags uint8, p []byte) (Played, error) {
 	if len(p) < 16 {
 		return Played{}, fmt.Errorf("played: payload %d bytes, want 16", len(p))
 	}
 	return Played{
 		Frames:          binary.BigEndian.Uint64(p[0:8]),
 		TimestampMicros: int64(binary.BigEndian.Uint64(p[8:16])),
+		Stop:            flags,
 	}, nil
 }
 

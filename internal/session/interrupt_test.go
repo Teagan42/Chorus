@@ -84,11 +84,13 @@ func TestBargeInKeepsToolResultsThatAlreadyArrived(t *testing.T) {
 		{act: session.TurnEnd{FinishReason: "tool_calls", Completion: "{}"}},
 	}
 	r := newRig(t, steps, map[string]session.Tool{
-		"media_search": session.ToolFunc(func(_ context.Context, _ string) (string, error) {
-			close(landed)
+		"media_search": session.ToolFunc(func(context.Context, string) (string, error) {
 			return `{"hits":3}`, nil
 		}),
 	})
+	// Gated on the record, not the tool's return: the outcome is stamped after
+	// the tool returns, and a gate opened inside the tool races that stamp.
+	r.store.recorded(journal.KindToolResult, "c1", landed)
 	r.speaker.hold = true
 	r.speaker.cut = len("I found three")
 
@@ -101,7 +103,7 @@ func TestBargeInKeepsToolResultsThatAlreadyArrived(t *testing.T) {
 	wait(t, errc)
 
 	// The model must see "I said this much, and this tool already answered".
-	if got := r.awaitCall(t, s.ConversationID(), "c1"); got.Outcome != "ok" || got.Result != `{"hits":3}` {
+	if got := callByID(t, r.state(t, s.ConversationID()), "c1"); got.Outcome != "ok" || got.Result != `{"hits":3}` {
 		t.Errorf("call = %+v; an arrived result must survive the interruption", got)
 	}
 }
@@ -283,13 +285,12 @@ func TestRejectedBargeInIsJournalledAndSpeechContinues(t *testing.T) {
 	errc := heard(s, "find zeppelin")
 	r.speaker.wrote(t)
 
-	cases := []struct {
-		name  string
-		cand  session.Candidate
-		stage string
-	}{
+	cases := []rejection{
 		{"television", session.Candidate{Energy: 0.05, SpeakerID: "alice", Partial: "two words"}, "vad"},
 		{"wrong housemate", session.Candidate{Energy: 0.9, SpeakerID: "stranger", Partial: "two words"}, "speaker_id"},
+		// Identification is on and did not recognise the voice: that is the
+		// television, not a missing sidecar (ADR-0031).
+		{"unidentified voice", session.Candidate{Energy: 0.9, SpeakerID: "", Partial: "two words"}, "speaker_id"},
 		{"a cough", session.Candidate{Energy: 0.9, SpeakerID: "alice", Partial: "uh"}, "partial_length"},
 	}
 	for _, c := range cases {
@@ -306,12 +307,77 @@ func TestRejectedBargeInIsJournalledAndSpeechContinues(t *testing.T) {
 	close(r.speaker.release)
 	wait(t, errc)
 
-	kinds := r.kinds(t, s.ConversationID())
-	if n := countKind(kinds, journal.KindBargeInRejected); n != len(cases) {
-		t.Errorf("%d rejections journalled, want %d: they are the tuning corpus", n, len(cases))
+	if got := r.stages(t, s.ConversationID()); !reflect.DeepEqual(got, stagesOf(cases)) {
+		t.Errorf("rejected stages = %q, want %q: they are the tuning corpus", got, stagesOf(cases))
 	}
 	// A rejected candidate changes nothing: speech ran to completion.
 	if st := r.state(t, s.ConversationID()); !reflect.DeepEqual(st.Spoken, []string{line}) || st.Interrupted {
 		t.Errorf("spoken = %q interrupted = %v; a rejection must not stop speech", st.Spoken, st.Interrupted)
 	}
+}
+
+// A household that runs without speaker identification has no speaker to
+// match, so the gate cannot demand one: energy and partial length still
+// gate, and a voice nobody can name interrupts (ADR-0031).
+//
+// verifies SPEC §4.3
+func TestBargeInWithoutSpeakerIdentificationGatesOnEnergyAndWords(t *testing.T) {
+	steps := []step{
+		{act: session.SpeechDelta{CallID: "s1", Text: line, Last: true}},
+		{act: session.TurnEnd{FinishReason: "stop", Completion: "{}"}},
+	}
+	r := newRigWith(t, steps, nil, nil, func(cfg *session.Config) { cfg.Gate.SpeakerIDUnavailable = true })
+	r.speaker.hold = true
+	r.speaker.cut = len("I found three")
+
+	s := r.open(t, "")
+	errc := heard(s, "find zeppelin")
+	r.speaker.wrote(t)
+
+	rejected := []rejection{
+		{"quiet", session.Candidate{Energy: 0.05, Partial: "two words", AudioRef: "blob://mic/quiet"}, "vad"},
+		{"a cough", session.Candidate{Energy: 0.9, Partial: "uh", AudioRef: "blob://mic/cough"}, "partial_length"},
+	}
+	for _, c := range rejected {
+		ok, err := s.BargeIn(t.Context(), c.cand)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if ok {
+			t.Errorf("%s passed the gate with identification off", c.name)
+		}
+	}
+
+	unnamed := interruption(420)
+	unnamed.SpeakerID = ""
+	if ok, err := s.BargeIn(t.Context(), unnamed); err != nil || !ok {
+		t.Fatalf("barge-in by an unidentified voice: ok=%v err=%v, want it admitted", ok, err)
+	}
+	wait(t, errc)
+
+	if got := r.stages(t, s.ConversationID()); !reflect.DeepEqual(got, stagesOf(rejected)) {
+		t.Errorf("rejected stages = %q, want %q: the other stages still gate", got, stagesOf(rejected))
+	}
+	cut := r.eventOf(t, s.ConversationID(), journal.KindSpeechTruncated)
+	if cut.Fields["spoken_text"] != "I found three" {
+		t.Errorf("truncation = %v; the interruption must have stopped speech", cut.Fields)
+	}
+	if st := r.state(t, s.ConversationID()); !st.Interrupted {
+		t.Error("state is not marked interrupted")
+	}
+}
+
+// rejection is a candidate the gate must refuse, and the stage that does.
+type rejection struct {
+	name  string
+	cand  session.Candidate
+	stage string
+}
+
+func stagesOf(cases []rejection) []string {
+	out := make([]string, len(cases))
+	for i, c := range cases {
+		out[i] = c.stage
+	}
+	return out
 }

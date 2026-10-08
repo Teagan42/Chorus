@@ -16,6 +16,12 @@ type Versions struct {
 	Model      string
 	Prompt     string
 	ToolSchema string
+
+	// STT names the recogniser behind every transcript; TTS the voice behind
+	// every utterance, as model/voice (ADR-0032). Neither gates a completion:
+	// complete() attributes a pair to its model, not to what heard or spoke.
+	STT string
+	TTS string
 }
 
 func (v Versions) complete() bool {

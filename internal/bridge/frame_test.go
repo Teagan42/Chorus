@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/teaganglenn/chorus/internal/bridge"
@@ -98,7 +99,7 @@ func TestReadFrameTruncatedPayload(t *testing.T) {
 }
 
 func TestHelloRoundTrip(t *testing.T) {
-	want := bridge.Hello{Version: 1, SampleRate: 16000, BitsPerSample: 16, MicChannels: 2}
+	want := bridge.Hello{Version: bridge.ProtocolVersion, SampleRate: 16000, BitsPerSample: 16, MicChannels: 2}
 
 	got, err := bridge.ParseHello(want.Frame().Payload)
 	if err != nil {
@@ -110,9 +111,24 @@ func TestHelloRoundTrip(t *testing.T) {
 }
 
 func TestParseHelloRejectsForeignVersion(t *testing.T) {
-	h := bridge.Hello{Version: bridge.ProtocolVersion + 1, SampleRate: 16000, BitsPerSample: 16, MicChannels: 2}
-	if _, err := bridge.ParseHello(h.Frame().Payload); err == nil {
-		t.Fatal("ParseHello(future version) = nil, want error")
+	for name, version := range map[string]uint8{
+		"future": bridge.ProtocolVersion + 1,
+		// A device still on version 1 would ignore the stop tag and never
+		// answer a stop, so the host would wait out every settle and record a
+		// cut a round trip old. Both halves live in one checkout (ADR-0017);
+		// the error has to say which half is stale.
+		"stale flash": 1,
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := bridge.Hello{Version: version, SampleRate: 16000, BitsPerSample: 16, MicChannels: 2}
+			_, err := bridge.ParseHello(h.Frame().Payload)
+			if err == nil {
+				t.Fatal("ParseHello = nil, want error")
+			}
+			if !strings.Contains(err.Error(), "flash") {
+				t.Errorf("err = %q, want it to say the firmware is what to update", err)
+			}
+		})
 	}
 }
 
@@ -121,7 +137,8 @@ func TestParsePlayedCarriesCumulativeFramesAndTimestamp(t *testing.T) {
 	// 16000 frames at 16 kHz is exactly 1 s of audio the user has heard.
 	want := bridge.Played{Frames: 16000, TimestampMicros: -1}
 
-	got, err := bridge.ParsePlayed(want.Frame().Payload)
+	f := want.Frame()
+	got, err := bridge.ParsePlayed(f.Flags, f.Payload)
 	if err != nil {
 		t.Fatalf("ParsePlayed: %v", err)
 	}
@@ -133,8 +150,47 @@ func TestParsePlayedCarriesCumulativeFramesAndTimestamp(t *testing.T) {
 	}
 }
 
+// verifies SPEC §4.4
+//
+// The report that answers a stop is told from a routine one on the wire, in
+// the flags byte, so the host never has to infer which report followed the
+// stop from when it arrived. The firmware reads the tag with one byte load
+// and writes it back the same way.
+func TestPlayedEchoesTheStopItAnswersInTheFlagsByte(t *testing.T) {
+	want := bridge.Played{Frames: 0x0102030405060708, TimestampMicros: 0x1112131415161718, Stop: 0x2a}
+
+	var buf bytes.Buffer
+	if err := bridge.NewWriter(&buf).WriteFrame(want.Frame()); err != nil {
+		t.Fatal(err)
+	}
+	wire := []byte{
+		byte(bridge.TypePlayed), 0x2a, 0x00, 0x10,
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+	}
+	if !bytes.Equal(buf.Bytes(), wire) {
+		t.Errorf("wire = % x, want % x", buf.Bytes(), wire)
+	}
+
+	f, err := bridge.NewReader(&buf).ReadFrame()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := bridge.ParsePlayed(f.Flags, f.Payload)
+	if err != nil {
+		t.Fatalf("ParsePlayed: %v", err)
+	}
+	if got != want {
+		t.Errorf("Played = %+v, want %+v", got, want)
+	}
+	// A routine report has no stop to answer, and the zero flags byte says so.
+	if routine := (bridge.Played{Frames: 1}).Frame(); routine.Flags != 0 {
+		t.Errorf("routine report flags = %#02x, want 0", routine.Flags)
+	}
+}
+
 func TestParsePlayedRejectsShortPayload(t *testing.T) {
-	if _, err := bridge.ParsePlayed(make([]byte, 15)); err == nil {
+	if _, err := bridge.ParsePlayed(0, make([]byte, 15)); err == nil {
 		t.Fatal("ParsePlayed(15 bytes) = nil, want error")
 	}
 }

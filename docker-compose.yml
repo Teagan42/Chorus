@@ -1,6 +1,38 @@
-# Local development stack (SPEC §13): the journal's storage, and the model
-# sidecars a tier of tests needs a real one of.
+# Local development stack (SPEC §13): the orchestrator, the journal's
+# storage, and the model sidecars a tier of tests needs a real one of.
 services:
+  # The orchestrator daemon (cmd/chorusd). It needs only the database to
+  # start: the sidecars below are optional here, because a household may run
+  # them on a GPU box instead, and the daemon reaches them by URL. The
+  # loopback URLs in .env are for `task run` on the host; inside the compose
+  # network the sidecars go by service name, so those four are overridden.
+  chorusd:
+    build:
+      context: .
+      dockerfile: cmd/chorusd/Dockerfile
+    # Not required, so a fresh clone still validates; without it the daemon
+    # itself names every missing variable at startup and exits.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CHORUS_POSTGRES_DSN: postgres://chorus:${POSTGRES_PASSWORD:-chorus}@postgres:5432/chorus?sslmode=disable
+      KOKORO_URL: http://kokoro:8880
+      STT_URL: http://speaches:8000
+      SPEAKERID_URL: http://speakerid:8890
+    # The satellites dial in from the LAN, so this one is not loopback.
+    ports:
+      - "6055:6055"
+    volumes:
+      # The inventory holds the PSKs and is gitignored; mount identities.yaml
+      # beside it the same way once someone is enrolled.
+      - ./devices.yaml:/etc/chorus/devices.yaml:ro
+      - blobs:/var/lib/chorus/blobs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   postgres:
     # Pinned for the same reason as the Go tools: a server release must not
     # turn a green test red with no code change.
@@ -39,5 +71,60 @@ services:
       retries: 12
       start_period: 60s
 
+  # STT (SPEC §10). Parakeet TDT 0.6B v2 behind speaches' OpenAI-compatible
+  # /v1/audio/transcriptions, as an ONNX export on CPU. 0.9.0-rc.1 is the
+  # first tag that serves Parakeet. rc.2 and rc.3 are published too (rc.3
+  # refactored its STT executors); rc.1 stays because its source is what the
+  # provider's behaviour was read from, and it is the only tag any measurement
+  # touched (ADR-0024). A pre-release, pinned because `latest-cpu` moves.
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:0.9.0-rc.1-cpu
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      # Never unload the model between utterances: the default evicts it after
+      # five idle minutes, and an idle household must not pay a reload on the
+      # first word of the next turn (SPEC §11).
+      STT_MODEL_TTL: "-1"
+    # The server starts without any model; `task stt:up` downloads Parakeet
+    # into this volume through the API after the container is healthy, so a
+    # recreate does not pull it again.
+    volumes:
+      - stt-models:/home/ubuntu/.cache/huggingface/hub
+    # Upstream's own check. curl is in the image; python is only inside the
+    # server's venv.
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:8000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # Speaker ID (SPEC §10, §5). Built here rather than pulled: there is no
+  # published image for this contract, which is the repo's own
+  # (sidecars/speakerid/README.md). The model is one release asset, fetched
+  # at build and verified against the digest the sidecar pins, so the
+  # container never reaches the network and serves what it was built with
+  # (ADR-0029). CPU only: the runtime wheel is the CPU build.
+  speakerid:
+    build:
+      # The repo root is the uv workspace root, which is where the lockfile
+      # the image installs from lives.
+      context: .
+      dockerfile: sidecars/speakerid/Dockerfile
+    ports:
+      - "127.0.0.1:8890:8890"
+    # The port opens only after the model is loaded, so the check is a
+    # readiness check. start_period covers the digest check and load, which
+    # take a second or two on a CPU box.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8890/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
 volumes:
   journal:
+  blobs:
+  stt-models:

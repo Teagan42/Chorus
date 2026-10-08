@@ -315,3 +315,40 @@ func TestToolFailuresComeBackAsResults(t *testing.T) {
 		t.Errorf("spoken = %q, want nothing canned", st.Spoken)
 	}
 }
+
+// The embedding rides on the transcript whether or not it matched anyone, so
+// the corpus can cluster voices nobody enrolled. Absent, not empty: a
+// resolver that was down leaves no field rather than an empty array.
+//
+// verifies SPEC §5
+func TestHeardRecordsTheSpeakerEmbedding(t *testing.T) {
+	steps := []step{{act: session.TurnEnd{FinishReason: "stop", Completion: "{}"}}}
+	r := newRig(t, steps, nil)
+	s := r.open(t, "alice")
+
+	err := s.Heard(t.Context(), session.Transcript{
+		Text: "hello", AudioRef: "blob://mic/1", Embedding: []float32{0.5, -0.25, 1},
+	})
+	if err != nil {
+		t.Fatalf("heard: %v", err)
+	}
+	first := r.eventOf(t, s.ConversationID(), journal.KindUtteranceTranscribed)
+	if got := first.Fields["embedding_json"]; got != "[0.5,-0.25,1]" {
+		t.Errorf("embedding_json = %q, want [0.5,-0.25,1]", got)
+	}
+
+	wait(t, heard(s, "and again"))
+	events, err := r.store.Events(t.Context(), s.ConversationID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var second journal.Event
+	for _, e := range events {
+		if e.Kind == journal.KindUtteranceTranscribed && e.Fields["text"] == "and again" {
+			second = e
+		}
+	}
+	if _, present := second.Fields["embedding_json"]; present {
+		t.Errorf("a transcript with no embedding recorded %q", second.Fields["embedding_json"])
+	}
+}

@@ -22,6 +22,11 @@ type Gate struct {
 	MinEnergy float64
 	MinWords  int
 	Household []string
+
+	// SpeakerIDUnavailable skips the speaker stage: with no identifier every
+	// voice is unidentified, so barge-in would be impossible (ADR-0031). Zero
+	// keeps the stage; an unset gate stays strict.
+	SpeakerIDUnavailable bool
 }
 
 // admit reports whether the candidate stops speech, and which stage rejected
@@ -31,7 +36,9 @@ func (g Gate) admit(c Candidate, sessionSpeaker string) (string, bool) {
 	if c.Energy < g.MinEnergy {
 		return "vad", false
 	}
-	if !g.known(c.SpeakerID, sessionSpeaker) {
+	// Unidentified while identification runs is the television, not a
+	// missing sidecar.
+	if !g.SpeakerIDUnavailable && !g.known(c.SpeakerID, sessionSpeaker) {
 		return "speaker_id", false
 	}
 	if len(strings.Fields(c.Partial)) < g.MinWords {

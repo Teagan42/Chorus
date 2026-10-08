@@ -20,6 +20,9 @@ import (
 	"github.com/teaganglenn/chorus/internal/pb"
 )
 
+// version is set by the release build (-X main.version=...).
+var version = "dev"
+
 func main() {
 	inventory := flag.String("inventory", "devices.yaml", "satellite inventory path")
 	device := flag.String("device", "", "satellite name (default: the only one)")
@@ -32,6 +35,7 @@ func main() {
 }
 
 func run(inventory, device string, listen time.Duration) error {
+	fmt.Printf("probe %s\n", version)
 	cfg, err := config.Load(inventory)
 	if err != nil {
 		return err

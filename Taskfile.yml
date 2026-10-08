@@ -21,16 +21,24 @@ tasks:
   # ---------------------------------------------------------------- toolchain
   tools:
     desc: Install pinned dev tools into GOPATH/bin
+    vars:
+      # A tool formats with the go/printer it was built by, so protoc-gen-go
+      # from a Go 1.24 regenerates a diff CI cannot see. go.mod's line is the
+      # Go CI builds with. sed, not `go list`: under GOTOOLCHAIN=local an
+      # older Go cannot load this module at all.
+      GO_PIN:
+        sh: sed -n 's/^go /go/p' go.mod
     cmds:
       # Pinned, not @latest: the hook and CI must agree, and a linter or gofumpt
       # release must not turn a green PR red with no code change. Bump on purpose.
-      - go install github.com/bufbuild/buf/cmd/buf@v1.73.0
-      - go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
-      - go install cuelang.org/go/cmd/cue@v0.17.1
-      - go install mvdan.cc/gofumpt@v0.12.0
+      # GOTOOLCHAIN per command: setup-go exports one, and that beats a task env.
+      - GOTOOLCHAIN={{.GO_PIN}} go install github.com/bufbuild/buf/cmd/buf@v1.73.0
+      - GOTOOLCHAIN={{.GO_PIN}} go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+      - GOTOOLCHAIN={{.GO_PIN}} go install cuelang.org/go/cmd/cue@v0.17.1
+      - GOTOOLCHAIN={{.GO_PIN}} go install mvdan.cc/gofumpt@v0.12.0
       # Separate command: two modules in one `go install` fails.
       # CGO_ENABLED=0: the only cgo build here, and it breaks on a bad macOS SDK.
-      - CGO_ENABLED=0 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
+      - CGO_ENABLED=0 GOTOOLCHAIN={{.GO_PIN}} go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
       # Quoted: the unquoted ": " in the URL would parse as a YAML mapping.
       - 'command -v uv >/dev/null || echo "install uv -> https://docs.astral.sh/uv/"'
       # Hooks are opt-in per clone; git will not enable them automatically.
@@ -103,6 +111,10 @@ tasks:
       # No endpoint is committed, so an endpoint flag comes from the caller --
       # and one package at a time, since a test binary rejects a flag it does
       # not define: `task test:models -- ./internal/provider/kokoro -kokoro-url http://127.0.0.1:8880`
+      # or `task test:models -- ./internal/provider/speaches -stt-url http://127.0.0.1:8000 -stt-wav /path/to/0.wav`
+      # (the STT tiers take a WAV of consented speech the same way, since no
+      # recording lives in the repo; `./internal/stt` takes the same two flags)
+      # or `task test:models -- ./internal/hass -hass-url http://127.0.0.1:8123 -hass-token "$HASS_TOKEN"`
       - go test -race -count=1 -tags=models {{.CLI_ARGS | default "./..."}}
 
   tts:up:
@@ -114,6 +126,47 @@ tasks:
     desc: Stop the local TTS sidecar
     cmds:
       - docker compose stop kokoro
+
+  stt:up:
+    desc: Start the local STT sidecar and download Parakeet into it
+    cmds:
+      - docker compose up -d --wait speaches
+      # The image ships no model, and compose cannot run a request against a
+      # healthy container, so the download is a second step. The reply is
+      # printed rather than checked: the server's answer to a model it already
+      # holds is not verified, and a failure here shows up as a 404 from
+      # `task test:models` naming the model.
+      - curl -sS -X POST http://127.0.0.1:8000/v1/models/istupakov/parakeet-tdt-0.6b-v2-onnx; echo
+
+  stt:down:
+    desc: Stop the local STT sidecar, keeping the downloaded model
+    cmds:
+      - docker compose stop speaches
+
+  speakerid:up:
+    desc: Start the local speaker-ID sidecar. First run builds the image and bakes the ~100 MB model.
+    cmds:
+      - docker compose up -d --wait --build speakerid
+
+  speakerid:down:
+    desc: Stop the local speaker-ID sidecar
+    cmds:
+      - docker compose stop speakerid
+
+  speakerid:serve:
+    desc: Serve the speaker-ID sidecar without Docker on 127.0.0.1:8890. First run fetches the model into .models/.
+    cmds:
+      - uv sync --all-packages
+      # The runtime is CPU only and the model is one verified file, so a dev
+      # box needs no image; this is also what the models tier here ran against.
+      - uv run --package speakerid speakerid --download-only --model-dir .models/speakerid
+      - uv run --package speakerid speakerid --model-dir .models/speakerid --host 127.0.0.1 --port 8890
+
+  speakerid:test:
+    desc: The sidecar's own contract tests. Hermetic, but Python, so not part of `task test`.
+    cmds:
+      - uv sync --all-packages
+      - uv run pytest sidecars/speakerid
 
   test:hardware:
     desc: Requires a reachable satellite from devices.yaml.
@@ -196,6 +249,18 @@ tasks:
       - uvx --from 'esphome=={{.ESPHOME_VERSION}}' esphome logs {{.CLI_ARGS | default "satellite1.yaml"}}
 
   # ----------------------------------------------------------------- dev loops
+  run:
+    desc: Run the orchestrator daemon (needs devices.yaml, .env and `task db:up`)
+    # The daemon reads its endpoints from the environment; .env is where the
+    # gitignored copy of .env.example lives, and this is the one task that
+    # loads it so the test tiers keep seeing exactly what CI does.
+    dotenv: [".env"]
+    cmds: ["go run ./cmd/chorusd {{.CLI_ARGS}}"]
+
   probe:
     desc: Probe a real satellite (needs devices.yaml)
     cmds: ["go run ./cmd/probe {{.CLI_ARGS}}"]
+
+  harvest:
+    desc: Export a conversation's barge-in DPO candidates as JSONL (needs Postgres)
+    cmds: ["go run ./cmd/harvest {{.CLI_ARGS}}"]

@@ -190,6 +190,49 @@ func (g *gateTool) enter(t *testing.T) {
 	}
 }
 
+// ------------------------------------------------------------------- journal
+
+// watchedStore is the rig's store with one hook: a gate that opens when a
+// named event is recorded. A step gated on the record, not on the side effect
+// that caused it, is ordered after everything the runtime did with that event.
+type watchedStore struct {
+	*journal.MemStore
+
+	mu      sync.Mutex
+	watches []watch
+}
+
+type watch struct {
+	kind   journal.Kind
+	callID string
+	gate   chan struct{}
+}
+
+func (w *watchedStore) Append(ctx context.Context, e journal.Event) error {
+	if err := w.MemStore.Append(ctx, e); err != nil {
+		return err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	kept := w.watches[:0]
+	for _, x := range w.watches {
+		if x.kind == e.Kind && e.Fields["call_id"] == x.callID {
+			close(x.gate)
+			continue
+		}
+		kept = append(kept, x)
+	}
+	w.watches = kept
+	return nil
+}
+
+// recorded opens gate once an event of kind k for callID is in the log.
+func (w *watchedStore) recorded(k journal.Kind, callID string, gate chan struct{}) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.watches = append(w.watches, watch{kind: k, callID: callID, gate: gate})
+}
+
 // ------------------------------------------------------------------- fixtures
 
 func versions() journal.Versions {
@@ -200,7 +243,7 @@ func versions() journal.Versions {
 // reads time or does I/O is injected (CONTRIBUTING §1).
 type rig struct {
 	sup     *session.Supervisor
-	store   *journal.MemStore
+	store   *watchedStore
 	clock   *clock
 	engine  *scriptEngine
 	speaker *fakeSpeaker
@@ -216,15 +259,22 @@ func newRig(t *testing.T, steps []step, tools map[string]session.Tool) *rig {
 // combination no shipped tool declares yet.
 func newRigSpecs(t *testing.T, steps []step, tools map[string]session.Tool, specs map[string]registry.ToolSpec) *rig {
 	t.Helper()
+	return newRigWith(t, steps, tools, specs, nil)
+}
 
-	store := journal.NewMemStore()
+// newRigWith lets a test change the supervisor's configuration after the
+// defaults are set, such as the gate's speaker-identification mode.
+func newRigWith(t *testing.T, steps []step, tools map[string]session.Tool, specs map[string]registry.ToolSpec, tweak func(*session.Config)) *rig {
+	t.Helper()
+
+	store := &watchedStore{MemStore: journal.NewMemStore()}
 	clk := newClock()
 	eng := &scriptEngine{steps: steps}
 	sp := newSpeaker()
 	if tools == nil {
 		tools = map[string]session.Tool{}
 	}
-	sup, err := session.New(session.Config{
+	cfg := session.Config{
 		Journal:       journal.New(store, clk, versions()),
 		Store:         store,
 		Clock:         clk,
@@ -235,7 +285,11 @@ func newRigSpecs(t *testing.T, steps []step, tools map[string]session.Tool, spec
 		Specs:         specs,
 		Conversations: session.NewConversations(clk, session.MigrationWindow),
 		Gate:          session.Gate{MinEnergy: 0.2, MinWords: 2, Household: []string{"alice", "bob"}},
-	})
+	}
+	if tweak != nil {
+		tweak(&cfg)
+	}
+	sup, err := session.New(cfg)
 	if err != nil {
 		t.Fatalf("new supervisor: %v", err)
 	}
@@ -320,6 +374,22 @@ func (r *rig) kinds(t *testing.T, convID string) []journal.Kind {
 	out := make([]journal.Kind, 0, len(events))
 	for _, e := range events {
 		out = append(out, e.Kind)
+	}
+	return out
+}
+
+// stages lists which gate stage refused each rejected barge-in, in order.
+func (r *rig) stages(t *testing.T, convID string) []string {
+	t.Helper()
+	events, err := r.store.Events(context.Background(), convID)
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	var out []string
+	for _, e := range events {
+		if e.Kind == journal.KindBargeInRejected {
+			out = append(out, e.Fields["stage"])
+		}
 	}
 	return out
 }

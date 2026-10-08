@@ -169,3 +169,32 @@ func TestNewRequiresAnEndpoint(t *testing.T) {
 		t.Fatal("a synth with no base url must not build")
 	}
 }
+
+// The journal stamps this on every event, so a speech_truncated can say
+// which voice was cut (SPEC §8). Model and voice together, because a voice
+// id means nothing outside its model (ADR-0032); the defaults are spelled
+// out, not read back from the sidecar, so an upgrade cannot move them.
+//
+// verifies SPEC §8
+func TestVersionNamesTheModelAndVoice(t *testing.T) {
+	cases := map[string]struct {
+		cfg  kokoro.Config
+		want string
+	}{
+		"defaults":           {kokoro.Config{}, kokoro.DefaultModel + "/" + kokoro.DefaultVoice},
+		"a configured voice": {kokoro.Config{Voice: "bf_emma"}, "kokoro/bf_emma"},
+		"another model":      {kokoro.Config{Model: "kokoro-v2", Voice: "am_adam"}, "kokoro-v2/am_adam"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			tc.cfg.BaseURL = "http://kokoro.invalid"
+			s, err := kokoro.New(tc.cfg)
+			if err != nil {
+				t.Fatalf("new synth: %v", err)
+			}
+			if got := s.Version(); got != tc.want {
+				t.Errorf("version = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

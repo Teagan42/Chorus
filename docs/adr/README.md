@@ -33,6 +33,15 @@ decision rather than by clause: facets of one choice share one record.
 | [0021](0021-journal-sequence-enforced-in-postgres.md) | Hash-partition the journal; enforce its sequence in Postgres | §8, §13 |
 | [0022](0022-one-live-session-per-conversation.md) | One live session per conversation; migration hands it over | §4.5, §8 |
 | [0023](0023-kokoro-renders-at-24-khz-the-host-resamples.md) | Raw PCM from Kokoro, resampled 24→16 kHz on the host | §10, §3.2 |
+| [0024](0024-partials-by-re-decoding-over-a-batch-endpoint.md) | STT partials by re-decoding a growing buffer over a batch endpoint; speaches pinned | §4.3, §4.5, §10 |
+| [0025](0025-voiceprints-in-a-local-file-behind-a-minimal-embed-contract.md) | Voiceprints in a local file; one embed endpoint; placeholder thresholds (thresholds and model pin superseded by 0029) | §5, §10, §13 |
+| [0026](0026-harvest-barge-ins-as-uncurated-pairs.md) | Harvest a barge-in as an uncurated preference candidate | §9.1, §4.4, §8 |
+| [0027](0027-home-assistant-service-call-detaches.md) | Act on the home through a detached Home Assistant service call | §6, §4.4, §14 |
+| [0029](0029-speaker-id-on-onnx-runtime-pinned-by-digest.md) | Supersedes part of 0025: TitaNet-L on ONNX Runtime, pinned by asset digest, thresholds measured | §5, §10, §13 |
+| [0030](0030-the-listening-child-owns-the-mic-stream.md) | The Listening child owns the mic stream, one per link; the endpointer seam; the embedding on the trace record | §4, §4.3, §4.5, §5, §9.3 |
+| [0031](0031-skip-the-speaker-stage-when-nothing-identifies-speakers.md) | Refines 0004: skip the gate's speaker stage when nothing identifies speakers; the mode is the composition root's, never a candidate's | §4.3, §5 |
+| [0032](0032-record-the-ear-and-the-voice-as-named-versions.md) | Record the STT model and the TTS model/voice as named version slots, nullable in Postgres, not gating a completion | §8 |
+| [0033](0033-the-stop-is-tagged-and-its-answer-is-the-cut.md) | Refines 0005 and 0020: each stop is tagged and the device's echoed report is the truncation point; protocol version 2 | §4.4, §3.2.1, §15 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.

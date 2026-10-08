@@ -8,6 +8,72 @@
     "name": "end_session"
   },
   {
+    "description": "Act on the home through a Home Assistant service: lights, switches, covers, media players, scripts. Target an entity_id from ha_find_entities, or an area_id. Returns the entities whose state changed; an empty list means nothing matched or nothing needed to change.",
+    "input_schema": {
+      "properties": {
+        "area_id": {
+          "description": "Area to act on, e.g. kitchen. Required unless entity_id is given.",
+          "type": "string"
+        },
+        "data": {
+          "description": "Extra service fields, e.g. {\"brightness_pct\": 50}.",
+          "type": "object"
+        },
+        "domain": {
+          "description": "Service domain, e.g. light, switch, script.",
+          "type": "string"
+        },
+        "entity_id": {
+          "description": "Entity to act on, e.g. light.kitchen. Required unless area_id is given.",
+          "type": "string"
+        },
+        "service": {
+          "description": "Service within the domain, e.g. turn_on, turn_off, toggle.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "service"
+      ],
+      "type": "object"
+    },
+    "name": "ha_call_service"
+  },
+  {
+    "description": "Find Home Assistant entities by domain and name. Call this first when you do not know an entity_id; never guess one.",
+    "input_schema": {
+      "properties": {
+        "domain": {
+          "description": "Only entities in this domain, e.g. light.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Only entities whose name or id contains this text, e.g. kitchen.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "ha_find_entities"
+  },
+  {
+    "description": "Read one entity's current state and attributes from Home Assistant.",
+    "input_schema": {
+      "properties": {
+        "entity_id": {
+          "description": "Entity to read, e.g. sensor.living_room_temperature.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity_id"
+      ],
+      "type": "object"
+    },
+    "name": "ha_get_state"
+  },
+  {
     "description": "Search the media library. Takes several seconds to return.",
     "input_schema": {
       "properties": {

@@ -464,7 +464,7 @@ func TestHostControlFrames(t *testing.T) {
 	c := newCollector()
 	serve(t, l, c)
 
-	if err := l.Stop(); err != nil {
+	if _, err := l.Stop(); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 	if err := l.SendDuck(bridge.Duck{Decibels: 20, DurationMillis: 250}); err != nil {
@@ -493,6 +493,64 @@ func TestHostControlFrames(t *testing.T) {
 	if len(d.micEnables) != 2 || d.micEnables[0] || !d.micEnables[1] {
 		t.Errorf("micEnables = %v, want [false true]", d.micEnables)
 	}
+}
+
+// verifies SPEC §4.4
+//
+// Each stop carries a tag the device echoes on the report that answers it, so
+// the satellite can wait for that report rather than for the first position
+// change after the stop. The tag must never be zero, which is what a routine
+// report carries, and consecutive stops must not share one, or the answer to
+// the previous barge-in could pass for this one's.
+func TestStopTagsEachStopDistinctlyAndNeverZero(t *testing.T) {
+	host, device := newPipe(t)
+	go func() { _ = bridge.NewWriter(device).WriteFrame(deviceHello(1)) }()
+	l, err := bridge.NewLink(host)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// More stops than the flags byte has values, so the tag has to wrap and
+	// still never land on zero.
+	const stops = 300
+	seen := make(chan uint8, stops)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r := bridge.NewReader(device)
+		for range stops {
+			f, err := r.ReadFrame()
+			if err != nil || f.Type != bridge.TypeStop {
+				return
+			}
+			seen <- f.Flags
+		}
+	}()
+
+	var prev uint8
+	for i := range stops {
+		tag, err := l.Stop()
+		if err != nil {
+			t.Fatalf("Stop %d: %v", i, err)
+		}
+		if tag == 0 {
+			t.Fatalf("Stop %d returned tag 0, which is what a routine report carries", i)
+		}
+		if tag == prev {
+			t.Fatalf("Stop %d and the one before it share tag %d", i, tag)
+		}
+		prev = tag
+		select {
+		case onWire := <-seen:
+			if onWire != tag {
+				t.Fatalf("Stop %d returned tag %d but wrote %d", i, tag, onWire)
+			}
+		case <-time.After(patience):
+			t.Fatalf("Stop %d never reached the device", i)
+		}
+	}
+	_ = l.Close()
+	<-done
 }
 
 // A TTS utterance exceeds the uint16 length field, so SendTTS must split it and
@@ -876,7 +934,7 @@ func TestStopAbandonsTheUtteranceBeingWritten(t *testing.T) {
 		t.Fatal("no TTS chunk was ever written")
 	}
 
-	if err := l.Stop(); err != nil {
+	if _, err := l.Stop(); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 	if err := <-sent; !errors.Is(err, bridge.ErrStopped) {

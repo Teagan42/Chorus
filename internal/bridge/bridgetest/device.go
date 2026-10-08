@@ -8,6 +8,7 @@
 package bridgetest
 
 import (
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -28,7 +29,14 @@ const bytesPerFrame = bridge.BitsPerSample / 8
 // heard/unheard split assertable.
 type Device struct {
 	conn net.Conn
-	w    *bridge.Writer
+
+	// wmu serialises the test goroutine's frames against the read loop's own
+	// reports; ready holds every frame behind the hello.
+	wmu     sync.Mutex
+	w       *bridge.Writer
+	ready   chan struct{}
+	holding bool           // HoldUplink is in force
+	held    []bridge.Frame // frames in flight, in order, until released
 
 	mu         sync.Mutex
 	tts        []byte
@@ -40,6 +48,7 @@ type Device struct {
 	ducks      []bridge.Duck
 	micEnable  []bool
 	notify     chan struct{}
+	gone       chan struct{}
 }
 
 // Dial returns a host Link joined to a device that has completed the
@@ -52,20 +61,7 @@ func Dial(t *testing.T, channels uint8) (*bridge.Link, *Device) {
 		_ = device.Close()
 	})
 
-	d := &Device{conn: device, w: bridge.NewWriter(device), notify: make(chan struct{})}
-
-	// Written from a goroutine because net.Pipe is an unbuffered rendezvous:
-	// NewLink's read of the hello would otherwise deadlock against this write.
-	hello := make(chan error, 1)
-	go func() {
-		hello <- d.w.WriteFrame(bridge.Hello{
-			Version:       bridge.ProtocolVersion,
-			SampleRate:    bridge.SampleRate,
-			BitsPerSample: bridge.BitsPerSample,
-			MicChannels:   channels,
-		}.Frame())
-	}()
-
+	d, hello := connect(device, channels)
 	l, err := bridge.NewLink(host)
 	if err != nil {
 		t.Fatalf("host link: %v", err)
@@ -74,14 +70,112 @@ func Dial(t *testing.T, channels uint8) (*bridge.Link, *Device) {
 		t.Fatalf("device hello: %v", err)
 	}
 	t.Cleanup(func() { _ = l.Close() })
-
-	// Always reading, so the host's downlink never blocks on an unbuffered
-	// pipe and the pacing under test is the host's own, not the fake's.
-	go d.read()
 	return l, d
 }
 
+// Connect joins a device to a connection the host side already holds, the
+// way a satellite reaches a daemon that accepted it: the host completes the
+// handshake on its own schedule, and a host that refuses the connection
+// first is observed through Gone rather than reported here.
+func Connect(conn net.Conn, channels uint8) *Device {
+	d, _ := connect(conn, channels)
+	return d
+}
+
+// connect starts the device on conn. The hello is written from a goroutine
+// because net.Pipe is an unbuffered rendezvous: the host's read of it would
+// otherwise deadlock against this write. Reading starts right after, so the
+// host's downlink never blocks on the pipe and the pacing under test is the
+// host's own, not the fake's.
+func connect(conn net.Conn, channels uint8) (*Device, <-chan error) {
+	d := &Device{
+		conn: conn, w: bridge.NewWriter(conn),
+		ready: make(chan struct{}), notify: make(chan struct{}), gone: make(chan struct{}),
+	}
+	hello := make(chan error, 1)
+	go func() {
+		err := d.w.WriteFrame(bridge.Hello{
+			Version:       bridge.ProtocolVersion,
+			SampleRate:    bridge.SampleRate,
+			BitsPerSample: bridge.BitsPerSample,
+			MicChannels:   channels,
+		}.Frame())
+		close(d.ready)
+		hello <- err
+		d.read()
+	}()
+	return d, hello
+}
+
+// write emits one frame after the hello, one at a time. A test that sends
+// before the host has read the hello must not overtake it on the wire.
+func (d *Device) write(f bridge.Frame) error {
+	<-d.ready
+	d.wmu.Lock()
+	defer d.wmu.Unlock()
+	if d.holding {
+		d.held = append(d.held, f)
+		return nil
+	}
+	return d.w.WriteFrame(f)
+}
+
+// Hold is a run of uplink frames parked in flight. See Device.HoldUplink.
+type Hold struct {
+	t *testing.T
+	d *Device
+}
+
+// HoldUplink parks every frame the device would send, in order, until the
+// hold releases it. It models the wire's latency: a report the DAC has
+// emitted but the host has not yet read, which is what lets a test put one
+// report on each side of a stop and see which the host believes.
+func (d *Device) HoldUplink(t *testing.T) *Hold {
+	t.Helper()
+	d.wmu.Lock()
+	d.holding = true
+	d.wmu.Unlock()
+	return &Hold{t: t, d: d}
+}
+
+// Release lets the oldest n held frames reach the host, in order, and keeps
+// holding the rest. Fewer than n held is a failure: a test releasing a frame
+// it never staged is asserting on nothing.
+func (h *Hold) Release(n int) {
+	h.t.Helper()
+	h.d.wmu.Lock()
+	defer h.d.wmu.Unlock()
+	if len(h.d.held) < n {
+		h.t.Fatalf("release %d held frames, only %d are held", n, len(h.d.held))
+	}
+	h.d.writeHeldLocked(n)
+}
+
+// Lift releases everything held and lets later frames through as they come.
+func (h *Hold) Lift() {
+	h.t.Helper()
+	h.d.wmu.Lock()
+	defer h.d.wmu.Unlock()
+	h.d.holding = false
+	h.d.writeHeldLocked(len(h.d.held))
+}
+
+// writeHeldLocked writes the oldest n held frames. The caller holds wmu.
+func (d *Device) writeHeldLocked(n int) {
+	for _, f := range d.held[:n] {
+		if err := d.w.WriteFrame(f); err != nil {
+			panic(fmt.Sprintf("bridgetest: release held %s: %v", f.Type, err))
+		}
+	}
+	d.held = d.held[n:]
+}
+
+// Gone closes once the host has hung up: the downlink read failed, which is
+// also what a host refusing the connection before the hello looks like.
+func (d *Device) Gone() <-chan struct{} { return d.gone }
+
 func (d *Device) read() {
+	defer close(d.gone)
 	r := bridge.NewReader(d.conn)
 	for {
 		f, err := r.ReadFrame()
@@ -91,6 +185,7 @@ func (d *Device) read() {
 		// Reported after the lock is released: writing a frame while holding mu
 		// would deadlock against a concurrent Play on an unbuffered pipe.
 		var report bool
+		var ack uint8
 		d.mu.Lock()
 		switch f.Type {
 		case bridge.TypeTTS:
@@ -100,12 +195,12 @@ func (d *Device) read() {
 			// A stop discards the buffer, which is the whole point of one: the
 			// frames held here are never emitted and never reported played.
 			d.stops++
-			if n := min(d.duringStop, d.available); n > 0 {
-				d.played += n
-				report = true
-			}
+			d.played += min(d.duringStop, d.available)
 			d.duringStop = 0
 			d.available = 0
+			// Answered whether or not the position moved, with the stop's tag,
+			// as the firmware does: the host waits for this report and no other.
+			report, ack = true, f.Flags
 		case bridge.TypeFinish:
 			d.finishes++
 		case bridge.TypeDuck:
@@ -120,9 +215,10 @@ func (d *Device) read() {
 		d.mu.Unlock()
 
 		if report {
-			_ = d.w.WriteFrame(bridge.Played{
+			_ = d.write(bridge.Played{
 				Frames:          played,
 				TimestampMicros: int64(played) * int64(time.Second/time.Microsecond) / bridge.SampleRate,
+				Stop:            ack,
 			}.Frame())
 		}
 	}
@@ -131,8 +227,8 @@ func (d *Device) read() {
 // PlayDuringStop arms the device to emit this many more frames when it next
 // processes a stop, modelling audio the DAC gets through while the stop is in
 // flight. The real firmware gates its frame counter at the stop and discards
-// the rest, so that last report is the authoritative truncation point
-// (chorus_bridge.cpp, FrameType::STOP). Capped by what the host has sent.
+// the rest, so the report answering the stop is the authoritative truncation
+// point (chorus_bridge.cpp, FrameType::STOP). Capped by what the host has sent.
 func (d *Device) PlayDuringStop(frames uint64) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -166,7 +262,7 @@ func (d *Device) Play(t *testing.T, frames uint64) uint64 {
 	// Timestamp tracks the audio, so position advance and clock advance agree
 	// the way the firmware's esp_timer stamp does.
 	micros := int64(played) * int64(time.Second/time.Microsecond) / bridge.SampleRate
-	if err := d.w.WriteFrame(bridge.Played{Frames: played, TimestampMicros: micros}.Frame()); err != nil {
+	if err := d.write(bridge.Played{Frames: played, TimestampMicros: micros}.Frame()); err != nil {
 		t.Fatalf("device played report: %v", err)
 	}
 	return frames
@@ -184,7 +280,7 @@ func (d *Device) PlayAll(t *testing.T) uint64 {
 // SendMic delivers an uplink chunk.
 func (d *Device) SendMic(t *testing.T, channel uint8, pcm []byte) {
 	t.Helper()
-	if err := d.w.WriteFrame(bridge.Frame{Type: bridge.TypeMic, Flags: channel, Payload: pcm}); err != nil {
+	if err := d.write(bridge.Frame{Type: bridge.TypeMic, Flags: channel, Payload: pcm}); err != nil {
 		t.Fatalf("device mic: %v", err)
 	}
 }
@@ -192,7 +288,7 @@ func (d *Device) SendMic(t *testing.T, channel uint8, pcm []byte) {
 // SendWake delivers a wake-word activation.
 func (d *Device) SendWake(t *testing.T, word string) {
 	t.Helper()
-	if err := d.w.WriteFrame(bridge.Frame{Type: bridge.TypeWake, Payload: []byte(word)}); err != nil {
+	if err := d.write(bridge.Frame{Type: bridge.TypeWake, Payload: []byte(word)}); err != nil {
 		t.Fatalf("device wake: %v", err)
 	}
 }
@@ -200,7 +296,7 @@ func (d *Device) SendWake(t *testing.T, word string) {
 // SendMute reports the mute state.
 func (d *Device) SendMute(t *testing.T, m bridge.Mute) {
 	t.Helper()
-	if err := d.w.WriteFrame(m.Frame()); err != nil {
+	if err := d.write(m.Frame()); err != nil {
 		t.Fatalf("device mute: %v", err)
 	}
 }

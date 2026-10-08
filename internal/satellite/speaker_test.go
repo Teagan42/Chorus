@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -121,8 +122,7 @@ func (p *pacing) total() time.Duration {
 
 // applied reports the playback positions the satellite has recorded, which is
 // later than the report reaching the wire: Device.Play returns once the host
-// has read the frame, and the Serve loop applies it after that. A test whose
-// subject is the position Close sampled has to wait for this, not the write.
+// has read the frame, and the Serve loop applies it after that.
 type applied struct {
 	bridge.Handler
 
@@ -148,6 +148,7 @@ type rig struct {
 	blobs   *blob.Memory
 	paced   *pacing
 	applied *applied
+	played  uint64 // frames the test has had the device emit so far
 	drain   chan time.Time
 	settle  chan time.Time
 	served  chan error
@@ -213,6 +214,27 @@ func (r *rig) awaitPlayed(t *testing.T, frames uint64) {
 	}
 }
 
+// play advances the DAC and waits for the satellite to record it. With the
+// settle expiring at once, a barge-in before the report applies cuts at a
+// stale position.
+func (r *rig) play(t *testing.T, frames uint64) uint64 {
+	t.Helper()
+	return r.recorded(t, r.dev.Play(t, frames))
+}
+
+// playAll emits everything the device holds, recorded like play.
+func (r *rig) playAll(t *testing.T) uint64 {
+	t.Helper()
+	return r.recorded(t, r.dev.PlayAll(t))
+}
+
+func (r *rig) recorded(t *testing.T, emitted uint64) uint64 {
+	t.Helper()
+	r.played += emitted
+	r.awaitPlayed(t, r.played)
+	return emitted
+}
+
 // open starts an utterance and returns its stream and the cancel that a
 // barge-in would call.
 func (r *rig) open(t *testing.T, callID string) (session.Stream, context.CancelFunc) {
@@ -258,7 +280,7 @@ func TestCompletedUtteranceReportsTheDeviceFrameCount(t *testing.T) {
 
 	done := closeAsync(st)
 	r.dev.AwaitFinish(t, 1)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 
 	pb := await(t, done)
 	if pb.Truncated {
@@ -289,7 +311,7 @@ func TestBargeInTruncatesAtTheDACPosition(t *testing.T) {
 
 	// Cut partway through the first delta.
 	const heard = 3 * framesPerByte
-	if got := r.dev.Play(t, heard); got != heard {
+	if got := r.play(t, heard); got != heard {
 		t.Fatalf("played %d frames, want %d", got, heard)
 	}
 
@@ -353,7 +375,7 @@ func TestOneDeltaIsCutInsideItself(t *testing.T) {
 	}
 	r.dev.AwaitTTS(t, len(speakToolDelta)*framesPerByte*2)
 	// Two characters in. The user heard "Th".
-	r.dev.Play(t, 2*framesPerByte)
+	r.play(t, 2*framesPerByte)
 
 	cancel()
 	pb := await(t, closeAsync(st))
@@ -387,7 +409,7 @@ func TestTheCutFallsOnAWordBoundary(t *testing.T) {
 	}
 	r.dev.AwaitTTS(t, len(text)*framesPerByte*2)
 	// Inside the second clause.
-	r.dev.Play(t, uint64((len("Sure, ")+3)*framesPerByte))
+	r.play(t, uint64((len("Sure, ")+3)*framesPerByte))
 
 	cancel()
 	pb := await(t, closeAsync(st))
@@ -416,7 +438,7 @@ func TestAFullyPlayedMultiSegmentDeltaIsWhollySpoken(t *testing.T) {
 	r.dev.AwaitTTS(t, len(speakToolDelta)*framesPerByte*2)
 	done := closeAsync(st)
 	r.dev.AwaitFinish(t, 1)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 	pb := await(t, done)
 
 	if pb.Truncated {
@@ -453,7 +475,7 @@ func TestSpeechCarriesABlobReferenceTheJournalWillAccept(t *testing.T) {
 	r.dev.AwaitTTS(t, len("hello")*framesPerByte*2)
 	done := closeAsync(st)
 	r.dev.AwaitFinish(t, 1)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 	pb := await(t, done)
 
 	// journal.Append rejects an audio-bearing event without a reference, and
@@ -489,7 +511,7 @@ func TestACutKeepsTheUnheardAudioItHadAlreadyRendered(t *testing.T) {
 	r.dev.AwaitTTS(t, rendered)
 
 	const heard = 3 * framesPerByte
-	r.dev.Play(t, heard)
+	r.play(t, heard)
 	cancel()
 	pb := await(t, closeAsync(st))
 
@@ -549,7 +571,7 @@ func TestAReusedCallIDDoesNotOverwriteEarlierAudio(t *testing.T) {
 		r.dev.AwaitTTS(t, sent)
 		done := closeAsync(st)
 		r.dev.AwaitFinish(t, i+1)
-		r.dev.PlayAll(t)
+		r.playAll(t)
 		refs = append(refs, await(t, done).AudioRef)
 	}
 
@@ -634,7 +656,7 @@ func TestTheCutUsesTheFinalPositionAfterTheStop(t *testing.T) {
 	// rest of the first delta while the stop is in flight. Those frames were
 	// heard: a split sampled before the stop would call them unspoken.
 	const before = 2 * framesPerByte
-	r.dev.Play(t, before)
+	r.play(t, before)
 	r.dev.PlayDuringStop(4 * framesPerByte)
 
 	cancel()
@@ -652,6 +674,70 @@ func TestTheCutUsesTheFinalPositionAfterTheStop(t *testing.T) {
 }
 
 // verifies SPEC §4.4
+//
+// The DAC reports at its own cadence and a report takes time to arrive, so a
+// routine report can already be on the wire when the stop goes out. It
+// predates the stop and says nothing about where the device cut; the report
+// the stop provokes does, and it lands behind it. A cut taken from the first
+// change after the stop is the DAC's position a round trip ago (SPEC §15.1).
+func TestTheCutIsTheReportTheStopProvokedNotTheFirstChange(t *testing.T) {
+	// A long settle, so the cut has to come from the device, not the deadline.
+	r := newRig(t, func(c *satellite.Config) { c.Settle = rigSettle })
+	st, cancel := r.open(t, "call-1")
+
+	for _, delta := range []string{"Hello ", "there ", "world."} {
+		if err := st.Write(delta); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	r.dev.AwaitTTS(t, len("Hello there world.")*framesPerByte*2)
+
+	// The host knows of two characters. The DAC then gets through three more
+	// and reports them, but that report is still in flight at the barge-in,
+	// and the device plays two more before the stop reaches it.
+	r.play(t, 2*framesPerByte)
+	hold := r.dev.HoldUplink(t)
+	r.dev.Play(t, 3*framesPerByte)
+	r.dev.PlayDuringStop(2 * framesPerByte)
+
+	cancel()
+	done := closeAsync(st)
+	r.dev.AwaitStop(t, 1)
+
+	// The stale report lands first and is applied before the answer to the
+	// stop is even on the wire. A Close that takes it for the cut is given
+	// the processor to return on it before the answer is let through, so
+	// the answer cannot rescue it: yielding is what keeps this check from
+	// racing the code it checks, and a Close that is waiting yields nothing.
+	hold.Release(1)
+	r.awaitPlayed(t, 5*framesPerByte)
+	for range 1024 {
+		select {
+		case pb := <-done:
+			t.Fatalf("Close returned on a report that predates the stop: Frames = %d, split = (%q, %q)",
+				pb.Frames, pb.Spoken, pb.Unspoken)
+		default:
+			runtime.Gosched()
+		}
+	}
+	hold.Lift()
+
+	pb := await(t, done)
+	const cut = 7 * framesPerByte
+	if pb.Frames != cut {
+		t.Errorf("Frames = %d, want %d: the cut is where the device gated at the stop, "+
+			"not the first report to arrive after it", pb.Frames, cut)
+	}
+	// Seven characters in is inside "there ", which the user began to hear.
+	if pb.Spoken != "Hello there " || pb.Unspoken != "world." {
+		t.Errorf("split = (%q, %q), want (%q, %q)", pb.Spoken, pb.Unspoken, "Hello there ", "world.")
+	}
+	if !pb.Truncated {
+		t.Error("Truncated = false, want true")
+	}
+}
+
+// verifies SPEC §4.4
 func TestADeviceThatGoesQuietAfterTheStopStillReportsACut(t *testing.T) {
 	r := newRig(t, func(c *satellite.Config) { c.Settle = rigSettle })
 	st, cancel := r.open(t, "call-1")
@@ -661,19 +747,16 @@ func TestADeviceThatGoesQuietAfterTheStopStillReportsACut(t *testing.T) {
 	}
 	r.dev.AwaitTTS(t, len("Hello world.")*framesPerByte*2)
 	const heard = 3 * framesPerByte
-	r.dev.Play(t, heard)
-	// This position has to be the one Close samples, or the settle it waits on
-	// is answered by the report arriving late and the deadline is never
-	// reached -- which is the only thing this test is about.
-	r.awaitPlayed(t, heard)
+	r.play(t, heard)
 
+	// The device answers every stop, so the only way to have no answer is a
+	// wire that never delivers it: a satellite that drops off mid-stop.
+	// Expiring must degrade to the position already known, not wedge the
+	// session.
+	r.dev.HoldUplink(t)
 	cancel()
 	done := closeAsync(st)
 	r.dev.AwaitStop(t, 1)
-
-	// The firmware only reports when the position moved, so a stop that lands
-	// between reports is answered with silence. Expiring must degrade to the
-	// position already known, not wedge the session.
 	r.settle <- time.Now()
 
 	pb := await(t, done)
@@ -691,7 +774,7 @@ func TestADeltaCutBeforeSynthesisIsStillUnspokenText(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	r.dev.AwaitTTS(t, len("spoken ")*framesPerByte*2)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 
 	// Held in the synthesiser, so this delta has no frames of its own.
 	r.synth.mu.Lock()
@@ -763,7 +846,7 @@ func TestABlankDeltaThatRendersNoFramesIsNotATruncation(t *testing.T) {
 		}
 	}
 	r.dev.AwaitTTS(t, len(text)*framesPerByte*2)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 
 	pb := await(t, closeAsync(st))
 
@@ -790,7 +873,7 @@ func TestACutAfterABlankLeadingDeltaKeepsTheUtteranceInOrder(t *testing.T) {
 		}
 	}
 	r.dev.AwaitTTS(t, len(text)*framesPerByte*2)
-	r.dev.Play(t, 3*framesPerByte)
+	r.play(t, 3*framesPerByte)
 
 	cancel()
 	pb := await(t, closeAsync(st))
@@ -816,7 +899,7 @@ func TestASecondUtteranceRebasesOnTheCumulativePosition(t *testing.T) {
 	r.dev.AwaitTTS(t, len("one")*framesPerByte*2)
 	done := closeAsync(first)
 	r.dev.AwaitFinish(t, 1)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 	if pb := await(t, done); pb.Frames != int64(len("one")*framesPerByte) {
 		t.Fatalf("first utterance Frames = %d", pb.Frames)
 	}
@@ -832,7 +915,7 @@ func TestASecondUtteranceRebasesOnTheCumulativePosition(t *testing.T) {
 	r.dev.AwaitTTS(t, (len("one")+len("two"))*framesPerByte*2)
 	done = closeAsync(second)
 	r.dev.AwaitFinish(t, 2)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 
 	pb := await(t, done)
 	if pb.Frames != want {
@@ -840,6 +923,46 @@ func TestASecondUtteranceRebasesOnTheCumulativePosition(t *testing.T) {
 	}
 	if pb.Truncated {
 		t.Error("Truncated = true, want false")
+	}
+}
+
+// The Listening child measures a barge-in from the same origin this Speaker
+// truncates on, and the only way to share it is to read it: SpeechBase plus a
+// Playback's Frames is the cumulative position the device reported (ADR-0030).
+//
+// verifies SPEC §3.2.1, §8
+func TestSpeechBaseIsWhereThisUtterancesFramesStart(t *testing.T) {
+	r := newRig(t)
+
+	first, _ := r.open(t, "call-1")
+	if base := r.sat.SpeechBase(); base != 0 {
+		t.Errorf("SpeechBase = %d before anything played, want 0", base)
+	}
+	if err := first.Write("one"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len("one")*framesPerByte*2)
+	done := closeAsync(first)
+	r.dev.AwaitFinish(t, 1)
+	r.playAll(t)
+	await(t, done)
+
+	second, _ := r.open(t, "call-2")
+	base := r.sat.SpeechBase()
+	if want := uint64(len("one") * framesPerByte); base != want {
+		t.Fatalf("SpeechBase = %d for the second utterance, want %d", base, want)
+	}
+	if err := second.Write("two"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, (len("one")+len("two"))*framesPerByte*2)
+	done = closeAsync(second)
+	r.dev.AwaitFinish(t, 2)
+	r.playAll(t)
+
+	pb := await(t, done)
+	if got, want := base+uint64(pb.Frames), r.played; got != want {
+		t.Errorf("base + Frames = %d, want the device's cumulative %d", got, want)
 	}
 }
 
@@ -861,7 +984,7 @@ func TestPacingNeverOutlastsTheAudioItPaced(t *testing.T) {
 
 	done := closeAsync(st)
 	r.dev.AwaitFinish(t, 1)
-	r.dev.PlayAll(t)
+	r.playAll(t)
 	await(t, done)
 
 	// Pacing exists to stop the downlink crowding the mic uplink off the shared
@@ -910,7 +1033,7 @@ func TestDrainDeadlineReportsTruncationRatherThanHanging(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	r.dev.AwaitTTS(t, len("half heard text")*framesPerByte*2)
-	r.dev.Play(t, 4*framesPerByte)
+	r.play(t, 4*framesPerByte)
 
 	done := closeAsync(st)
 	r.dev.AwaitFinish(t, 1)

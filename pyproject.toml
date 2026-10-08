@@ -1,0 +1,38 @@
+# The uv workspace root for the Python sidecars (CONTRIBUTING §5). The Go
+# module is the rest of the repo; nothing in `task test` runs from here.
+[project]
+name = "chorus-sidecars"
+version = "0.0.0"
+# Bounded above: sherpa-onnx publishes a cp314 wheel without its runtime
+# library, so the sidecar only imports on 3.13 (sidecars/speakerid).
+requires-python = ">=3.13,<3.14"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["sidecars/*"]
+
+# Shared dev tooling, pinned like the Go toolchain so a release cannot turn
+# a green tree red with no code change.
+[dependency-groups]
+dev = [
+  "pytest==9.1.1",
+  "httpx==0.28.1",
+  "ruff==0.16.10",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["sidecars"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+# Run from the workspace root, ruff cannot see that a member's own package
+# is first-party; without this its tests sort it among the third parties.
+known-first-party = ["speakerid"]

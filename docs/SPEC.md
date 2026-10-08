@@ -372,10 +372,11 @@ for audio blobs (raw mic PCM both channels, synthesized TTS). Keep everything;
 retention configurable per satellite. 16 kHz mono is ~115 MB/day of continuous
 capture.
 
-Every event carries a monotonic sequence number, wall clock, and the model /
-prompt / tool-schema versions in effect. Deterministic replay requires recording
-every nondeterministic input: model completions (not just requests), tool
-results, and barge-in timing to the millisecond relative to TTS position.
+Every event carries a monotonic sequence number, wall clock, the model /
+prompt / tool-schema versions in effect, and the STT and TTS identities
+(ADR-0032). Deterministic replay requires recording every nondeterministic
+input: model completions (not just requests), tool results, and barge-in
+timing to the millisecond relative to TTS position.
 
 `replay(conversation_id, overrides)` is a tested function from week one. It is
 what keeps the reducer honest — if it ever breaks, the system has silently

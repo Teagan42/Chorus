@@ -62,6 +62,13 @@ func fixtureEvents() map[string]Event {
 				{Name: "speaker_id", Type: "string", Description: "Person."},
 			},
 		},
+		"speech_discarded": {
+			Name: "speech_discarded", Actor: "speaking", Description: "Generated, never played.",
+			TrainingSignal: true, RequiresVersion: true,
+			Fields: []Param{
+				{Name: "reason", Type: "string", Description: "Why.", Required: true, Enum: []string{"barge_in", "preempted"}},
+			},
+		},
 	}
 }
 
@@ -257,9 +264,55 @@ func TestToolDocsCoverEveryTool(t *testing.T) {
 func TestEventDocsCoverEveryEvent(t *testing.T) {
 	doc := renderEventDocs(fixtureEvents())
 	for name := range fixtureEvents() {
-		if !strings.Contains(doc, "`"+name+"`") {
+		if !strings.Contains(doc, "| `"+name+"` |") {
 			t.Errorf("docs missing row for %s", name)
 		}
+		if !strings.Contains(doc, "## `"+name+"`") {
+			t.Errorf("docs missing section for %s", name)
+		}
+	}
+	if !strings.Contains(doc, "DO NOT EDIT") {
+		t.Error("generated docs must warn against editing")
+	}
+}
+
+// The kind table names an event; its fields were documented nowhere a reader
+// looks. Each event gets the table its tool counterpart already has, plus the
+// flags the journal enforces from the same declaration (SPEC §8).
+func TestEventDocsRenderFieldsAndFlagsPerEvent(t *testing.T) {
+	doc := renderEventDocs(fixtureEvents())
+	for _, want := range []string{
+		"## `speech_truncated`\n\nBarge-in cut speech short.\n\n" +
+			"Actor: `speaking`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. `requires_versions`: yes.\n\n" +
+			"| Field | Type | Required | Description |\n|---|---|---|---|\n" +
+			"| `spoken_text` | string | yes | Heard. |\n" +
+			"| `frames_played` | integer | yes | DAC frames. |\n",
+		// A false flag is said, not blanked: the table's blank cell is for scanning.
+		"Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.",
+		"| `speaker_id` | string |  | Person. |",
+		// Enums render as the tool docs render them.
+		"| `reason` | string | yes | Why. One of: `barge_in`, `preempted`. |",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("missing %q in event docs:\n%s", want, doc)
+		}
+	}
+	// Sections follow the table, in the table's order.
+	table := strings.Index(doc, "| `speech_truncated` |")
+	first := strings.Index(doc, "## `session_opened`")
+	last := strings.Index(doc, "## `speech_truncated`")
+	if !(table < first && first < last) {
+		t.Errorf("sections out of order: table %d, session_opened %d, speech_truncated %d", table, first, last)
+	}
+	if strings.Contains(doc, "No fields.") {
+		t.Error("every fixture event declares fields; none should be stated empty")
+	}
+
+	bare := renderEventDocs(map[string]Event{
+		"device_lost": {Name: "device_lost", Actor: "device", Description: "Stream ended."},
+	})
+	if !strings.Contains(bare, "## `device_lost`\n\nStream ended.\n\nActor: `device`.") || !strings.Contains(bare, "No fields.\n") {
+		t.Errorf("field-less events need an explicit statement, not a blank section:\n%s", bare)
 	}
 }
 

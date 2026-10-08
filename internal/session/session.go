@@ -92,6 +92,11 @@ type Transcript struct {
 	Text      string
 	SpeakerID string
 	AudioRef  string
+
+	// Embedding is the utterance's speaker vector, recorded whether or not it
+	// matched anyone so voices can be clustered later (SPEC §5). Nil when the
+	// embedder was unavailable.
+	Embedding []float32
 }
 
 // Session is the supervisor of one conversation's concurrent children. It
@@ -203,10 +208,17 @@ func (s *Session) State(ctx context.Context) (journal.State, error) {
 
 // Heard journals an utterance and runs a turn over it.
 func (s *Session) Heard(ctx context.Context, t Transcript) error {
+	fields := map[string]string{"text": t.Text, "speaker_id": t.SpeakerID}
+	if len(t.Embedding) > 0 {
+		// Fails only on a non-finite value, which the matcher refuses upstream.
+		b, err := json.Marshal(t.Embedding)
+		if err != nil {
+			return fmt.Errorf("encode embedding for %s: %w", s.convID, err)
+		}
+		fields["embedding_json"] = string(b)
+	}
 	if err := s.record(journal.Record{
-		Kind:     journal.KindUtteranceTranscribed,
-		AudioRef: t.AudioRef,
-		Fields:   map[string]string{"text": t.Text, "speaker_id": t.SpeakerID},
+		Kind: journal.KindUtteranceTranscribed, AudioRef: t.AudioRef, Fields: fields,
 	}); err != nil {
 		return err
 	}
@@ -388,11 +400,11 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 // runTool is one tool child. Its context comes from the declared interrupt
 // policy, so barge-in needs no special case here (SPEC §4.4).
 func (s *Session) runTool(parent context.Context, wg *sync.WaitGroup, tc ToolCall, spec registry.ToolSpec, tool Tool) {
-	defer s.leave("tool:" + tc.ID)
-
 	var once sync.Once
 	release := func() { once.Do(wg.Done) }
+	// Deferred first so it runs last: a released turn must not still see this child.
 	defer release()
+	defer s.leave("tool:" + tc.ID)
 
 	ctx, cancel := s.policyContext(parent, spec.OnInterrupt)
 	defer cancel()

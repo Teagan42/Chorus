@@ -222,6 +222,122 @@ func TestPgStoreOrdersBySequenceNotHeapPosition(t *testing.T) {
 	}
 }
 
+// legacySchema hands back a connection whose search_path is a fresh schema at
+// migration 0001 alone, as a household's database stood before 0002, so later
+// migrations run over real rows.
+func legacySchema(t *testing.T, pool *pgxpool.Pool) *pgxpool.Conn {
+	t.Helper()
+	ctx := context.Background()
+
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	t.Cleanup(conn.Release)
+
+	name := fmt.Sprintf("legacy_%d", convSeq.Add(1))
+	if _, err := conn.Exec(ctx, "CREATE SCHEMA "+name); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	// Reset before release, or the next test to draw this connection migrates
+	// into this schema.
+	t.Cleanup(func() {
+		if _, err := conn.Exec(ctx, "RESET search_path"); err != nil {
+			t.Errorf("reset search_path: %v", err)
+		}
+		if _, err := conn.Exec(ctx, "DROP SCHEMA "+name+" CASCADE"); err != nil {
+			t.Errorf("drop schema: %v", err)
+		}
+	})
+	if _, err := conn.Exec(ctx, "SET search_path TO "+name); err != nil {
+		t.Fatalf("set search_path: %v", err)
+	}
+
+	first, err := os.ReadFile("migrations/0001_journal_events.sql")
+	if err != nil {
+		t.Fatalf("read migration 0001: %v", err)
+	}
+	if _, err := conn.Exec(ctx, string(first)); err != nil {
+		t.Fatalf("apply migration 0001: %v", err)
+	}
+	// The ledger as the previous build left it: Migrate skips 0001, applies the rest.
+	if _, err := conn.Exec(ctx, `
+		CREATE TABLE schema_migrations (
+			version    text        PRIMARY KEY,
+			applied_at timestamptz NOT NULL DEFAULT now());
+		INSERT INTO schema_migrations (version) VALUES ('0001_journal_events.sql')
+	`); err != nil {
+		t.Fatalf("seed ledger: %v", err)
+	}
+	return conn
+}
+
+// verifies SPEC §8
+func TestPgStoreReadsARowFromBeforeTheSTTAndTTSColumnsAsEmpty(t *testing.T) {
+	pool := openPg(t)
+	ctx := context.Background()
+	conn := legacySchema(t, pool)
+	const conv = "conv-legacy"
+
+	// No STT or TTS column exists yet; 0002 must add them around rows on disk.
+	for seq := 1; seq <= 2; seq++ {
+		if _, err := conn.Exec(ctx, `
+			INSERT INTO journal_events (conversation_id, seq, kind, actor, wall_clock,
+				speculative, audio_ref, model_version, prompt_version,
+				tool_schema_version, fields)
+			VALUES ($1, $2, 'session_closed', 'session', now(), false, '',
+				'qwen3-32b@1', 'sys@3', 'tools@7', '{"reason":"model_ended"}')
+		`, conv, seq); err != nil {
+			t.Fatalf("seed legacy row %d: %v", seq, err)
+		}
+	}
+
+	if err := journal.Migrate(ctx, conn); err != nil {
+		t.Fatalf("migrate over legacy rows: %v", err)
+	}
+	s := journal.NewPgStore(conn)
+
+	events, err := s.Events(ctx, conv)
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want the 2 legacy rows", len(events))
+	}
+	for _, e := range events {
+		want := journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7"}
+		if e.Versions != want {
+			t.Errorf("seq %d versions = %+v, want %+v with empty STT and TTS", e.Seq, e.Versions, want)
+		}
+	}
+
+	// Go reads NULL as ""; SQL still needs the NULL to tell unrecorded from unconfigured.
+	var nulls int
+	if err := conn.QueryRow(ctx, `
+		SELECT count(*) FROM journal_events
+		WHERE conversation_id = $1 AND stt_version IS NULL AND tts_version IS NULL
+	`, conv).Scan(&nulls); err != nil {
+		t.Fatalf("count nulls: %v", err)
+	}
+	if nulls != 2 {
+		t.Errorf("%d legacy rows hold NULL, want 2; the migration backfilled", nulls)
+	}
+
+	// A conversation that spans the upgrade mixes NULL rows with stamped ones.
+	stamped := event(conv, 3)
+	stamped.Versions = versions()
+	if err := s.Append(ctx, stamped); err != nil {
+		t.Fatalf("append after migration: %v", err)
+	}
+	events, err = s.Events(ctx, conv)
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if got := events[2].Versions; got != versions() {
+		t.Errorf("versions = %+v, want %+v stamped after the migration", got, versions())
+	}
+}
+
 // verifies SPEC §8
 func TestMigrateIsIdempotent(t *testing.T) {
 	pool := openPg(t)

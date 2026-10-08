@@ -11,7 +11,10 @@ import (
 )
 
 func versions() journal.Versions {
-	return journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7"}
+	return journal.Versions{
+		Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7",
+		STT: "istupakov/parakeet-tdt-0.6b-v2-onnx", TTS: "kokoro/af_heart",
+	}
 }
 
 // verifies SPEC §8
@@ -194,5 +197,28 @@ func TestAppendStampsTheVersionsInEffect(t *testing.T) {
 	}
 	if e.Versions != versions() {
 		t.Errorf("versions = %+v, want %+v", e.Versions, versions())
+	}
+}
+
+// The STT and TTS slots attribute a transcript and a voice, not a completion.
+// A journal built without them, as a test or a text-only deployment is, must
+// still record what the model said: completeness guards the pair's
+// attribution to a model, prompt and tool schema, and nothing else.
+//
+// verifies SPEC §8
+func TestAppendRecordsACompletionWithoutAnSTTOrTTSVersion(t *testing.T) {
+	v := versions()
+	v.STT, v.TTS = "", ""
+	j := journal.New(journal.NewMemStore(), journal.FixedClock(time.Unix(0, 0)), v)
+
+	e, err := j.Append(context.Background(), "conv-1", journal.Record{
+		Kind:   journal.KindModelCompleted,
+		Fields: map[string]string{"completion_json": "{}", "finish_reason": "stop"},
+	})
+	if err != nil {
+		t.Fatalf("append refused a completion for want of an STT or TTS version: %v", err)
+	}
+	if e.Versions.STT != "" || e.Versions.TTS != "" {
+		t.Errorf("versions = %+v, want the empty slots kept empty", e.Versions)
 	}
 }
