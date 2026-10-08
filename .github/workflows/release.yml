@@ -3,9 +3,10 @@
 # and merging it tags the release. Binaries and images are built only from that
 # tag, so a published artifact always has a changelog entry behind it.
 #
-# The orchestrator daemon (cmd/chorusd) is also published as a container
-# image on ghcr.io, from the same tag, so the compose file and a release
-# install the same bytes.
+# The orchestrator daemon (cmd/chorusd) ships both ways from the same tag: a
+# tarball beside probe and harvest for a household on bare metal, and a
+# container image on ghcr.io, so the compose file and a release install the
+# same bytes.
 name: release
 
 on:
@@ -96,7 +97,11 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # CGO_ENABLED=0: a static binary, and nothing here needs libc.
+      # CGO_ENABLED=0: a static binary, and nothing here needs libc. One
+      # tarball per command so a bare-metal household installs the daemon
+      # without the probe, and the image job's -X main.version is the same
+      # flag here: chorusd reports it; probe and harvest have no version var
+      # and the linker ignores it for them.
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
@@ -104,16 +109,18 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           set -euo pipefail
-          out="probe_${{ needs.release-please.outputs.version }}_${GOOS}_${GOARCH}"
-          mkdir -p "dist/$out"
-          go build -trimpath \
-            -ldflags "-s -w -X main.version=${{ needs.release-please.outputs.version }}" \
-            -o "dist/$out/probe" ./cmd/probe
-          cp README.md "dist/$out/"
-          tar -C dist -czf "dist/$out.tar.gz" "$out"
-          # Run inside dist and keep the filename: `sha256sum -c` rejects a
-          # bare digest.
-          (cd dist && sha256sum "$out.tar.gz" > "$out.tar.gz.sha256")
+          for cmd in probe chorusd harvest; do
+            out="${cmd}_${{ needs.release-please.outputs.version }}_${GOOS}_${GOARCH}"
+            mkdir -p "dist/$out"
+            go build -trimpath \
+              -ldflags "-s -w -X main.version=${{ needs.release-please.outputs.version }}" \
+              -o "dist/$out/$cmd" "./cmd/$cmd"
+            cp README.md "dist/$out/"
+            tar -C dist -czf "dist/$out.tar.gz" "$out"
+            # Run inside dist and keep the filename: `sha256sum -c` rejects a
+            # bare digest.
+            (cd dist && sha256sum "$out.tar.gz" > "$out.tar.gz.sha256")
+          done
 
       - name: Attach to the release
         env:
