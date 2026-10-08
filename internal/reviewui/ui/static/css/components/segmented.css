@@ -1,0 +1,8 @@
+/* segmented — exclusive choice in a hairline frame. */
+.segmented { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--c-rule); border-radius: 5px; }
+.segmented__item {
+  min-height: 30px; padding: 0 10px; border: 0; border-radius: 3px;
+  background: transparent; color: var(--c-muted); font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.segmented__item:hover { color: var(--c-text); }
+.segmented__item.is-on { background: var(--c-text); color: var(--c-ground); }

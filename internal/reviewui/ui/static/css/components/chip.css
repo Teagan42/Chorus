@@ -1,0 +1,10 @@
+/* chip — toggle label; pressed = inverted, never coloured. */
+.chip {
+  min-height: 34px; padding: 0 12px; border-radius: var(--radius);
+  border: 1px solid var(--c-rule-strong); background: transparent; color: var(--c-text-2);
+  font-size: 13px; font-weight: 500; cursor: pointer;
+}
+.chip:hover { border-color: var(--c-user); }
+.chip.is-on { background: var(--c-text); border-color: var(--c-text); color: var(--c-ground); font-weight: 600; }
+.chip-group { display: flex; flex-direction: column; gap: 10px; }
+.chip-group__chips { display: flex; flex-wrap: wrap; gap: 6px; }

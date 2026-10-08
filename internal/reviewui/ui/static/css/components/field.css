@@ -1,0 +1,11 @@
+/* field — caps label over a control on ground-2. */
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field--inline { flex-direction: row; align-items: center; gap: 10px; }
+.field input, .field select, .field textarea {
+  min-height: 38px; padding: 0 10px; border: 1px solid var(--c-rule-strong); border-radius: var(--radius);
+  background: var(--c-ground-2); color: var(--c-text); font-size: 14px; min-width: 0;
+}
+.field textarea { padding: 10px 12px; font-size: var(--fs-body); line-height: 1.45; resize: vertical; }
+.field input::placeholder, .field textarea::placeholder { color: var(--c-muted); }
+.field-check { display: flex; align-items: center; gap: 10px; min-height: 32px; font-size: var(--fs-body); color: var(--c-text-2); }
+.field-check input { width: 18px; height: 18px; accent-color: var(--c-text); }

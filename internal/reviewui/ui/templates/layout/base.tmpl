@@ -1,0 +1,27 @@
+{{/*
+  Document shell. A page template does:
+    {{template "doc-start" .Doc}} … components … {{template "doc-end"}}
+  .Doc is a ui.Doc. Swap the Google Fonts <link> for self-hosted files if the
+  review box has no internet; swap the htmx <script> for a vendored copy.
+*/}}
+{{define "doc-start"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · Chorus</title>
+<link rel="icon" href="{{.Static}}/img/chorus-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="{{.Static}}/css/chorus.css">
+<script src="https://unpkg.com/htmx.org@2.0.3" defer></script>
+</head>
+<body>
+<div class="page">
+{{end}}
+
+{{define "doc-end"}}
+</div>
+</body>
+</html>
+{{end}}

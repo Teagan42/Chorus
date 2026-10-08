@@ -1,0 +1,60 @@
+/* Chorus review UI — design tokens.
+   Colour values are sampled from the Chorus branding board; the brand README
+   says the palette there is artwork, not a verified spec. Confirm before
+   treating these as canonical. */
+
+:root {
+  /* Surfaces */
+  --c-ground: #0F131A;       /* page background */
+  --c-ground-2: #141922;     /* tracks, inputs, recessed areas */
+  --c-hover: #181D27;        /* row hover, group headers */
+  --c-raised: #1C222C;       /* selected row, default button */
+  --c-rule: #252B36;         /* 1px section rules */
+  --c-rule-strong: #323947;  /* control borders, strong rules */
+  --c-rule-faint: #454C5A;   /* muted tag borders, separators */
+  --c-user: #4A5263;         /* user audio regions, hover borders */
+  --c-activity: #2A3140;     /* listening / thinking regions */
+  --c-wave: #9AA3B2;         /* waveform fill */
+
+  /* Text */
+  --c-text: #ECEBE8;         /* primary text; also the primary button fill */
+  --c-text-2: #C6C9D0;
+  --c-text-3: #B3B8C2;
+  --c-muted: #8E95A3;        /* 6.1:1 on ground */
+
+  /* Brand anchors */
+  --brand-neutral: #30343B;
+  --brand-surface: #DDDBD9;
+
+  /* Semantic colours — one idea each */
+  --voice: #2358D9;  --voice-text: #8FAEF7;  --voice-line: #5C83EC;  --on-voice: #FFFFFF;
+  --conv: #6746FB;   --conv-text: #A796FF;   --conv-line: #8B73FF;   --on-conv: #FFFFFF;
+  --people: #FD608A; --people-text: #FE97B2; --people-line: #FD608A; --on-people: #2A0612;
+  --home: #FDAE3E;   --home-text: #FDC877;   --home-line: #FDAE3E;   --on-home: #2A1A04;   --home-dim: #6B5530;
+
+  /* Type */
+  --font-ui: 'Outfit', 'Avenir Next', 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --fs-page: 30px;    --fw-page: 600;
+  --fs-title: 22px;   --fw-title: 600;
+  --fs-body-l: 18px;
+  --fs-row: 16px;
+  --fs-body: 15px;
+  --fs-small: 13px;
+  --fs-cap: 11px;     --ls-cap: .12em;
+
+  /* Shape */
+  --radius: 4px;
+  --radius-s: 2px;
+  --hit: 44px;          /* minimum for transport and primary touch targets */
+  --control: 36px;      /* standard button height */
+  --track-header: 190px;
+}
+
+/* Tone classes set the four tone variables components read. */
+.tone-voice  { --tone: var(--voice);  --tone-text: var(--voice-text);  --tone-line: var(--voice-line);  --tone-on: var(--on-voice); }
+.tone-conv   { --tone: var(--conv);   --tone-text: var(--conv-text);   --tone-line: var(--conv-line);   --tone-on: var(--on-conv); }
+.tone-people { --tone: var(--people); --tone-text: var(--people-text); --tone-line: var(--people-line); --tone-on: var(--on-people); }
+.tone-home   { --tone: var(--home);   --tone-text: var(--home-text);   --tone-line: var(--home-line);   --tone-on: var(--on-home); }
+.tone-human  { --tone: var(--c-text); --tone-text: var(--c-text);      --tone-line: var(--c-text-2);    --tone-on: var(--c-ground); }
+.tone-muted  { --tone: var(--c-muted);--tone-text: var(--c-muted);     --tone-line: var(--c-rule-faint);--tone-on: var(--c-ground); }

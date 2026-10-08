@@ -1,0 +1,7 @@
+{{/* tabs · dot: ui.Tabs */}}
+{{define "tabs"}}<div class="tabs"{{with .ID}} id="{{.}}"{{end}} role="tablist" aria-label="{{.Label}}"{{if .OOB}} hx-swap-oob="true"{{end}}>
+{{- range .Items}}
+{{- if .Href}}<a class="{{cls "tabs__tab" (when .On "is-on")}}" role="tab" aria-selected="{{bool .On}}" href="{{.Href}}">{{.Label}}{{if .ShowCount}} <span class="tabs__count">{{.Count}}</span>{{end}}</a>
+{{- else}}<button type="button" class="{{cls "tabs__tab" (when .On "is-on")}}" role="tab" aria-selected="{{bool .On}}"{{template "hx" .Hx}}>{{.Label}}{{if .ShowCount}} <span class="tabs__count">{{.Count}}</span>{{end}}</button>{{end}}
+{{- end}}
+</div>{{end}}

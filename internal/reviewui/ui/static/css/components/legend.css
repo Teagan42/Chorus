@@ -1,0 +1,10 @@
+/* legend — swatch + label. */
+.legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 0; padding: 10px 20px 12px; list-style: none; font-size: 13px; color: var(--c-muted); }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.legend__swatch { display: inline-block; width: 14px; height: 12px; border-radius: 2px; }
+.legend__swatch--block { background: var(--tone, var(--c-user)); }
+.legend__swatch--outline { border: 1px solid var(--tone-line, var(--c-user)); }
+.legend__swatch--flag { background: var(--conv); border-top: 4px solid var(--tone, var(--conv)); }
+.legend__swatch--tick { width: 1px; height: 10px; background: var(--c-muted); border-radius: 0; }
+.legend__swatch--hatch { border: 1px dashed var(--tone-line); background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--tone) 35%, transparent) 0 2px, transparent 2px 5px); }
+.legend__swatch--presence { background: rgba(236, 235, 232, .12); }

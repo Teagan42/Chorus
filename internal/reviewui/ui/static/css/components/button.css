@@ -1,0 +1,18 @@
+/* button — default, primary (inverted surface), icon, 44px hit target.
+   Never coloured: colour belongs to meaning, not affordance. */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: var(--control); padding: 0 14px; border-radius: var(--radius);
+  border: 1px solid var(--c-rule-strong); background: var(--c-raised); color: var(--c-text);
+  font-size: 13px; font-weight: 600; line-height: 1; white-space: nowrap;
+  text-decoration: none; cursor: pointer;
+}
+.btn:hover { border-color: var(--c-user); color: #FFFFFF; }
+.btn--primary, .btn[aria-pressed="true"] { background: var(--c-text); border-color: var(--c-text); color: var(--c-ground); }
+.btn--primary:hover { color: var(--c-ground); background: #FFFFFF; }
+.btn--hit { min-height: var(--hit); }
+.btn--icon { width: var(--control); padding: 0; }
+.btn--icon.btn--hit { width: var(--hit); }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: .4; cursor: default; }
+.btn:disabled:hover { border-color: var(--c-rule-strong); color: var(--c-text); }
+.btn-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

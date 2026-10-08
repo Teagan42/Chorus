@@ -1,0 +1,20 @@
+{{/* day-lanes · dot: ui.DayLanes — Browse’s household day. */}}
+{{define "day-lanes"}}<section class="day-lanes" aria-label="Household day">
+<div class="day-lanes__grid">
+<div class="day-lanes__heads">
+<div class="day-lanes__ruler-pad"></div>
+{{- range .Lanes}}<button type="button" class="{{cls "day-lanes__head" (when .On "is-on")}}" aria-pressed="{{bool .On}}"{{template "hx" .Hx}}><span class="day-lanes__name">{{.Name}}</span><span class="day-lanes__sub">{{.Sub}}</span></button>{{end}}
+</div>
+<div class="day-lanes__body">
+<div class="day-lanes__ruler">{{range .Hours}}<span style="left: {{pct .Pos}}">{{.Label}}</span>{{end}}</div>
+{{- range .Lanes}}<div class="day-lanes__lane">
+{{- range .Presence}}<span class="day-lanes__presence" style="left: {{pct ($.P (index . 0))}}; width: {{pct ($.W .)}}"></span>{{end}}
+{{- range .Sessions}}<a class="{{cls "day-lanes__session" (when (ne .Flag "") "is-flagged") (tone .Flag)}}" href="{{.Href}}" aria-label="{{.Label}}" style="left: {{pct ($.P .Hour)}}"></a>{{end}}
+{{- range .Rejects}}<span class="day-lanes__reject" style="left: {{pct ($.P .)}}"></span>{{end}}
+</div>{{end}}
+{{- range $m := .Migrations}}<div class="day-lanes__migration" style="left: {{pct ($.P $m.Hour)}}; top: calc(26px + {{px ($.MigTop $m)}}); height: {{px ($.MigH $m)}}" aria-hidden="true"></div>
+{{- with $m.Label}}<span class="day-lanes__migration-label" style="left: {{pct ($.P $m.Hour)}}; top: calc(26px + {{px ($.MigTop $m)}} + 10px)">{{.}}</span>{{end}}{{end}}
+</div>
+</div>
+{{with .Legend}}{{template "legend" .}}{{end}}
+</section>{{end}}

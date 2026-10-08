@@ -1,0 +1,13 @@
+/* event-pins — the journal on the time axis. Stem from lane top to label;
+   rows 28px apart; labels paint above other pins' stems. */
+.pin { position: absolute; top: 0; display: flex; flex-direction: column; align-items: flex-start; }
+.pin__stem { width: 1px; flex: 1 1 auto; background: var(--tone-line, var(--c-rule-faint)); }
+.pin__label {
+  position: relative; z-index: 1; min-height: 22px; padding: 0 6px; border-radius: var(--radius-s);
+  border: 1px solid var(--tone-line, var(--c-rule-faint)); background: var(--c-ground);
+  color: var(--tone-text, var(--c-muted)); font-family: var(--font-mono); font-size: 11px;
+  white-space: nowrap; cursor: pointer;
+}
+.pin__label:hover { color: var(--c-text); }
+.pin.is-selected .pin__label { background: var(--tone, var(--c-muted)); border-color: var(--tone, var(--c-muted)); color: var(--tone-on, var(--c-ground)); font-weight: 500; }
+.pin.tone-muted.is-selected .pin__label { background: var(--c-muted); }

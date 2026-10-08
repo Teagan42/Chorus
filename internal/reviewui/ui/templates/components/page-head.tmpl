@@ -1,0 +1,17 @@
+{{/* page-head · dot: ui.PageHead */}}
+{{define "page-head"}}<section class="{{cls "page-head" (when .Trace "page-head--trace")}}">
+<div class="page-head__text">
+<div class="page-head__crumb">
+{{- with .Eyebrow}}<span class="cap">{{.}}</span>{{end}}
+{{- with .Switch}}{{template "switch" .}}{{end}}
+{{- if .Meta}}{{if .MetaHref}}<a class="{{cls "page-head__meta" (tone .MetaTone)}}" href="{{.MetaHref}}">{{.Meta}}</a>{{else}}<span class="{{cls "page-head__meta" (tone .MetaTone)}}">{{.Meta}}</span>{{end}}{{end -}}
+</div>
+<h1 class="page-head__title">{{.Title}}</h1>
+{{with .Subtitle}}<p class="{{cls "page-head__sub" (when $.SubtitleMono "mono")}}">{{.}}</p>{{end}}
+</div>
+{{if or .Stats .Actions .Aside}}<div class="page-head__aside">
+{{- with .Aside}}{{template "transport" .}}{{end}}
+{{- range .Stats}}<div class="page-head__stat"><span class="cap">{{.Label}}</span><span class="{{cls "page-head__stat-value" (tone .Tone)}}">{{.Value}}</span></div>{{end}}
+{{- range .Actions}}{{template "button" .}}{{end -}}
+</div>{{end}}
+</section>{{end}}

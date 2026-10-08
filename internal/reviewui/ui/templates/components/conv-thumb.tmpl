@@ -1,0 +1,5 @@
+{{/* conv-thumb · dot: ui.ConvThumb (or *ui.ConvThumb) */}}
+{{define "conv-thumb"}}<span class="conv-thumb" aria-hidden="true">
+{{- range .Segs}}<span class="{{cls "conv-thumb__seg" (print "is-" .Kind)}}" style="left: {{pct .Left}}{{if ne .Kind "cut"}}; width: {{pct .Width}}{{end}}"></span>{{end}}
+{{- if .Overflow}}<span class="conv-thumb__more">▸</span>{{end -}}
+</span>{{end}}

@@ -1,0 +1,8 @@
+/* switch — page-level link switch beside an eyebrow. */
+.switch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--c-rule); border-radius: 5px; }
+.switch__item {
+  display: flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 3px;
+  color: var(--c-muted); font-size: 13px; font-weight: 500; text-decoration: none;
+}
+.switch__item:hover { color: var(--c-text); }
+.switch__item.is-on { background: var(--c-text); color: var(--c-ground); }

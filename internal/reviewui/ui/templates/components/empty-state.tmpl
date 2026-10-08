@@ -1,0 +1,6 @@
+{{/* empty-state · dot: ui.EmptyState — the gradient mark appears here and in the header only. */}}
+{{define "empty-state"}}<div class="empty-state">
+<img src="{{or .IconSrc "/static/img/chorus-icon.png"}}" width="56" height="56" alt="">
+<span class="empty-state__title">{{.Title}}</span>
+{{with .Body}}<span class="empty-state__body">{{.}}</span>{{end}}
+</div>{{end}}

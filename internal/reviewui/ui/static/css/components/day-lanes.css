@@ -1,0 +1,29 @@
+/* day-lanes — one lane per satellite across the day. Sessions are
+   Conversation-violet marks; a flag colours the top edge. */
+.day-lanes { border-bottom: 1px solid var(--c-rule-strong); overflow-x: auto; }
+.day-lanes__grid { display: grid; grid-template-columns: var(--track-header) minmax(0, 1fr); min-width: 1100px; }
+.day-lanes__heads { border-right: 1px solid var(--c-rule); }
+.day-lanes__ruler-pad { height: 26px; border-bottom: 1px solid var(--c-rule); }
+.day-lanes__head {
+  display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px;
+  width: 100%; height: 52px; padding: 0 16px; border: 0; border-bottom: 1px solid var(--c-rule);
+  background: transparent; color: var(--c-text); text-align: left; cursor: pointer;
+}
+.day-lanes__head:hover { background: var(--c-hover); }
+.day-lanes__head.is-on { background: var(--c-raised); box-shadow: inset 3px 0 0 var(--c-text); }
+.day-lanes__name { font-size: 15px; font-weight: 600; }
+.day-lanes__sub { font-family: var(--font-mono); font-size: 11px; color: var(--c-muted); }
+.day-lanes__body { position: relative; }
+.day-lanes__ruler { position: relative; height: 26px; border-bottom: 1px solid var(--c-rule); font-family: var(--font-mono); font-size: 11px; color: var(--c-muted); }
+.day-lanes__ruler span { position: absolute; top: 6px; padding-left: 4px; }
+.day-lanes__lane { position: relative; height: 52px; border-bottom: 1px solid var(--c-rule); }
+.day-lanes__presence { position: absolute; top: 0; bottom: 0; background: rgba(236, 235, 232, .035); }
+.day-lanes__session { position: absolute; top: 12px; width: 8px; height: 22px; margin-left: -4px; border-radius: 2px; background: var(--conv); }
+.day-lanes__session.is-flagged { border-top: 4px solid var(--tone-text); }
+.day-lanes__session:hover { outline: 2px solid var(--c-text); outline-offset: 1px; }
+.day-lanes__reject { position: absolute; bottom: 4px; width: 1px; height: 8px; background: var(--c-muted); }
+.day-lanes__migration { position: absolute; width: 0; border-left: 2px dashed var(--conv-line); }
+.day-lanes__migration-label {
+  position: absolute; transform: translateX(-100%); margin-left: -8px; white-space: nowrap;
+  font-family: var(--font-mono); font-size: 11px; color: var(--conv-text);
+}

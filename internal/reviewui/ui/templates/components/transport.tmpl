@@ -1,0 +1,7 @@
+{{/* transport · dot: ui.Transport */}}
+{{define "transport"}}<div class="transport"{{with .ID}} id="{{.}}"{{end}}{{if .OOB}} hx-swap-oob="true"{{end}}>
+<button type="button" class="btn btn--icon btn--hit" aria-label="{{if .Playing}}Pause{{else}}Play{{end}}"{{template "hx" .PlayHx}}>{{if .Playing}}{{template "icon" "pause"}}{{else}}{{template "icon" "play"}}{{end}}</button>
+<span class="transport__time">{{.Timecode}}</span>
+{{with .Channels}}{{template "segmented" .}}{{end}}
+{{range .Actions}}{{template "button" .}}{{end}}
+</div>{{end}}

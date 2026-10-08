@@ -1,0 +1,2 @@
+{{/* legend · dot: ui.Legend */}}
+{{define "legend"}}<ul class="legend">{{range .Items}}<li><span class="{{cls "legend__swatch" (print "legend__swatch--" .Shape) (tone .Tone)}}" aria-hidden="true"></span>{{.Label}}</li>{{end}}</ul>{{end}}

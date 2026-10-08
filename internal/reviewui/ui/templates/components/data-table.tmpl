@@ -1,0 +1,9 @@
+{{/* data-table · dot: ui.DataTable */}}
+{{define "data-table"}}<div class="data-table"{{with .ID}} id="{{.}}"{{end}}>
+{{with .Label}}<span class="cap">{{.}}</span>{{end}}
+<div class="data-table__scroll"><table{{with .Label}} aria-label="{{.}}"{{end}}{{with .Widths}} style="--cols: {{safeCSS .}}"{{end}}>
+<thead><tr>{{range .Columns}}<th scope="col" class="cap">{{.}}</th>{{end}}</tr></thead>
+<tbody>{{range .Rows}}<tr{{if .New}} class="is-new"{{end}}>{{range .Cells}}<td class="{{cls (when .Mono "mono") (when .Muted "muted")}}">{{if .Href}}<a href="{{.Href}}">{{.Text}}</a>{{else}}{{.Text}}{{end}}</td>{{end}}</tr>{{end}}</tbody>
+</table></div>
+{{- if and (not .Rows) .Empty}}{{template "empty-state" .Empty}}{{end}}
+</div>{{end}}

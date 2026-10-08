@@ -1,0 +1,12 @@
+/* conv-thumb — upper band user/speech, lower band tools, full-height cut. */
+.conv-thumb {
+  position: relative; display: block; height: 28px; min-width: 160px;
+  background: var(--c-ground-2); border: 1px solid var(--c-rule); border-radius: var(--radius-s); overflow: hidden;
+}
+.conv-thumb__seg { position: absolute; top: 4px; height: 13px; border-radius: 1px; }
+.conv-thumb__seg.is-user { background: var(--c-user); }
+.conv-thumb__seg.is-speech { background: var(--voice); }
+.conv-thumb__seg.is-unheard { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--voice) 70%, transparent) 0 2px, transparent 2px 5px); }
+.conv-thumb__seg.is-tool { top: 20px; height: 5px; background: var(--home); }
+.conv-thumb__seg.is-cut { top: 0; bottom: 0; height: auto; width: 2px; background: var(--people); }
+.conv-thumb__more { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); font-size: 10px; color: var(--c-muted); }

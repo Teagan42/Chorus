@@ -1,0 +1,7 @@
+{{/* alert · dot: ui.Alert */}}
+{{define "alert"}}<div class="{{cls "alert" (tone .Tone)}}" role="alert">
+<span class="alert__title">{{.Title}}</span>
+{{with .Body}}<span class="alert__body">{{.}}</span>{{end}}
+{{with .Actions}}{{template "button-row" .}}{{end}}
+{{with .Note}}<span class="meta">{{.}}</span>{{end}}
+</div>{{end}}

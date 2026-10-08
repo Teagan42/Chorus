@@ -1,0 +1,17 @@
+/* page-head — eyebrow, title, subtitle; stats and actions on the right. */
+.page-head {
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px;
+  padding: 22px 20px 18px; border-bottom: 1px solid var(--c-rule);
+}
+.page-head--trace { align-items: center; padding: 14px 20px; }
+.page-head__text { display: flex; flex-direction: column; gap: 4px; flex: 1 1 360px; min-width: 0; }
+.page-head__crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.page-head__meta { font-family: var(--font-mono); font-size: 12px; color: var(--tone-text, var(--c-muted)); }
+.page-head__title { margin: 0; font-size: var(--fs-page); font-weight: var(--fw-page); letter-spacing: -0.01em; line-height: 1.15; }
+.page-head--trace .page-head__title { font-size: var(--fs-title); font-weight: var(--fw-title); }
+.page-head__sub { margin: 0; font-size: var(--fs-body); color: var(--c-muted); }
+.page-head__sub.mono { font-size: 12px; }
+.page-head__aside { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 28px; }
+.page-head--trace .page-head__aside { align-items: center; gap: 12px; }
+.page-head__stat { display: flex; flex-direction: column; gap: 2px; }
+.page-head__stat-value { font-family: var(--font-mono); font-size: 22px; color: var(--tone-text, var(--c-text)); }

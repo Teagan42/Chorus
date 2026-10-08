@@ -1,0 +1,12 @@
+/* data-table — hairline rows, caps headers, mono figures. Uses a grid per row so
+   column widths can be set once with --cols. */
+.data-table { padding: 24px 20px 8px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.data-table__scroll { overflow-x: auto; }
+.data-table table { width: 100%; min-width: 760px; border-collapse: collapse; display: grid; }
+.data-table thead, .data-table tbody, .data-table tr { display: contents; }
+.data-table table { grid-template-columns: var(--cols, repeat(auto-fit, minmax(0, 1fr))); }
+.data-table th, .data-table td { padding: 11px 16px 11px 0; border-bottom: 1px solid var(--c-rule); text-align: left; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.data-table th { font-weight: 600; }
+.data-table td.mono { font-family: var(--font-mono); }
+.data-table td.muted { color: var(--c-muted); }
+.data-table tr.is-new td { color: var(--c-text); background: color-mix(in srgb, var(--conv) 8%, transparent); }

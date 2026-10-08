@@ -1,0 +1,14 @@
+/* list — Triage/Browse rows; scrolls sideways inside its box on phones. */
+.list__scroll { overflow-x: auto; }
+.list__row {
+  display: grid; grid-template-columns: 150px minmax(0, 1fr) 220px 190px 100px 60px; gap: 20px; align-items: center;
+  padding: 12px 20px; border-bottom: 1px solid var(--c-rule); color: var(--c-text); text-decoration: none;
+}
+a.list__row:hover { background: var(--c-hover); color: var(--c-text); }
+.list__row--head { padding-top: 10px; padding-bottom: 10px; }
+.list__text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.list__title { font-size: var(--fs-row); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.list__detail { font-family: var(--font-mono); font-size: 12px; color: var(--c-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.list__who { font-size: 14px; color: var(--c-text-2); }
+.list__figure { font-family: var(--font-mono); font-size: 13px; color: var(--tone-text, var(--c-text-2)); }
+.list__when { font-family: var(--font-mono); font-size: 12px; color: var(--c-muted); }

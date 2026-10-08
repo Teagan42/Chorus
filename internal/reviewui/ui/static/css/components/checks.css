@@ -1,0 +1,5 @@
+/* checks — filled dot passed, hollow dot not yet. */
+.checks { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; list-style: none; }
+.checks__item { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--c-text-2); }
+.checks__dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--c-muted); flex: none; }
+.checks__item.is-on .checks__dot { background: var(--c-text); border-color: var(--c-text); }

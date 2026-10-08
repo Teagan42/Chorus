@@ -1,0 +1,2 @@
+{{/* checks · dot: []ui.Check */}}
+{{define "checks"}}<ul class="checks">{{range .}}<li class="{{cls "checks__item" (when .On "is-on")}}"><span class="checks__dot" aria-hidden="true"></span>{{.Text}}<span class="sr-only">{{if .On}} — passed{{else}} — not yet{{end}}</span></li>{{end}}</ul>{{end}}

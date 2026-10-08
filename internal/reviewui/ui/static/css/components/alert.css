@@ -1,0 +1,8 @@
+/* alert — interrupts a risky action. Border and wash take the tone. */
+.alert {
+  display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: var(--radius);
+  border: 1px solid var(--tone-line, var(--c-rule-strong));
+  background: color-mix(in srgb, var(--tone, transparent) 10%, transparent);
+}
+.alert__title { font-size: var(--fs-body); font-weight: 600; }
+.alert__body { font-size: 14px; line-height: 1.5; color: var(--c-text-2); }

@@ -1,0 +1,9 @@
+{{/* metric-strip · dot: ui.MetricStrip */}}
+{{define "metric-strip"}}<section class="metric-strip"{{with .Label}} aria-label="{{.}}"{{end}}>
+{{- range .Items}}<div class="metric">
+<span class="cap">{{.Label}}</span>
+<span class="metric__value">{{with .From}}{{.}} → {{end}}<span class="{{tone .Tone}}">{{.Value}}</span></span>
+{{- if gt .Meter 0.0}}<span class="metric__meter" aria-hidden="true"><span style="width: {{pct (mulf .Meter 100)}}"></span></span>{{end}}
+{{- with .Note}}<span class="metric__note">{{.}}</span>{{end}}
+</div>{{end -}}
+</section>{{end}}

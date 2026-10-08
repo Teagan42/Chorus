@@ -1,0 +1,41 @@
+{{/*
+  timeline · dot: ui.Timeline
+  One header column, one body column. Every track, pin and overlay uses the
+  same axis, so everything lines up. Wide timelines scroll inside their box.
+*/}}
+{{define "timeline"}}<section class="timeline"{{with .ID}} id="{{.}}"{{end}}{{if .OOB}} hx-swap-oob="true"{{end}} aria-label="{{or .Label "Timeline"}}">
+<div class="timeline__grid" style="min-width: {{px .MinW}}">
+<div class="timeline__heads">
+<div class="timeline__ruler-pad"></div>
+{{- range .Tracks}}{{template "timeline-head" .}}{{end}}
+</div>
+<div class="timeline__body">
+<div class="timeline__ruler">{{range .Ticks}}<span class="{{cls "timeline__tick" (tone .Tone)}}" style="left: {{pct .Pos}}">{{.Label}}</span>{{end}}</div>
+{{- range .Tracks}}{{template "timeline-track" .}}{{end}}
+{{- range .Overlays}}{{template "timeline-overlay" .}}{{end}}
+</div>
+</div>
+</section>{{end}}
+
+{{/* timeline-head · dot: ui.Track */}}
+{{define "timeline-head"}}<div class="{{cls "timeline__head" (print "is-" .Kind) (when .Shade "is-shaded") (tone .Tone)}}" style="height: {{px .H}}">
+{{- if eq .Kind "group"}}<span class="cap">{{.Name}}</span>
+{{- else}}<span class="{{cls "timeline__name" (when .NameMono "mono")}}">{{.Name}}</span>{{with .Sub}}<span class="timeline__sub">{{.}}</span>{{end}}{{end -}}
+</div>{{end}}
+
+{{/* timeline-track · dot: ui.Track */}}
+{{define "timeline-track"}}<div class="{{cls "timeline__track" (print "is-" .Kind) (when .Shade "is-shaded")}}" style="height: {{px .H}}">
+{{- if .Wave}}<svg class="timeline__wave" viewBox="0 0 1000 40" preserveAspectRatio="none" role="img" aria-label="{{or .WaveText "Waveform"}}"><path d="{{.Wave}}"/></svg>{{end}}
+{{- range .Bars}}<span class="timeline__bar" style="left: {{pct .Pos}}; height: {{pct (mulf .Height 100)}}"></span>{{end}}
+{{- range .Regions}}{{template "timeline-region" .}}{{end}}
+{{- range .Captions}}<span class="{{cls "timeline__caption" (when .Bottom "is-bottom") (when .Quote "is-quote") (tone .Tone)}}" style="left: {{pct .Pos}}">{{.Text}}</span>{{end}}
+{{- if .Pins}}{{template "event-pins" .Pins}}{{end -}}
+</div>{{end}}
+
+{{/* timeline-region · dot: ui.Region */}}
+{{define "timeline-region"}}<div class="{{cls "timeline__region" (print "is-" .Style) (when .Wrap "is-wrap") (when .Compact "is-compact") (tone .Tone)}}" style="left: {{pct .Left}}; width: {{pct .Width}}">{{.Text}}</div>{{end}}
+
+{{/* timeline-overlay · dot: ui.Overlay */}}
+{{define "timeline-overlay"}}{{if eq .Kind "gap"}}<div class="timeline__gap" style="left: {{pct .Pos}}; width: {{pct .Width}}"{{if .Height}} data-partial{{end}}><span class="timeline__gap-label">{{.Label}}</span></div>
+{{- else}}<div class="{{cls "timeline__overlay" (print "is-" .Kind)}}" style="left: {{pct .Pos}}{{if .Height}}; top: calc(var(--ruler-h) + {{px .Top}}); bottom: auto; height: {{px .Height}}{{end}}" aria-hidden="true"></div>
+{{- with .Label}}<span class="{{cls "timeline__overlay-label" (print "is-" $.Kind)}}" style="left: {{pct $.Pos}}">{{.}}</span>{{end}}{{end}}{{end}}

@@ -1,0 +1,11 @@
+/* option-cards — a few big exclusive options; selected = surface border on raised. */
+.option-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 8px; }
+.option-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px;
+  border: 1px solid var(--c-rule-strong); border-radius: var(--radius); background: transparent;
+  color: var(--c-text); text-align: left; cursor: pointer;
+}
+.option-card:hover { border-color: var(--c-user); }
+.option-card.is-on { border-color: var(--c-text); background: var(--c-raised); }
+.option-card__label { font-size: 16px; font-weight: 600; }
+.option-card__sub { font-family: var(--font-mono); font-size: 11px; color: var(--c-muted); }

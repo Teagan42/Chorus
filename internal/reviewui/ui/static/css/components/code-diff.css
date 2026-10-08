@@ -1,0 +1,5 @@
+/* code-diff — removed lines struck in People pink, added lines in Voice. */
+.code-diff { padding: 12px 14px; border: 1px solid var(--c-rule); border-radius: var(--radius); background: var(--c-ground-2); font-family: var(--font-mono); font-size: 12px; line-height: 1.75; color: var(--c-text-2); }
+.code-diff__line { display: block; white-space: pre-wrap; }
+.code-diff__line.is-del { color: var(--c-muted); text-decoration: line-through; text-decoration-color: var(--people); }
+.code-diff__line.is-add { color: var(--voice-text); }
