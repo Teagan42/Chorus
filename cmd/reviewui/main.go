@@ -1,7 +1,8 @@
-// Command reviewui serves the Curate screen over the journal (SPEC §9.2):
-// harvested barge-in candidates on the left, the pair flow on the right,
-// verdicts in the curation table. It reads CHORUS_POSTGRES_DSN like probe
-// and harvest, and migrates both schemas on start.
+// Command reviewui serves the Curate and Review screens over the journal
+// (SPEC §9.2): harvested barge-in candidates, the pair flow, the barge-in
+// timeline with each clip playable, verdicts in the curation table. It
+// reads CHORUS_POSTGRES_DSN and CHORUS_BLOB_DIR like chorusd, and migrates
+// both schemas on start.
 package main
 
 import (
@@ -16,9 +17,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/teaganglenn/chorus/internal/blob"
 	"github.com/teaganglenn/chorus/internal/curation"
 	"github.com/teaganglenn/chorus/internal/journal"
 )
+
+// blobDirEnv is where the journal's audio lives, the same variable chorusd
+// writes through (.env.example).
+const blobDirEnv = "CHORUS_BLOB_DIR"
 
 // version is set by the release build (-X main.version=...).
 var version = "dev"
@@ -49,8 +55,12 @@ func run(ctx context.Context, addr string) error {
 	if err := curation.Migrate(ctx, pool); err != nil {
 		return err
 	}
+	blobs, err := blob.NewDir(os.Getenv(blobDirEnv))
+	if err != nil {
+		return fmt.Errorf("%s: %w", blobDirEnv, err)
+	}
 
-	s := newServer(pgJournal{journal.NewPgStore(pool)}, curation.NewPgStore(pool), time.Now)
+	s := newServer(pgJournal{journal.NewPgStore(pool)}, curation.NewPgStore(pool), blobs, time.Now)
 	srv := &http.Server{Addr: addr, Handler: s.routes(), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/teaganglenn/chorus/internal/blob"
 	"github.com/teaganglenn/chorus/internal/curation"
 	"github.com/teaganglenn/chorus/internal/journal"
 )
@@ -51,10 +52,32 @@ func bargeInLog(t *testing.T) *journal.MemStore {
 	return store
 }
 
+// fixtureBlobs stores PCM under every ref the fixture journal cites, sized
+// so each clip has a distinct, known duration.
+func fixtureBlobs(t *testing.T) *blob.Memory {
+	t.Helper()
+	m := blob.NewMemory()
+	for key, seconds := range map[string]float64{
+		"mic/1": 1, "mic/2": 0.5, "mic/3": 1, "tts/s1": 2, "tts/s2": 1,
+	} {
+		w, err := m.Create(context.Background(), key)
+		if err != nil {
+			t.Fatalf("create %s: %v", key, err)
+		}
+		if _, err := w.Write(make([]byte, int(seconds*32000))); err != nil {
+			t.Fatalf("write %s: %v", key, err)
+		}
+		if _, err := w.Commit(); err != nil {
+			t.Fatalf("commit %s: %v", key, err)
+		}
+	}
+	return m
+}
+
 func newTestServer(t *testing.T) (*server, curation.Store) {
 	t.Helper()
 	decisions := curation.NewMemStore()
-	s := newServer(bargeInLog(t), decisions, func() time.Time { return time.Unix(1_760_000_100, 0).UTC() })
+	s := newServer(bargeInLog(t), decisions, fixtureBlobs(t), func() time.Time { return time.Unix(1_760_000_100, 0).UTC() })
 	return s, decisions
 }
 
@@ -205,5 +228,55 @@ func TestSwitchingStatusTabsDropsASelectionOutsideTheFilter(t *testing.T) {
 	h = get(t, s, "/curate/pairs?status=accepted")
 	if !strings.Contains(h, "/pairs/"+pairID+"/edit") {
 		t.Error("the accepted tab did not select its one pair")
+	}
+}
+
+// verifies SPEC §9.2
+func TestReviewPageDrawsTheCutOnTheTimeline(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := get(t, s, "/review")
+	for _, want := range []string{
+		"cut · 00:00.420",            // the overlay, at the recorded position
+		"I found three",              // the heard half of the rejected turn
+		" albums by that artist",     // the unheard tail, drawn hatched
+		"just the first one",         // the correction on the mic track
+		"play something by zeppelin", // the prompt names the page
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("page is missing %q", want)
+		}
+	}
+}
+
+// verifies SPEC §9.2
+func TestReviewPageOffersEveryClipAsPlayableAudio(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := get(t, s, "/review?pair="+url.QueryEscape(pairID))
+	if !strings.Contains(h, "<audio") {
+		t.Fatal("no audio element on the page")
+	}
+	for _, ref := range []string{"blob://tts/s1", "blob://mic/2", "blob://mic/3", "blob://tts/s2"} {
+		if !strings.Contains(h, "/audio?ref="+url.QueryEscape(ref)) {
+			t.Errorf("no player for %s", ref)
+		}
+	}
+}
+
+// verifies SPEC §9.2
+func TestReviewAudioRouteServesAJournalBlob(t *testing.T) {
+	s, _ := newTestServer(t)
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/audio?ref="+url.QueryEscape("blob://mic/2"), nil))
+	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "audio/wav" {
+		t.Errorf("GET /audio = %d %s, want a WAV", w.Code, w.Header().Get("Content-Type"))
+	}
+}
+
+// verifies SPEC §9.2
+func TestReviewPageWithoutBargeInsSaysSo(t *testing.T) {
+	s := newServer(journal.NewMemStore(), curation.NewMemStore(), blob.NewMemory(), time.Now)
+	h := get(t, s, "/review")
+	if !strings.Contains(h, "Nothing to review.") {
+		t.Error("an empty journal should show the empty state")
 	}
 }
