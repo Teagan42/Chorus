@@ -412,7 +412,8 @@ func TestUtterancesAreHeardInOrder(t *testing.T) {
 	r.session(t)
 	r.speaker.wrote(t)
 
-	// Each shorter than a partial, so neither reaches the gate: they queue.
+	// Each, with its trailing silence, shorter than a partial: neither reaches
+	// the gate, so they queue.
 	r.utter(t, r.line("also", alan), chunkBytes)
 	r.utter(t, r.line("and the bedroom", alan), chunkBytes)
 	r.settled(t)

@@ -309,7 +309,7 @@ type rig struct {
 // Rig bounds, small so a test speaks for milliseconds rather than seconds.
 const (
 	rigSilence  = 4 * chunkBytes
-	rigPartials = 4 * chunkBytes
+	rigPartials = 8 * chunkBytes
 	rigWake     = 16 * chunkBytes
 )
 
