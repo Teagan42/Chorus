@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -380,6 +381,52 @@ var storeConformance = map[string]func(*testing.T, journal.Store){
 			t.Errorf("state mismatch\n got: %+v\nwant: %+v", got, wantReplayState())
 		}
 	},
+
+	"conversations list newest activity first": func(t *testing.T, s journal.Store) {
+		ctx := context.Background()
+		l := lister(t, s)
+		older, newer := event("conv-older", 1), event("conv-newer", 1)
+		newer.At = older.At.Add(time.Minute)
+		for _, e := range []journal.Event{older, newer} {
+			if err := s.Append(ctx, e); err != nil {
+				t.Fatalf("append: %v", err)
+			}
+		}
+		// A late event moves the older conversation ahead: activity, not creation.
+		late := event("conv-older", 2)
+		late.At = newer.At.Add(time.Minute)
+		if err := s.Append(ctx, late); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+
+		got, err := l.Conversations(ctx)
+		if err != nil {
+			t.Fatalf("conversations: %v", err)
+		}
+		if want := []string{"conv-older", "conv-newer"}; !slices.Equal(got, want) {
+			t.Errorf("conversations = %v, want %v", got, want)
+		}
+	},
+
+	"an empty journal lists no conversations": func(t *testing.T, s journal.Store) {
+		got, err := lister(t, s).Conversations(context.Background())
+		if err != nil {
+			t.Fatalf("conversations: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("conversations = %v, want none", got)
+		}
+	},
+}
+
+// lister fails the case for a backend that cannot enumerate its log.
+func lister(t *testing.T, s journal.Store) journal.Lister {
+	t.Helper()
+	l, ok := s.(journal.Lister)
+	if !ok {
+		t.Fatalf("%T does not list conversations", s)
+	}
+	return l
 }
 
 // event is a minimal valid entry; the sequence is what most cases exercise.

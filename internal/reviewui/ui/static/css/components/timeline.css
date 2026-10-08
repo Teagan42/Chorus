@@ -1,0 +1,76 @@
+/* timeline — header column + tracks on one shared axis.
+   Speech and Mic are the only tall tracks; child activity is 30px.
+   Cut line: 2px People pink through every track. Playhead: 1px surface. */
+.timeline { --ruler-h: 26px; overflow-x: auto; border-bottom: 1px solid var(--c-rule-strong); }
+.timeline__grid { display: grid; grid-template-columns: var(--track-header) minmax(0, 1fr); }
+.timeline__heads { border-right: 1px solid var(--c-rule); }
+.timeline__ruler-pad { height: var(--ruler-h); border-bottom: 1px solid var(--c-rule); }
+.timeline__head {
+  display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 0 16px;
+  border-bottom: 1px solid var(--c-rule);
+}
+.timeline__head.is-shaded, .timeline__track.is-shaded { background: var(--c-ground-2); }
+.timeline__head.is-group, .timeline__track.is-group { background: var(--c-hover); }
+.timeline__head.is-group .cap { color: var(--tone-text, var(--c-muted)); }
+.timeline__head.is-events { justify-content: flex-start; padding-top: 14px; }
+.timeline__name { font-size: 13px; }
+.timeline__head.is-audio .timeline__name, .timeline__head.is-speech .timeline__name,
+.timeline__head.is-events .timeline__name { font-size: 15px; font-weight: 600; }
+.timeline__name.mono { font-size: 12px; }
+.timeline__sub { font-family: var(--font-mono); font-size: 11px; color: var(--c-muted); }
+
+.timeline__body { position: relative; }
+.timeline__ruler { position: relative; height: var(--ruler-h); border-bottom: 1px solid var(--c-rule); font-family: var(--font-mono); font-size: 11px; color: var(--c-muted); }
+.timeline__tick { position: absolute; top: 6px; padding-left: 4px; color: var(--tone-text, var(--c-muted)); }
+.timeline__track { position: relative; border-bottom: 1px solid var(--c-rule); }
+.timeline__track:last-child { border-bottom: 0; }
+
+.timeline__wave { position: absolute; left: 0; top: 8px; width: 100%; height: calc(100% - 36px); fill: var(--c-wave); }
+.timeline__bar { position: absolute; top: 50%; width: 2px; transform: translateY(-50%); border-radius: 1px; background: var(--c-wave); }
+
+/* Regions: default placement by track kind */
+.timeline__region {
+  position: absolute; border-radius: var(--radius-s); padding: 3px 7px; font-size: 12px;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  top: 7px; height: 16px; line-height: 14px;
+}
+.timeline__track.is-speech .timeline__region { top: 12px; bottom: 12px; height: auto; line-height: 1.35; }
+.timeline__region.is-wrap { white-space: normal; }
+.timeline__track.is-speech .timeline__region.is-compact { top: 14px; bottom: auto; height: 28px; }
+.timeline__region.is-fill { background: var(--tone); color: var(--tone-on); font-weight: 600; }
+.timeline__region.is-outline { border: 1px solid var(--tone-line); color: var(--tone-text); font-size: 11px; padding: 0 6px; }
+.timeline__region.is-unheard {
+  border: 1px dashed var(--voice-line); color: var(--voice-text);
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--voice) 32%, transparent) 0 3px, transparent 3px 8px);
+}
+.timeline__region.is-activity { background: var(--c-activity); }
+.timeline__region.is-rejected { border: 1px dashed var(--c-user); color: var(--c-muted); font-size: 11px; padding: 0 6px; }
+.timeline__region.is-marker { background: var(--c-text); }
+.timeline__region.is-ghost { border: 1px solid var(--c-user); color: var(--c-muted); }
+
+.timeline__caption {
+  position: absolute; top: 50%; transform: translateY(-50%); white-space: nowrap;
+  font-family: var(--font-mono); font-size: 11px; color: var(--tone-text, var(--c-text-2)); margin-left: 6px;
+}
+.timeline__caption.is-bottom { top: auto; bottom: 7px; transform: none; margin-left: 0; }
+.timeline__caption.is-quote { font-family: var(--font-ui); font-size: 13px; font-weight: 500; color: var(--c-text); }
+
+/* Overlays */
+.timeline__overlay { position: absolute; top: var(--ruler-h); bottom: 0; width: 1px; pointer-events: none; }
+.timeline__overlay.is-cut { width: 2px; background: var(--people); }
+.timeline__overlay.is-playhead { background: var(--c-text); }
+.timeline__overlay.is-marker { width: 0; border-left: 2px dashed var(--c-muted); }
+.timeline__overlay-label {
+  position: absolute; top: 4px; margin-left: 6px; padding: 0 4px; background: var(--c-ground);
+  font-family: var(--font-mono); font-size: 11px; color: var(--c-text-2); white-space: nowrap;
+}
+.timeline__overlay-label.is-cut { color: var(--people-text); }
+.timeline__gap {
+  position: absolute; top: var(--ruler-h); bottom: 0; pointer-events: none;
+  border-left: 1px dashed var(--c-rule-strong); border-right: 1px dashed var(--c-rule-strong);
+  background: repeating-linear-gradient(135deg, rgba(236, 235, 232, .035) 0 4px, transparent 4px 10px);
+}
+.timeline__gap-label {
+  position: absolute; top: calc(-1 * var(--ruler-h) + 6px); left: 0; right: 0; text-align: center;
+  font-family: var(--font-mono); font-size: 11px; color: var(--conv-text); white-space: nowrap;
+}

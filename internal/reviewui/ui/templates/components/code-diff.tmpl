@@ -1,0 +1,4 @@
+{{/* code-diff · dot: ui.CodeDiff */}}
+{{define "code-diff"}}<div class="code-diff"{{with .Label}} aria-label="{{.}}"{{end}}>
+{{- range .Lines}}<span class="{{cls "code-diff__line" (when (eq .Kind "+") "is-add") (when (eq .Kind "-") "is-del")}}">{{if eq .Kind "+"}}+ {{else if eq .Kind "-"}}− {{end}}{{.Text}}</span>{{end -}}
+</div>{{end}}

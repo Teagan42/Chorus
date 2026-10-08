@@ -1,0 +1,9 @@
+{{/*
+  event-pins · dot: []ui.Pin — rendered inside an Events track.
+  Each pin's Hx should load the inspector, e.g.
+    ui.Hx{Get: "/review/c_7f3a/events/e35", Target: "#inspector", Swap: "outerHTML"}
+*/}}
+{{define "event-pins"}}{{range .}}<div class="{{cls "pin" (tone .Tone) (when .Selected "is-selected")}}" style="left: {{pct .Pos}}; height: {{px .StemHeight}}">
+<span class="pin__stem" aria-hidden="true"></span>
+<button type="button" class="pin__label" aria-pressed="{{bool .Selected}}"{{template "hx" .Hx}}>{{.Label}}</button>
+</div>{{end}}{{end}}

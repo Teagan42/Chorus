@@ -1,0 +1,4 @@
+{{/* segmented · dot: ui.Segmented */}}
+{{define "segmented"}}<div class="segmented"{{with .ID}} id="{{.}}"{{end}} role="group" aria-label="{{.Label}}">
+{{- range .Items}}<button type="button" class="{{cls "segmented__item" (when .On "is-on")}}" aria-pressed="{{bool .On}}"{{template "hx" .Hx}}>{{.Label}}</button>{{end -}}
+</div>{{end}}

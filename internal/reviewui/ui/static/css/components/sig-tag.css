@@ -1,0 +1,8 @@
+/* sig-tag — why a row is in front of you. Outline only; tags never fill.
+   barge-in & identity → people · tools → home · speech/latency → voice ·
+   repeats & replays → conv · reviewer-authored → human · settled → muted */
+.sig-tag {
+  display: inline-block; padding: 2px 6px; border-radius: var(--radius-s);
+  border: 1px solid var(--tone-line, var(--c-rule-faint)); color: var(--tone-text, var(--c-muted));
+  font-family: var(--font-mono); font-size: 11px; line-height: 1.4; white-space: nowrap;
+}

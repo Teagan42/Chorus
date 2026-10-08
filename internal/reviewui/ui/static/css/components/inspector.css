@@ -1,0 +1,5 @@
+/* inspector — the selected event: caps label → body → mono meta. */
+.inspector { display: flex; flex-direction: column; gap: 10px; min-height: 100%; }
+.inspector__body { margin: 0; font-size: var(--fs-body-l); line-height: 1.45; }
+.inspector__unheard { color: var(--c-muted); text-decoration: line-through; text-decoration-color: var(--people); }
+.inspector__foot { margin-top: auto; font-family: var(--font-mono); font-size: 11px; color: var(--c-muted); }

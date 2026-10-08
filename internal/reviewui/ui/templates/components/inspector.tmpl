@@ -1,0 +1,7 @@
+{{/* inspector · dot: ui.Inspector — swap target for event pins (#inspector). */}}
+{{define "inspector"}}<div class="inspector" id="inspector"{{if .OOB}} hx-swap-oob="true"{{end}}>
+<span class="cap">{{.Cap}}</span>
+<p class="inspector__body">{{.Body}}{{with .Unheard}}<span class="inspector__unheard">{{.}}</span>{{end}}</p>
+{{with .Meta}}<span class="meta">{{.}}</span>{{end}}
+{{with .Foot}}<span class="inspector__foot">{{.}}</span>{{end}}
+</div>{{end}}

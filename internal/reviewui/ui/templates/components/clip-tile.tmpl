@@ -1,0 +1,16 @@
+{{/* clip-tile · dot: ui.ClipTile */}}
+{{define "clip-tile"}}<article class="{{cls "clip-tile" (when .Reviewed "is-reviewed")}}" id="clip-{{.ID}}">
+<header class="clip-tile__head"><span class="clip-tile__title">{{.Title}}</span>{{template "sig-tag" .Verdict}}</header>
+<div class="clip-tile__audio">
+<button type="button" class="btn btn--icon btn--hit" aria-label="Play {{.Title}}"{{template "hx" .PlayHx}}>{{template "icon" "play"}}</button>
+<span class="clip-tile__bars" aria-hidden="true">{{range .Peaks}}<span style="height: {{pct (mulf . 100)}}"></span>{{end}}</span>
+</div>
+{{template "checks" .Checks}}
+<footer class="clip-tile__foot"><span class="meta">{{.Where}}</span>
+<span class="btn-row"><button type="button" class="btn" aria-pressed="{{bool .MarkedNeg}}"{{template "hx" .NegHx}}>Negative</button><button type="button" class="btn" aria-pressed="{{bool .MarkedWake}}"{{template "hx" .WakeHx}}>Was a wake</button></span></footer>
+</article>{{end}}
+
+{{/* clip-grid · dot: ui.ClipGrid */}}
+{{define "clip-grid"}}<section class="clip-grid"{{with .ID}} id="{{.}}"{{end}} aria-label="Clips">
+{{- range .Tiles}}{{template "clip-tile" .}}{{end -}}
+</section>{{if and (not .Tiles) .Empty}}{{template "empty-state" .Empty}}{{end}}{{end}}

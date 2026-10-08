@@ -1,0 +1,5 @@
+/* empty-state — brand mark, one line of what to do. */
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 64px 20px; text-align: center; }
+.empty-state img { display: block; border-radius: 22%; opacity: .9; }
+.empty-state__title { font-size: 17px; font-weight: 500; }
+.empty-state__body { font-size: 14px; color: var(--c-muted); }

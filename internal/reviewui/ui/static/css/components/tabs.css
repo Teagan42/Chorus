@@ -1,0 +1,11 @@
+/* tabs — in-place filters; current underlined in surface. */
+.tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--c-rule); overflow-x: auto; }
+.tabs__tab {
+  display: flex; align-items: center; gap: 8px; min-height: var(--hit); padding: 0 14px;
+  border: 0; border-bottom: 2px solid transparent; background: transparent;
+  color: var(--c-muted); font-size: 14px; font-weight: 500; white-space: nowrap;
+  text-decoration: none; cursor: pointer;
+}
+.tabs__tab:hover { color: var(--c-text); }
+.tabs__tab.is-on { color: var(--c-text); border-bottom-color: var(--c-text); font-weight: 600; }
+.tabs__count { font-family: var(--font-mono); font-size: 11px; font-weight: 400; color: var(--c-muted); }

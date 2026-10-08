@@ -1,0 +1,14 @@
+{{/* hx · dot: ui.Hx — emits htmx attributes inside a tag. */}}
+{{define "hx"}}{{with .Get}} hx-get="{{.}}"{{end}}{{with .Post}} hx-post="{{.}}"{{end}}{{with .Target}} hx-target="{{.}}"{{end}}{{with .Swap}} hx-swap="{{.}}"{{end}}{{with .Include}} hx-include="{{.}}"{{end}}{{with .Trigger}} hx-trigger="{{.}}"{{end}}{{with .Vals}} hx-vals="{{.}}"{{end}}{{with .PushURL}} hx-push-url="{{.}}"{{end}}{{end}}
+
+{{/* icon · dot: ui.Icon */}}
+{{define "icon"}}{{if eq . "play"}}<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2l10 6-10 6z"/></svg>{{else if eq . "pause"}}<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="3" y="2" width="3.5" height="12"/><rect x="9.5" y="2" width="3.5" height="12"/></svg>{{else if eq . "prev"}}<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg>{{else if eq . "next"}}<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg>{{end}}{{end}}
+
+{{/* button · dot: ui.Button */}}
+{{define "button"}}{{$c := cls "btn" (when .Primary "btn--primary") (when .Hit "btn--hit") (when (and (ne .Icon "") (eq .Label "")) "btn--icon")}}
+{{- if and .Href (not .Disabled)}}<a class="{{$c}}" href="{{.Href}}"{{with .ID}} id="{{.}}"{{end}}{{with .AriaLabel}} aria-label="{{.}}"{{end}}{{with .Title}} title="{{.}}"{{end}}{{template "hx" .Hx}}>{{template "icon" .Icon}}{{.Label}}</a>
+{{- else}}<button class="{{$c}}" type="{{or .Type "button"}}"{{with .ID}} id="{{.}}"{{end}}{{with .Name}} name="{{.}}"{{end}}{{with .Value}} value="{{.}}"{{end}}{{with .AriaLabel}} aria-label="{{.}}"{{end}}{{with .Title}} title="{{.}}"{{end}}{{if .Toggle}} aria-pressed="{{bool .Pressed}}"{{end}}{{if .Disabled}} disabled{{end}}{{template "hx" .Hx}}>{{template "icon" .Icon}}{{.Label}}</button>
+{{- end}}{{end}}
+
+{{/* button-row · dot: []ui.Button */}}
+{{define "button-row"}}<div class="btn-row">{{range .}}{{template "button" .}}{{end}}</div>{{end}}

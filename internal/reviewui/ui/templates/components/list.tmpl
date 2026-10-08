@@ -1,0 +1,18 @@
+{{/* list · dot: ui.List — Triage and Browse rows. */}}
+{{define "list"}}<div class="list"{{with .ID}} id="{{.}}"{{end}}>
+<div class="list__scroll"><div style="min-width: {{px .MinW}}">
+<div class="list__row list__row--head">{{range .Columns}}<span class="cap">{{.}}</span>{{end}}</div>
+{{- range .Rows}}{{template "list-row" .}}{{end}}
+</div></div>
+{{- if and (not .Rows) .Empty}}{{template "empty-state" .Empty}}{{end}}
+</div>{{end}}
+
+{{/* list-row · dot: ui.ListRow */}}
+{{define "list-row"}}<a class="list__row" href="{{.Href}}">
+<span>{{template "sig-tag" .Tag}}</span>
+<span class="list__text"><span class="list__title">{{.Title}}</span>{{with .Detail}}<span class="list__detail">{{.}}</span>{{end}}</span>
+<span>{{with .Thumb}}{{template "conv-thumb" .}}{{end}}</span>
+<span class="list__who">{{.Who}}</span>
+<span class="{{cls "list__figure" (tone .FigureTone)}}">{{.Figure}}</span>
+<span class="list__when">{{.When}}</span>
+</a>{{end}}

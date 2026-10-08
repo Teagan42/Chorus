@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -17,6 +18,13 @@ type Store interface {
 	Append(ctx context.Context, e Event) error
 	Events(ctx context.Context, conversationID string) ([]Event, error)
 	LastSeq(ctx context.Context, conversationID string) (uint64, error)
+}
+
+// Lister enumerates the log, for readers that start from no id: the review
+// UI and the harvester's batch mode (SPEC §9.2).
+type Lister interface {
+	// Conversations orders by latest event, newest first, so recent work leads.
+	Conversations(ctx context.Context) ([]string, error)
 }
 
 // MemStore is the in-memory Store used by tests and the replay harness.
@@ -79,4 +87,28 @@ func (m *MemStore) LastSeq(_ context.Context, conversationID string) (uint64, er
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return uint64(len(m.byConv[conversationID])), nil
+}
+
+// Conversations breaks a tie on the latest clock by id, so the order is stable.
+func (m *MemStore) Conversations(_ context.Context) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	ids := slices.Collect(maps.Keys(m.byConv))
+	latest := func(id string) time.Time {
+		var at time.Time
+		for _, e := range m.byConv[id] {
+			if e.At.After(at) {
+				at = e.At
+			}
+		}
+		return at
+	}
+	slices.SortFunc(ids, func(a, b string) int {
+		if c := latest(b).Compare(latest(a)); c != 0 {
+			return c
+		}
+		return strings.Compare(a, b)
+	})
+	return ids, nil
 }

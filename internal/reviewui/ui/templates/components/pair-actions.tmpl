@@ -1,0 +1,55 @@
+{{/*
+  pair-actions · dot: ui.PairActions
+  The whole component is its own htmx target: every action POSTs to
+  {{.Endpoint}}/<action> and the server returns this partial (see
+  ui.ServePairAction). States: view · guard · edit · discard · done.
+*/}}
+{{define "pair-actions"}}<div class="pair-actions" id="pair-{{.DomID}}" hx-target="this" hx-swap="outerHTML">
+<div class="pair-actions__head"><span class="cap">{{.Cap}}</span>{{template "sig-tag" .Status}}</div>
+
+{{- if or (eq .Mode "view") (eq .Mode "guard")}}
+<dl class="pair-actions__pair">
+<dt>Rejected</dt><dd class="pair-actions__rejected">{{.Rejected}}{{with .RejectedUnheard}}<span class="pair-actions__cut" aria-label="cut">|</span><span class="pair-actions__unheard">{{.}}</span>{{end}}</dd>
+<dt>Chosen</dt><dd>{{.Chosen}}<span class="{{cls "pair-actions__prov" (tone .ProvTone)}}">{{.Provenance}}</span></dd>
+</dl>{{end}}
+
+{{- if eq .Mode "view"}}
+<div class="btn-row">
+<button type="button" class="btn btn--primary" hx-post="{{.Endpoint}}/accept">Accept pair</button>
+<button type="button" class="btn" hx-post="{{.Endpoint}}/edit">Edit chosen</button>
+<button type="button" class="btn" hx-post="{{.Endpoint}}/discard">Discard</button>
+</div>{{end}}
+
+{{- if eq .Mode "guard"}}{{template "alert" .Guard}}{{end}}
+
+{{- if eq .Mode "edit"}}
+<form class="pair-actions__editor" hx-post="{{.Endpoint}}/save">
+<dl class="pair-actions__pair">
+<dt>Rejected</dt><dd class="muted">{{.Rejected}}{{with .RejectedUnheard}}<span class="pair-actions__unheard">{{.}}</span>{{end}}</dd>
+<dt>Heard</dt><dd class="pair-actions__heard">{{.Heard}}</dd>
+</dl>
+<div class="field">
+<label class="cap" for="pair-{{.DomID}}-chosen">Chosen · answer the prompt, the way the correction asked</label>
+<textarea id="pair-{{.DomID}}-chosen" name="chosen" rows="3" hx-post="{{.Endpoint}}/check" hx-trigger="input changed delay:250ms" hx-target="#pair-{{.DomID}}-checks" hx-swap="outerHTML">{{.Draft}}</textarea>
+</div>
+{{template "pair-checks" .}}
+<div class="btn-row">
+{{if .CanDraft}}<button type="button" class="btn" hx-post="{{.Endpoint}}/draft">Draft from correction</button>{{end}}
+<button type="submit" class="btn btn--primary">Save chosen</button>
+<button type="button" class="btn" hx-post="{{.Endpoint}}/cancel">Cancel</button>
+</div>
+</form>{{end}}
+
+{{- if eq .Mode "discard"}}
+<div class="stack">
+<span class="cap">Why discard it?</span>
+<div class="btn-row">{{range .Reasons}}<button type="button" class="chip" hx-post="{{$.Endpoint}}/reason" hx-vals="{{.Vals}}">{{.Label}}</button>{{end}}</div>
+<span class="meta">“Barge-in was noise” also files the clip with the gate corpus</span>
+<div><button type="button" class="btn" hx-post="{{.Endpoint}}/cancel">Cancel</button></div>
+</div>{{end}}
+
+{{- if eq .Mode "done"}}{{template "done-card" .Done}}{{end}}
+</div>{{end}}
+
+{{/* pair-checks · dot: ui.PairActions — re-rendered alone while typing. */}}
+{{define "pair-checks"}}<div id="pair-{{.DomID}}-checks">{{template "checks" .Checks}}</div>{{end}}

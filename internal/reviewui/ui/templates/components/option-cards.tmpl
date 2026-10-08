@@ -1,0 +1,4 @@
+{{/* option-cards · dot: ui.OptionCards */}}
+{{define "option-cards"}}<div class="option-cards"{{with .ID}} id="{{.}}"{{end}} role="group" aria-label="{{.Label}}">
+{{- range .Items}}<button type="button" class="{{cls "option-card" (when .On "is-on")}}" aria-pressed="{{bool .On}}"{{template "hx" .Hx}}><span class="option-card__label">{{.Label}}</span>{{with .Sub}}<span class="option-card__sub">{{.}}</span>{{end}}</button>{{end -}}
+</div>{{end}}

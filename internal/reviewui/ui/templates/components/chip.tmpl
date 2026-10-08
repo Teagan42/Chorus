@@ -1,0 +1,5 @@
+{{/* chip · dot: ui.Chip — a toggle label. */}}
+{{define "chip"}}<button type="button" class="{{cls "chip" (when .On "is-on")}}" aria-pressed="{{bool .On}}"{{template "hx" .Hx}}>{{.Label}}</button>{{end}}
+
+{{/* chip-group · dot: ui.ChipGroup */}}
+{{define "chip-group"}}<div class="chip-group">{{with .Label}}<span class="cap">{{.}}</span>{{end}}<div class="chip-group__chips">{{range .Chips}}{{template "chip" .}}{{end}}</div></div>{{end}}

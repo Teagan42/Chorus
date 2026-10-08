@@ -1,0 +1,8 @@
+{{/* field · dot: ui.Field */}}
+{{define "field"}}{{if eq .Kind "checkbox"}}<label class="field-check"><input type="checkbox" id="{{.ID}}" name="{{or .Name .ID}}"{{if .Checked}} checked{{end}}{{template "hx" .Hx}}> {{.Label}}</label>
+{{- else}}<div class="{{cls "field" (when .Inline "field--inline")}}">
+<label for="{{.ID}}" class="{{if .HiddenLabel}}sr-only{{else}}cap{{end}}">{{.Label}}</label>
+{{- if eq .Kind "select"}}<select id="{{.ID}}" name="{{or .Name .ID}}"{{template "hx" .Hx}}>{{range .Options}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{or .Label .Value}}</option>{{end}}</select>
+{{- else if eq .Kind "textarea"}}<textarea id="{{.ID}}" name="{{or .Name .ID}}" rows="{{or .Rows 3}}"{{with .Placeholder}} placeholder="{{.}}"{{end}}{{template "hx" .Hx}}>{{.Value}}</textarea>
+{{- else}}<input id="{{.ID}}" name="{{or .Name .ID}}" type="{{if eq .Kind "search"}}search{{else}}text{{end}}" value="{{.Value}}"{{with .Placeholder}} placeholder="{{.}}"{{end}}{{template "hx" .Hx}}>{{end}}
+</div>{{end}}{{end}}

@@ -1,0 +1,53 @@
+/* app-header — brand, six workflow steps, context. */
+.app-header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0 28px;
+  padding: 0 24px; border-bottom: 1px solid var(--c-rule);
+}
+.app-header__brand {
+  display: flex; align-items: center; gap: 10px; min-height: 60px;
+  color: var(--c-text); text-decoration: none;
+}
+.app-header__brand img { display: block; border-radius: 22%; }
+.app-header__wordmark { font-size: 21px; font-weight: 500; letter-spacing: -0.01em; }
+.app-header__steps { display: flex; flex-wrap: wrap; align-items: center; gap: 0 2px; }
+.app-header__step {
+  display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 0 12px;
+  font-size: 15px; font-weight: 500; color: var(--c-muted); text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+.app-header__step:hover { color: var(--c-text); }
+.app-header__step.is-current { color: var(--c-text); border-bottom-color: var(--c-text); }
+.app-header__n { font-family: var(--font-mono); font-size: 11px; font-weight: 400; }
+.app-header__count {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 400;
+  padding: 1px 6px; border-radius: 9px; background: var(--c-raised); color: var(--c-text-2);
+}
+.app-header__sep { color: var(--c-rule-faint); font-size: 13px; }
+.app-header__ctx { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--c-muted); }
+
+/* Compact menu: replaces the six steps below 720px. */
+.app-header__menu { display: none; position: relative; margin-left: auto; }
+.app-header__menu summary {
+  display: flex; align-items: center; gap: 8px; min-height: var(--hit); padding: 0 12px;
+  border: 1px solid var(--c-rule-strong); border-radius: var(--radius); cursor: pointer; list-style: none;
+  font-size: 15px; font-weight: 500;
+}
+.app-header__menu summary::-webkit-details-marker { display: none; }
+.app-header__menu nav {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; min-width: 220px;
+  display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--c-rule-strong);
+  border-radius: var(--radius); background: var(--c-raised);
+}
+.app-header__menu nav a {
+  display: flex; align-items: center; gap: 10px; min-height: var(--hit); padding: 0 12px;
+  border-radius: 3px; color: var(--c-text-2); text-decoration: none; font-size: 15px;
+}
+.app-header__menu nav a:hover { background: var(--c-hover); color: var(--c-text); }
+.app-header__menu nav a[aria-current="page"] { color: var(--c-text); box-shadow: inset 3px 0 0 var(--c-text); }
+
+@media (max-width: 720px) {
+  .app-header { padding: 8px 16px; }
+  .app-header__brand { min-height: var(--hit); }
+  .app-header__steps, .app-header__ctx { display: none; }
+  .app-header__menu { display: block; }
+}

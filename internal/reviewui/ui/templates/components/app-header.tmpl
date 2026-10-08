@@ -1,0 +1,14 @@
+{{/* app-header · dot: ui.AppHeader */}}
+{{define "app-header"}}<header class="app-header">
+<a class="app-header__brand" href="{{.Home}}"><img src="{{.IconSrc}}" width="28" height="28" alt=""><span class="app-header__wordmark">Chorus</span></a>
+<nav class="app-header__steps" aria-label="Review workflow">
+{{- range $i, $s := .Steps}}{{if $i}}<span class="app-header__sep" aria-hidden="true">›</span>{{end}}
+<a class="{{cls "app-header__step" (when $s.Current "is-current")}}" href="{{$s.Href}}"{{if $s.Current}} aria-current="page"{{end}}><span class="app-header__n">{{$s.N}}</span>{{$s.Label}}{{if gt $s.Count 0}}<span class="app-header__count">{{$s.Count}}</span>{{end}}</a>
+{{- end}}
+</nav>
+{{with .CurrentStep}}<details class="app-header__menu">
+<summary><span class="app-header__n">{{.N}}</span>{{.Label}}<span aria-hidden="true">▾</span></summary>
+<nav aria-label="Review workflow (compact)">{{range $.Steps}}<a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}><span class="app-header__n">{{.N}}</span>{{.Label}}{{if gt .Count 0}}<span class="app-header__count">{{.Count}}</span>{{end}}</a>{{end}}</nav>
+</details>{{end}}
+{{with .Context}}<span class="app-header__ctx">{{.}}</span>{{end}}
+</header>{{end}}

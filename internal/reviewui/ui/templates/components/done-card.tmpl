@@ -1,0 +1,6 @@
+{{/* done-card · dot: ui.DoneCard */}}
+{{define "done-card"}}<div class="done-card" role="status">
+<span class="done-card__title">{{.Title}}</span>
+{{with .Body}}<span class="done-card__body">{{.}}</span>{{end}}
+{{with .Actions}}{{template "button-row" .}}{{end}}
+</div>{{end}}

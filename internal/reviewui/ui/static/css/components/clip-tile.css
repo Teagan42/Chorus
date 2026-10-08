@@ -1,0 +1,16 @@
+/* clip-tile — stage-two rejection: guess, verdict, bars, three checks, marks.
+   Grid uses inset hairlines (no gaps), so empty cells stay ground. */
+.clip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); }
+.clip-tile {
+  display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px 16px 16px;
+  background: var(--c-ground); box-shadow: inset -1px -1px 0 var(--c-rule);
+}
+.clip-tile.is-reviewed { background: var(--c-ground-2); }
+.clip-tile__head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.clip-tile__title { font-size: 16px; font-weight: 600; }
+.clip-tile__audio { display: flex; align-items: center; gap: 10px; }
+.clip-tile__bars { display: flex; align-items: center; gap: 2px; flex: 1; height: 56px; min-width: 0; }
+.clip-tile__bars > span { flex: 1; min-height: 2px; border-radius: 1px; background: var(--c-wave); }
+.clip-tile__foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.clip-tile__foot .meta { white-space: nowrap; }
+.clip-tile__foot .btn-row { flex-wrap: nowrap; margin-left: auto; }

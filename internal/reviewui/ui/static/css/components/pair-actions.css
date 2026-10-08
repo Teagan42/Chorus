@@ -1,0 +1,14 @@
+/* pair-actions — one partial, mounted on Review (bottom strip) and Curate
+   (inspector). Guard is Conversation violet: the problem is which prompt the
+   answer belongs to. */
+.pair-actions { display: flex; flex-direction: column; gap: 14px; }
+.pair-actions__head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
+.pair-actions__pair { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px 12px; margin: 0; font-size: var(--fs-body); line-height: 1.45; }
+.pair-actions__pair dt { padding-top: 3px; font-family: var(--font-mono); font-size: 11px; color: var(--c-muted); text-transform: uppercase; }
+.pair-actions__pair dd { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.pair-actions__pair dd.pair-actions__rejected { display: block; color: var(--c-text-3); }
+.pair-actions__cut { color: var(--people); font-weight: 600; }
+.pair-actions__unheard { color: var(--c-muted); }
+.pair-actions__heard { color: var(--people-text); }
+.pair-actions__prov { font-family: var(--font-mono); font-size: 11px; color: var(--tone-text, var(--c-muted)); }
+.pair-actions__editor { display: flex; flex-direction: column; gap: 12px; }

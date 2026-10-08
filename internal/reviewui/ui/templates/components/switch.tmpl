@@ -1,0 +1,4 @@
+{{/* switch · dot: ui.Switch — link switch, e.g. Curate’s DPO pairs | Hard negatives. */}}
+{{define "switch"}}<nav class="switch" aria-label="{{.Label}}">
+{{- range .Items}}<a class="{{cls "switch__item" (when .On "is-on")}}" href="{{.Href}}"{{if .On}} aria-current="page"{{end}}>{{.Label}}</a>{{end -}}
+</nav>{{end}}
