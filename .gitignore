@@ -21,3 +21,4 @@ esphome/*.bin
 .task/
 __pycache__/
 .esphome/
+.claude/worktrees/
