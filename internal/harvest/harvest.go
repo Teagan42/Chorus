@@ -107,8 +107,15 @@ type Pair struct {
 	// reviewer, never pair text.
 	Calls []journal.Call
 
-	// BargeInPositionMS is how far into playback the interruption landed.
+	// BargeInPositionMS is how far into playback the interruption landed,
+	// as the listener snapshotted it at detection. The DAC keeps playing for
+	// the stop's flight time, so this lags the real cut.
 	BargeInPositionMS int
+
+	// CutFrames is the DAC-confirmed truncation point: frames_played on the
+	// truncated speech event, relative to that clip's own audio. Zero when
+	// the barge-in only discarded queued clips and played none of the cut.
+	CutFrames int
 
 	Seq   Seq
 	Audio Audio
@@ -173,6 +180,7 @@ type turn struct {
 	bargeIn    *bargeIn
 	cut        bool
 	cutSeq     uint64
+	cutFrames  int
 	unheard    []string
 	firstIsCut bool
 
@@ -245,6 +253,11 @@ func (w *walker) fold(e journal.Event) error {
 		w.cur.spoken = append(w.cur.spoken, e.Fields["spoken_text"])
 		w.cur.spokenAudio = append(w.cur.spokenAudio, e.AudioRef)
 		if w.cur.bargeIn != nil {
+			frames, err := strconv.Atoi(e.Fields["frames_played"])
+			if err != nil {
+				return fmt.Errorf("frames_played %q: %w", e.Fields["frames_played"], err)
+			}
+			w.cur.cutFrames = frames
 			w.cur.markCut(e)
 			// The playing utterance heads the queue whichever child recorded
 			// first; speech events carry no call id to order by.
@@ -352,6 +365,7 @@ func (w *walker) finish(d *draft, answer turn) Pair {
 		Attributed:        r.completed && complete(r.versions),
 		Calls:             r.calls,
 		BargeInPositionMS: r.bargeIn.positionMS,
+		CutFrames:         r.cutFrames,
 		Seq: Seq{
 			Prompt: r.promptSeq, BargeIn: r.bargeIn.seq,
 			Cut: r.cutSeq, Correction: d.heard.Seq,
