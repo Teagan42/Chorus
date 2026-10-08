@@ -18,3 +18,139 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | `tool_result` | tool |  |  | Tool completed, failed, or timed out. Failures are results the model reasons about (SPEC §7). |
 | `utterance_transcribed` | listening | yes |  | Final STT result for one utterance. |
 | `wake_rejected` | device | yes | yes | Stage-one activation failed server-side confirmation. Hard negative for wake-word retraining. |
+
+## `barge_in_detected`
+
+Interruption passed the detection gate. Timing is milliseconds into TTS playback, not wall clock, so replay reproduces the cut.
+
+Actor: `listening`. `has_audio`: yes. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `tts_position_ms` | integer | yes | Playback offset at detection. |
+
+## `barge_in_rejected`
+
+Candidate interruption failed the detection gate. Tuning corpus for SPEC §4.3.
+
+Actor: `listening`. `has_audio`: yes. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `stage` | string | yes | Gate that rejected it. One of: `vad`, `speaker_id`, `partial_length`. |
+
+## `model_completed`
+
+Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8).
+
+Actor: `thinking`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: yes.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `completion_json` | string | yes | Raw completion as returned. |
+| `finish_reason` | string | yes | Why generation stopped. One of: `stop`, `length`, `tool_calls`, `error`. |
+
+## `session_closed`
+
+Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5).
+
+Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `reason` | string | yes | Why it ended. One of: `model_ended`, `silence_timeout`, `device_lost`, `migrated`, `error`. |
+| `satellite` | string | yes | Device whose stream ended. Pairs the close with its open. |
+
+## `session_opened`
+
+Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5).
+
+Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `satellite` | string | yes | Device that heard it. |
+| `speaker_id` | string |  | Identified person, empty when unknown. |
+| `wake_confidence` | number |  | Stage-two confirmation score. |
+| `resumed` | boolean |  | Joined an existing conversation rather than starting one. |
+
+## `speech_discarded`
+
+Speech generated but never played, because a barge-in emptied the queue first. Distinct from truncation: nothing was heard.
+
+Actor: `speaking`. `has_audio`: no. `training_signal`: yes. `speculative`: no. `requires_versions`: yes.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `unspoken_text` | string | yes | Generated but never played. |
+| `reason` | string | yes | Why it was dropped. One of: `barge_in`, `preempted`, `session_closed`, `migrated`. |
+
+## `speech_spoken`
+
+Audio the user actually heard, bounded by DAC-reported playback position.
+
+Actor: `speaking`. `has_audio`: yes. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | yes | Text corresponding to played audio. |
+| `frames_played` | integer | yes | DAC frame count at completion. |
+
+## `speech_truncated`
+
+Barge-in cut speech short. Carries the exact split between heard and unheard text.
+
+Actor: `speaking`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. `requires_versions`: yes.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `spoken_text` | string | yes | What the user heard. |
+| `unspoken_text` | string | yes | Generated but never played. |
+| `frames_played` | integer | yes | DAC frame count at cut. |
+
+## `tool_called`
+
+Model dispatched a tool; emitted when its JSON closed, not at end of message.
+
+Actor: `thinking`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `tool` | string | yes | Tool name. |
+| `call_id` | string | yes | Correlates with the result. |
+| `args_json` | string | yes | Serialized arguments. |
+
+## `tool_result`
+
+Tool completed, failed, or timed out. Failures are results the model reasons about (SPEC §7).
+
+Actor: `tool`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `call_id` | string | yes | Matches the call. |
+| `outcome` | string | yes | How it ended. One of: `ok`, `error`, `timed_out`, `cancelled`, `detached`. |
+| `result_json` | string |  | Serialized result. |
+
+## `utterance_transcribed`
+
+Final STT result for one utterance.
+
+Actor: `listening`. `has_audio`: yes. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | yes | Transcript. |
+| `speaker_id` | string |  | Per-utterance speaker match. |
+| `embedding_json` | string |  | The utterance's speaker embedding as a JSON array of numbers, stored whether or not it matched anyone (SPEC §5). Empty when the embedder was unavailable. |
+
+## `wake_rejected`
+
+Stage-one activation failed server-side confirmation. Hard negative for wake-word retraining.
+
+Actor: `device`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. `requires_versions`: yes.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `reason` | string | yes | Which gate rejected it. One of: `no_speech`, `low_confidence`, `unknown_speaker`. |
+
