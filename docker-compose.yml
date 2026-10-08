@@ -1,6 +1,38 @@
-# Local development stack (SPEC §13): the journal's storage, and the model
-# sidecars a tier of tests needs a real one of.
+# Local development stack (SPEC §13): the orchestrator, the journal's
+# storage, and the model sidecars a tier of tests needs a real one of.
 services:
+  # The orchestrator daemon (cmd/chorusd). It needs only the database to
+  # start: the sidecars below are optional here, because a household may run
+  # them on a GPU box instead, and the daemon reaches them by URL. The
+  # loopback URLs in .env are for `task run` on the host; inside the compose
+  # network the sidecars go by service name, so those four are overridden.
+  chorusd:
+    build:
+      context: .
+      dockerfile: cmd/chorusd/Dockerfile
+    # Not required, so a fresh clone still validates; without it the daemon
+    # itself names every missing variable at startup and exits.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CHORUS_POSTGRES_DSN: postgres://chorus:${POSTGRES_PASSWORD:-chorus}@postgres:5432/chorus?sslmode=disable
+      KOKORO_URL: http://kokoro:8880
+      STT_URL: http://speaches:8000
+      SPEAKERID_URL: http://speakerid:8890
+    # The satellites dial in from the LAN, so this one is not loopback.
+    ports:
+      - "6055:6055"
+    volumes:
+      # The inventory holds the PSKs and is gitignored; mount identities.yaml
+      # beside it the same way once someone is enrolled.
+      - ./devices.yaml:/etc/chorus/devices.yaml:ro
+      - blobs:/var/lib/chorus/blobs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   postgres:
     # Pinned for the same reason as the Go tools: a server release must not
     # turn a green test red with no code change.
@@ -94,4 +126,5 @@ services:
 
 volumes:
   journal:
+  blobs:
   stt-models:
