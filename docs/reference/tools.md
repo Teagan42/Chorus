@@ -7,6 +7,9 @@ See [SPEC §6](../SPEC.md). Policy is enforced by the orchestrator from these sa
 | Tool | Interrupt | Scope | Timeout | Confirm | Latency |
 |---|---|---|---|---|---|
 | `end_session` | cancel | household | 10000ms | no | fast |
+| `ha_call_service` | detach | household | 10000ms | no | fast |
+| `ha_find_entities` | cancel | household | 10000ms | no | fast |
+| `ha_get_state` | cancel | household | 10000ms | no | fast |
 | `media_search` | detach | household | 20000ms | no | slow |
 | `remember` | cancel | person | 10000ms | no | fast |
 | `speak` | cancel | household | 10000ms | no | fast |
@@ -16,6 +19,35 @@ See [SPEC §6](../SPEC.md). Policy is enforced by the orchestrator from these sa
 Close the conversation. Call when the task is complete rather than waiting for silence.
 
 No parameters.
+
+## `ha_call_service`
+
+Act on the home through a Home Assistant service: lights, switches, covers, media players, scripts. Target an entity_id from ha_find_entities, or an area_id. Returns the entities whose state changed; an empty list means nothing matched or nothing needed to change.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `domain` | string | yes | Service domain, e.g. light, switch, script. |
+| `service` | string | yes | Service within the domain, e.g. turn_on, turn_off, toggle. |
+| `entity_id` | string |  | Entity to act on, e.g. light.kitchen. Required unless area_id is given. |
+| `area_id` | string |  | Area to act on, e.g. kitchen. Required unless entity_id is given. |
+| `data` | object |  | Extra service fields, e.g. {"brightness_pct": 50}. |
+
+## `ha_find_entities`
+
+Find Home Assistant entities by domain and name. Call this first when you do not know an entity_id; never guess one.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `domain` | string |  | Only entities in this domain, e.g. light. |
+| `name` | string |  | Only entities whose name or id contains this text, e.g. kitchen. |
+
+## `ha_get_state`
+
+Read one entity's current state and attributes from Home Assistant.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `entity_id` | string | yes | Entity to read, e.g. sensor.living_room_temperature. |
 
 ## `media_search`
 
