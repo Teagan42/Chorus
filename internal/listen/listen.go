@@ -221,17 +221,25 @@ func (l *Listener) OnMic(channel uint8, pcm []byte) error {
 		l.startLocked(pcm)
 		return nil
 	}
+	split := false
 	if err := l.cur.write(pcm); err != nil {
 		if !errors.Is(err, stt.ErrTooLong) {
 			l.warn("write utterance audio", err)
 			return nil
 		}
 		// Past the bound it is a stuck mic or the television (ADR-0024):
-		// decode what is held, and the rest starts a new utterance.
-		b = End
+		// decode what is held, and the rest starts a new utterance. The bound
+		// refused this chunk whole, so it is the next utterance's first.
+		split, b = b != End, End
 	}
 	if b == End {
 		l.endLocked()
+	}
+	// Speech did not stop, so the endpointer is still voiced and no Start is
+	// coming to open the utterance the rest of it belongs to. Without this the
+	// tail is dropped until a full silence resets the endpointer.
+	if split {
+		l.startLocked(pcm)
 	}
 	return nil
 }

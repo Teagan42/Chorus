@@ -309,6 +309,39 @@ func TestSpeechWhileNothingPlaysIsNotACandidate(t *testing.T) {
 	}
 }
 
+// Speech past the utterance bound is decoded as it stands and the rest is a
+// new utterance. The endpointer saw no boundary -- the person is still
+// talking -- so nothing but this will open one, and the tail would otherwise
+// be dropped until the next silence.
+//
+// verifies SPEC §4.5
+func TestSpeechPastTheBoundContinuesInANewUtterance(t *testing.T) {
+	// Wide enough that the wake's own utterance, its lead-in and the silence
+	// that ends it all fit: only the long request below is meant to overrun.
+	bound := 12 * chunkBytes
+	r := newRig(t, silent(), func(c *listen.Config) { c.STT.MaxBytes = bound })
+
+	r.dev.SendWake(t, "hey_eddie")
+	r.utter(t, r.line("find zeppelin", alan), 4*chunkBytes)
+	s := r.session(t)
+	conv := s.ConversationID()
+	r.awaitKind(t, conv, journal.KindUtteranceTranscribed, 1)
+
+	// One breath, longer than the bound: the opening fills it and the tail
+	// follows with no quiet in between.
+	r.speak(t, r.line("turn off every light in the house and the", alan), bound)
+	r.utter(t, r.line("one in the garage too", alan), 3*chunkBytes)
+
+	tail := r.awaitKind(t, conv, journal.KindUtteranceTranscribed, 3)
+	if tail.Fields["text"] != "one in the garage too" {
+		t.Errorf("the tail of the request was heard as %q", tail.Fields["text"])
+	}
+	heard := r.awaitKind(t, conv, journal.KindUtteranceTranscribed, 2)
+	if heard.Fields["text"] != "turn off every light in the house and the" {
+		t.Errorf("what filled the bound was heard as %q", heard.Fields["text"])
+	}
+}
+
 // Hardware mute is authoritative (CONTRIBUTING §7): audio under it is dropped
 // on the floor, an utterance it lands on ends with no transcript, and nothing
 // is buffered through it.
