@@ -263,7 +263,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	}
 	lst, err := listen.Open(linkCtx, listen.Config{
 		Satellite: sat.Name, Sessions: sup, Transcriber: d.stt, Speakers: d.speakers,
-		Blobs: d.Blobs, Journal: d.journal, Log: log,
+		Playback: speaker, Blobs: d.Blobs, Journal: d.journal, Log: log,
 	})
 	if err != nil {
 		return err
