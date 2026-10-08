@@ -172,8 +172,8 @@ task run                                  # go run ./cmd/chorusd
 
 It fails at startup naming every variable that is missing. The speaker-ID
 sidecar and Home Assistant are optional and say so in the log when absent:
-without the first everyone is a guest and nothing can barge in; without the
-second the `ha_*` tools answer `not_implemented`, which the model sees. Point
+without the first everyone is a guest and barge-in gates on energy and words
+alone, so the television can interrupt (ADR-0031); without the second the `ha_*` tools answer `not_implemented`, which the model sees. Point
 `orchestrator_host` in the device YAML at this machine, and the satellites
 dial in on port 6055. `docker compose up chorusd` runs the same daemon as an
 image beside the database.
