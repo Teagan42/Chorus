@@ -199,9 +199,13 @@ func (s *Satellite) Open(ctx context.Context, callID string) (session.Stream, er
 type segment struct {
 	text string
 	// end is the cumulative frame, relative to this utterance, at which the
-	// delta finishes. Zero until synthesised: a delta cut before synthesis has
-	// no frames but is still unspoken text the journal must carry (SPEC §4.2).
+	// delta finishes. A delta cut before synthesis has no frames but is still
+	// unspoken text the journal must carry (SPEC §4.2).
 	end uint64
+	// synthesised is set once the synthesiser returned for this delta. Not
+	// inferred from end: blank text renders as zero frames, so a leading
+	// whitespace delta has end == 0 and was still rendered.
+	synthesised bool
 }
 
 type stream struct {
@@ -323,6 +327,7 @@ func (s *stream) send(i int) bool {
 	s.mu.Lock()
 	s.total += uint64(len(pcm) / bytesPerFrame)
 	s.segs[i].end = s.total
+	s.segs[i].synthesised = true
 	s.mu.Unlock()
 
 	for off := 0; off < len(pcm); off += sliceBytes {
@@ -497,7 +502,7 @@ func (s *stream) awaitDrain() {
 // rendered reports that every delta reached the synthesiser.
 func rendered(segs []segment) bool {
 	for _, seg := range segs {
-		if seg.end == 0 {
+		if !seg.synthesised {
 			return false
 		}
 	}
@@ -520,7 +525,7 @@ func split(segs []segment, played uint64) (spoken, unspoken string) {
 	var heard, rest strings.Builder
 	var start uint64
 	for _, seg := range segs {
-		if seg.end > 0 && played > start {
+		if seg.synthesised && played > start {
 			heard.WriteString(seg.text)
 			start = seg.end
 			continue

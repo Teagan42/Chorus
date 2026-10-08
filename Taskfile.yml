@@ -98,9 +98,22 @@ tasks:
       - docker compose stop postgres
 
   test:models:
-    desc: Requires GPU model sidecars. Self-hosted runner only.
+    desc: Requires model sidecars. Each skips until pointed at one.
     cmds:
-      - go test -race -count=1 -tags=models ./...
+      # No endpoint is committed, so an endpoint flag comes from the caller --
+      # and one package at a time, since a test binary rejects a flag it does
+      # not define: `task test:models -- ./internal/provider/kokoro -kokoro-url http://127.0.0.1:8880`
+      - go test -race -count=1 -tags=models {{.CLI_ARGS | default "./..."}}
+
+  tts:up:
+    desc: Start the local TTS sidecar. First run pulls ~4.5 GB.
+    cmds:
+      - docker compose up -d --wait kokoro
+
+  tts:down:
+    desc: Stop the local TTS sidecar
+    cmds:
+      - docker compose stop kokoro
 
   test:hardware:
     desc: Requires a reachable satellite from devices.yaml.
