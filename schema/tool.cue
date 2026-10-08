@@ -100,4 +100,41 @@ tools: {
 			{name: "limit", type: "integer", description: "Maximum results."},
 		]
 	}
+
+	// ------------------------------------------------- Home Assistant adapter
+	// The one real tool of SPEC §14 item 5. Minimal on purpose: enough surface
+	// to act on the home, not a mirror of HA's service catalogue (ADR-0027).
+
+	ha_call_service: {
+		name:        "ha_call_service"
+		description: "Act on the home through a Home Assistant service: lights, switches, covers, media players, scripts. Target an entity_id from ha_find_entities, or an area_id. Returns the entities whose state changed; an empty list means nothing matched or nothing needed to change."
+		// The request is committed the moment it is sent. Cancelling would not
+		// undo it and would leave the model not knowing what the home did, so
+		// the call runs to completion and keeps its result (SPEC §4.4).
+		on_interrupt: "detach"
+		params: [
+			{name: "domain", type: "string", description: "Service domain, e.g. light, switch, script.", required: true},
+			{name: "service", type: "string", description: "Service within the domain, e.g. turn_on, turn_off, toggle.", required: true},
+			{name: "entity_id", type: "string", description: "Entity to act on, e.g. light.kitchen. Required unless area_id is given."},
+			{name: "area_id", type: "string", description: "Area to act on, e.g. kitchen. Required unless entity_id is given."},
+			{name: "data", type: "object", description: "Extra service fields, e.g. {\"brightness_pct\": 50}."},
+		]
+	}
+
+	ha_get_state: {
+		name:        "ha_get_state"
+		description: "Read one entity's current state and attributes from Home Assistant."
+		params: [
+			{name: "entity_id", type: "string", description: "Entity to read, e.g. sensor.living_room_temperature.", required: true},
+		]
+	}
+
+	ha_find_entities: {
+		name:        "ha_find_entities"
+		description: "Find Home Assistant entities by domain and name. Call this first when you do not know an entity_id; never guess one."
+		params: [
+			{name: "domain", type: "string", description: "Only entities in this domain, e.g. light."},
+			{name: "name", type: "string", description: "Only entities whose name or id contains this text, e.g. kitchen."},
+		]
+	}
 }
