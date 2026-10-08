@@ -376,7 +376,7 @@ func (s *stream) Close() session.Playback {
 		// otherwise hold the user's ears for that call's whole duration.
 		// Barge-in latency cannot depend on a synthesiser honouring its
 		// context (SPEC §4.4).
-		_ = s.sat.cfg.Link.Stop()
+		_, _ = s.sat.cfg.Link.Stop()
 	}
 	close(s.quit)
 	<-s.done
@@ -412,7 +412,7 @@ func (s *stream) Close() session.Playback {
 		// what the device still holds, or it plays over the next utterance.
 		// No settle after this one -- the device reported nothing for the whole
 		// drain window, so there is nothing in flight to wait for.
-		_ = s.sat.cfg.Link.Stop()
+		_, _ = s.sat.cfg.Link.Stop()
 	}
 	spoken, unspoken := split(segs, played)
 	return session.Playback{

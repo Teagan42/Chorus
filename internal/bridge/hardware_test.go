@@ -521,10 +521,24 @@ func TestHardwareBargeInStopsPlayback(t *testing.T) {
 
 	at := r.playedPosition()
 	stopFeed()
-	if err := l.Stop(); err != nil {
+	tag, err := l.Stop()
+	if err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	t.Logf("barge-in at %v", at)
+	t.Logf("barge-in at %v, stop tag %d", at, tag)
+
+	// The firmware answers every stop with one report echoing its tag, taken
+	// after it gated the counter; that report is the truncation point the
+	// satellite waits for (ADR-0033). A device that never answers has
+	// chorus_bridge firmware older than this host.
+	r.await(t, "the device to answer the stop", 10*time.Second, func() bool {
+		for _, p := range r.played {
+			if p.Stop == tag {
+				return true
+			}
+		}
+		return false
+	})
 
 	// After stop the DAC drains at most what was already in its FIFO, so the
 	// position settles almost immediately. A position that keeps climbing by
@@ -536,6 +550,21 @@ func TestHardwareBargeInStopsPlayback(t *testing.T) {
 	if drift := after - at; drift > 500*time.Millisecond {
 		t.Errorf("played position advanced %v after stop (%v -> %v): the speaker "+
 			"buffer was not discarded", drift, at, after)
+	}
+
+	// The answer is the last word: the counter is gated before it is taken,
+	// so nothing the device reports afterwards may place the cut later.
+	r.mu.Lock()
+	var answered time.Duration
+	for _, p := range r.played {
+		if p.Stop == tag {
+			answered = p.Position(bridge.SampleRate)
+		}
+	}
+	r.mu.Unlock()
+	if answered != after {
+		t.Errorf("the stop's answer put the cut at %v but the position settled at %v: "+
+			"the device reported frames after gating", answered, after)
 	}
 
 	// The feed may legitimately fail once the device discards its buffer; what

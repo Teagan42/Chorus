@@ -126,7 +126,7 @@ func dispatch(h Handler, f Frame) error {
 	case TypeWake:
 		return h.OnWake(string(f.Payload))
 	case TypePlayed:
-		p, err := ParsePlayed(f.Payload)
+		p, err := ParsePlayed(f.Flags, f.Payload)
 		if err != nil {
 			return err
 		}
@@ -190,14 +190,26 @@ func (l *Link) sendTTSChunk(gen uint64, payload []byte) error {
 // Stop is barge-in: the device discards its speaker buffer immediately. Audio
 // from an utterance already being written is abandoned rather than allowed to
 // trail the stop frame.
-func (l *Link) Stop() error {
+//
+// The tag returned is what the device echoes in Played.Stop on the one report
+// it emits once this stop has taken effect. A caller that wants the position
+// the device cut at waits for that report and no other: a routine report can
+// already be on the wire when the stop goes out (ADR-0033).
+func (l *Link) Stop() (tag uint8, err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.utterance++
-	if err := l.w.WriteFrame(Frame{Type: TypeStop}); err != nil {
-		return err
+	tag = stopTag(l.utterance)
+	if err := l.w.WriteFrame(Frame{Type: TypeStop, Flags: tag}); err != nil {
+		return 0, err
 	}
-	return l.bw.Flush()
+	return tag, l.bw.Flush()
+}
+
+// stopTag folds the utterance generation into the flags byte. Never zero, so
+// a routine report cannot pass for a stop's answer.
+func stopTag(utterance uint64) uint8 {
+	return uint8(utterance%255) + 1
 }
 
 // Finish ends an utterance naturally, draining what is already buffered.

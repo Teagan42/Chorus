@@ -185,6 +185,7 @@ func (d *Device) read() {
 		// Reported after the lock is released: writing a frame while holding mu
 		// would deadlock against a concurrent Play on an unbuffered pipe.
 		var report bool
+		var ack uint8
 		d.mu.Lock()
 		switch f.Type {
 		case bridge.TypeTTS:
@@ -194,12 +195,12 @@ func (d *Device) read() {
 			// A stop discards the buffer, which is the whole point of one: the
 			// frames held here are never emitted and never reported played.
 			d.stops++
-			if n := min(d.duringStop, d.available); n > 0 {
-				d.played += n
-				report = true
-			}
+			d.played += min(d.duringStop, d.available)
 			d.duringStop = 0
 			d.available = 0
+			// Answered whether or not the position moved, with the stop's tag,
+			// as the firmware does: the host waits for this report and no other.
+			report, ack = true, f.Flags
 		case bridge.TypeFinish:
 			d.finishes++
 		case bridge.TypeDuck:
@@ -217,6 +218,7 @@ func (d *Device) read() {
 			_ = d.write(bridge.Played{
 				Frames:          played,
 				TimestampMicros: int64(played) * int64(time.Second/time.Microsecond) / bridge.SampleRate,
+				Stop:            ack,
 			}.Frame())
 		}
 	}
@@ -225,8 +227,8 @@ func (d *Device) read() {
 // PlayDuringStop arms the device to emit this many more frames when it next
 // processes a stop, modelling audio the DAC gets through while the stop is in
 // flight. The real firmware gates its frame counter at the stop and discards
-// the rest, so that last report is the authoritative truncation point
-// (chorus_bridge.cpp, FrameType::STOP). Capped by what the host has sent.
+// the rest, so the report answering the stop is the authoritative truncation
+// point (chorus_bridge.cpp, FrameType::STOP). Capped by what the host has sent.
 func (d *Device) PlayDuringStop(frames uint64) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
