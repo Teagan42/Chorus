@@ -242,3 +242,19 @@ func nonNil(m map[string]string) map[string]string {
 	}
 	return m
 }
+
+// Conversations orders by the latest wall clock, ties by id, as MemStore does.
+func (p *PgStore) Conversations(ctx context.Context) ([]string, error) {
+	rows, err := p.db.Query(ctx, `
+		SELECT conversation_id FROM journal_events
+		GROUP BY conversation_id
+		ORDER BY max(wall_clock) DESC, conversation_id`)
+	if err != nil {
+		return nil, fmt.Errorf("list conversations: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("list conversations: %w", err)
+	}
+	return ids, nil
+}
