@@ -62,6 +62,8 @@ func (s *server) routes() *http.ServeMux {
 	mux.HandleFunc("GET "+ui.Routes[ui.StepCurate], s.curate)
 	mux.HandleFunc("GET "+ui.Routes[ui.StepReview], s.review)
 	mux.HandleFunc("GET "+ui.Routes[ui.StepTriage], s.triage)
+	mux.HandleFunc("GET "+ui.Routes[ui.StepBrowse], s.browse)
+	mux.HandleFunc("GET "+ui.Routes[ui.StepBrowse]+"/{id}", s.conversation)
 	mux.Handle("GET /audio", audio.Handler(s.blobs))
 	mux.HandleFunc("GET "+ui.Routes[ui.StepExport], s.export)
 	mux.HandleFunc("GET /export/dpo.jsonl", s.exportJSONL)

@@ -496,3 +496,79 @@ func TestTriageTabsFilterBySignal(t *testing.T) {
 		t.Error("an empty tab should say so")
 	}
 }
+
+// withWakeReject writes a stage-two rejection to the kitchen device's log,
+// where the listener records them (listen.DeviceConversation).
+func withWakeReject(t *testing.T, store *journal.MemStore) *journal.MemStore {
+	t.Helper()
+	j := journal.New(store, journal.FixedClock(time.Unix(1_760_001_800, 0)), journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7"})
+	r := journal.Record{Kind: journal.KindWakeRejected, AudioRef: "blob://wake/1", Fields: map[string]string{"reason": "no_speech"}}
+	if _, err := j.Append(context.Background(), "device:kitchen", r); err != nil {
+		t.Fatalf("append wake reject: %v", err)
+	}
+	return store
+}
+
+func newBrowseServer(t *testing.T) *server {
+	t.Helper()
+	store := withWakeReject(t, withFailure(t, bargeInLog(t)))
+	now := func() time.Time { return time.Unix(1_760_010_000, 0).UTC() }
+	return newServer(store, curation.NewMemStore(), fixtureBlobs(t), now)
+}
+
+// verifies SPEC §9.2
+func TestBrowseLaysTheDayOutBySatellite(t *testing.T) {
+	h := get(t, newBrowseServer(t), "/conversations")
+	for _, want := range []string{
+		"Thursday 9 October",               // today, in the server's zone
+		`class="day-lanes__name">kitchen<`, // one lane per satellite
+		`class="day-lanes__name">office<`,
+		`href="/conversations/conv-1"`, // sessions and rows open their conversation
+		"is-flagged tone-people",       // the barge-in flags its session
+		"is-flagged tone-home",         // the failure flags its session
+		"day-lanes__reject",            // the kitchen's rejected wake
+		"play something by zeppelin",   // the list names each conversation by its first ask
+		"is the garage door closed",
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("Browse is missing %q", want)
+		}
+	}
+	if strings.Contains(h, `href="/conversations/device:kitchen"`) {
+		t.Error("a device's rejection log is not a conversation")
+	}
+}
+
+// verifies SPEC §9.2
+func TestBrowseOnAQuietDaySaysSo(t *testing.T) {
+	h := get(t, newBrowseServer(t), "/conversations?day=2025-10-01")
+	if !strings.Contains(h, "No conversations this day.") {
+		t.Error("a quiet day should say so")
+	}
+	if !strings.Contains(h, "/conversations?day=2025-10-02") {
+		t.Error("the day after should be one click away")
+	}
+}
+
+// verifies SPEC §9.2
+func TestConversationPageReplaysTheLogWithItsAudio(t *testing.T) {
+	h := get(t, newBrowseServer(t), "/conversations/conv-1")
+	for _, want := range []string{
+		"play something by zeppelin",
+		"I found three",
+		" albums by that artist", // the unheard tail, as the log kept it
+		"speak",                  // the tool the turn dispatched
+		`id="seq-5"`,             // the cut, addressable from Triage
+		"/audio?ref=" + url.QueryEscape("blob://mic/1"),                   // the prompt, playable
+		"/audio?ref=" + url.QueryEscape("blob://tts/s1") + "&amp;to=2080", // the heard half only
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("conversation page is missing %q", want)
+		}
+	}
+	w := httptest.NewRecorder()
+	newBrowseServer(t).routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/conversations/conv-9", nil))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unknown conversation = %d, want 404", w.Code)
+	}
+}
