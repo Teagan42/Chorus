@@ -38,10 +38,14 @@ type meta struct {
 	Calls             []call   `json:"calls"`
 }
 
+// versions mirrors journal.Versions field for field, so the struct conversion
+// in toRow fails to compile when the journal gains a slot this export lacks.
 type versions struct {
 	Model      string `json:"model"`
 	Prompt     string `json:"prompt"`
 	ToolSchema string `json:"tool_schema"`
+	STT        string `json:"stt"`
+	TTS        string `json:"tts"`
 }
 
 type call struct {

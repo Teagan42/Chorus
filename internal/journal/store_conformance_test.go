@@ -69,6 +69,27 @@ var storeConformance = map[string]func(*testing.T, journal.Store){
 		assertEventEqual(t, events[0], want)
 	},
 
+	// verifies SPEC §8
+	"empty STT and TTS slots round-trip as empty": func(t *testing.T, s journal.Store) {
+		ctx := context.Background()
+		// A deployment without a configured ear or voice stamps nothing in
+		// these slots. Both backends must hand back exactly that, so a reader
+		// never sees a backend's null where another gives an empty string.
+		e := event("conv-1", 1)
+		e.Versions = journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7"}
+		if err := s.Append(ctx, e); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+
+		events, err := s.Events(ctx, "conv-1")
+		if err != nil {
+			t.Fatalf("events: %v", err)
+		}
+		if got := events[0].Versions; got != e.Versions {
+			t.Errorf("versions = %+v, want %+v", got, e.Versions)
+		}
+	},
+
 	"absent fields round-trip as empty, not as a nil map": func(t *testing.T, s journal.Store) {
 		ctx := context.Background()
 		e := journal.Event{

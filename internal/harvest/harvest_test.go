@@ -13,7 +13,10 @@ import (
 )
 
 func versions() journal.Versions {
-	return journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7"}
+	return journal.Versions{
+		Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7",
+		STT: "istupakov/parakeet-tdt-0.6b-v2-onnx", TTS: "kokoro/af_heart",
+	}
 }
 
 func record(kind journal.Kind, audio string, fields ...string) journal.Record {
@@ -313,6 +316,25 @@ func TestRejectedTurnWithoutACompletionIsUnattributed(t *testing.T) {
 
 	if p.Attributed || p.Versions != (journal.Versions{}) {
 		t.Errorf("attributed = %v versions = %+v; a turn with no completion cannot be attributed", p.Attributed, p.Versions)
+	}
+}
+
+// Attribution is to the model, prompt and tool schema that produced the
+// rejected turn. Which ear heard the correction and which voice was cut are
+// provenance for review, not preconditions: a journal stamped without them
+// still yields a trainable pair (SPEC §8).
+//
+// verifies SPEC §9.1
+func TestRejectedTurnIsAttributedWithoutAnSTTOrTTSVersion(t *testing.T) {
+	v := versions()
+	v.STT, v.TTS = "", ""
+	store := conversation(t, v, concat(
+		[]journal.Record{opened("kitchen")}, cutTurn(), correctedTurn(), []journal.Record{closed("model_ended")},
+	))
+	p := onePair(t, scan(t, store))
+
+	if !p.Attributed || p.Versions != v {
+		t.Errorf("attributed = %v versions = %+v; the ear and voice do not gate attribution", p.Attributed, p.Versions)
 	}
 }
 

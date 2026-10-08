@@ -223,6 +223,32 @@ func TestPgStoreOrdersBySequenceNotHeapPosition(t *testing.T) {
 }
 
 // verifies SPEC §8
+func TestPgStoreReadsARowFromBeforeTheSTTAndTTSColumnsAsEmpty(t *testing.T) {
+	pool := openPg(t)
+	ctx := context.Background()
+	conv := fmt.Sprintf("conv-pre-stt-%d", convSeq.Add(1))
+
+	// A row written before migration 0002 holds NULL in both columns. The
+	// reducer must read that as "not recorded", the same as an empty slot.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO journal_events (conversation_id, seq, kind, actor, wall_clock,
+			speculative, audio_ref, model_version, prompt_version,
+			tool_schema_version, fields)
+		VALUES ($1, 1, 'session_closed', 'session', now(), false, '', '', '', '', '{}')
+	`, conv); err != nil {
+		t.Fatalf("seed legacy row: %v", err)
+	}
+
+	events, err := journal.NewPgStore(pool).Events(ctx, conv)
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if got := events[0].Versions; got.STT != "" || got.TTS != "" {
+		t.Errorf("versions = %+v, want empty STT and TTS from NULL columns", got)
+	}
+}
+
+// verifies SPEC §8
 func TestMigrateIsIdempotent(t *testing.T) {
 	pool := openPg(t)
 
