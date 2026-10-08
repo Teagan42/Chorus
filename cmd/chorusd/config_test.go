@@ -10,6 +10,8 @@ import (
 	"github.com/teaganglenn/chorus/internal/hass"
 	"github.com/teaganglenn/chorus/internal/identity"
 	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teaganglenn/chorus/internal/provider/kokoro"
+	"github.com/teaganglenn/chorus/internal/provider/speaches"
 )
 
 // complete is every variable the daemon reads, set. Tests unset from here.
@@ -124,6 +126,24 @@ func TestOptionalSidecarsDegradeWithALogLine(t *testing.T) {
 	}
 	if p.versions.Model != "qwen3:32b" || p.versions.Prompt == "" || p.versions.ToolSchema == "" {
 		t.Errorf("versions = %+v, want the engine's", p.versions)
+	}
+}
+
+// Every event the daemon records must say which ear heard it and which
+// voice spoke it, not only which model answered: a replay or an eval
+// otherwise cannot tell two sidecar builds' transcripts apart (SPEC §8).
+//
+// verifies SPEC §8
+func TestProvidersStampTheEarAndTheVoice(t *testing.T) {
+	p, err := buildProviders(configFromEnv(lookup(complete())), nil, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("providers: %v", err)
+	}
+	if p.versions.STT != speaches.DefaultModel {
+		t.Errorf("STT = %q, want the transcriber's model %q", p.versions.STT, speaches.DefaultModel)
+	}
+	if want := kokoro.DefaultModel + "/" + kokoro.DefaultVoice; p.versions.TTS != want {
+		t.Errorf("TTS = %q, want the synth's model and voice %q", p.versions.TTS, want)
 	}
 }
 

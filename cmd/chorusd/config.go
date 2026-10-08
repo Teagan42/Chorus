@@ -135,8 +135,12 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger) (pro
 	if err != nil {
 		return providers{}, err
 	}
+	// The engine knows the model, prompt and tool schema; which ear and voice
+	// are in effect is a wiring fact only this function holds (SPEC §8).
+	versions := engine.Versions()
+	versions.STT, versions.TTS = transcriber.Version(), synth.Version()
 	p := providers{
-		engine: engine, versions: engine.Versions(), synth: synth, stt: transcriber,
+		engine: engine, versions: versions, synth: synth, stt: transcriber,
 		tools: map[string]session.Tool{},
 	}
 

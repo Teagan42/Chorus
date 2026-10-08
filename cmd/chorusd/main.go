@@ -101,7 +101,8 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 		return fmt.Errorf("listen for satellites (%s): %w", listenEnv, err)
 	}
 	log.Info("chorusd listening", "version", version, "addr", ln.Addr().String(),
-		"satellites", len(inv.Satellites), "model", prov.versions.Model)
+		"satellites", len(inv.Satellites), "model", prov.versions.Model,
+		"stt", prov.versions.STT, "tts", prov.versions.TTS)
 
 	return run(ctx, inv, deps{
 		Listener:  ln,
