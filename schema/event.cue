@@ -60,6 +60,7 @@ events: {
 		fields: [
 			{name: "text", type: "string", description: "Transcript.", required: true},
 			{name: "speaker_id", type: "string", description: "Per-utterance speaker match."},
+			{name: "embedding_json", type: "string", description: "The utterance's speaker embedding as a JSON array of numbers, stored whether or not it matched anyone (SPEC §5). Empty when the embedder was unavailable."},
 		]
 	}
 	speech_spoken: {
