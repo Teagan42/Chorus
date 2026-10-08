@@ -1,0 +1,126 @@
+// Package triage reads the journal for conversations worth a reviewer's time
+// (SPEC §9.1): barge-ins, failures and speaker flips. Like harvest, it is a
+// reader of existing data; a signal is derived on read, never recorded.
+//
+// Slow turns and repeated requests are not signalled yet. Speech events are
+// recorded when playback ends, not at its first frame, so the journal cannot
+// say how long a person waited for audio; and "repeated" needs a similarity
+// rule nobody has chosen.
+package triage
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/teaganglenn/chorus/internal/harvest"
+	"github.com/teaganglenn/chorus/internal/journal"
+)
+
+// Kind names what made a conversation worth triage.
+type Kind string
+
+const (
+	KindBargeIn     Kind = "barge-in"
+	KindFailure     Kind = "failure"
+	KindSpeakerFlip Kind = "speaker-flip"
+)
+
+// Signal is one reason to look at a conversation, anchored to the event that
+// raised it and the utterance that turn answered.
+type Signal struct {
+	Kind           Kind
+	ConversationID string
+	Seq            uint64
+	At             time.Time
+
+	// Utterance is what the person said in the turn the signal belongs to,
+	// with the voice and satellite it came from.
+	Utterance string
+	Speaker   string
+	Satellite string
+
+	// Detail says why, in a line: the failed tool, the flip, the correction.
+	Detail string
+
+	// PairID names the harvested candidate for a barge-in.
+	PairID string
+}
+
+// turnContext is where the conversation stood when an event was recorded.
+type turnContext struct {
+	utterance, speaker, satellite string
+}
+
+// Scan returns the conversation's signals in log order.
+func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Signal, error) {
+	events, err := store.Events(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	pairs, err := harvest.Harvest(ctx, store, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	cutPairs := map[uint64]harvest.Pair{}
+	for _, p := range pairs {
+		cutPairs[p.Seq.Cut] = p
+	}
+
+	var (
+		out  []Signal
+		cur  turnContext
+		tool = map[string]string{} // call id → tool name
+	)
+	raise := func(e journal.Event, k Kind, detail string) {
+		out = append(out, Signal{
+			Kind: k, ConversationID: conversationID, Seq: e.Seq, At: e.At,
+			Utterance: cur.utterance, Speaker: cur.speaker, Satellite: cur.satellite,
+			Detail: detail,
+		})
+	}
+	for _, e := range events {
+		if e.Speculative {
+			continue
+		}
+		switch e.Kind {
+		case journal.KindSessionOpened:
+			cur.satellite = e.Fields["satellite"]
+			if cur.speaker == "" {
+				cur.speaker = e.Fields["speaker_id"]
+			}
+		case journal.KindUtteranceTranscribed:
+			// An unidentified voice is not a flip: speaker ID abstained.
+			if sp := e.Fields["speaker_id"]; sp != "" {
+				prev := cur.speaker
+				cur.utterance, cur.speaker = e.Fields["text"], sp
+				if prev != "" && prev != sp {
+					raise(e, KindSpeakerFlip, prev+" → "+sp)
+				}
+			} else {
+				cur.utterance = e.Fields["text"]
+			}
+		case journal.KindToolCalled:
+			tool[e.Fields["call_id"]] = e.Fields["tool"]
+		case journal.KindToolResult:
+			// Cancelled is a barge-in working; detached is a tool outliving
+			// the turn by design. Neither failed.
+			if o := e.Fields["outcome"]; o == "error" || o == "timed_out" {
+				raise(e, KindFailure, tool[e.Fields["call_id"]]+" "+o)
+			}
+		case journal.KindModelCompleted:
+			if e.Fields["finish_reason"] == "error" {
+				raise(e, KindFailure, "model finished with error")
+			}
+		case journal.KindSessionClosed:
+			if r := e.Fields["reason"]; r == "error" || r == "device_lost" {
+				raise(e, KindFailure, "session closed: "+r)
+			}
+		}
+		if p, ok := cutPairs[e.Seq]; ok {
+			raise(e, KindBargeIn, fmt.Sprintf("cut → “%s”", p.Heard))
+			out[len(out)-1].PairID = p.ID
+		}
+	}
+	return out, nil
+}
