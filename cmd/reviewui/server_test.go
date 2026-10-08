@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -290,5 +291,100 @@ func TestHeardPlaybackIsBoundedAtTheConfirmedCut(t *testing.T) {
 	}
 	if !strings.Contains(h, "/audio?ref="+url.QueryEscape("blob://tts/s1")+"&amp;from=2080") {
 		t.Error("the unheard tail is not offered as its own clip")
+	}
+}
+
+// accept stores the verdict that makes the fixture pair exportable.
+func accept(t *testing.T, decisions curation.Store, chosen string) {
+	t.Helper()
+	err := decisions.Put(context.Background(), curation.Decision{
+		PairID: pairID, ConversationID: "conv-1",
+		Status: curation.StatusAccepted, Chosen: chosen,
+		DecidedAt: time.Unix(1_760_000_100, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
+}
+
+// verifies SPEC §9.1
+func TestExportCarriesOnlyAcceptedFixedPairs(t *testing.T) {
+	s, decisions := newTestServer(t)
+
+	if body := get(t, s, "/export/dpo.jsonl"); strings.TrimSpace(body) != "" {
+		t.Fatalf("an unreviewed pair exported: %q", body)
+	}
+
+	accept(t, decisions, "Playing the first Led Zeppelin album.")
+	body := get(t, s, "/export/dpo.jsonl")
+	lines := strings.Split(strings.TrimSpace(body), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("exported %d rows, want 1: %q", len(lines), body)
+	}
+	var row struct {
+		Prompt []struct {
+			Role, Content string
+		} `json:"prompt"`
+		Chosen   string `json:"chosen"`
+		Rejected string `json:"rejected"`
+		Meta     struct {
+			Pair     string `json:"pair"`
+			Versions struct {
+				Model string `json:"model"`
+			} `json:"versions"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &row); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	if n := len(row.Prompt); n == 0 || row.Prompt[n-1].Content != "play something by zeppelin" {
+		t.Errorf("prompt = %+v, want it to end with the shared prompt", row.Prompt)
+	}
+	if row.Chosen != "Playing the first Led Zeppelin album." {
+		t.Errorf("chosen = %q", row.Chosen)
+	}
+	// Rejected is the turn as generated: the heard half and the unheard tail.
+	if row.Rejected != "I found three albums by that artist" {
+		t.Errorf("rejected = %q", row.Rejected)
+	}
+	if row.Meta.Pair != pairID || row.Meta.Versions.Model != "qwen3-32b@1" {
+		t.Errorf("meta = %+v", row.Meta)
+	}
+}
+
+// verifies SPEC §9.1
+func TestUnfixedAcceptIsHeldOutOfTheExport(t *testing.T) {
+	s, decisions := newTestServer(t)
+	err := decisions.Put(context.Background(), curation.Decision{
+		PairID: pairID, ConversationID: "conv-1",
+		Status: curation.StatusAccepted, Chosen: "Playing Led Zeppelin one.", Unfixed: true,
+		DecidedAt: time.Unix(1_760_000_100, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	if body := get(t, s, "/export/dpo.jsonl"); strings.TrimSpace(body) != "" {
+		t.Errorf("an unfixed accept exported: %q", body)
+	}
+}
+
+// verifies SPEC §9.2
+func TestExportPageCountsThePilesAndPreviewsTheRows(t *testing.T) {
+	s, decisions := newTestServer(t)
+	h := get(t, s, "/export")
+	if !strings.Contains(h, "Nothing to export yet.") {
+		t.Error("an empty dataset should say so")
+	}
+
+	accept(t, decisions, "Playing the first Led Zeppelin album.")
+	h = get(t, s, "/export")
+	for _, want := range []string{
+		"/export/dpo.jsonl",                     // the download
+		"Playing the first Led Zeppelin album.", // the preview shows the row
+		"Exportable",
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("page is missing %q", want)
+		}
 	}
 }
