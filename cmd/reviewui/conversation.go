@@ -142,7 +142,10 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 		"Head": ui.PageHead{
 			Eyebrow: "01 · Browse", Trace: true, Title: title, SubtitleMono: true,
 			Subtitle: fmt.Sprintf("%s · %s · %s · %s", id, c.speaker, strings.Join(rooms, " → "), c.start.In(loc).Format("Mon 2 Jan 15:04")),
-			Actions:  []ui.Button{{Label: "‹ The day", Href: ui.Routes[ui.StepBrowse] + "?day=" + c.start.In(loc).Format("2006-01-02")}},
+			Actions: []ui.Button{
+				{Label: "‹ The day", Href: ui.Routes[ui.StepBrowse] + "?day=" + c.start.In(loc).Format("2006-01-02")},
+				{Label: "Replay ›", Href: replayHref(id)},
+			},
 		},
 		"Rows": rows,
 	})

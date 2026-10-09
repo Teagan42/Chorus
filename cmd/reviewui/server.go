@@ -38,6 +38,10 @@ type server struct {
 	blobs     blob.Store
 	now       func() time.Time
 
+	// engineFor builds the turn engine Replay asks; nil when no model
+	// endpoint is configured, and Replay says so.
+	engineFor engineFactory
+
 	// One reviewer at a time is the household reality; the lock keeps a
 	// read-modify-write on a pair from racing itself.
 	mu sync.Mutex
@@ -64,6 +68,9 @@ func (s *server) routes() *http.ServeMux {
 	mux.HandleFunc("GET "+ui.Routes[ui.StepTriage], s.triage)
 	mux.HandleFunc("GET "+ui.Routes[ui.StepBrowse], s.browse)
 	mux.HandleFunc("GET "+ui.Routes[ui.StepBrowse]+"/{id}", s.conversation)
+	mux.HandleFunc("GET "+ui.Routes[ui.StepReplay], s.replays)
+	mux.HandleFunc("GET "+ui.Routes[ui.StepReplay]+"/{id}", s.replayPage)
+	mux.HandleFunc("POST "+ui.Routes[ui.StepReplay]+"/{id}", s.replayRun)
 	mux.Handle("GET /audio", audio.Handler(s.blobs))
 	mux.HandleFunc("GET "+ui.Routes[ui.StepExport], s.export)
 	mux.HandleFunc("GET /export/dpo.jsonl", s.exportJSONL)

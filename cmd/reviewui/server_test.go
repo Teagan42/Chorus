@@ -25,7 +25,17 @@ func bargeInLog(t *testing.T) *journal.MemStore {
 	store := journal.NewMemStore()
 	v := journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7"}
 	j := journal.New(store, journal.FixedClock(time.Unix(1_760_000_000, 0)), v)
+	for _, r := range zeppelinRecords() {
+		if _, err := j.Append(context.Background(), "conv-1", r); err != nil {
+			t.Fatalf("append %s: %v", r.Kind, err)
+		}
+	}
+	return store
+}
 
+// zeppelinRecords is Alice in the kitchen asking for Zeppelin, cutting the
+// list off with "just the first one", and the turn that played it.
+func zeppelinRecords() []journal.Record {
 	rec := func(kind journal.Kind, audio string, fields ...string) journal.Record {
 		r := journal.Record{Kind: kind, AudioRef: audio, Fields: map[string]string{}}
 		for i := 0; i+1 < len(fields); i += 2 {
@@ -33,7 +43,7 @@ func bargeInLog(t *testing.T) *journal.MemStore {
 		}
 		return r
 	}
-	for _, r := range []journal.Record{
+	return []journal.Record{
 		rec(journal.KindSessionOpened, "", "satellite", "kitchen", "speaker_id", "alice", "resumed", "false"),
 		rec(journal.KindUtteranceTranscribed, "blob://mic/1", "text", "play something by zeppelin", "speaker_id", "alice"),
 		rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s1", "args_json", `{"mode":"queue","streamed":true}`),
@@ -47,12 +57,7 @@ func bargeInLog(t *testing.T) *journal.MemStore {
 		rec(journal.KindToolResult, "", "call_id", "s2", "outcome", "ok"),
 		rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop"),
 		rec(journal.KindSessionClosed, "", "reason", "model_ended", "satellite", "kitchen"),
-	} {
-		if _, err := j.Append(context.Background(), "conv-1", r); err != nil {
-			t.Fatalf("append %s: %v", r.Kind, err)
-		}
 	}
-	return store
 }
 
 // fixtureBlobs stores PCM under every ref the fixture journal cites, sized
