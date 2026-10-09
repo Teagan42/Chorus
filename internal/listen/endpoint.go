@@ -38,11 +38,11 @@ func (b Boundary) String() string {
 	}
 }
 
-// Endpointer segments the continuous mic stream into utterances. SPEC §4.5
-// names Smart Turn v2 over STT partials for this; until that model is wired
-// in, Energy fills the seam. Feed is called from the bridge read loop with
-// every chunk in arrival order, so an implementation that runs a model must
-// do so off that loop and report the decision on a later Feed.
+// Endpointer segments the continuous mic stream into utterances. Energy is
+// the default; Semantic asks Smart Turn (SPEC §4.5, ADR-0036). Feed is called
+// from the bridge read loop with every chunk in arrival order, so an
+// implementation that runs a model must do so off that loop and report the
+// decision on a later Feed.
 type Endpointer interface {
 	Feed(pcm []byte) Boundary
 

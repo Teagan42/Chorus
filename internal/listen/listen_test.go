@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -575,5 +576,89 @@ func TestAListenerWithoutAClockRecordsNoWait(t *testing.T) {
 	start := r.awaitKind(t, conv, journal.KindSpeechStarted, 1)
 	if wait, ok := start.Fields["wait_ms"]; ok {
 		t.Errorf("wait_ms = %q with no clock to measure it", wait)
+	}
+}
+
+// With Smart Turn deciding, Alan waits through the short pause the judge
+// needed, not the 800 ms of quiet Energy would have: the kitchen satellite's
+// answer starts 1.84 s after the endpoint and 256 ms after he stopped.
+//
+// verifies SPEC §4.5, §11
+func TestASemanticEndpointShortensTheWait(t *testing.T) {
+	endpoint := time.Date(2026, 10, 6, 11, 59, 58, 160_000_000, time.UTC)
+	j := &judge{answers: []judgement{{done: true}}}
+	ep, q := semantic(j, nil)
+	ep.Threshold = 0.05
+	r := newRig(t, talking(), func(c *listen.Config) {
+		c.Clock = journal.FixedClock(endpoint)
+		c.Endpointer = ep
+	})
+	r.speaker.dac = true
+	lights := r.line("turn off the kitchen lights", alan)
+
+	r.dev.SendWake(t, "hey_eddie")
+	r.speak(t, lights, 8*chunkBytes)
+	r.pause(t, pauseChunks*chunkBytes)
+	r.settled(t)
+	q.run()
+	r.pause(t, chunkBytes)
+
+	conv := r.session(t).ConversationID()
+	start := r.awaitKind(t, conv, journal.KindSpeechStarted, 1)
+	if start.Fields["wait_ms"] != "2096" {
+		t.Errorf("wait_ms = %q, want 1840 + the 256 ms pause", start.Fields["wait_ms"])
+	}
+	heard := r.awaitKind(t, conv, journal.KindUtteranceTranscribed, 1)
+	if heard.Fields["text"] != "turn off the kitchen lights" {
+		t.Errorf("heard %q", heard.Fields["text"])
+	}
+	if got := len(j.asked[0]); got != 8*chunkBytes+pauseChunks*chunkBytes {
+		t.Errorf("the judge was sent %d bytes, want the turn and its pause", got)
+	}
+}
+
+// stalled is a judge that never answers: it holds its ask until the context
+// ends, and says when it has let go.
+type stalled struct {
+	asked chan struct{}
+	gone  atomic.Bool
+}
+
+func (s *stalled) Complete(ctx context.Context, _ []byte) (bool, error) {
+	close(s.asked)
+	<-ctx.Done()
+	s.gone.Store(true)
+	return false, ctx.Err()
+}
+
+// An ask in flight when the kitchen satellite drops is cancelled with the
+// link, and the listener is not done until the ask has returned (CONTRIBUTING
+// §6).
+//
+// verifies SPEC §4.5
+func TestAnAskInFlightEndsWithTheLink(t *testing.T) {
+	j := &stalled{asked: make(chan struct{})}
+	ep := listen.NewSemantic(j)
+	ep.Threshold = 0.05
+	r := newRig(t, talking(), func(c *listen.Config) { c.Endpointer = ep })
+	lights := r.line("turn off the kitchen lights", alan)
+
+	r.dev.SendWake(t, "hey_eddie")
+	r.speak(t, lights, 8*chunkBytes)
+	r.pause(t, pauseChunks*chunkBytes)
+	select {
+	case <-j.asked:
+	case <-time.After(patience):
+		t.Fatal("the judge was never asked")
+	}
+
+	r.cancel()
+	select {
+	case <-r.l.Done():
+	case <-time.After(patience):
+		t.Fatal("the listener outlived its context")
+	}
+	if !j.gone.Load() {
+		t.Error("the listener finished before the ask it started")
 	}
 }
