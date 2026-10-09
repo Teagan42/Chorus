@@ -309,6 +309,77 @@ func TestE2ETriageFiltersAndOpensTheBargeInInReview(t *testing.T) {
 	p.waitText(".pair-actions", "I found three")
 }
 
+// verifies SPEC §9.2
+func TestE2ETriageOpensAFailureAtItsEvent(t *testing.T) {
+	p := open(t, newTriageServer(t))
+	p.visit("/queue?tab=failure")
+	p.follow(`#queue a[href^="/conversations/"]`)
+	if got := p.path(); got != "/conversations/conv-2" {
+		t.Errorf("landed on %s, want the failing conversation", got)
+	}
+	// The row the link names is the one on screen, not just in the DOM.
+	var target struct {
+		ID      string
+		Visible bool
+	}
+	p.eval(`(() => {
+		const e = document.querySelector(":target");
+		if (!e) return {ID: "", Visible: false};
+		const r = e.getBoundingClientRect();
+		return {ID: e.id, Visible: r.top >= 0 && r.bottom <= window.innerHeight};
+	})()`, &target)
+	if target.ID != "seq-4" || !target.Visible {
+		t.Errorf("target = %+v, want #seq-4 scrolled into view", target)
+	}
+	p.waitText("#seq-4", "cover.state timed_out")
+	p.shot("conversation-failure")
+}
+
+// verifies SPEC §9.2
+func TestE2EBrowseOpensEachConversationAndComesBack(t *testing.T) {
+	p := open(t, newBrowseServer(t))
+	p.visit("/conversations")
+	p.waitText("h2", "Thursday 9 October")
+	for _, lane := range []string{"kitchen", "office"} {
+		if !strings.Contains(p.text(".day-lanes"), lane) {
+			t.Errorf("no lane for %s", lane)
+		}
+	}
+	var flagged, rejects int
+	p.eval(`document.querySelectorAll(".day-lanes__session.is-flagged").length`, &flagged)
+	p.eval(`document.querySelectorAll(".day-lanes__reject").length`, &rejects)
+	if flagged != 2 || rejects != 1 {
+		t.Errorf("%d flagged sessions and %d rejected wakes, want 2 and 1", flagged, rejects)
+	}
+	p.shot("browse")
+
+	// A session on the lane opens its conversation.
+	p.follow(`.day-lanes__session[href="/conversations/conv-1"]`)
+	p.waitText("body", "I found three")
+	if got := p.path(); got != "/conversations/conv-1" {
+		t.Errorf("landed on %s, want /conversations/conv-1", got)
+	}
+	// The cut turn plays only what the DAC confirmed: 2080 frames.
+	var heard float64
+	p.eval(`new Promise((ok, no) => {
+		const a = document.querySelector('audio[src*="to=2080"]');
+		if (!a) return no(new Error("no audio bounded at the cut"));
+		a.addEventListener("loadedmetadata", () => ok(a.duration), {once: true});
+		a.addEventListener("error", () => no(new Error("cannot decode " + a.src)), {once: true});
+		a.preload = "metadata"; a.load();
+	})`, &heard)
+	if math.Abs(heard-0.13) > 0.01 {
+		t.Errorf("heard half lasts %.3fs, want 0.13s", heard)
+	}
+	p.shot("conversation")
+
+	// And back to the day it happened on, then the other one from the list.
+	p.follow(`a.btn[href^="/conversations?day="]`)
+	p.waitText("h2", "Thursday 9 October")
+	p.follow(`a.list__row[href="/conversations/conv-2"]`)
+	p.waitText("body", "is the garage door closed")
+}
+
 // verifies SPEC §9.1
 func TestE2EExportDownloadsTheAcceptedPair(t *testing.T) {
 	s, decisions := newTestServer(t)
@@ -334,6 +405,7 @@ func TestE2EEveryScreenSaysWhenItIsEmpty(t *testing.T) {
 		{"/review", "Nothing to review."},
 		{"/queue", "Nothing in this pile."},
 		{"/export", "Nothing to export yet."},
+		{"/conversations", "No conversations this day."},
 	} {
 		p.visit(c.path)
 		p.waitText("body", c.want)
@@ -352,7 +424,7 @@ func TestE2EHeaderLinksLandOnTheirScreens(t *testing.T) {
 	s, _ := newTestServer(t)
 	p := open(t, s)
 	p.visit("/export")
-	for _, path := range []string{"/queue", "/review", "/curate/pairs", "/export"} {
+	for _, path := range []string{"/conversations", "/queue", "/review", "/curate/pairs", "/export"} {
 		p.follow(fmt.Sprintf(`header nav a[href="%s"]`, path))
 		if got := p.path(); got != path {
 			t.Errorf("header link to %s landed on %s", path, got)
