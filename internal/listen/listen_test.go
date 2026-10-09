@@ -662,3 +662,47 @@ func TestAnAskInFlightEndsWithTheLink(t *testing.T) {
 		t.Error("the listener finished before the ask it started")
 	}
 }
+
+// Alan says "set a timer for", thinks for a second, and says "twelve
+// minutes". Smart Turn hears the falling pitch as finished; the words, from
+// the same transcriber the turn is decoded with, hold it, and the kitchen
+// satellite hears one command rather than a timer with no duration.
+//
+// verifies SPEC §4.5
+func TestACutOffCommandIsHeardWholeAfterItsPause(t *testing.T) {
+	j := &judge{answers: []judgement{{done: true}, {done: true}}}
+	ep, q := semantic(j, nil)
+	ep.Threshold = 0.05
+	r := newRig(t, talking(), func(c *listen.Config) {
+		ep.Judge = listen.Dangling{Judge: j, Words: c.Transcriber}
+		c.Endpointer = ep
+	})
+	r.speaker.dac = true
+	cut := r.line("set a timer for", alan)
+	whole := r.line("set a timer for twelve minutes", alan)
+
+	r.dev.SendWake(t, "hey_eddie")
+	r.speak(t, cut, 8*chunkBytes)
+	r.pause(t, pauseChunks*chunkBytes)
+	r.settled(t)
+	q.run()
+	r.pause(t, ms(1000))
+	r.speak(t, whole, 8*chunkBytes)
+	r.pause(t, pauseChunks*chunkBytes)
+	r.settled(t)
+	q.run()
+	r.pause(t, chunkBytes)
+
+	conv := r.session(t).ConversationID()
+	heard := r.awaitKind(t, conv, journal.KindUtteranceTranscribed, 1)
+	if heard.Fields["text"] != "set a timer for twelve minutes" {
+		t.Errorf("heard %q, want the whole command", heard.Fields["text"])
+	}
+	r.awaitKind(t, conv, journal.KindSpeechStarted, 1)
+	if n := r.count(t, conv, journal.KindUtteranceTranscribed); n != 1 {
+		t.Errorf("%d utterances transcribed, want the one command", n)
+	}
+	if len(j.asked) != 2 {
+		t.Errorf("Smart Turn judged %d pauses, want both", len(j.asked))
+	}
+}
