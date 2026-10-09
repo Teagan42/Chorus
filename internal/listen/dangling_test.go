@@ -58,6 +58,15 @@ func TestDanglesOnAWordNoCommandEndsOn(t *testing.T) {
 		{"Turn off the lights in the office or", true},
 		{"Set an alarm on", true},
 		{"Turn on the porch light and the weather in", true},
+
+		// A particle the verb already took leaves the last one with nothing
+		// to finish, and a request is not a question about state.
+		{"Turn on the lights in", true},
+		{"Switch off the TV in", true},
+		{"Turn the lights on in", true},
+		{"Are the lights on in", true},
+		{"Can you play music in", true},
+		{"Could you put the jazz playlist on in", true},
 		{"Text Alice that I'm running late because", true},
 
 		// A particle ends a phrasal command, and a question about state.
@@ -69,6 +78,10 @@ func TestDanglesOnAWordNoCommandEndsOn(t *testing.T) {
 		{"Is the oven on?", false},
 		{"Are the bedroom lights still on?", false},
 		{"Did I leave the stove on?", false},
+		{"Could you turn the hallway lights off?", false},
+		{"Will you put the kettle on", false},
+		{"Turn the lights in the kitchen on", false},
+		{"Turn the back porch lights off", false},
 		{"What's on?", false},
 		{"It's on", false},
 

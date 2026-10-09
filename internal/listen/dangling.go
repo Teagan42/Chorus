@@ -115,8 +115,9 @@ func particle(w string) bool {
 }
 
 // phrasal reports whether the clause before a particle gives it something to
-// finish: a verb that takes it, a yes-or-no question about state ("is the
-// oven on"), or a copula right before it ("what's on").
+// finish: a verb that takes it and has not taken one already ("turn on the
+// lights in" has), a copula opening a question about state ("is the oven
+// on"), or a copula right before it ("what's on").
 func phrasal(before []string) bool {
 	clause := before
 	for i := len(before) - 1; i >= 0; i-- {
@@ -128,26 +129,26 @@ func phrasal(before []string) bool {
 	if len(clause) == 0 {
 		return false
 	}
-	if auxiliary(clause[0]) {
+	prev := clause[len(clause)-1]
+	switch {
+	case particle(prev):
+		return false
+	case copula(prev), strings.HasSuffix(prev, "'s"), copula(clause[0]):
 		return true
 	}
-	if prev := clause[len(clause)-1]; prev == "is" || prev == "are" || strings.HasSuffix(prev, "'s") {
-		return true
-	}
-	for _, w := range clause {
-		if takesParticle(w) {
+	for i, w := range clause[:len(clause)-1] {
+		if takesParticle(w) && !particle(clause[i+1]) {
 			return true
 		}
 	}
 	return false
 }
 
-// auxiliary opens a yes-or-no question.
-func auxiliary(w string) bool {
+// copula opens a question about state, or states it: "is the oven", "it's".
+// Other auxiliaries open requests ("can you play music in"), not states.
+func copula(w string) bool {
 	switch w {
-	case "is", "are", "was", "were", "am", "isn't", "aren't", "wasn't", "weren't",
-		"do", "does", "did", "don't", "doesn't", "didn't",
-		"can", "could", "will", "would", "should", "has", "have", "had":
+	case "is", "are", "was", "were", "am", "isn't", "aren't", "wasn't", "weren't":
 		return true
 	}
 	return false
