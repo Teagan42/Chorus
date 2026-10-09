@@ -158,3 +158,26 @@ func TestAnAskWithoutDialogueSendsTheUtterance(t *testing.T) {
 		t.Errorf("messages = %+v, want the system prompt and the utterance", msgs)
 	}
 }
+
+// Streamed speech whose words are not known until it finishes playing is
+// left out rather than told as an empty speak call.
+//
+// verifies SPEC §4.4
+func TestSpeechWithNoWordsYetIsLeftOut(t *testing.T) {
+	msgs := sent(t, session.Input{Dialogue: []journal.Entry{
+		{Kind: journal.EntryHeard, Text: "what's the thermostat set to"},
+		{Kind: journal.EntrySaid, CallID: "call_s1", Pending: true},
+		{Kind: journal.EntryCall, CallID: "call_c1", Tool: "ha_get_state", Args: `{"entity_id":"climate.hallway"}`},
+		{Kind: journal.EntryResult, CallID: "call_c1", Tool: "ha_get_state", Outcome: "ok", Result: `{"state":"heat"}`},
+	}})
+	for _, m := range msgs {
+		for _, c := range m.ToolCalls {
+			if c.Function.Name == "speak" {
+				t.Errorf("an empty speak call was sent: %+v", m)
+			}
+		}
+	}
+	if len(msgs) != 4 {
+		t.Errorf("%d messages, want system, user, the call and its result", len(msgs))
+	}
+}

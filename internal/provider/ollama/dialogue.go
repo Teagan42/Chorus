@@ -20,6 +20,11 @@ func dialogue(entries []journal.Entry) []message {
 		case journal.EntryHeard:
 			out = append(out, message{Role: "user", Content: e.Text})
 		case journal.EntrySaid:
+			if e.Text == "" {
+				// Streamed speech still playing whose words are not known
+				// yet: nothing to tell the model it said.
+				continue
+			}
 			// The words alone: the mode the model chose is the speech
 			// channel's business, and an empty one is not in the enum.
 			args, _ := json.Marshal(map[string]string{"text": e.Text})
