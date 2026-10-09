@@ -325,3 +325,53 @@ func TestShortAnswersAreNotRepeats(t *testing.T) {
 		t.Errorf("confirming twice raised %+v", r)
 	}
 }
+
+// "Yes" is an answer, not the request it answers: Teagan confirms, nothing
+// happens, and she asks again.
+//
+// verifies SPEC §9.1
+func TestAConfirmationInBetweenDoesNotHideARepeat(t *testing.T) {
+	sigs := repeats(scanTimed(t,
+		timed{0, opened("kitchen", "teagan")},
+		timed{0.3, heard("turn off the kitchen lights", "teagan")},
+		timed{2.0, called("speak", "s1")},
+		timed{3.1, spoken("All of them?")},
+		timed{4.5, heard("yes", "teagan")},
+		timed{12.3, heard("turn off the kitchen lights", "teagan")},
+	))
+	s := one(t, sigs)
+	if s.Seq != 6 || s.Detail != "asked again 12.0 s after “turn off the kitchen lights” · no tool call on the first ask" {
+		t.Errorf("repeat = #%d %q", s.Seq, s.Detail)
+	}
+}
+
+// An unidentified voice after an identified one is a voice speaker ID could
+// not place, perhaps a guest: not evidence it is the same person.
+//
+// verifies SPEC §5
+func TestAnUnknownVoiceAfterAKnownOneIsNotARepeat(t *testing.T) {
+	sigs := scanTimed(t,
+		timed{0, opened("living_room", "teagan")},
+		timed{0.4, heard("is the garage door closed", "teagan")},
+		timed{5.0, heard("is the garage door closed", "")},
+	)
+	if r := repeats(sigs); len(r) != 0 {
+		t.Errorf("an unplaced voice asking what Teagan asked raised %+v", r)
+	}
+}
+
+// Without the speaker sidecar every utterance is unidentified (ADR-0031).
+// Requiring a known speaker would switch the signal off for that household;
+// one wake on one satellite is one person far more often than two.
+//
+// verifies SPEC §9.1
+func TestWithoutSpeakerIDARepeatStillCounts(t *testing.T) {
+	sigs := repeats(scanTimed(t,
+		timed{0, opened("kitchen", "")},
+		timed{0.2, heard("set a timer for the oven", "")},
+		timed{6.4, heard("set a timer for twelve minutes", "")},
+	))
+	if s := one(t, sigs); s.Satellite != "kitchen" {
+		t.Errorf("repeat = %+v", s)
+	}
+}

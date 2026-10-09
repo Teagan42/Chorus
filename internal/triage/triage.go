@@ -93,11 +93,11 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 	}
 	// ask is the last utterance, to tell a repeat from a follow-up.
 	type ask struct {
-		at      time.Time
-		text    string
-		speaker string
-		words   map[string]bool
-		acted   bool // it called a tool other than speak
+		at    time.Time
+		text  string
+		voice string // this utterance's own speaker_id: empty is unplaced
+		words map[string]bool
+		acted bool // it called a tool other than speak
 	}
 	var (
 		out   []Signal
@@ -134,15 +134,23 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 			} else {
 				cur.utterance = e.Fields["text"]
 			}
-			next := &ask{at: e.At, text: cur.utterance, speaker: cur.speaker, words: contentWords(cur.utterance)}
-			if last != nil && last.speaker == next.speaker && next.at.Sub(last.at) <= RepeatWindow && similar(last.words, next.words) {
+			// Same voice means the same speaker_id on both utterances, not the
+			// attribution carried over: an unplaced voice after Teagan may be
+			// a guest. Both unplaced still counts, since without the speaker
+			// sidecar every utterance is (ADR-0031).
+			next := &ask{at: e.At, text: cur.utterance, voice: e.Fields["speaker_id"], words: contentWords(cur.utterance)}
+			if last != nil && last.voice == next.voice && next.at.Sub(last.at) <= RepeatWindow && similar(last.words, next.words) {
 				detail := fmt.Sprintf("asked again %.1f s after “%s”", next.at.Sub(last.at).Seconds(), last.text)
 				if !last.acted {
 					detail += " · no tool call on the first ask"
 				}
 				raise(e, KindRepeated, detail)
 			}
-			last = next
+			// An answer ("yes") is not a request, so the request it answered
+			// stays the one a repeat is measured against.
+			if len(next.words) >= repeatMinWords {
+				last = next
+			}
 		case journal.KindToolCalled:
 			calls[e.Fields["call_id"]] = pending{tool: e.Fields["tool"], turn: cur}
 			if last != nil && e.Fields["tool"] != "speak" {
