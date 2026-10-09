@@ -27,7 +27,10 @@ func searchArgs() (string, string) {
 declared `latency: "slow"`. Its description says the words are spoken for
 the model, so it should not also call `speak` for them. No tool may declare
 a parameter of that name; CUE rejects it, as it rejects `confirmation`
-(ADR-0038). The prompt's ordering clause is replaced by one sentence saying
+(ADR-0038). Both are offered to the model in `ToolSpec.ModelParams` and
+never declared in `Params`, which is what an executor validates against. An
+executor would otherwise reject every slow call for missing an argument the
+session took off. The prompt's ordering clause is replaced by one sentence saying
 the same thing.
 
 **The session speaks it, when the call actually runs.** After a slow call's
