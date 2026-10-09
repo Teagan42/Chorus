@@ -8,11 +8,15 @@
     "name": "end_session"
   },
   {
-    "description": "Act on the home through a Home Assistant service: lights, switches, covers, media players, scripts. Target an entity_id from ha_find_entities, or an area_id. Returns the entities whose state changed; an empty list means nothing matched or nothing needed to change.",
+    "description": "Act on the home through a Home Assistant service: lights, switches, covers, media players, scripts. Target an entity_id from ha_find_entities, or an area_id. Returns the entities whose state changed; an empty list means nothing matched or nothing needed to change. Some calls need the person's yes: they return confirmation_required with a nonce. Ask them, and once they agree, call again with the same arguments and confirmation set to the nonce.",
     "input_schema": {
       "properties": {
         "area_id": {
           "description": "Area to act on, e.g. kitchen. Required unless entity_id is given.",
+          "type": "string"
+        },
+        "confirmation": {
+          "description": "The nonce from a confirmation_required result, once the person has said yes. Omit it otherwise.",
           "type": "string"
         },
         "data": {

@@ -14,6 +14,10 @@ const (
 	KindBargeInDetected Kind = "barge_in_detected"
 	// Candidate interruption failed the detection gate. Tuning corpus for SPEC §4.3.
 	KindBargeInRejected Kind = "barge_in_rejected"
+	// A held call came back with its nonce after the person answered, and ran. What they said is the utterance the nonce was redeemed after (SPEC §6).
+	KindConfirmationGiven Kind = "confirmation_given"
+	// A call that needs the person's yes was held, and the model was handed a nonce to call again with once they agree (SPEC §6).
+	KindConfirmationRequested Kind = "confirmation_requested"
 	// Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8).
 	KindModelCompleted Kind = "model_completed"
 	// Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5).
@@ -50,25 +54,29 @@ type EventMeta struct {
 
 // Meta describes every known event kind.
 var Meta = map[Kind]EventMeta{
-	KindBargeInDetected:      {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"tts_position_ms"}},
-	KindBargeInRejected:      {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"stage"}},
-	KindModelCompleted:       {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: true, RequiredFields: []string{"completion_json", "finish_reason"}},
-	KindSessionClosed:        {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"reason", "satellite"}},
-	KindSessionOpened:        {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"satellite"}},
-	KindSpeechDiscarded:      {Actor: "speaking", HasAudio: false, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"unspoken_text", "reason"}},
-	KindSpeechSpoken:         {Actor: "speaking", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"text", "frames_played"}},
-	KindSpeechStarted:        {Actor: "speaking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id"}},
-	KindSpeechTruncated:      {Actor: "speaking", HasAudio: true, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"spoken_text", "unspoken_text", "frames_played"}},
-	KindToolCalled:           {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"tool", "call_id", "args_json"}},
-	KindToolResult:           {Actor: "tool", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id", "outcome"}},
-	KindUtteranceTranscribed: {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"text"}},
-	KindWakeRejected:         {Actor: "device", HasAudio: true, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"reason"}},
+	KindBargeInDetected:       {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"tts_position_ms"}},
+	KindBargeInRejected:       {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"stage"}},
+	KindConfirmationGiven:     {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id", "nonce"}},
+	KindConfirmationRequested: {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id", "nonce"}},
+	KindModelCompleted:        {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: true, RequiredFields: []string{"completion_json", "finish_reason"}},
+	KindSessionClosed:         {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"reason", "satellite"}},
+	KindSessionOpened:         {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"satellite"}},
+	KindSpeechDiscarded:       {Actor: "speaking", HasAudio: false, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"unspoken_text", "reason"}},
+	KindSpeechSpoken:          {Actor: "speaking", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"text", "frames_played"}},
+	KindSpeechStarted:         {Actor: "speaking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id"}},
+	KindSpeechTruncated:       {Actor: "speaking", HasAudio: true, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"spoken_text", "unspoken_text", "frames_played"}},
+	KindToolCalled:            {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"tool", "call_id", "args_json"}},
+	KindToolResult:            {Actor: "tool", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id", "outcome"}},
+	KindUtteranceTranscribed:  {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"text"}},
+	KindWakeRejected:          {Actor: "device", HasAudio: true, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"reason"}},
 }
 
 // AllKinds lets replay assert exhaustive handling.
 var AllKinds = []Kind{
 	KindBargeInDetected,
 	KindBargeInRejected,
+	KindConfirmationGiven,
+	KindConfirmationRequested,
 	KindModelCompleted,
 	KindSessionClosed,
 	KindSessionOpened,

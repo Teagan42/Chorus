@@ -8,6 +8,8 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 |---|---|---|---|---|
 | `barge_in_detected` | listening | yes |  | Interruption passed the detection gate. Timing is milliseconds into TTS playback, not wall clock, so replay reproduces the cut. |
 | `barge_in_rejected` | listening | yes |  | Candidate interruption failed the detection gate. Tuning corpus for SPEC §4.3. |
+| `confirmation_given` | session |  |  | A held call came back with its nonce after the person answered, and ran. What they said is the utterance the nonce was redeemed after (SPEC §6). |
+| `confirmation_requested` | session |  |  | A call that needs the person's yes was held, and the model was handed a nonce to call again with once they agree (SPEC §6). |
 | `model_completed` | thinking |  |  | Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8). |
 | `session_closed` | session |  |  | Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). |
 | `session_opened` | session |  |  | Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5). |
@@ -39,6 +41,29 @@ Actor: `listening`. `has_audio`: yes. `training_signal`: no. `speculative`: no. 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `stage` | string | yes | Gate that rejected it. One of: `vad`, `speaker_id`, `partial_length`. |
+
+## `confirmation_given`
+
+A held call came back with its nonce after the person answered, and ran. What they said is the utterance the nonce was redeemed after (SPEC §6).
+
+Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `call_id` | string | yes | The call that ran. |
+| `nonce` | string | yes | The nonce it redeemed. |
+
+## `confirmation_requested`
+
+A call that needs the person's yes was held, and the model was handed a nonce to call again with once they agree (SPEC §6).
+
+Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `call_id` | string | yes | The call that was held. |
+| `nonce` | string | yes | Redeemable once, by the same call, in the turn of the next thing the person says. |
+| `refused` | string |  | Why the nonce the call carried was not accepted. Empty when it carried none. One of: `unknown`, `used`, `args_changed`, `not_answered`, `expired`. |
 
 ## `model_completed`
 
@@ -143,7 +168,7 @@ Actor: `tool`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requi
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `call_id` | string | yes | Matches the call. |
-| `outcome` | string | yes | How it ended. One of: `ok`, `error`, `timed_out`, `cancelled`, `detached`. |
+| `outcome` | string | yes | How it ended. confirmation_required means the call never ran: it needs the person's yes first (SPEC §6). One of: `ok`, `error`, `timed_out`, `cancelled`, `detached`, `confirmation_required`. |
 | `result_json` | string |  | Serialized result. |
 
 ## `utterance_transcribed`

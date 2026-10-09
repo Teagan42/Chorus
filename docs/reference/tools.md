@@ -7,7 +7,7 @@ See [SPEC §6](../SPEC.md). Policy is enforced by the orchestrator from these sa
 | Tool | Interrupt | Scope | Timeout | Confirm | Latency |
 |---|---|---|---|---|---|
 | `end_session` | cancel | household | 10000ms | no | fast |
-| `ha_call_service` | detach | household | 10000ms | no | fast |
+| `ha_call_service` | detach | household | 10000ms | **some calls** | fast |
 | `ha_find_entities` | cancel | household | 10000ms | no | fast |
 | `ha_get_state` | cancel | household | 10000ms | no | fast |
 | `media_search` | detach | household | 20000ms | no | slow |
@@ -24,6 +24,12 @@ No parameters.
 
 Act on the home through a Home Assistant service: lights, switches, covers, media players, scripts. Target an entity_id from ha_find_entities, or an area_id. Returns the entities whose state changed; an empty list means nothing matched or nothing needed to change.
 
+Needs the person's yes when called with:
+
+- `domain` `lock`, `service` `unlock`
+- `domain` `lock`, `service` `open`
+- `domain` `alarm_control_panel`, `service` `alarm_disarm`
+
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `domain` | string | yes | Service domain, e.g. light, switch, script. |
@@ -31,6 +37,7 @@ Act on the home through a Home Assistant service: lights, switches, covers, medi
 | `entity_id` | string |  | Entity to act on, e.g. light.kitchen. Required unless area_id is given. |
 | `area_id` | string |  | Area to act on, e.g. kitchen. Required unless entity_id is given. |
 | `data` | object |  | Extra service fields, e.g. {"brightness_pct": 50}. |
+| `confirmation` | string |  | The nonce from a confirmation_required result, once the person has said yes. Omit it otherwise. |
 
 ## `ha_find_entities`
 
