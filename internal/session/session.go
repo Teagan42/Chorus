@@ -464,6 +464,15 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 		return
 	}
 
+	if spec.NeedsConfirmation(tc.Args) {
+		args, ok := s.confirmed(tc)
+		if !ok {
+			return
+		}
+		// The nonce is the orchestrator's: the tool gets what it declared.
+		tc.Args = args
+	}
+
 	tool, ok := s.sup.cfg.Tools[tc.Tool]
 	if !ok {
 		s.result(tc.ID, "error", `{"error":"not_implemented"}`)
@@ -472,6 +481,68 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 	wg.Add(1)
 	s.enter("tool:" + tc.ID)
 	go s.runTool(ctx, wg, tc, spec, tool)
+}
+
+// confirmed decides a call that needs the person's yes. One that carries a
+// nonce the log says is redeemable runs, with the nonce stripped; any other
+// is held, and the model is handed a fresh nonce to ask with (SPEC §6).
+//
+// Read from the log, not the session: the nonce is only as good as the
+// record that the person spoke after it was handed out, and replay has to
+// reach the same verdict (ADR-0038).
+func (s *Session) confirmed(tc ToolCall) (string, bool) {
+	args, nonce, err := registry.Unconfirmed(tc.Args)
+	if err != nil {
+		s.result(tc.ID, "error", `{"error":"bad_arguments"}`)
+		return "", false
+	}
+	refused := ""
+	if nonce != "" {
+		st, err := s.State(context.WithoutCancel(s.ctx))
+		if err != nil {
+			s.fail(err)
+			s.result(tc.ID, "error", `{"error":"confirmation_unavailable"}`)
+			return "", false
+		}
+		if refused = st.Redeemable(nonce, tc.Tool, args); refused == "" {
+			if err := s.record(journal.Record{
+				Kind:   journal.KindConfirmationGiven,
+				Fields: map[string]string{"call_id": tc.ID, "nonce": nonce},
+			}); err != nil {
+				// Unrecorded, the nonce could be spent twice: the call does not run.
+				s.fail(err)
+				s.result(tc.ID, "error", `{"error":"confirmation_unavailable"}`)
+				return "", false
+			}
+			return args, true
+		}
+	}
+
+	fresh := "cf_" + newID()[:8]
+	fields := map[string]string{"call_id": tc.ID, "nonce": fresh}
+	if refused != "" {
+		fields["refused"] = refused
+	}
+	if err := s.record(journal.Record{Kind: journal.KindConfirmationRequested, Fields: fields}); err != nil {
+		// A nonce the log does not have can never be redeemed; say so rather
+		// than hand it out.
+		s.fail(err)
+		s.result(tc.ID, "error", `{"error":"confirmation_unavailable"}`)
+		return "", false
+	}
+	held := struct {
+		Required bool   `json:"confirmation_required"`
+		Nonce    string `json:"nonce"`
+		Refused  string `json:"refused,omitempty"`
+		Note     string `json:"note"`
+	}{
+		Required: true, Nonce: fresh, Refused: refused,
+		Note: "Not done. Ask the person; if they say yes, call again with the same arguments and confirmation set to this nonce.",
+	}
+	// Strings and a bool: marshalling cannot fail.
+	b, _ := json.Marshal(held)
+	s.result(tc.ID, "confirmation_required", string(b))
+	return "", false
 }
 
 // runTool is one tool child. Its context comes from the declared interrupt
