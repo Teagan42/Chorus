@@ -495,10 +495,10 @@ func TestE2EJourneyReviewWalksEveryCut(t *testing.T) {
 		title, sub, inspector string
 		clips                 []float64
 	}{
-		// Alan cut the playlist at 14400 frames of a 3.5 s announcement, before
+		// Alan cut the playlist at 17600 frames of a 3.5 s announcement, before
 		// the model finished: no completion, so no model to credit.
-		{"and put on some jazz", "pair 1 of 3", "unattributed: the turn recorded no completion", []float64{0.9, 2.6, 0.7, 0.9, 1.5}},
-		{"play something by zeppelin", "pair 2 of 3", "in effect: qwen3-32b@1 · sys@3 · tools@7", []float64{0.42, 4.58, 0.5, 0.9, 1.5}},
+		{"and put on some jazz", "pair 1 of 3", "unattributed: the turn recorded no completion", []float64{1.1, 2.4, 0.7, 0.9, 1.5}},
+		{"play something by zeppelin", "pair 2 of 3", "in effect: qwen3-32b@1 · sys@3 · tools@7", []float64{0.8, 5.4, 0.5, 0.9, 1.5}},
 		{"what's the weather today", "pair 3 of 3", "correction · teagan: do I need an umbrella", []float64{1.5, 2.5, 0.6, 1.1, 1.5}},
 	} {
 		if i > 0 {
@@ -631,8 +631,8 @@ func TestE2EJourneyBrowseFollowsThePersonAndWalksTheDays(t *testing.T) {
 		a.addEventListener("error", () => no(new Error("cannot decode " + a.src)), {once: true});
 		a.preload = "metadata"; a.load();
 	})`, &heard)
-	if math.Abs(heard-0.42) > 0.01 {
-		t.Errorf("the cut turn plays %.3fs, want the 0.42s the DAC reached", heard)
+	if math.Abs(heard-0.8) > 0.01 {
+		t.Errorf("the cut turn plays %.3fs, want the 0.8s the DAC reached", heard)
 	}
 	p.shot("journey-browse-zeppelin")
 
@@ -654,16 +654,16 @@ func TestE2EJourneyBrowseFollowsThePersonAndWalksTheDays(t *testing.T) {
 	p.waitText("body", "No conversations this day.")
 }
 
-// failsOn answers like the household engine until it reaches one utterance,
+// failsOn answers like the scripted engine until it reaches one utterance,
 // then the stream dies the way Ollama's does: finish_reason error.
 type failsOn struct {
-	*household
+	*scripted
 	text string
 }
 
 func (f failsOn) Turn(ctx context.Context, in sess.Input) (<-chan sess.Action, error) {
 	if in.Text != f.text {
-		return f.household.Turn(ctx, in)
+		return f.scripted.Turn(ctx, in)
 	}
 	out := make(chan sess.Action, 1)
 	out <- sess.TurnEnd{FinishReason: "error", Completion: `{"error":"model runner has unexpectedly stopped"}`}
@@ -671,10 +671,10 @@ func (f failsOn) Turn(ctx context.Context, in sess.Input) (<-chan sess.Action, e
 	return out, nil
 }
 
-// asksWhichPlaylist is the household engine after a prompt edit that makes
+// asksWhichPlaylist is the scripted engine after a prompt edit that makes
 // it confirm before playing to a room with two people in it.
-func asksWhichPlaylist() *household {
-	return &household{answers: map[string][]sess.Action{
+func asksWhichPlaylist() *scripted {
+	return &scripted{answers: map[string][]sess.Action{
 		"dim the living room lights": {
 			sess.ToolCall{ID: "c1", Tool: "ha_call_service", Args: `{"domain":"light","service":"turn_on","entity_id":"light.living_room","data":{"brightness_pct":30}}`},
 			sess.SpeechDelta{CallID: "s1", Text: "Dimmed to thirty percent.", Mode: sess.ModeQueue, Last: true},

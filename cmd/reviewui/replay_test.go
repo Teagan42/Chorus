@@ -20,17 +20,17 @@ import (
 // lead with the count, offer the first, stop.
 const cutFirstPrompt = ollama.DefaultPrompt + "\n\nWhen there are several results, say how many, offer the first, and stop."
 
-// household is a turn engine that answers the way the model does after the
+// scripted is a turn engine that answers the way the model does after the
 // prompt edit: it leads with the count and searches before it speaks. It
 // keeps what each re-run was built with.
-type household struct {
+type scripted struct {
 	built   []string // model + "|" + prompt, per engine built
 	answers map[string][]sess.Action
 	fail    error
 	gate    chan struct{} // when set, a turn waits on it before answering
 }
 
-func (h *household) engineFor(model, prompt string) (sess.Engine, journal.Versions, error) {
+func (h *scripted) engineFor(model, prompt string) (sess.Engine, journal.Versions, error) {
 	h.built = append(h.built, model+"|"+prompt)
 	v := journal.Versions{Model: model, Prompt: "sys@edited", ToolSchema: "tools@7"}
 	if prompt == ollama.DefaultPrompt {
@@ -39,7 +39,7 @@ func (h *household) engineFor(model, prompt string) (sess.Engine, journal.Versio
 	return h, v, nil
 }
 
-func (h *household) Turn(ctx context.Context, in sess.Input) (<-chan sess.Action, error) {
+func (h *scripted) Turn(ctx context.Context, in sess.Input) (<-chan sess.Action, error) {
 	if h.gate != nil {
 		select {
 		case <-h.gate:
@@ -58,8 +58,8 @@ func (h *household) Turn(ctx context.Context, in sess.Input) (<-chan sess.Action
 	return out, nil
 }
 
-func leadsWithTheCount() *household {
-	return &household{answers: map[string][]sess.Action{
+func leadsWithTheCount() *scripted {
+	return &scripted{answers: map[string][]sess.Action{
 		"play something by zeppelin": {
 			sess.ToolCall{ID: "call_1", Tool: "media_search", Args: `{"query":"Led Zeppelin","limit":5}`},
 			sess.SpeechDelta{CallID: "call_2", Text: "I found three albums. ", Mode: sess.ModeQueue},
@@ -73,7 +73,7 @@ func leadsWithTheCount() *household {
 	}}
 }
 
-func newReplayServer(t *testing.T, h *household) *server {
+func newReplayServer(t *testing.T, h *scripted) *server {
 	t.Helper()
 	s := newServer(withWakeReject(t, withFailure(t, bargeInLog(t))), curation.NewMemStore(), fixtureBlobs(t), func() time.Time { return time.Unix(1_760_010_000, 0).UTC() })
 	if h != nil {
