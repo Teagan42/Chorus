@@ -138,6 +138,14 @@ events: {
 			{name: "nonce", type: "string", description: "The nonce it redeemed.", required: true},
 		]
 	}
+	memory_recalled: {
+		name:        "memory_recalled", actor: "session"
+		description: "What the model is told it remembers, from this turn on: the speaker's own memories and what others shared. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5)."
+		fields: [
+			{name: "person", type: "string", description: "Whose memories these are: the identified speaker.", required: true},
+			{name: "memories_json", type: "string", description: "The memories as a JSON array of {id, person, fact, shareable}, newest first. An empty array means nothing is remembered.", required: true},
+		]
+	}
 	model_completed: {
 		name:        "model_completed", actor: "thinking"
 		description: "Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8)."
