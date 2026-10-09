@@ -11,12 +11,14 @@ from. A link that resolves to neither is left alone, so `mkdocs build
 from __future__ import annotations
 
 import glob
+import json
 import logging
 import os
 import posixpath
 import re
 
 from mkdocs.config.defaults import MkDocsConfig
+from mkdocs.exceptions import PluginError
 from mkdocs.structure.files import File, Files
 from mkdocs.structure.pages import Page
 
@@ -53,6 +55,16 @@ def root_pages(config: MkDocsConfig) -> dict[str, str]:
 def source_ref() -> str:
     """The commit the site is built from, so a source link shows that code."""
     return os.environ.get("GITHUB_SHA") or "main"
+
+
+def released_version(manifest_path: str) -> str:
+    """The tag of the last release, from release-please's manifest."""
+    try:
+        with open(manifest_path) as f:
+            version = json.load(f)["."]
+    except (OSError, ValueError, KeyError) as e:
+        raise PluginError(f"read the released version from {manifest_path}: {e!r}") from e
+    return f"v{version}"
 
 
 def expand_nav(nav, docs_dir: str, excluded=lambda path: False):
@@ -163,6 +175,10 @@ def rewrite_links(
 def on_config(config: MkDocsConfig) -> MkDocsConfig:
     excluded = config.exclude_docs.match_file if config.exclude_docs else (lambda p: False)
     config.nav = expand_nav(config.nav, config.docs_dir, excluded)
+    docsite = config.extra.setdefault("docsite", {})
+    if docsite.get("version_from"):
+        manifest = os.path.join(repo_root(config), docsite["version_from"])
+        docsite["version"] = released_version(manifest)
     return config
 
 

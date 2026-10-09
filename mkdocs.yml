@@ -29,6 +29,8 @@ hooks:
 
 extra:
   docsite:
+    # The release the header names; release-please bumps it as it tags.
+    version_from: .release-please-manifest.json
     # Repo path → site path, for Markdown outside docs/.
     pages:
       README.md: index.md
@@ -58,6 +60,7 @@ nav:
 
 theme:
   name: material
+  custom_dir: internal/tools/docsite/overrides
   # System fonts: no request to Google from a page about a private household.
   font: false
   palette:
