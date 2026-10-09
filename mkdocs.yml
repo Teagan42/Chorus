@@ -44,7 +44,9 @@ nav:
   - Decisions:
       - adr/README.md
       - adr/[0-9]*.md
-  - Review UI: reviewui/README.md
+  - Review UI:
+      - reviewui/README.md
+      - Live demo: https://teagan42.github.io/Chorus/demo/
   - Reference:
       - reference/events.md
       - reference/tools.md

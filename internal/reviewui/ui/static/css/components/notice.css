@@ -1,0 +1,13 @@
+/* notice — what kind of instance this is, above everything else. */
+.notice {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px;
+  padding: 9px 24px; font-size: var(--fs-small); line-height: 1.45; color: var(--c-text-2);
+  background: color-mix(in srgb, var(--tone, var(--c-muted)) 14%, var(--c-ground));
+  border-bottom: 1px solid var(--tone-line, var(--c-rule));
+}
+.notice__label {
+  font-family: var(--font-mono); font-size: var(--fs-cap); letter-spacing: var(--ls-cap);
+  text-transform: uppercase; color: var(--tone-text, var(--c-text));
+}
+.notice__text { flex: 1 1 32ch; }
+.notice__link { color: var(--tone-text, var(--c-text)); white-space: nowrap; }

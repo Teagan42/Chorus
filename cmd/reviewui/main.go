@@ -1,3 +1,5 @@
+//go:build !(js && wasm)
+
 // Command reviewui serves the review screens over the journal (SPEC §9.2):
 // harvested barge-in candidates, the pair flow, the barge-in timeline with
 // each clip playable, verdicts in the curation table, and Replay. It reads
@@ -20,8 +22,6 @@ import (
 	"github.com/teaganglenn/chorus/internal/blob"
 	"github.com/teaganglenn/chorus/internal/curation"
 	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/provider/ollama"
-	sess "github.com/teaganglenn/chorus/internal/session"
 )
 
 // blobDirEnv is where the journal's audio lives, the same variable chorusd
@@ -83,22 +83,6 @@ func run(ctx context.Context, addr string) error {
 		return err
 	}
 	return nil
-}
-
-// ollamaEngines builds Replay's engines on the configured endpoint, or none
-// when it is not configured. The model must be configured too: it is the one
-// chorusd runs, which says the endpoint is meant to be asked.
-func ollamaEngines(baseURL, model string) engineFactory {
-	if baseURL == "" || model == "" {
-		return nil
-	}
-	return func(model, prompt string) (sess.Engine, journal.Versions, error) {
-		e, err := ollama.New(ollama.Config{BaseURL: baseURL, Model: model, Prompt: prompt})
-		if err != nil {
-			return nil, journal.Versions{}, err
-		}
-		return e, e.Versions(), nil
-	}
 }
 
 // pgJournal names the two read interfaces PgStore already satisfies.

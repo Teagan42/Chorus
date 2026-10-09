@@ -1,0 +1,6 @@
+{{/* notice · dot: ui.Notice */}}
+{{define "notice"}}<aside class="notice tone-conv" role="note" aria-label="{{.Label}}">
+<span class="notice__label">{{.Label}}</span>
+<span class="notice__text">{{.Text}}</span>
+{{with .Href}}<a class="notice__link" href="{{.}}">{{$.LinkText}} ↗</a>{{end}}
+</aside>{{end}}

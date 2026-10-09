@@ -19,6 +19,22 @@ import (
 // prompt as the reviewer edited them, and the versions that makes.
 type engineFactory func(model, prompt string) (sess.Engine, journal.Versions, error)
 
+// ollamaEngines builds Replay's engines on the configured endpoint, or none
+// when it is not configured. The model must be configured too: it is the one
+// chorusd runs, which says the endpoint is meant to be asked.
+func ollamaEngines(baseURL, model string) engineFactory {
+	if baseURL == "" || model == "" {
+		return nil
+	}
+	return func(model, prompt string) (sess.Engine, journal.Versions, error) {
+		e, err := ollama.New(ollama.Config{BaseURL: baseURL, Model: model, Prompt: prompt})
+		if err != nil {
+			return nil, journal.Versions{}, err
+		}
+		return e, e.Versions(), nil
+	}
+}
+
 // runTimeout bounds a whole re-run. A turn streams for as long as the model
 // talks, and a conversation is a handful of turns.
 const runTimeout = 3 * time.Minute
@@ -112,7 +128,7 @@ func (s *server) replays(w http.ResponseWriter, r *http.Request) {
 		list.Rows = append(list.Rows, rw.row)
 	}
 	s.render(w, "page-replays", map[string]any{
-		"Doc":    ui.Doc{Title: "Replay", Static: "/static"},
+		"Doc":    s.doc("Replay"),
 		"Header": ui.NewAppHeader(ui.StepReplay, unreviewedCount(pairs), "chorus · journal"),
 		"Head": ui.PageHead{
 			Eyebrow: "04 · Replay", Title: "Ask it again",
@@ -185,7 +201,7 @@ func (s *server) replayPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "page-replay", map[string]any{
-		"Doc":    ui.Doc{Title: "Replay · " + rp.id, Static: "/static"},
+		"Doc":    s.doc("Replay · " + rp.id),
 		"Header": ui.NewAppHeader(ui.StepReplay, rp.unread, recorded.Model+" · "+recorded.Prompt+" · "+recorded.ToolSchema),
 		"Head": ui.PageHead{
 			Eyebrow: "04 · Replay", Trace: true, Title: rp.turns[0].Text, SubtitleMono: true,

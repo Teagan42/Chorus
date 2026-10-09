@@ -17,6 +17,8 @@ esphome/*.bin
 /tmp/
 *.wav
 *.pcm
+# except the household fixture's voices, which are synthetic (voice.json).
+!internal/reviewui/household/audio/**/*.pcm
 
 # The speaker-ID model `task speakerid:serve` fetches; pinned, so never committed.
 .models/

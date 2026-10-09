@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -54,11 +55,17 @@ type page struct {
 // inert control is exactly the bug these tests exist for.
 func open(t *testing.T, s *server) *page {
 	t.Helper()
+	return openOn(t, s.routes())
+}
+
+// openOn is open for any handler, such as a static host serving the demo.
+func openOn(t *testing.T, h http.Handler) *page {
+	t.Helper()
 	chrome := os.Getenv(chromeEnv)
 	if chrome == "" {
 		t.Skipf("%s is unset; point it at a Chrome or Chromium binary", chromeEnv)
 	}
-	srv := httptest.NewServer(s.routes())
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
@@ -67,11 +74,18 @@ func open(t *testing.T, s *server) *page {
 		chromedp.WindowSize(1280, 900),
 		// Clips are played by script, not a click.
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
+		// A cold Chrome on a CI runner, right after a build, can take
+		// past chromedp's 20 s to come up; the test's clock starts after.
+		chromedp.WSURLReadTimeout(time.Minute),
 	)
 	actx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
-	ctx, cancelTab := chromedp.NewContext(actx)
-	ctx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
-	t.Cleanup(func() { cancelTimeout(); cancelTab(); cancelAlloc() })
+	tab, cancelTab := chromedp.NewContext(actx)
+	t.Cleanup(func() { cancelTab(); cancelAlloc() })
+	if err := chromedp.Run(tab); err != nil {
+		t.Fatalf("start browser: %v", err)
+	}
+	ctx, cancelTimeout := context.WithTimeout(tab, 30*time.Second)
+	t.Cleanup(cancelTimeout)
 
 	p := &page{t: t, ctx: ctx, base: srv.URL}
 	chromedp.ListenTarget(ctx, func(ev any) {

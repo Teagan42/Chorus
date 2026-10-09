@@ -111,7 +111,7 @@ func (s *server) triage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "page-triage", map[string]any{
-		"Doc":    ui.Doc{Title: "Triage", Static: "/static"},
+		"Doc":    s.doc("Triage"),
 		"Header": ui.NewAppHeader(ui.StepTriage, unreviewed, "chorus · journal"),
 		"Head": ui.PageHead{
 			Eyebrow: "02 · Triage", Title: "What's worth a listen",

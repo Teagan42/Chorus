@@ -143,7 +143,7 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 		title = id
 	}
 	s.render(w, "page-conversation", map[string]any{
-		"Doc":    ui.Doc{Title: "Conversation · " + id, Static: "/static"},
+		"Doc":    s.doc("Conversation · " + id),
 		"Header": ui.NewAppHeader(ui.StepBrowse, unreviewedCount(pairs), "chorus · journal"),
 		"Head": ui.PageHead{
 			Eyebrow: "01 · Browse", Trace: true, Title: title, SubtitleMono: true,
