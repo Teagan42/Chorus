@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/teaganglenn/chorus/internal/journal"
 )
@@ -25,6 +26,11 @@ type speechChannel struct {
 	// cut latches the interruption until the next turn. Without it, a delta
 	// racing the barge-in starts playing speech nobody may hear.
 	cut bool
+
+	// asked is when this turn's ask ended, and heard whether its first frame
+	// has been journalled. One start per turn (ADR-0035).
+	asked time.Time
+	heard bool
 
 	// dead holds calls already cut or dropped. A preempt does not latch the
 	// channel, so a trailing delta would otherwise write to a stream that is
@@ -50,6 +56,12 @@ type utterance struct {
 
 	// reason records why a cut happened, for the discard event.
 	reason string
+
+	// closed tells the watcher of a Starter that playback is over, and
+	// watched closes once it has stopped watching. Nil when the stream
+	// cannot see its DAC.
+	closed  chan struct{}
+	watched chan struct{}
 }
 
 func newSpeechChannel(s *Session) *speechChannel {
@@ -104,12 +116,13 @@ func (c *speechChannel) deliver(d SpeechDelta) bool {
 	return true
 }
 
-// resume reopens the channel for a new turn.
-func (c *speechChannel) resume() {
+// resume reopens the channel for a new turn, whose ask ended at asked.
+func (c *speechChannel) resume(asked time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cut = false
 	c.dead = map[string]bool{}
+	c.asked, c.heard = asked, false
 }
 
 // interrupt stops the playing utterance and discards the queue. Both halves
@@ -195,7 +208,41 @@ func (c *speechChannel) startNextLocked() {
 		close(u.last)
 	}
 	c.current = u
+	if st, ok := stream.(Starter); ok {
+		u.closed, u.watched = make(chan struct{}), make(chan struct{})
+		go c.watch(u, st.Started())
+	}
 	go c.play(u)
+}
+
+// watch journals the turn's first frame when this utterance is the one the
+// household hears first (ADR-0035). It is done before play records the
+// utterance, so the log reads the start before the speech it began.
+func (c *speechChannel) watch(u *utterance, started <-chan struct{}) {
+	defer close(u.watched)
+	select {
+	case <-started:
+	case <-u.closed:
+		// Both may be ready when a short utterance drains at once.
+		select {
+		case <-started:
+		default:
+			return
+		}
+	}
+	c.mu.Lock()
+	first, asked := !c.heard, c.asked
+	c.heard = true
+	c.mu.Unlock()
+	if !first {
+		return
+	}
+	fields := map[string]string{"call_id": u.callID}
+	if !asked.IsZero() {
+		wait := c.s.sup.cfg.Clock.Now().Sub(asked)
+		fields["since_endpoint_ms"] = strconv.FormatInt(wait.Milliseconds(), 10)
+	}
+	c.s.fail(c.s.record(journal.Record{Kind: journal.KindSpeechStarted, Fields: fields}))
 }
 
 // play waits for generation to finish or for a cut, then records the truth.
@@ -205,6 +252,10 @@ func (c *speechChannel) play(u *utterance) {
 	case <-u.ctx.Done():
 	}
 	pb := u.stream.Close()
+	if u.watched != nil {
+		close(u.closed)
+		<-u.watched
+	}
 
 	// Read the reason under the mutex: ending naturally races a cut being
 	// applied, which writes it.
