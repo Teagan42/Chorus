@@ -273,6 +273,13 @@ tasks:
     desc: Probe a real satellite (needs devices.yaml)
     cmds: ["go run ./cmd/probe {{.CLI_ARGS}}"]
 
+  reviewui:
+    desc: Serve the review UI on :8080 (needs .env and `task db:up`)
+    # Same .env as `run`: the journal DSN, the blob directory, and the model
+    # Replay re-runs turns against.
+    dotenv: [".env"]
+    cmds: ["go run ./cmd/reviewui {{.CLI_ARGS}}"]
+
   harvest:
     desc: Export a conversation's barge-in DPO candidates as JSONL (needs Postgres)
     cmds: ["go run ./cmd/harvest {{.CLI_ARGS}}"]

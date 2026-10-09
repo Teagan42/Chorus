@@ -48,7 +48,12 @@ it has not yet been run against a real satellite. What exists today:
 | STT — `internal/stt` partials over `internal/provider/speaches` | measured against real Parakeet TDT 0.6B v2 on CPU |
 | speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX) | thresholds measured on 37 speakers; sidecar runs without Docker |
 | `internal/hass` — the one real tool (SPEC §14 item 5) | verified against Home Assistant 2026.10 |
+| `internal/listen` — the Listening child: mic stream to utterances, barge-in candidates, attribution | under test |
 | `internal/harvest`, `cmd/harvest` — barge-ins as DPO candidates | under test |
+| `cmd/reviewui` — Browse, Triage, Review, Replay, Curate and Export over the journal ([guide](docs/reviewui/README.md)) | under test, in a headless Chrome too |
+| `internal/triage` — barge-ins, failures, repeated asks, slow answers and speaker flips, derived on read | under test |
+| `internal/rerun` — edit-and-replay: a conversation's turns asked again under another prompt or model | under test |
+| `internal/curation` — a reviewer's verdicts, in a table beside the journal | under test |
 
 `task spec` reports which spec clauses have tests behind them.
 
@@ -65,9 +70,9 @@ flowchart LR
         SUP --> JRN["event journal<br/><b>source of truth</b>"]
     end
 
-    SIDE["<b>model sidecars — Python, gRPC</b><br/>STT · Parakeet<br/>LLM · Qwen3 / vLLM<br/>TTS · Kokoro<br/>speaker-ID · ECAPA"]
-    STORE["<b>storage</b><br/>Postgres · JSONB log<br/>MinIO · audio blobs"]
-    UI["<b>review UI</b> — Go + htmx<br/>dataset export"]
+    SIDE["<b>model services — HTTP</b><br/>STT · Parakeet via speaches<br/>LLM · Qwen3 via Ollama<br/>TTS · Kokoro<br/>speaker-ID · TitaNet-L"]
+    STORE["<b>storage</b><br/>Postgres · JSONB log<br/>blob directory · raw PCM"]
+    UI["<b>review UI</b> — Go + htmx<br/>triage · replay · DPO export"]
 
     SAT -- "audio: raw TCP, device dials out" --> GW
     GW -. "native API 6053 / Noise: control only" .-> SAT
@@ -76,7 +81,10 @@ flowchart LR
 ```
 
 Polyglot by seam: Go where it's a concurrent socket server, Python where the
-ecosystem is Python. No shoehorning either direction.
+ecosystem is Python. No shoehorning either direction. The model services are
+off-the-shelf servers behind small Go clients in `internal/provider`; the one
+Chorus owns is the speaker-ID sidecar in `sidecars/speakerid`. SPEC §10 is the
+stack and its alternatives.
 
 The device is the TCP server and the controller is the client, so Chorus dials
 out — `aioesphomeapi` is the reference implementation. Audio cannot ride the
@@ -105,9 +113,10 @@ passes, you have a working clone.
 
 ### Against the fake satellite
 
-The hermetic test suite needs no hardware, no GPU, and no network — the fake
-device speaks the real protocol in-process, real Noise handshake and real
-framing:
+The hermetic test suite needs no hardware, no GPU, and no network. The fake
+satellite (`internal/bridge/bridgetest`) speaks the real `chorus_bridge`
+framing in-process, and the native API client is tested over an in-memory
+pipe with the real Noise handshake:
 
 ```sh
 task test
@@ -179,15 +188,36 @@ alone, so the television can interrupt (ADR-0031); without the second the
 dial in on port 6055. `docker compose up chorusd` runs the same daemon as an
 image beside the database.
 
+The model services start locally one task each: `task stt:up`, `task tts:up`,
+and `task speakerid:up` (or `task speakerid:serve` without Docker). Ollama is
+yours to run.
+
+### Review what happened
+
+```sh
+task reviewui                             # http://localhost:8080, same .env
+```
+
+The review UI reads the journal and the blob directory `chorusd` writes:
+browse the day per satellite, triage what's worth a look, listen to each
+barge-in cut where the speaker actually stopped, re-run a conversation under
+an edited prompt, curate the pairs, and download the DPO dataset.
+[`docs/reviewui/README.md`](docs/reviewui/README.md) walks every screen.
+`task harvest -- <conversation-id>` writes one conversation's raw candidates
+from the command line: every barge-in, uncurated, with no `chosen` side
+(`meta.curated=false`), so it is for inspection, not training. The curated
+dataset comes from the Export screen.
+
 ## Tests
 
-Four tiers, separated because three of them cannot run everywhere. `task check`
+Five tiers, separated because four of them cannot run everywhere. `task check`
 is the gate; the others are what the gate can't demand of every machine.
 
 | Task | Needs | Runs |
 |---|---|---|
 | `task test` | nothing | hermetic suite, included in `task check` |
 | `task test:db` | Postgres (`task db:up`) | separate CI job, every push |
+| `task test:e2e` | Chrome or Chromium (`CHORUS_E2E_CHROME`) | separate CI job, every push |
 | `task test:models` | GPU sidecars | self-hosted runner |
 | `task test:hardware` | a real satellite | self-hosted runner, manual |
 
@@ -199,9 +229,12 @@ that reaches the network is a bug in the test.
 | Where | What |
 |---|---|
 | [`docs/SPEC.md`](docs/SPEC.md) | Normative. Tests cite the clause they verify. |
-| [`docs/adr/`](docs/adr/) | 21 decision records, and why each one went that way. |
+| [`docs/adr/`](docs/adr/) | Every architectural decision, and why each one went that way. |
 | [`docs/reference/`](docs/reference/) | Generated from the CUE schemas — events, tools. |
+| [`docs/reviewui/`](docs/reviewui/README.md) | The review UI: running it, every screen, its browser tests. |
 | [`esphome/README.md`](esphome/README.md) | The `chorus_bridge` wire protocol. |
+| [`sidecars/speakerid/README.md`](sidecars/speakerid/README.md) | The speaker-ID sidecar and its embed contract. |
+| [`CHANGELOG.md`](CHANGELOG.md) | Every release, written by release-please. |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Five rules. Read before the first PR. |
 
 Docs are build artifacts or they are executed: `task test:docs` extracts and

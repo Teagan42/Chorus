@@ -1,5 +1,5 @@
 // Command docexec runs the code examples in markdown so documentation cannot
-// drift from the code it describes (CONTRIBUTING.md §5). Go blocks must
+// drift from the code it describes (CONTRIBUTING.md §3). Go blocks must
 // compile; sh and cue blocks must exit zero. Tag a fence `norun` to opt out.
 package main
 

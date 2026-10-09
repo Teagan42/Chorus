@@ -1,6 +1,6 @@
 // Package demo builds the mock's data as ui view models: the barge-in trace,
 // the room-change trace, the triage queue, the household day, the wake-word
-// clips and the DPO pairs. The gallery server and the tests use it; your app
+// clips and the DPO pairs. The kit's tests render from it; an app
 // replaces it with data read from the event journal.
 package demo
 
