@@ -55,20 +55,23 @@ Each block is a stretch of one conversation on one satellite, so a person
 walking from the kitchen to the office shows up as one conversation in two
 lanes. A block takes the colour of its most important signal: a barge-in
 first, since it is the training signal, then a failure, a repeated ask, a
-speaker flip. Ticks mark wakes rejected at stage two (SPEC §9.3), which
+slow answer, a speaker flip. Ticks mark wakes rejected at stage two (SPEC §9.3), which
 opened no conversation and so live in the satellite's own `device:` log.
 
 ![Conversation](conversation.png)
 
 `/conversations/{id}` is one conversation's journal, event by event, with the
 audio each event refers to. Every row carries a `#seq-N` anchor, which is how
-Triage links straight to the event that raised a signal.
+Triage links straight to the event that raised a signal. Each answer's first
+audio is its own row, saying how long the person waited.
+
+![Conversation, first audio](conversation-first-audio.png)
 
 ### Triage
 
 ![Triage](triage.png)
 
-Every conversation in the household scanned for four signals
+Every conversation in the household scanned for five signals
 (`internal/triage`), newest first, filterable by tab:
 
 | Signal | Raised when | Opens |
@@ -76,13 +79,16 @@ Every conversation in the household scanned for four signals
 | barge-in | someone interrupted the assistant mid-turn | the pair in Review |
 | failure | a tool errored or timed out (ADR-0008), the model finished with an error, or the session closed on an error or a lost device | the conversation at the failing event |
 | repeated | the same person asked substantially the same thing again within 30 seconds | the conversation at the second ask |
+| slow | the first audio of an answer came more than 700 ms after the person stopped speaking (SPEC §11, ADR-0035) | the conversation at the answer's first audio |
 | speaker flip | the next utterance in a conversation came from a different person (ADR-0016) | the conversation at the flip |
 
 ![Triage, repeated](triage-repeated.png)
+![Triage, slow](triage-slow.png)
 
-A signal is derived on read, never recorded. Slow answers are not signalled
-yet: the journal records speech when playback ends, not when it starts, so it
-cannot yet say how long a person waited.
+A signal is derived on read, never recorded. The slow signal reads
+`speech_started`, which the Speaking child journals the moment the device
+reports the turn's first frame played, with the wait since the person
+stopped speaking as `wait_ms`.
 
 ### Review
 

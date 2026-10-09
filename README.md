@@ -51,7 +51,7 @@ it has not yet been run against a real satellite. What exists today:
 | `internal/listen` — the Listening child: mic stream to utterances, barge-in candidates, attribution | under test |
 | `internal/harvest`, `cmd/harvest` — barge-ins as DPO candidates | under test |
 | `cmd/reviewui` — Browse, Triage, Review, Replay, Curate and Export over the journal ([guide](docs/reviewui/README.md)) | under test, in a headless Chrome too |
-| `internal/triage` — barge-ins, failures, repeated asks and speaker flips, derived on read | under test |
+| `internal/triage` — barge-ins, failures, repeated asks, slow answers and speaker flips, derived on read | under test |
 | `internal/rerun` — edit-and-replay: a conversation's turns asked again under another prompt or model | under test |
 | `internal/curation` — a reviewer's verdicts, in a table beside the journal | under test |
 
