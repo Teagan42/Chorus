@@ -166,8 +166,12 @@ func TestFullyConfiguredProvidersWireEverything(t *testing.T) {
 	if p.speakers == nil {
 		t.Error("no resolver with a speaker-ID endpoint and a household")
 	}
-	if _, ok := p.endpointer().(*listen.Semantic); !ok {
-		t.Errorf("endpointer is %T with a Smart Turn endpoint, want a semantic one", p.endpointer())
+	ep, ok := p.endpointer().(*listen.Semantic)
+	if !ok {
+		t.Fatalf("endpointer is %T with a Smart Turn endpoint, want a semantic one", p.endpointer())
+	}
+	if d, ok := ep.Judge.(listen.Dangling); !ok || d.Judge != p.judge || d.Words != p.stt {
+		t.Errorf("judge is %#v, want Smart Turn checked against the turn's own transcriber", ep.Judge)
 	}
 	if a, b := p.endpointer(), p.endpointer(); a == b {
 		t.Error("two links share one endpointer, and with it one turn in progress")
