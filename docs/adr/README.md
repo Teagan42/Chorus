@@ -44,6 +44,7 @@ decision rather than by clause: facets of one choice share one record.
 | [0033](0033-the-stop-is-tagged-and-its-answer-is-the-cut.md) | Refines 0005 and 0020: each stop is tagged and the device's echoed report is the truncation point; protocol version 2 | §4.4, §3.2.1, §15 |
 | [0034](0034-curation-verdicts-live-beside-the-journal-not-in-it.md) | A reviewer's verdict on a harvested pair is a revisable row beside the journal, never a journal event | §8, §9.2 |
 | [0035](0035-the-first-played-frame-is-an-event.md) | Journal the first frame the DAC plays of each turn, with the wait since the endpoint | §11, §8, §3.2.1, §9.2 |
+| [0036](0036-smart-turn-judges-the-pause-energy-stays-the-floor.md) | Smart Turn v3.2, pinned through PyPI, judges each 200 ms pause; Energy's 800 ms stays the fallback | §4.5, §10, §11 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
