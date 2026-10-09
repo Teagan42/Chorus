@@ -200,6 +200,23 @@ func TestAModelThatCannotAnswerStopsTheRunAndSaysWhy(t *testing.T) {
 	missing(t, "Replay result", h, "Re-run stopped at #2", "model &#39;qwen3:70b&#39; not found")
 }
 
+// The endpoint answers 200, then the stream dies on the first turn: the run
+// stops there and says why, rather than scoring a fragment as an answer.
+//
+// verifies SPEC §7
+func TestAStreamThatDiesMidAnswerStopsTheRun(t *testing.T) {
+	hh := leadsWithTheCount()
+	hh.answers["play something by zeppelin"] = []sess.Action{
+		sess.ToolCall{ID: "call_1", Tool: "media_search", Args: `{"query":"Led Zeppelin","limit":5}`},
+		sess.TurnEnd{FinishReason: "error", Completion: `{"error":"llama runner process has terminated: signal: killed"}`},
+	}
+	h := runReplay(t, newReplayServer(t, hh), "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}})
+	missing(t, "Replay result", h, "Re-run stopped at #2", "llama runner process has terminated", "0 of 2")
+	if strings.Contains(h, "speech and calls changed") {
+		t.Error("a broken stream was scored as a changed answer")
+	}
+}
+
 // verifies SPEC §9.2
 func TestAThinkingModelDoesNotHoldTheReviewUI(t *testing.T) {
 	hh := leadsWithTheCount()

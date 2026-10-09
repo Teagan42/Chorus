@@ -105,16 +105,29 @@ func Turns(events []journal.Event) ([]Turn, error) {
 	return out, nil
 }
 
+// finishError is how an engine ends a turn its stream broke under: the
+// Ollama decoder reports a mid-stream failure on the channel, since Turn's
+// own error is spent before the first chunk (internal/provider/ollama).
+const finishError = "error"
+
+// Failed is a turn the model started answering and could not finish. What
+// it produced before failing is a fragment, not an answer to compare.
+type Failed struct{ Reason string }
+
+func (f *Failed) Error() string { return "the model failed mid-answer: " + f.Reason }
+
 // Run asks eng the turn's question again and collects what it does. It
-// drains the stream to the end, as the engine contract requires.
+// drains the stream to the end, as the engine contract requires, and
+// returns a *Failed alongside the partial take when the turn ended in error.
 func Run(ctx context.Context, eng session.Engine, conversationID string, t Turn) (Take, error) {
 	actions, err := eng.Turn(ctx, session.Input{ConversationID: conversationID, Speaker: t.Speaker, Text: t.Text})
 	if err != nil {
 		return Take{}, err
 	}
 	var (
-		take  Take
-		index = map[string]int{}
+		take       Take
+		completion string
+		index      = map[string]int{}
 	)
 	for a := range actions {
 		switch act := a.(type) {
@@ -130,9 +143,28 @@ func Run(ctx context.Context, eng session.Engine, conversationID string, t Turn)
 			take.Calls = append(take.Calls, Call{Tool: act.Tool, Args: act.Args})
 		case session.TurnEnd:
 			take.Finish = act.FinishReason
+			completion = act.Completion
 		}
 	}
+	if take.Finish == finishError {
+		return take, &Failed{Reason: failure(completion)}
+	}
 	return take, nil
+}
+
+// failure is why a completion ended in error: its error field when the
+// engine wrote one, else the completion as recorded.
+func failure(completion string) string {
+	var c struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal([]byte(completion), &c) == nil && c.Error != "" {
+		return c.Error
+	}
+	if completion != "" {
+		return completion
+	}
+	return "finish_reason " + finishError
 }
 
 // Change says which side of a take differs.

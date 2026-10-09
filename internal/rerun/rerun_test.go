@@ -2,6 +2,7 @@ package rerun_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -244,16 +245,24 @@ func TestCallingADifferentEntityIsACallChange(t *testing.T) {
 	}
 }
 
+// A stream that breaks after the model started answering is a failed
+// re-run, not a different answer: the endpoint said 200, then died.
+//
 // verifies SPEC §7
-func TestAModelErrorIsReportedAsTheTurnsFinish(t *testing.T) {
+func TestAModelThatFailsMidAnswerIsAFailedRerun(t *testing.T) {
 	ts := turns(t, garageLog(t))
-	eng := &scripted{answers: map[string][]session.Action{"just close it": end("error")}}
+	eng := &scripted{answers: map[string][]session.Action{"just close it": then(
+		call("c3", "ha_call_service", `{"domain":"cover","service":"close_cover","entity_id":"cover.garage_door"}`),
+		[]session.Action{session.TurnEnd{FinishReason: "error", Completion: `{"content":"","error":"read chat stream: unexpected EOF"}`}},
+	)}}
 	got, err := rerun.Run(context.Background(), eng, "conv-garage", ts[1])
-	if err != nil {
-		t.Fatal(err)
+	var failed *rerun.Failed
+	if !errors.As(err, &failed) || failed.Reason != "read chat stream: unexpected EOF" {
+		t.Fatalf("err = %v, want a failed re-run naming the broken stream", err)
 	}
-	if got.Finish != "error" {
-		t.Errorf("finish = %q, want error", got.Finish)
+	// What it managed before it died is kept, for whoever reads the error.
+	if len(got.Calls) != 1 || got.Finish != "error" {
+		t.Errorf("partial take = %+v", got)
 	}
 }
 
@@ -304,5 +313,24 @@ func TestARerunThroughTheOllamaEngineSendsTheEditedPrompt(t *testing.T) {
 	}
 	if c := rerun.Compare(ts[0].Recorded, got); !c.Speech || c.Calls {
 		t.Errorf("change = %+v, want speech only", c)
+	}
+}
+
+// Ollama answers 200 and then reports the runner dying in the stream.
+//
+// verifies SPEC §7
+func TestAnOllamaRunnerThatDiesMidStreamFailsTheRerun(t *testing.T) {
+	ts := turns(t, garageLog(t))
+	rt := &replies{stream: strings.Join([]string{
+		`{"model":"qwen3:32b","message":{"role":"assistant","content":"","tool_calls":[{"id":"call_1","function":{"index":0,"name":"ha_call_service","arguments":{"domain":"light","service":"turn_off","area_id":"kitchen"}}}]},"done":false}`,
+		`{"error":"llama runner process has terminated: signal: killed"}`,
+	}, "\n") + "\n"}
+	eng, err := ollama.New(ollama.Config{BaseURL: "http://ollama.invalid", Model: "qwen3:32b", HTTP: &http.Client{Transport: rt}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = rerun.Run(context.Background(), eng, "conv-garage", ts[0])
+	if err == nil || !strings.Contains(err.Error(), "llama runner process has terminated") {
+		t.Errorf("err = %v, want the runner's death", err)
 	}
 }
