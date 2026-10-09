@@ -45,10 +45,11 @@ off" costs the person the 2 s hold.
   *and* or *or*.
 - Fillers: *uh, um, er, hmm.*
 - Particles (*on, off, up, down, in, out, over, back*) dangle unless their
-  clause has something for them to finish: a verb that takes one ("turn the
-  lights on", "wake me up"), a yes-or-no question about state ("is the oven
-  on"), or a copula just before ("what's on"). So "what's the weather on"
-  dangles and "leave the porch light on" does not.
+  clause has something for them to finish: a verb that takes one and has
+  not already ("turn the lights on", "wake me up"), a question about state
+  opened by a copula ("is the oven on"), or a copula just before ("what's
+  on"). So "what's the weather on", "turn on the lights in" and "can you
+  play music in" dangle, and "leave the porch light on" does not.
 
 *That, this, her, about* and *like* are left out: "what's that", "call
 her" and "what's the movie about" are whole.
