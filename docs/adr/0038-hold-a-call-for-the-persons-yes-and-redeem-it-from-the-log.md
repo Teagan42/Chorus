@@ -69,8 +69,11 @@ because a nonce the log has not spent could be spent twice. The tool is
 invoked with the nonce stripped, since the nonce belongs to the orchestrator.
 
 **A refused nonce gets the reason and a fresh nonce.** A refusal is one of
-`unknown`, `used`, `args_changed`, `not_answered` or `expired`. Two cases
-matter most:
+`unknown`, `used`, `args_changed`, `not_answered` or `expired`. The refused
+nonce is spent: a nonce gets one try. Left open, it would count the next
+answer too. A model that switched from the front door to the back door
+before anyone answered could then open the front door on a yes to the
+back-door question. Two cases matter most:
 
 - **A model that calls straight back with its own nonce** is refused as
   `not_answered`, every time, until the round cap ends the turn.
