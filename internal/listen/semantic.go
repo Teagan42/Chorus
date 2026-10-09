@@ -44,12 +44,14 @@ type Semantic struct {
 	// Threshold is the RMS fraction of full scale that counts as speech.
 	Threshold float64
 
-	// Pause, Silence, Hold and Window are in bytes. Silence ends a turn the
-	// judge has not answered for, as Energy would.
+	// Pause, Silence, Hold, Window and LeadIn are in bytes. Silence ends a
+	// turn the judge has not answered for, as Energy would. LeadIn is the
+	// onset the threshold missed, kept as the listener keeps it for STT.
 	Pause   int
 	Silence int
 	Hold    int
 	Window  int
+	LeadIn  int
 
 	Judge Judge
 
@@ -77,7 +79,7 @@ type Semantic struct {
 func NewSemantic(j Judge) *Semantic {
 	return &Semantic{
 		Threshold: DefaultSpeechEnergy, Pause: DefaultPause, Silence: DefaultSilence,
-		Hold: DefaultHold, Window: DefaultWindow, Judge: j,
+		Hold: DefaultHold, Window: DefaultWindow, LeadIn: DefaultLeadIn, Judge: j,
 	}
 }
 
@@ -109,9 +111,13 @@ func (s *Semantic) Feed(pcm []byte) Boundary {
 	loud := RMS(pcm) >= s.Threshold
 	if !s.voiced {
 		if !loud {
+			s.audio = append(s.audio, pcm...)
+			if extra := len(s.audio) - s.LeadIn; extra > 0 {
+				s.audio = s.audio[extra:]
+			}
 			return Continue
 		}
-		s.voiced, s.quiet, s.audio = true, 0, nil
+		s.voiced, s.quiet = true, 0
 		s.keepLocked(pcm)
 		return Start
 	}

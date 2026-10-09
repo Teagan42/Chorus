@@ -306,6 +306,30 @@ func TestSemanticSendsTheJudgeTheEndOfALongTurn(t *testing.T) {
 	}
 }
 
+// Teagan starts softly, "um, turn on the porch light": the onset under the
+// threshold reaches the judge as it reaches STT, or the judge hears half a
+// sentence. Quiet from before the lead-in does not.
+//
+// verifies SPEC §4.5
+func TestSemanticSendsTheJudgeTheOnsetTheThresholdMissed(t *testing.T) {
+	j := &judge{answers: []judgement{{done: true}}}
+	ep, q := semantic(j, nil)
+
+	feed(t, ep, 0, ms(1000))
+	feed(t, ep, 200, listen.DefaultLeadIn)
+	speakTo(t, ep, 8000, ms(1600))
+	feed(t, ep, 0, pauseChunks*chunkBytes)
+	q.run()
+
+	sent := j.asked[0]
+	if want := listen.DefaultLeadIn + ms(1600) + pauseChunks*chunkBytes; len(sent) != want {
+		t.Fatalf("judge was sent %d bytes, want the %d of lead-in, turn and pause", len(sent), want)
+	}
+	if !bytes.HasPrefix(sent, voice(200, listen.DefaultLeadIn)) {
+		t.Error("the soft onset is not where the judge's audio starts")
+	}
+}
+
 // A mute forgets the turn and the ask about it.
 func TestSemanticResetForgetsTheTurnAndItsAsk(t *testing.T) {
 	j := &judge{answers: []judgement{{done: true}}}
@@ -349,6 +373,8 @@ func TestSemanticDefaults(t *testing.T) {
 	case ep.Pause != 6400 || ep.Silence != listen.DefaultSilence || ep.Hold != 64000 || ep.Window != 256000:
 		t.Errorf("Pause %d, Silence %d, Hold %d, Window %d: want 200 ms, Energy's, 2 s and 8 s",
 			ep.Pause, ep.Silence, ep.Hold, ep.Window)
+	case ep.LeadIn != listen.DefaultLeadIn:
+		t.Errorf("LeadIn = %d, want the listener's %d", ep.LeadIn, listen.DefaultLeadIn)
 	}
 	var _ listen.Trailer = ep
 }
