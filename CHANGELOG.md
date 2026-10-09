@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.0](https://github.com/Teagan42/Chorus/compare/v0.9.0...v0.10.0) (2026-10-09)
+
+
+### Features
+
+* a slow tool carries what to say while it works ([#43](https://github.com/Teagan42/Chorus/issues/43)) ([7a80d63](https://github.com/Teagan42/Chorus/commit/7a80d63584905cd62979e580ffe027073425b882))
+* ask the model again with its tool results and the conversation ([#40](https://github.com/Teagan42/Chorus/issues/40)) ([e623b22](https://github.com/Teagan42/Chorus/commit/e623b2269a92530a464f3c393743750ef08b0862))
+* end a turn when Smart Turn says it is over ([#37](https://github.com/Teagan42/Chorus/issues/37)) ([64945fd](https://github.com/Teagan42/Chorus/commit/64945fd2bfba096816d85d623dab7148a282f8f5))
+* hold unlocking and disarming until the person says yes ([#42](https://github.com/Teagan42/Chorus/issues/42)) ([144802e](https://github.com/Teagan42/Chorus/commit/144802ea7fead6fd3f9a4dd638cc4fe63ec43288))
+* **reviewui:** a hosted demo of the review UI, running in the browser on Pages ([#41](https://github.com/Teagan42/Chorus/issues/41)) ([8d852ea](https://github.com/Teagan42/Chorus/commit/8d852eafbe4f6db39032b4cbce940e52ad77378c))
+
 ## [0.9.0](https://github.com/Teagan42/Chorus/compare/v0.8.0...v0.9.0) (2026-10-09)
 
 
