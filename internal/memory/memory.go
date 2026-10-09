@@ -27,7 +27,7 @@ const RecallLimit = 20
 // What a turn is told of the person's earlier conversations: the few most
 // recent from the past week, enough for "what did I ask yesterday" without
 // crowding out the conversation in progress. A summary is kept a month,
-// then pruned as newer ones are kept (SPEC §5, ADR-0042).
+// then pruned as newer ones are kept (SPEC §5, ADR-0043).
 const (
 	SummaryLimit  = 5
 	SummaryWindow = 7 * 24 * time.Hour

@@ -107,7 +107,7 @@ func sameSummary(a, b journal.Summary) bool {
 // the background. The snapshot is taken here, not in the background: a
 // person back within the migration window resumes the same log, and a
 // summary read after that would describe a conversation still going, racing
-// the one its own end starts (ADR-0042).
+// the one its own end starts (ADR-0043).
 //
 // Nothing is summarized for a conversation with nobody identified in it, or
 // nothing said: there is nobody to keep it for, or nothing to keep.

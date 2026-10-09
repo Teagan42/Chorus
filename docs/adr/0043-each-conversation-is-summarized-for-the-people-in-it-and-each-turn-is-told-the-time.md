@@ -1,4 +1,4 @@
-# 0042. Each conversation is summarized for the people in it, and each turn is told the time
+# 0043. Each conversation is summarized for the people in it, and each turn is told the time
 
 - **Status:** accepted
 - **Source:** SPEC §5, §8 · ADR-0022, ADR-0034, ADR-0040
