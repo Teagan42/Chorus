@@ -96,6 +96,7 @@ Actor: `speaking`. `has_audio`: yes. `training_signal`: no. `speculative`: no. `
 |---|---|---|---|
 | `text` | string | yes | Text corresponding to played audio. |
 | `frames_played` | integer | yes | DAC frame count at completion. |
+| `call_id` | string |  | The speak call this audio played, so the dialogue the model is told puts it where the model said it. Empty in logs from before it was recorded. |
 
 ## `speech_started`
 
@@ -119,6 +120,7 @@ Actor: `speaking`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. 
 | `spoken_text` | string | yes | What the user heard. |
 | `unspoken_text` | string | yes | Generated but never played. |
 | `frames_played` | integer | yes | DAC frame count at cut. |
+| `call_id` | string |  | The speak call that was cut. Empty in logs from before it was recorded. |
 
 ## `tool_called`
 
