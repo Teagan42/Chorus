@@ -126,6 +126,7 @@ events: {
 		fields: [
 			{name: "call_id", type: "string", description: "The call that was held.", required: true},
 			{name: "nonce", type: "string", description: "Redeemable once, by the same call, in the turn of the next thing the person says.", required: true},
+			{name: "presented", type: "string", description: "The nonce the call carried, which this refusal spends: a nonce gets one try. Empty when it carried none."},
 			{name: "refused", type: "string", description: "Why the nonce the call carried was not accepted. Empty when it carried none.", enum: ["unknown", "used", "args_changed", "not_answered", "expired"]},
 		]
 	}
