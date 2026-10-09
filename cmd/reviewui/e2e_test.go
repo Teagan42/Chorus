@@ -335,6 +335,37 @@ func TestE2ETriageOpensAFailureAtItsEvent(t *testing.T) {
 	p.shot("conversation-failure")
 }
 
+// Alan's oven timer: the Repeated tab holds his second ask, and the row
+// opens the conversation with that ask in view.
+//
+// verifies SPEC §9.1
+func TestE2ETriageRepeatedOpensTheSecondAsk(t *testing.T) {
+	p := open(t, newRepeatServer(t))
+	p.visit("/queue")
+	p.follow(`#queue-tabs a[href$="tab=repeated"]`)
+	p.waitText("#queue", "set a timer for twelve minutes")
+	if strings.Contains(p.text("#queue"), "zeppelin") {
+		t.Error("the repeated tab still lists the barge-in")
+	}
+	p.shot("triage-repeated")
+
+	p.follow(`#queue a[href^="/conversations/conv-3"]`)
+	var target struct {
+		ID      string
+		Visible bool
+	}
+	p.eval(`(() => {
+		const e = document.querySelector(":target");
+		if (!e) return {ID: "", Visible: false};
+		const r = e.getBoundingClientRect();
+		return {ID: e.id, Visible: r.top >= 0 && r.bottom <= window.innerHeight};
+	})()`, &target)
+	if target.ID != "seq-6" || !target.Visible {
+		t.Errorf("target = %+v, want the second ask #seq-6 in view", target)
+	}
+	p.waitText("#seq-6", "asked again 6.2 s after")
+}
+
 // verifies SPEC §9.2
 func TestE2EBrowseOpensEachConversationAndComesBack(t *testing.T) {
 	p := open(t, newBrowseServer(t))
