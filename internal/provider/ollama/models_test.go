@@ -134,37 +134,34 @@ func TestARealModelSpeaksByCallingTheTool(t *testing.T) {
 	}
 }
 
-// The reason the slow hint and the sequential framing are in the request at
-// all: without them the model calls the slow tool alone and the user waits in
-// silence past SPEC §11's budget.
+// A slow tool carries what to say while it works as a required argument,
+// because a speak call volunteered beside it came and went from run to run.
+// Alan asks for a film, which is a library search: the call has to say
+// something for the session to speak while it runs.
 //
-// verifies SPEC §4.1, §14
-func TestARealModelSpeaksBeforeASlowTool(t *testing.T) {
-	acts := turn(t, engine(t), "Find me a lasagne recipe in the media library.")
+// verifies SPEC §4.1, §11
+func TestARealModelSaysSomethingWhileASlowToolWorks(t *testing.T) {
+	acts := turn(t, engine(t), "Recommend a movie like Indiana Jones starring Tom Holland.")
 
-	speechAt, callAt := -1, -1
-	for i, a := range acts {
-		switch v := a.(type) {
-		case session.SpeechDelta:
-			if speechAt < 0 && strings.TrimSpace(v.Text) != "" {
-				speechAt = i
-			}
-		case session.ToolCall:
-			if callAt < 0 && v.Tool == "media_search" {
-				callAt = i
-			}
+	var search *session.ToolCall
+	for _, a := range acts {
+		if v, ok := a.(session.ToolCall); ok && v.Tool == "media_search" {
+			search = &v
+			break
 		}
 	}
-	if callAt < 0 {
+	if search == nil {
 		t.Fatalf("%s never called media_search: %v", *model, describe(acts))
 	}
-	if speechAt < 0 {
-		t.Fatalf("%s called a slow tool with no acknowledgement: %v", *model, describe(acts))
+	var args struct {
+		Query           string `json:"query"`
+		Acknowledgement string `json:"acknowledgement"`
 	}
-	// Order cannot be corrected downstream: calls arrive on separate lines, so
-	// fixing it would mean buffering to end of turn.
-	if speechAt > callAt {
-		t.Errorf("the slow tool was dispatched before the speech covering it: %v", describe(acts))
+	if err := json.Unmarshal([]byte(search.Args), &args); err != nil {
+		t.Fatalf("%s wrote arguments %q: %v", *model, search.Args, err)
+	}
+	if strings.TrimSpace(args.Acknowledgement) == "" {
+		t.Errorf("%s searched with nothing to say while it works: %s", *model, search.Args)
 	}
 }
 

@@ -17,11 +17,12 @@ import (
 // tool schema there. The decoder drops content by default, so a model that
 // writes an answer there is simply not heard (SPEC §4.1).
 //
-// The ordering clause is sequential, not parallel. Told it may issue several
-// calls at once, qwen3:14b put the slow tool ahead of the speak meant to cover
-// it and ornith:9b dropped the speak entirely. Sequential framing is the only
-// wording that produced speech first on both, and the decoder cannot fix the
-// order afterwards: calls arrive on separate lines (SPEC §14).
+// The acknowledgement clause replaced an ordering one. Told to call speak
+// FIRST and the slow tool after, qwen3:14b and ornith:9b did so some of the
+// time and called the tool alone the rest, however it was worded. The words
+// to say are now a required argument of the slow tool itself, which the
+// session speaks as the call starts, so no ordering is left to get wrong
+// (ADR-0039).
 //
 // Brevity is here because one speak call carries a whole paragraph in one
 // delta, which is the unit a barge-in has to truncate (SPEC §15 item 1).
@@ -29,7 +30,7 @@ const DefaultPrompt = `You are a voice assistant in a home. Everything you say i
 
 Speak only by calling the speak tool. Never answer in ordinary message content: it does not reach the speakers and nobody hears it.
 
-When a tool will take a moment, FIRST call speak to tell the person you are working on it, and then call the tool. Never leave them in silence waiting.
+A tool that takes a moment asks for an acknowledgement: the few words the person hears while it works. They are spoken for you as it starts, so do not also call speak to say them.
 
 Call end_session once the conversation is finished.`
 

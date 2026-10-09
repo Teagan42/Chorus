@@ -181,3 +181,35 @@ func TestSpeechWithNoWordsYetIsLeftOut(t *testing.T) {
 		t.Errorf("%d messages, want system, user, the call and its result", len(msgs))
 	}
 }
+
+// The model wrote "Let me look through the library." as the search's own
+// argument, and the follow-up shows it that call as it made it. Shown again as
+// a speak call, it would learn to make one beside every slow tool and say
+// everything twice. A cut acknowledgement still goes back, so the model knows
+// the person stopped it.
+//
+// verifies SPEC §4.4
+func TestAnAcknowledgementGoesBackAsTheArgumentItWas(t *testing.T) {
+	search := `{"query":"adventure films starring Tom Holland","acknowledgement":"Let me look through the library."}`
+	entries := []journal.Entry{
+		{Kind: journal.EntryHeard, Text: "recommend a movie like indiana jones starring tom holland"},
+		{Kind: journal.EntryCall, CallID: "call_c1", Tool: "media_search", Args: search},
+		{Kind: journal.EntrySaid, CallID: "call_c1_ack", Text: "Let me look through the library.", Acknowledges: "call_c1"},
+		{Kind: journal.EntryResult, CallID: "call_c1", Tool: "media_search", Outcome: "ok", Result: `[{"title":"Uncharted","year":2022}]`},
+	}
+	msgs := sent(t, session.Input{Speaker: "alan", Text: entries[0].Text, Dialogue: entries})
+	want := []message{
+		{Role: "user", Content: entries[0].Text},
+		{Role: "assistant", ToolCalls: []toolCall{call("call_c1", "media_search", search)}},
+		{Role: "tool", ToolName: "media_search", Content: `[{"title":"Uncharted","year":2022}]`},
+	}
+	if got := msgs[1:]; !reflect.DeepEqual(got, want) {
+		t.Errorf("messages =\n%+v\nwant\n%+v", got, want)
+	}
+
+	entries[2].Text, entries[2].Cut = "Let me look", true
+	msgs = sent(t, session.Input{Speaker: "alan", Text: entries[0].Text, Dialogue: entries})
+	if got := msgs[2].ToolCalls; len(got) != 2 || got[1].Function.Name != "speak" {
+		t.Errorf("a cut acknowledgement went back as %+v, want the speak call beside the search", got)
+	}
+}
