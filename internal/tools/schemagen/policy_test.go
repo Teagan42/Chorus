@@ -121,6 +121,16 @@ func TestPolicyViolationsAreRejected(t *testing.T) {
 			"a service call is committed when sent, so its interrupt policy cannot be loosened to cancel",
 			"on_interrupt",
 		},
+		{
+			"confirm_when_undeclared_param.cue",
+			"a confirmation gate on a parameter the tool does not take never matches",
+			"confirm_when",
+		},
+		{
+			"confirmation_param_declared.cue",
+			"the nonce argument is the orchestrator's, not a tool's",
+			"confirmation",
+		},
 	}
 
 	for _, c := range cases {

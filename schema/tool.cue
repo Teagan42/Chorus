@@ -2,6 +2,8 @@
 // AND the orchestrator's policy enforcement, so they cannot drift (SPEC §6).
 package schema
 
+import "struct"
+
 // #InterruptPolicy decides what happens to an in-flight call on barge-in
 // (SPEC §4.4).
 #InterruptPolicy: "cancel" | "detach" | "uninterruptible"
@@ -26,7 +28,10 @@ package schema
 #Tool: {
 	name!:        =~"^[a-z][a-z0-9_]*$"
 	description!: string & !=""
-	params: [...#Param] | *[]
+
+	// "confirmation" is the orchestrator's: it carries the nonce a confirmed
+	// call is redeemed with, and is offered on every confirmable tool.
+	params: [...#Param & {name: !="confirmation"}] | *[]
 
 	on_interrupt: #InterruptPolicy | *"cancel"
 	scope:        #Scope | *"household"
@@ -35,6 +40,14 @@ package schema
 	timeout_ms: int & >=100 & <=120000 | *10000
 
 	requires_confirmation: bool | *false
+
+	// Calls whose arguments match any entry need the person's yes even when
+	// the tool as a whole does not: "unlock the front door" is the same
+	// service call as "turn on the kitchen lights". An entry matches when
+	// every string parameter it names has that value (ADR-0038).
+	confirm_when?: [...close({
+		for p in params if p.type == "string" {(p.name)?: string & !=""}
+	}) & struct.MinFields(1)]
 
 	// Latency hint lets the model decide whether to speak before results land.
 	latency: "fast" | "slow" | *"fast"
@@ -112,6 +125,15 @@ tools: {
 		// undo it and would leave the model not knowing what the home did, so
 		// the call runs to completion and keeps its result (SPEC §4.4).
 		on_interrupt: "detach"
+		// Opening the house to whoever is at the door, or switching the alarm
+		// off, is not undone by "never mind" (ADR-0038). A garage cover opens
+		// with the same cover.open_cover as a blind, so it cannot be told
+		// apart here.
+		confirm_when: [
+			{domain: "lock", service: "unlock"},
+			{domain: "lock", service: "open"},
+			{domain: "alarm_control_panel", service: "alarm_disarm"},
+		]
 		params: [
 			{name: "domain", type: "string", description: "Service domain, e.g. light, switch, script.", required: true},
 			{name: "service", type: "string", description: "Service within the domain, e.g. turn_on, turn_off, toggle.", required: true},

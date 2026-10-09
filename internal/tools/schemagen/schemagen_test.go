@@ -39,6 +39,19 @@ func fixtureTools() map[string]Tool {
 			Name: "end_session", Description: "Close the conversation.",
 			OnInterrupt: "cancel", Scope: "household", TimeoutMS: 10000, Latency: "fast",
 		},
+		"front_door": {
+			Name: "front_door", Description: "Lock or unlock the front door.",
+			OnInterrupt: "detach", Scope: "household", TimeoutMS: 10000, Latency: "fast",
+			Params: []Param{
+				{Name: "action", Type: "string", Description: "lock or unlock.", Required: true},
+			},
+			ConfirmWhen: []map[string]string{{"action": "unlock"}},
+		},
+		"garage_opener": {
+			Name: "garage_opener", Description: "Press the garage door opener.",
+			OnInterrupt: "uninterruptible", Scope: "household", TimeoutMS: 10000, Latency: "fast",
+			RequiresConfirmation: true,
+		},
 	}
 }
 
@@ -175,8 +188,8 @@ func TestRenderIsDeterministic(t *testing.T) {
 
 func TestLLMToolSchemasShape(t *testing.T) {
 	got := LLMToolSchemas(fixtureTools())
-	if len(got) != 3 {
-		t.Fatalf("got %d schemas, want 3", len(got))
+	if len(got) != len(fixtureTools()) {
+		t.Fatalf("got %d schemas, want one per tool, %d", len(got), len(fixtureTools()))
 	}
 	if got[0]["name"] != "end_session" {
 		t.Errorf("schemas must be name-sorted, first is %v", got[0]["name"])
@@ -243,6 +256,46 @@ func TestSlowToolsTellTheModelTheyAreSlow(t *testing.T) {
 	}
 	if got := byName["media_search"]; !strings.HasPrefix(got, "Search the media library.") {
 		t.Errorf("hint replaced the description instead of extending it: %q", got)
+	}
+}
+
+// A held call is not a failure the model should apologise for: it has to be
+// told how to finish it, and offered the argument that does.
+//
+// verifies SPEC §6
+func TestConfirmableToolsOfferTheNonce(t *testing.T) {
+	byName := map[string]map[string]any{}
+	for _, s := range LLMToolSchemas(fixtureTools()) {
+		byName[s["name"].(string)] = s
+	}
+	props := func(name string) map[string]any {
+		return byName[name]["input_schema"].(map[string]any)["properties"].(map[string]any)
+	}
+	for name, hint := range map[string]string{"front_door": confirmSomeHint, "garage_opener": confirmAllHint} {
+		if _, ok := props(name)["confirmation"]; !ok {
+			t.Errorf("%s does not offer the confirmation argument", name)
+		}
+		if d := byName[name]["description"].(string); !strings.HasSuffix(d, hint) {
+			t.Errorf("%s description %q does not say how to finish a held call", name, d)
+		}
+	}
+	if _, ok := props("remember")["confirmation"]; ok {
+		t.Error("remember is never held, so it should not offer a nonce")
+	}
+	if req := byName["front_door"]["input_schema"].(map[string]any)["required"]; len(req.([]string)) != 1 {
+		t.Errorf("required = %v: the nonce is only for a call that was held", req)
+	}
+
+	src := renderToolsGo(fixtureTools())
+	parses(t, src)
+	if !strings.Contains(src, `ConfirmWhen: []map[string]string{`) || !strings.Contains(src, `{"action": "unlock"}`) {
+		t.Error("the generated registry does not carry front_door's confirm_when")
+	}
+	doc := renderToolDocs(fixtureTools())
+	for _, want := range []string{"| `front_door` | detach | household | 10000ms | **some calls** |", "- `action` `unlock`", "| `garage_opener` | uninterruptible | household | 10000ms | **yes** |", "| `confirmation` | string |"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("tool docs are missing %q", want)
+		}
 	}
 }
 

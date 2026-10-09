@@ -34,6 +34,8 @@ type Tool struct {
 	RequiresConfirmation bool    `json:"requires_confirmation"`
 	Latency              string  `json:"latency"`
 	UnknownSpeaker       string  `json:"unknown_speaker,omitempty"`
+
+	ConfirmWhen []map[string]string `json:"confirm_when,omitempty"`
 }
 
 type Event struct {
@@ -124,7 +126,7 @@ func LLMToolSchemas(tools map[string]Tool) []map[string]any {
 		t := tools[key]
 		props := map[string]any{}
 		var required []string
-		for _, p := range t.Params {
+		for _, p := range offered(t) {
 			prop := map[string]any{"type": p.Type, "description": p.Description}
 			if len(p.Enum) > 0 {
 				prop["enum"] = p.Enum
@@ -157,13 +159,50 @@ func LLMToolSchemas(tools map[string]Tool) []map[string]any {
 // timeout policy generated beside it (SPEC §6, §14).
 const slowHint = " Takes several seconds to return."
 
-// describe is the tool description the model sees, which is not quite the one
-// the docs show: latency is policy the model has to act on, not just metadata.
-func describe(t Tool) string {
-	if t.Latency != "slow" {
-		return t.Description
+// confirmParam carries a confirmed call's nonce. Spelled as
+// registry.ConfirmationParam, which this generator cannot import: it writes
+// that package.
+var confirmParam = Param{
+	Name:        "confirmation",
+	Type:        "string",
+	Description: "The nonce from a confirmation_required result, once the person has said yes. Omit it otherwise.",
+}
+
+// Hints for a confirmable tool: the model has to know a held call is not a
+// failure, and how to finish it (SPEC §6, ADR-0038).
+const (
+	confirmAllHint  = " Every call needs the person's yes: it returns confirmation_required with a nonce. Ask them, and once they agree, call again with the same arguments and confirmation set to the nonce."
+	confirmSomeHint = " Some calls need the person's yes: they return confirmation_required with a nonce. Ask them, and once they agree, call again with the same arguments and confirmation set to the nonce."
+)
+
+// confirmable reports whether any call to the tool can be held for the
+// person's yes.
+func confirmable(t Tool) bool { return t.RequiresConfirmation || len(t.ConfirmWhen) > 0 }
+
+// offered is the parameters the model is offered: the declared ones, and the
+// nonce on a confirmable tool.
+func offered(t Tool) []Param {
+	if !confirmable(t) {
+		return t.Params
 	}
-	return t.Description + slowHint
+	return append(append([]Param(nil), t.Params...), confirmParam)
+}
+
+// describe is the tool description the model sees, which is not quite the one
+// the docs show: latency and confirmation are policy the model has to act
+// on, not just metadata.
+func describe(t Tool) string {
+	d := t.Description
+	if t.Latency == "slow" {
+		d += slowHint
+	}
+	switch {
+	case t.RequiresConfirmation:
+		d += confirmAllHint
+	case len(t.ConfirmWhen) > 0:
+		d += confirmSomeHint
+	}
+	return d
 }
 
 func renderToolsGo(tools map[string]Tool) string {
@@ -216,6 +255,10 @@ type ToolSpec struct {
 	RequiresConfirmation bool
 	Slow                 bool
 	UnknownSpeaker       string
+
+	// ConfirmWhen holds the calls whose arguments match any entry for the
+	// person's yes, when the tool as a whole needs none (ADR-0038).
+	ConfirmWhen []map[string]string
 }
 
 `)
@@ -226,7 +269,7 @@ type ToolSpec struct {
 		b.WriteString(fmt.Sprintf("\t\tName: %q,\n", t.Name))
 		b.WriteString(fmt.Sprintf("\t\tDescription: %q,\n", t.Description))
 		b.WriteString(fmt.Sprintf("\t\tModelDescription: %q,\n", describe(t)))
-		b.WriteString(renderParams(t.Params))
+		b.WriteString(renderParams(offered(t)))
 		b.WriteString(fmt.Sprintf("\t\tOnInterrupt: %q,\n", t.OnInterrupt))
 		b.WriteString(fmt.Sprintf("\t\tScope: %q,\n", t.Scope))
 		b.WriteString(fmt.Sprintf("\t\tTimeout: %d * time.Millisecond,\n", t.TimeoutMS))
@@ -235,6 +278,7 @@ type ToolSpec struct {
 		if t.UnknownSpeaker != "" {
 			b.WriteString(fmt.Sprintf("\t\tUnknownSpeaker: %q,\n", t.UnknownSpeaker))
 		}
+		b.WriteString(renderConfirmWhen(t.ConfirmWhen))
 		b.WriteString("\t},\n")
 	}
 	b.WriteString("}\n")
@@ -261,6 +305,23 @@ func renderParams(params []Param) string {
 			b.WriteString(fmt.Sprintf(", Items: %q", p.Items))
 		}
 		b.WriteString("},\n")
+	}
+	b.WriteString("\t\t},\n")
+	return b.String()
+}
+
+func renderConfirmWhen(when []map[string]string) string {
+	if len(when) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\t\tConfirmWhen: []map[string]string{\n")
+	for _, m := range when {
+		pairs := make([]string, 0, len(m))
+		for _, k := range sortedKeys(m) {
+			pairs = append(pairs, fmt.Sprintf("%q: %q", k, m[k]))
+		}
+		b.WriteString(fmt.Sprintf("\t\t\t{%s},\n", strings.Join(pairs, ", ")))
 	}
 	b.WriteString("\t\t},\n")
 	return b.String()
@@ -317,8 +378,11 @@ func renderToolDocs(tools map[string]Tool) string {
 	for _, key := range sortedKeys(tools) {
 		t := tools[key]
 		confirm := "no"
-		if t.RequiresConfirmation {
+		switch {
+		case t.RequiresConfirmation:
 			confirm = "**yes**"
+		case len(t.ConfirmWhen) > 0:
+			confirm = "**some calls**"
 		}
 		b.WriteString(fmt.Sprintf("| `%s` | %s | %s | %dms | %s | %s |\n",
 			t.Name, t.OnInterrupt, t.Scope, t.TimeoutMS, confirm, t.Latency))
@@ -330,8 +394,28 @@ func renderToolDocs(tools map[string]Tool) string {
 		if t.UnknownSpeaker != "" {
 			b.WriteString(fmt.Sprintf("Unknown speaker: `%s`.\n\n", t.UnknownSpeaker))
 		}
-		b.WriteString(renderParamTable("Parameter", t.Params, "No parameters."))
+		b.WriteString(renderConfirmDocs(t.ConfirmWhen))
+		b.WriteString(renderParamTable("Parameter", offered(t), "No parameters."))
 	}
+	return b.String()
+}
+
+// renderConfirmDocs lists the calls a tool holds for the person's yes, one
+// per line, as the arguments that match.
+func renderConfirmDocs(when []map[string]string) string {
+	if len(when) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Needs the person's yes when called with:\n\n")
+	for _, m := range when {
+		pairs := make([]string, 0, len(m))
+		for _, k := range sortedKeys(m) {
+			pairs = append(pairs, fmt.Sprintf("`%s` `%s`", k, m[k]))
+		}
+		b.WriteString("- " + strings.Join(pairs, ", ") + "\n")
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 
