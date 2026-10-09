@@ -8,6 +8,22 @@
     "name": "end_session"
   },
   {
+    "description": "Forget something you remember about the person you are speaking with, so it is never recalled again. Name it by the id shown beside it in what you remember.",
+    "input_schema": {
+      "properties": {
+        "memory_id": {
+          "description": "The id of the memory to forget, e.g. m_3f9c2a10.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "memory_id"
+      ],
+      "type": "object"
+    },
+    "name": "forget"
+  },
+  {
     "description": "Act on the home through a Home Assistant service: lights, switches, covers, media players, scripts. Target an entity_id from ha_find_entities, or an area_id. Returns the entities whose state changed; an empty list means nothing matched or nothing needed to change. Some calls need the person's yes: they return confirmation_required with a nonce. Ask them, and once they agree, call again with the same arguments and confirmation set to the nonce.",
     "input_schema": {
       "properties": {
@@ -103,15 +119,15 @@
     "name": "media_search"
   },
   {
-    "description": "Store a durable fact about the current speaker.",
+    "description": "Keep a lasting fact about the person you are speaking with, to recall in later conversations. Use it when they ask you to remember something, or tell you a preference that will still hold tomorrow.",
     "input_schema": {
       "properties": {
         "fact": {
-          "description": "The fact to retain.",
+          "description": "The fact, as one plain sentence that makes sense on its own later, e.g. Takes oat milk in coffee.",
           "type": "string"
         },
         "shareable": {
-          "description": "Whether other household members may see this.",
+          "description": "True only when they say the rest of the household may know it.",
           "type": "boolean"
         }
       },

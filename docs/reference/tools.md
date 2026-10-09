@@ -7,6 +7,7 @@ See [SPEC §6](../SPEC.md). Policy is enforced by the orchestrator from these sa
 | Tool | Interrupt | Scope | Timeout | Confirm | Latency |
 |---|---|---|---|---|---|
 | `end_session` | cancel | household | 10000ms | no | fast |
+| `forget` | cancel | person | 10000ms | no | fast |
 | `ha_call_service` | detach | household | 10000ms | **some calls** | fast |
 | `ha_find_entities` | cancel | household | 10000ms | no | fast |
 | `ha_get_state` | cancel | household | 10000ms | no | fast |
@@ -19,6 +20,16 @@ See [SPEC §6](../SPEC.md). Policy is enforced by the orchestrator from these sa
 Close the conversation. Call when the task is complete rather than waiting for silence.
 
 No parameters.
+
+## `forget`
+
+Forget something you remember about the person you are speaking with, so it is never recalled again. Name it by the id shown beside it in what you remember.
+
+Unknown speaker: `deny`.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `memory_id` | string | yes | The id of the memory to forget, e.g. m_3f9c2a10. |
 
 ## `ha_call_service`
 
@@ -68,14 +79,14 @@ Search the media library.
 
 ## `remember`
 
-Store a durable fact about the current speaker.
+Keep a lasting fact about the person you are speaking with, to recall in later conversations. Use it when they ask you to remember something, or tell you a preference that will still hold tomorrow.
 
 Unknown speaker: `deny`.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `fact` | string | yes | The fact to retain. |
-| `shareable` | boolean |  | Whether other household members may see this. |
+| `fact` | string | yes | The fact, as one plain sentence that makes sense on its own later, e.g. Takes oat milk in coffee. |
+| `shareable` | boolean |  | True only when they say the rest of the household may know it. |
 
 ## `speak`
 
