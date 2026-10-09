@@ -264,6 +264,22 @@ tasks:
     cmds:
       - CHORUS_DOCS_SITE={{.ROOT_DIR}}/site go test -race -count=1 -tags=e2e ./internal/tools/docsite
 
+  # ---------------------------------------------------------------- hosted demo
+  # The review UI compiled to WebAssembly over the household's Thursday
+  # (internal/reviewui/household), published beside the docs at /demo/.
+  demo:build:
+    desc: Build the in-browser review UI demo into site/demo. After docs:build, which empties site/.
+    cmds: ["go run ./internal/tools/demosite -out site/demo"]
+
+  demo:serve:
+    desc: Build the demo and serve it on http://127.0.0.1:8090/demo/
+    deps: [demo:build]
+    cmds: ["python3 -m http.server --directory site --bind 127.0.0.1 8090"]
+
+  household:voice:
+    desc: Re-speak the household fixture's clips from voice.json with Kokoro (fetches the model once)
+    cmds: ["uv run --group voice python internal/tools/householdvoice/voice.py"]
+
   # -------------------------------------------------------------- spec tracing
   spec:
     desc: Report SPEC.md clause/test traceability

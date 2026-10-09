@@ -50,6 +50,11 @@ jobs:
         env:
           CHORUS_E2E_SHOTS: ${{ runner.temp }}/site-screens
 
+      # The review UI demo rides along at /demo/. After the site, because a
+      # docs build empties site/; on PRs too, so a demo that stops building
+      # is red before it merges.
+      - run: task demo:build
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
