@@ -1,10 +1,12 @@
 //go:build e2e
 
 // Browser tests: the review UI served for real over HTTP with the same
-// in-memory fixtures as server_test.go, driven by a headless Chrome. The
-// handler tests prove what the server writes; these prove what a reviewer
-// gets: htmx actually loaded and swapping, audio a browser can decode, links
-// that land on the screen they name. Run with `task test:e2e`.
+// in-memory fixtures as server_test.go and household_test.go, driven by a
+// headless Chrome. The handler tests prove what the server writes; these
+// prove what a reviewer gets: htmx actually loaded and swapping, audio a
+// browser can decode, links that land on the screen they name. This file
+// holds the harness and per-screen checks; e2e_journeys_test.go walks a
+// reviewer through a whole day. Run with `task test:e2e`.
 package main
 
 import (
@@ -44,6 +46,7 @@ type page struct {
 
 	mu       sync.Mutex
 	failures []string
+	allowed  map[string]int // URL → the error status a test asked for
 }
 
 // open serves s on a loopback port and opens a fresh browser on it. Any
@@ -78,7 +81,7 @@ func open(t *testing.T, s *server) *page {
 		case *network.EventResponseReceived:
 			// Only our own routes: the shell also asks Google for fonts, and
 			// a throttled font is not a broken screen.
-			if ev.Response.Status >= 400 && strings.HasPrefix(ev.Response.URL, p.base+"/") {
+			if ev.Response.Status >= 400 && strings.HasPrefix(ev.Response.URL, p.base+"/") && !p.expected(int(ev.Response.Status), ev.Response.URL) {
 				p.fail("%d from %s", ev.Response.Status, ev.Response.URL)
 			}
 		}
@@ -94,6 +97,12 @@ func (p *page) fail(format string, args ...any) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.failures = append(p.failures, fmt.Sprintf(format, args...))
+}
+
+func (p *page) expected(status int, url string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.allowed[url] == status
 }
 
 func (p *page) check() {
@@ -134,19 +143,36 @@ func (p *page) text(sel string) string {
 }
 
 // waitText polls until sel's rendered text contains want: an htmx swap lands
-// after the click returns.
+// after the click returns. Case is ignored, since captions are uppercased
+// by CSS and a reader does not care.
 func (p *page) waitText(sel, want string) {
 	p.t.Helper()
 	var ok bool
-	js := fmt.Sprintf(`(() => { const e = document.querySelector(%q); return !!e && e.innerText.includes(%q) })()`, sel, want)
+	js := fmt.Sprintf(`(() => { const e = document.querySelector(%q); return !!e && e.innerText.toLowerCase().includes(%q) })()`, sel, strings.ToLower(want))
 	if err := chromedp.Run(p.ctx, chromedp.Poll(js, &ok, chromedp.WithPollingTimeout(5*time.Second))); err != nil {
 		p.t.Fatalf("%s never showed %q (now: %q): %v", sel, want, p.text(sel), err)
 	}
 }
 
+// click waits for sel to be on screen and wired, then clicks it from script.
+// A mouse click at the node's coordinates races the swap the previous click
+// started, and a control htmx has not processed yet swallows the click; a
+// person is never that fast, so neither is this.
 func (p *page) click(sel string) {
 	p.t.Helper()
-	p.run(chromedp.Click(sel, chromedp.ByQuery, chromedp.NodeVisible))
+	var ok bool
+	js := fmt.Sprintf(`(() => {
+		if (document.querySelector(".htmx-request, .htmx-swapping, .htmx-settling, .htmx-added")) return false;
+		const e = document.querySelector(%q);
+		if (!e || !e.checkVisibility()) return false;
+		const hx = [...e.attributes].some(a => a.name.startsWith("hx-")) || e.closest("form[hx-post]");
+		if (hx && !(e.closest("[hx-post], [hx-get], form")["htmx-internal-data"] || {}).initHash) return false;
+		e.click();
+		return true;
+	})()`, sel)
+	if err := chromedp.Run(p.ctx, chromedp.Poll(js, &ok, chromedp.WithPollingTimeout(5*time.Second))); err != nil {
+		p.t.Fatalf("nothing on screen to click at %s: %v", sel, err)
+	}
 }
 
 // follow clicks a link and waits for the page it names to finish loading.
