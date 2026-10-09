@@ -50,7 +50,7 @@ decision rather than by clause: facets of one choice share one record.
 | [0039](0039-a-slow-tool-carries-what-to-say-while-it-works.md) | A slow tool carries what to say while it works; the session speaks it as the call starts | §4.1, §11, §14 |
 | [0040](0040-memory-lives-beside-the-journal-and-each-turn-records-what-it-recalled.md) | Memory is a store beside the journal; person-scoped tools refuse a guest; each turn records what it recalled | §5, §8 |
 | [0041](0041-hold-a-cover-that-lets-someone-in-by-its-device-class.md) | Refines 0038: hold a garage, gate or door cover by the `device_class` Home Assistant gives it, read before dispatch | §6 |
-| [0041](0041-a-turn-that-ends-on-a-dangling-word-is-held.md) | Smart Turn's "finished" is checked against the words; a turn ending on *for*, *the*, *and* or a filler is held | §4.5, §11 |
+| [0042](0042-a-turn-that-ends-on-a-dangling-word-is-held.md) | Smart Turn's "finished" is checked against the words; a turn ending on *for*, *the*, *and* or a filler is held | §4.5, §11 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.

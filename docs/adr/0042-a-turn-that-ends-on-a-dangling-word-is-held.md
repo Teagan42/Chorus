@@ -1,4 +1,4 @@
-# 0041. Hold a turn whose words end on one no command ends on
+# 0042. Hold a turn whose words end on one no command ends on
 
 - **Status:** accepted
 - **Source:** SPEC §4.5, §11 · ADR-0024, ADR-0036
