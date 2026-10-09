@@ -301,7 +301,8 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 
 // ask runs one completion: it drains the action stream, dispatching each
 // action as it arrives, and waits for the calls it made. It reports whether
-// the model called anything that answers, which is what earns a follow-up.
+// the model called anything that answers and did not also end the session,
+// which is what earns a follow-up.
 func (s *Session) ask(turnCtx context.Context, in Input) (bool, error) {
 	actions, err := s.sup.cfg.Engine.Turn(turnCtx, in)
 	if err != nil {
@@ -313,7 +314,7 @@ func (s *Session) ask(turnCtx context.Context, in Input) (bool, error) {
 	s.mu.Unlock()
 
 	var wg sync.WaitGroup
-	acted := false
+	acted, ended := false, false
 	open := map[string]bool{}
 	dropped := map[string]string{}
 	for a := range actions {
@@ -323,6 +324,7 @@ func (s *Session) ask(turnCtx context.Context, in Input) (bool, error) {
 		case ToolCall:
 			s.dispatch(turnCtx, &wg, act)
 			acted = acted || (act.Tool != toolSpeak && act.Tool != toolEndSession)
+			ended = ended || act.Tool == toolEndSession
 		case TurnEnd:
 			s.fail(s.record(journal.Record{
 				Kind: journal.KindModelCompleted,
@@ -338,7 +340,11 @@ func (s *Session) ask(turnCtx context.Context, in Input) (bool, error) {
 		s.discardSpeech(id, dropped[id])
 	}
 	wg.Wait()
-	return acted, nil
+	// The model ended the conversation: whatever else it called alongside,
+	// there is nobody left to answer. The session only closes once the
+	// farewell drains, so the closing context alone would let one more ask
+	// speak or act after goodbye.
+	return acted && !ended, nil
 }
 
 // failed reports whether this turn has already lost a write, after which

@@ -112,6 +112,40 @@ func TestEndingTheSessionIsNotAskedAbout(t *testing.T) {
 	}
 }
 
+// "Turn off the lights and goodnight": the model acts and says goodbye in
+// one breath. The session closes only once the farewell has played, so
+// without a rule it would ask again while "Goodnight." is still on the
+// speaker, and the answer could speak or act after the goodbye.
+//
+// verifies SPEC §4.5
+func TestAGoodbyeBesideAToolCallIsNotAskedAbout(t *testing.T) {
+	steps := []step{
+		{act: session.SpeechDelta{CallID: "call_s1", Text: "Lights off. Goodnight.", Last: true}},
+		{act: session.ToolCall{ID: "call_c1", Tool: "ha_call_service", Args: `{"domain":"light","service":"turn_off","area_id":"bedroom"}`}},
+		{act: session.ToolCall{ID: "call_e1", Tool: "end_session", Args: "{}"}},
+		{act: session.TurnEnd{FinishReason: "stop", Completion: "{}"}},
+	}
+	r := newRig(t, steps, map[string]session.Tool{"ha_call_service": reads(`{"changed":["light.bedroom"]}`)})
+	r.engine.then = [][]step{{
+		{act: session.SpeechDelta{CallID: "call_s2", Text: "The bedroom lights are off.", Last: true}},
+		{act: session.TurnEnd{FinishReason: "stop", Completion: "{}"}},
+	}}
+	// The farewell is still playing when the call returns, which is the
+	// ordinary case: playback outlasts a local service call.
+	r.speaker.hold = true
+
+	s := r.open(t, "teagan")
+	errc := heard(s, "turn off the lights and goodnight")
+	r.speaker.wrote(t)
+	r.awaitCall(t, s.ConversationID(), "call_c1")
+	close(r.speaker.release)
+	wait(t, errc)
+
+	if n := len(r.engine.asks()); n != 1 {
+		t.Errorf("model asked %d times after it said goodnight, want 1", n)
+	}
+}
+
 // Turning off the kitchen lights, then "and the porch light too": the
 // second ask has to carry the first exchange, or "too" means nothing.
 //
