@@ -18,6 +18,7 @@ var triageTabs = []struct {
 	{"all", "All", ""},
 	{string(triage.KindBargeIn), "Barge-in pairs", triage.KindBargeIn},
 	{string(triage.KindRepeated), "Repeated", triage.KindRepeated},
+	{string(triage.KindSlow), "Slow", triage.KindSlow},
 	{string(triage.KindFailure), "Failures", triage.KindFailure},
 	{string(triage.KindSpeakerFlip), "Speaker flips", triage.KindSpeakerFlip},
 }
@@ -26,6 +27,7 @@ var signalTags = map[triage.Kind]ui.SigTag{
 	triage.KindBargeIn:     {Text: "barge-in pair", Tone: ui.TonePeople},
 	triage.KindFailure:     {Text: "failure", Tone: ui.ToneHome},
 	triage.KindRepeated:    {Text: "repeated", Tone: ui.ToneConv},
+	triage.KindSlow:        {Text: "slow", Tone: ui.ToneVoice},
 	triage.KindSpeakerFlip: {Text: "speaker flip", Tone: ui.TonePeople},
 }
 
@@ -113,7 +115,7 @@ func (s *server) triage(w http.ResponseWriter, r *http.Request) {
 		"Header": ui.NewAppHeader(ui.StepTriage, unreviewed, "chorus · journal"),
 		"Head": ui.PageHead{
 			Eyebrow: "02 · Triage", Title: "What's worth a listen",
-			Subtitle: "Barge-ins, failures, repeated asks and speaker flips, read from the journal. Slow turns need a first-audio time the journal does not record yet.",
+			Subtitle: "Barge-ins, failures, repeated asks, slow answers and speaker flips, read from the journal.",
 		},
 		"Tabs": tabs,
 		"List": list,

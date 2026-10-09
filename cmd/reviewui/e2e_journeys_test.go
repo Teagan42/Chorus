@@ -187,7 +187,7 @@ func TestE2EJourneyTriageToReviewFixesAndAcceptsTheWeatherCut(t *testing.T) {
 	if got := p.badge(); got != 3 {
 		t.Errorf("header badge = %d, want 3 unreviewed pairs", got)
 	}
-	want := map[string]int{"All": 6, "Barge-in pairs": 3, "Repeated": 1, "Failures": 1, "Speaker flips": 1}
+	want := map[string]int{"All": 6, "Barge-in pairs": 3, "Repeated": 1, "Slow": 0, "Failures": 1, "Speaker flips": 1}
 	if got := p.counts("#queue-tabs"); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("queue tabs = %v, want %v", got, want)
 	}

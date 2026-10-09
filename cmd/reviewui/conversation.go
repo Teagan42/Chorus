@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/teaganglenn/chorus/internal/journal"
@@ -32,7 +33,7 @@ var kindTones = map[journal.Kind]ui.Tone{
 	journal.KindSessionOpened: ui.ToneConv, journal.KindSessionClosed: ui.ToneConv,
 	journal.KindUtteranceTranscribed: ui.TonePeople, journal.KindBargeInDetected: ui.TonePeople,
 	journal.KindBargeInRejected: ui.ToneMuted, journal.KindWakeRejected: ui.ToneMuted,
-	journal.KindSpeechSpoken: ui.ToneVoice, journal.KindSpeechTruncated: ui.ToneVoice, journal.KindSpeechDiscarded: ui.ToneVoice,
+	journal.KindSpeechStarted: ui.ToneVoice, journal.KindSpeechSpoken: ui.ToneVoice, journal.KindSpeechTruncated: ui.ToneVoice, journal.KindSpeechDiscarded: ui.ToneVoice,
 	journal.KindToolCalled: ui.ToneHome, journal.KindToolResult: ui.ToneHome, journal.KindModelCompleted: ui.ToneMuted,
 }
 
@@ -66,6 +67,11 @@ func logRowOf(e journal.Event, start journal.Event) logRow {
 		row.Text = "barge-in rejected at " + f["stage"]
 	case journal.KindWakeRejected:
 		row.Text = "wake rejected: " + f["reason"]
+	case journal.KindSpeechStarted:
+		row.Text, row.Note = "first audio", "call "+f["call_id"]
+		if ms, err := strconv.Atoi(f["since_endpoint_ms"]); err == nil {
+			row.Text = fmt.Sprintf("first audio %.2f s after the ask", float64(ms)/1000)
+		}
 	case journal.KindSpeechSpoken:
 		row.Text = f["text"]
 	case journal.KindSpeechTruncated:

@@ -71,12 +71,16 @@ func summarize(id string, events []journal.Event, sigs []triage.Signal) convSumm
 }
 
 // sessionFlag is the session's colour on the lane: the barge-in first, since it is
-// the training signal, then a failure, then a repeated ask, then a flip.
+// the training signal, then a failure, a repeated ask, a slow answer, a flip.
 func sessionFlag(sigs []triage.Signal) ui.Tone {
-	rank := map[triage.Kind]int{triage.KindBargeIn: 4, triage.KindFailure: 3, triage.KindRepeated: 2, triage.KindSpeakerFlip: 1}
+	rank := map[triage.Kind]int{
+		triage.KindBargeIn: 5, triage.KindFailure: 4, triage.KindRepeated: 3,
+		triage.KindSlow: 2, triage.KindSpeakerFlip: 1,
+	}
 	tones := map[triage.Kind]ui.Tone{
 		triage.KindBargeIn: ui.TonePeople, triage.KindFailure: ui.ToneHome,
-		triage.KindRepeated: ui.ToneVoice, triage.KindSpeakerFlip: ui.TonePeople,
+		triage.KindRepeated: ui.ToneVoice, triage.KindSlow: ui.ToneVoice,
+		triage.KindSpeakerFlip: ui.TonePeople,
 	}
 	best := triage.Kind("")
 	for _, s := range sigs {

@@ -392,6 +392,40 @@ func TestE2ETriageRepeatedOpensTheSecondAsk(t *testing.T) {
 	p.waitText("#seq-6", "asked again 6.2 s after")
 }
 
+// Teagan waited 2.84 s for the front door. The slow tab holds that answer
+// and not the porch light behind it, and opens the log at the frame the
+// household first heard.
+//
+// verifies SPEC §11, §9.2
+func TestE2ETriageSlowOpensTheFirstFrame(t *testing.T) {
+	p := open(t, newSlowServer(t))
+	p.visit("/queue")
+	p.follow(`#queue-tabs a[href$="tab=slow"]`)
+	p.waitText("#queue", "is the front door locked")
+	if q := p.text("#queue"); strings.Contains(q, "porch light") || strings.Contains(q, "zeppelin") {
+		t.Errorf("the slow tab lists more than the slow answer: %q", q)
+	}
+	p.shot("triage-slow")
+
+	p.follow(`#queue a[href^="/conversations/conv-4"]`)
+	var target struct {
+		ID      string
+		Visible bool
+	}
+	p.eval(`(() => {
+		const e = document.querySelector(":target");
+		if (!e) return {ID: "", Visible: false};
+		const r = e.getBoundingClientRect();
+		return {ID: e.id, Visible: r.top >= 0 && r.bottom <= window.innerHeight};
+	})()`, &target)
+	if target.ID != "seq-6" || !target.Visible {
+		t.Errorf("target = %+v, want the first frame #seq-6 in view", target)
+	}
+	p.waitText("#seq-6", "first audio 2.84 s after the ask")
+	p.waitText("#seq-12", "first audio 0.56 s after the ask")
+	p.shot("conversation-first-audio")
+}
+
 // verifies SPEC §9.2
 func TestE2EBrowseOpensEachConversationAndComesBack(t *testing.T) {
 	p := open(t, newBrowseServer(t))
