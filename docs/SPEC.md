@@ -514,6 +514,10 @@ Do not build the S2S path until the cascade works end to end.
 
 ## 14. Phase plan
 
+Struck through is merged on main and covered at the tiers that can see it.
+Phase 1's pieces run together in `chorusd` against the in-process satellite
+(`bridgetest`); the daemon has not yet run a household on real hardware.
+
 ### Phase 1
 
 1. ~~**Device bridge spike — throw-away-able.** Go orchestrator dials a satellite
@@ -521,21 +525,33 @@ Do not build the S2S path until the cascade works end to end.
    over TCP and plays audio back. **Prove full-duplex on real hardware.** This
    is the riskiest unknown and every downstream decision depends on it, so it is
    validated before anything is built on it.~~ **Done — §3.3.2.**
-2. **Event journal + replay.** Postgres, `replay()`, before any intelligence
-   exists.
-3. **Cascade.** Parakeet → Qwen3/vLLM with streaming tool-call dispatch →
-   Kokoro, under the supervisor/actor model.
-4. **Speaker fingerprinting**, pulled early — both barge-in quality (§4.3) and
-   two-stage wake confirmation (§9.3) are gated on it.
-5. **The two signature features.** Speak-while-tooling with one real tool;
-   barge-in with context retention.
-6. **DPO harvester** from barge-in corrections (§9.1).
+2. ~~**Event journal + replay.** Postgres, `replay()`, before any intelligence
+   exists.~~ **Done — ADR-0021, ADR-0022.**
+3. ~~**Cascade.** Parakeet → Qwen3/vLLM with streaming tool-call dispatch →
+   Kokoro, under the supervisor/actor model.~~ **Done — ADR-0023, ADR-0024,
+   ADR-0037.** The LLM seam runs Qwen3 on Ollama today; §10's vLLM is not yet
+   wired up.
+4. ~~**Speaker fingerprinting**, pulled early — both barge-in quality (§4.3) and
+   two-stage wake confirmation (§9.3) are gated on it.~~ **Done — ADR-0025,
+   ADR-0029.** Stage two of §9.3 checks the first utterance for speech and a
+   known speaker; re-scoring the wake word is not built, as the wire carries
+   no pre-roll.
+5. ~~**The two signature features.** Speak-while-tooling with one real tool;
+   barge-in with context retention.~~ **Done — ADR-0027, ADR-0033, ADR-0037,
+   ADR-0039.** The real tools are Home Assistant's.
+6. ~~**DPO harvester** from barge-in corrections (§9.1).~~ **Done — ADR-0026.**
 
 ### Phase 2
 
-Review UI · memory · MCP provider · confirmation gates · timers · announcements
-with `start_conversation` · semantic endpointing · wake-word retraining from the
-harvested negative corpus · near-miss buffer if false rejects surface.
+- ~~Review UI~~ **Done — ADR-0034, [the review UI guide](reviewui/README.md).**
+- Memory
+- MCP provider
+- ~~Confirmation gates~~ **Done — ADR-0038.** Garage covers are not held yet.
+- Timers
+- Announcements with `start_conversation`
+- ~~Semantic endpointing~~ **Done — ADR-0036.**
+- Wake-word retraining from the harvested negative corpus
+- Near-miss buffer if false rejects surface
 
 ### Phase 3
 

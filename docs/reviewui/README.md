@@ -23,6 +23,10 @@ task reviewui                  # go run ./cmd/reviewui, loads .env
 task reviewui -- -addr :9090   # somewhere other than :8080
 ```
 
+Without a checkout, each [release](https://github.com/Teagan42/Chorus/releases)
+attaches `reviewui_<version>_<os>_<arch>.tar.gz` beside `chorusd`'s. The binary
+carries its templates and htmx, so it needs only the variables below.
+
 | Variable | Required | What for |
 |---|---|---|
 | `CHORUS_POSTGRES_DSN` | no | The journal. Defaults to the docker-compose database. |
