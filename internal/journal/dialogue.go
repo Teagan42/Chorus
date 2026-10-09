@@ -34,6 +34,10 @@ type Entry struct {
 	// to say, and becomes what was heard once playback is recorded.
 	Pending bool
 
+	// Acknowledges is the slow call whose acknowledgement this speech was:
+	// words the model wrote as an argument, not a speak call (ADR-0039).
+	Acknowledges string
+
 	// Tool and Args are a call's; Tool, Outcome and Result are a result's.
 	Tool    string
 	Args    string
@@ -52,13 +56,14 @@ func (s State) called(id, tool, args string) []Entry {
 		return appendEntry(s.Dialogue, Entry{Kind: EntryCall, CallID: id, Tool: tool, Args: args})
 	}
 	var a struct {
-		Text string `json:"text"`
+		Text         string `json:"text"`
+		Acknowledges string `json:"acknowledges"`
 	}
 	// A streamed speak's args carry no text (internal/session/session.go),
 	// and an unreadable one is the model's mistake, not the log's: either way
 	// there is nothing to say until playback says what was heard.
 	_ = json.Unmarshal([]byte(args), &a)
-	return appendEntry(s.Dialogue, Entry{Kind: EntrySaid, CallID: id, Text: a.Text, Pending: true})
+	return appendEntry(s.Dialogue, Entry{Kind: EntrySaid, CallID: id, Text: a.Text, Pending: true, Acknowledges: a.Acknowledges})
 }
 
 // played settles what a speak call was heard to say. A log written before

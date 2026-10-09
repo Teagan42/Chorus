@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -464,19 +465,29 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 		return
 	}
 
-	if spec.NeedsConfirmation(tc.Args) {
-		args, ok := s.confirmed(tc)
-		if !ok {
+	held := spec.NeedsConfirmation(tc.Args)
+	ack := ""
+	if held || spec.Slow {
+		args, err := registry.Split(tc.Args)
+		if err != nil {
+			s.result(tc.ID, "error", `{"error":"bad_arguments"}`)
 			return
 		}
-		// The nonce is the orchestrator's: the tool gets what it declared.
-		tc.Args = args
+		if held && !s.confirmed(tc, args) {
+			return
+		}
+		// The nonce and the acknowledgement are the orchestrator's: the tool
+		// gets what it declared.
+		tc.Args, ack = args.Rest, strings.TrimSpace(args.Acknowledgement)
 	}
 
 	tool, ok := s.sup.cfg.Tools[tc.Tool]
 	if !ok {
 		s.result(tc.ID, "error", `{"error":"not_implemented"}`)
 		return
+	}
+	if ack != "" {
+		s.acknowledge(tc.ID, ack)
 	}
 	wg.Add(1)
 	s.enter("tool:" + tc.ID)
@@ -490,21 +501,17 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 // Read from the log, not the session: the nonce is only as good as the
 // record that the person spoke after it was handed out, and replay has to
 // reach the same verdict (ADR-0038).
-func (s *Session) confirmed(tc ToolCall) (string, bool) {
-	args, nonce, err := registry.Unconfirmed(tc.Args)
-	if err != nil {
-		s.result(tc.ID, "error", `{"error":"bad_arguments"}`)
-		return "", false
-	}
+func (s *Session) confirmed(tc ToolCall, args registry.Orchestrated) bool {
+	nonce := args.Nonce
 	refused := ""
 	if nonce != "" {
 		st, err := s.State(context.WithoutCancel(s.ctx))
 		if err != nil {
 			s.fail(err)
 			s.result(tc.ID, "error", `{"error":"confirmation_unavailable"}`)
-			return "", false
+			return false
 		}
-		if refused = st.Redeemable(nonce, tc.Tool, args); refused == "" {
+		if refused = st.Redeemable(nonce, tc.Tool, args.Rest); refused == "" {
 			if err := s.record(journal.Record{
 				Kind:   journal.KindConfirmationGiven,
 				Fields: map[string]string{"call_id": tc.ID, "nonce": nonce},
@@ -512,9 +519,9 @@ func (s *Session) confirmed(tc ToolCall) (string, bool) {
 				// Unrecorded, the nonce could be spent twice: the call does not run.
 				s.fail(err)
 				s.result(tc.ID, "error", `{"error":"confirmation_unavailable"}`)
-				return "", false
+				return false
 			}
-			return args, true
+			return true
 		}
 	}
 
@@ -530,7 +537,7 @@ func (s *Session) confirmed(tc ToolCall) (string, bool) {
 		// than hand it out.
 		s.fail(err)
 		s.result(tc.ID, "error", `{"error":"confirmation_unavailable"}`)
-		return "", false
+		return false
 	}
 	held := struct {
 		Required bool   `json:"confirmation_required"`
@@ -544,7 +551,32 @@ func (s *Session) confirmed(tc ToolCall) (string, bool) {
 	// Strings and a bool: marshalling cannot fail.
 	b, _ := json.Marshal(held)
 	s.result(tc.ID, "confirmation_required", string(b))
-	return "", false
+	return false
+}
+
+// acknowledge speaks what a slow call said to say while it works, as a speak
+// call of its own queued ahead of whatever the model says next. Spoken as
+// the call starts, never for a call that is held or not implemented, so the
+// person does not hear "Unlocking the front door now." before they agreed
+// (ADR-0039).
+func (s *Session) acknowledge(callID, text string) {
+	id := callID + "_ack"
+	// Strings: marshalling cannot fail.
+	args, _ := json.Marshal(struct {
+		Text         string `json:"text"`
+		Mode         Mode   `json:"mode"`
+		Acknowledges string `json:"acknowledges"`
+	}{Text: text, Mode: ModeQueue, Acknowledges: callID})
+	if err := s.record(journal.Record{
+		Kind:   journal.KindToolCalled,
+		Fields: map[string]string{"tool": toolSpeak, "call_id": id, "args_json": string(args)},
+	}); err != nil {
+		s.fail(err)
+		return
+	}
+	if !s.speech.deliver(SpeechDelta{CallID: id, Text: text, Mode: ModeQueue, Last: true}) {
+		s.discardSpeech(id, text)
+	}
 }
 
 // runTool is one tool child. Its context comes from the declared interrupt
