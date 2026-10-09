@@ -441,7 +441,7 @@ func TestScanFoldsEveryGeneratedKind(t *testing.T) {
 	for i, k := range journal.AllKinds {
 		e := journal.Event{
 			Seq: uint64(i + 1), ConversationID: "conv-1", Kind: k,
-			Fields: map[string]string{"tts_position_ms": "1", "reason": "barge_in"},
+			Fields: map[string]string{"tts_position_ms": "1", "reason": "barge_in", "memories_json": "[]"},
 		}
 		if err := store.Append(context.Background(), e); err != nil {
 			t.Fatalf("append %s: %v", k, err)

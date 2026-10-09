@@ -36,6 +36,11 @@ type meta struct {
 	AsSaidCut         bool     `json:"as_said_cut"`
 	Audio             Audio    `json:"audio"`
 	Calls             []call   `json:"calls"`
+
+	// Recalled is what the rejected turn was told it remembers, absent when
+	// nothing was: a loader must put it in the prompt's context to train
+	// the pair faithfully.
+	Recalled []journal.Memory `json:"recalled,omitempty"`
 }
 
 // versions mirrors journal.Versions field for field, so the struct conversion
@@ -91,8 +96,9 @@ func toRow(p Pair) (row, error) {
 			RejectedHeard:     p.Rejected, RejectedUnheard: p.RejectedUnheard,
 			Heard: p.Heard, HeardSpeaker: p.HeardSpeaker,
 			AsSaid: p.AsSaid, AsSaidCut: p.AsSaidCut,
-			Audio: nonNilAudio(p.Audio),
-			Calls: calls(p.Calls),
+			Audio:    nonNilAudio(p.Audio),
+			Calls:    calls(p.Calls),
+			Recalled: p.Recalled,
 		},
 	}
 	if p.Curated {
