@@ -58,25 +58,34 @@ vendored with its BSD 2-Clause licence rather than installing `transformers`
 or pipecat itself. The sidecar's environment is 20 packages, itself included, and 132 MB.
 
 **Measured on 2026-10-09**, on this dev box's CPU, through the models tier
-against the sidecar served from its venv:
+against the sidecar served from its venv, on 88 takes rendered by
+`task smartturn:corpus`: the 12 finished and 10 cut-off household commands
+in `corpus.py`, each in Chatterbox's own voice and three voices cloned from
+reference WAVs (`--voice`).
 
 | What | Result |
 |---|---|
-| One verdict | 90–220 ms, most of it feature extraction |
-| End after the last loud chunk, eight takes judged finished | 319–361 ms |
+| One verdict | 75–230 ms, median 111 ms, most of it feature extraction |
+| Verdicts right, whole take | 76 of 88: finished 46 of 48, cut off 30 of 40 |
+| Mean probability | finished 0.932, cut off 0.227 |
+| End after the last loud chunk, finished takes | 296–448 ms (median 344) on 47 of 48; one held to 2 s |
+| End after the last loud chunk, cut-off takes | 30 of 40 held to the 2 s hold; 10 ended at 312–376 ms |
 | The same through the whole daemon (`cmd/chorusd` models tier) | 340 ms |
-| A take judged unfinished ("turn off the, uh,", p = 0.009) | ended at the 2 s hold |
 | Energy, for comparison | 800 ms, every turn |
 
-The takes are espeak-ng renderings of household commands, four finished and
-five cut mid-sentence, because no recorded speech may enter the repo
-(CONTRIBUTING §7) and none could be downloaded. On them the verdicts were
-right on 4 of 9: the filler was caught, but the robot voice's falling pitch
-read as finished on four of five cut sentences, and one finished command
-scored 0.339. Synthetic prosody is not a person's, so this says the pipeline
-and its timing work, not how often the model is right in a kitchen. The
-models tier prints every verdict for a household to judge on its own
-recordings (`-smartturn-wavs`).
+The misses are not scattered. "Set a timer for," and "What's the weather
+on," read as finished in all four voices (p 0.54–0.98), and "Remind me to
+call my mom and," in two: a short command whose last word is a preposition
+or a conjunction, said with a falling pitch, sounds done to the model. Every
+filler ("uh", "um") and every longer unfinished phrase was held. The one
+finished take held to 2 s was "Turn on the porch light." (p 0.208). The
+takes are synthetic, because no recorded speech may enter the repo
+(CONTRIBUTING §7), so this says how the model treats household phrasing in
+a natural voice, not how often a person in a kitchen gets cut off. An
+earlier run on espeak-ng renderings was right on 4 of 9: its flat robot
+pitch read as finished on most cut sentences, which is why the corpus is
+Chatterbox. The models tier prints every verdict for a household to judge on
+its own recordings (`-smartturn-wavs`).
 
 ## Alternatives rejected
 
@@ -94,8 +103,9 @@ recordings (`-smartturn-wavs`).
 
 A wrong "finished" cuts the person off sooner than Energy would have: a
 hesitation of 200–800 ms that Energy sat through now ends the turn when the
-model misreads it. That is the trade §4.5 asks for, and nothing here measures
-how often it happens on real speech. The journal does not record which rule
+model misreads it. That is the trade §4.5 asks for. On the Chatterbox takes it
+happened on 10 of 40 cut-off sentences, all ending on a preposition or a
+conjunction; nothing here measures it on recorded speech. The journal does not record which rule
 ended a turn; if that is needed to tune the hold or the pause, it is a field
 or an event, not a change to this one.
 

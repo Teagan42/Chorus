@@ -47,7 +47,7 @@ it has not yet been run against a real satellite. What exists today:
 | TTS — `internal/provider/kokoro`, resampled to the device's rate | dials a real endpoint |
 | STT — `internal/stt` partials over `internal/provider/speaches` | measured against real Parakeet TDT 0.6B v2 on CPU |
 | speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX) | thresholds measured on 37 speakers; sidecar runs without Docker |
-| endpointing — `listen.Semantic` over `internal/provider/smartturn` and `sidecars/smartturn` (Smart Turn v3.2 on ONNX) | ends a turn ~340 ms after the last word on CPU; accuracy unmeasured on household speech |
+| endpointing — `listen.Semantic` over `internal/provider/smartturn` and `sidecars/smartturn` (Smart Turn v3.2 on ONNX) | ends a turn ~340 ms after the last word on CPU; right on 76 of 88 synthetic household takes, not yet measured on recorded speech |
 | `internal/hass` — the one real tool (SPEC §14 item 5) | verified against Home Assistant 2026.10 |
 | `internal/listen` — the Listening child: mic stream to utterances, barge-in candidates, attribution | under test |
 | `internal/harvest`, `cmd/harvest` — barge-ins as DPO candidates | under test |
