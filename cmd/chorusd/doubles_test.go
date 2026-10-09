@@ -456,3 +456,23 @@ func (c *clock) awaitWait(t *testing.T, d time.Duration) {
 		return false
 	})
 }
+
+// turnJudge says every turn is finished, as Smart Turn does for "turn off
+// the kitchen lights", and counts what it was asked.
+type turnJudge struct {
+	mu    sync.Mutex
+	asked int
+}
+
+func (j *turnJudge) Complete(context.Context, []byte) (bool, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.asked++
+	return true, nil
+}
+
+func (j *turnJudge) asks() int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.asked
+}

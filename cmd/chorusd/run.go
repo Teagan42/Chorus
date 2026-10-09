@@ -37,6 +37,15 @@ func (p providers) bargeInGate() session.Gate {
 	}
 }
 
+// endpointer is a link's own: it holds the turn in progress on that device.
+// Nil leaves the listener's Energy default.
+func (p providers) endpointer() listen.Endpointer {
+	if p.judge == nil {
+		return nil
+	}
+	return listen.NewSemantic(p.judge)
+}
+
 // deps is everything the daemon composes that does I/O or reads a clock, so
 // a test runs the whole daemon over doubles (CONTRIBUTING §1).
 type deps struct {
@@ -264,6 +273,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	lst, err := listen.Open(linkCtx, listen.Config{
 		Satellite: sat.Name, Sessions: sup, Transcriber: d.stt, Speakers: d.speakers,
 		Playback: speaker, Blobs: d.Blobs, Journal: d.journal, Clock: d.Clock, Log: log,
+		Endpointer: d.endpointer(),
 	})
 	if err != nil {
 		return err
