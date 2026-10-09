@@ -57,8 +57,8 @@ func (s *server) signals(r *http.Request) ([]triage.Signal, int, error) {
 	return out, unreviewedCount(pairs), nil
 }
 
-// signalRow lays a signal out for the kit's list. Only a barge-in has a
-// screen to open; the rest stay plain rows until a conversation view exists.
+// signalRow lays a signal out for the kit's list: a barge-in opens its pair,
+// anything else its conversation at the event that raised it.
 func signalRow(sig triage.Signal) ui.ListRow {
 	row := ui.ListRow{
 		Tag: signalTags[sig.Kind], Title: sig.Utterance, Detail: sig.Detail,
@@ -66,6 +66,7 @@ func signalRow(sig triage.Signal) ui.ListRow {
 		Figure: fmt.Sprintf("%s #%d", sig.ConversationID, sig.Seq),
 		When:   sig.At.Local().Format("Jan 2 15:04"),
 	}
+	row.Href = conversationHref(sig.ConversationID) + fmt.Sprintf("#seq-%d", sig.Seq)
 	if sig.PairID != "" {
 		row.Href = reviewHref(sig.PairID)
 	}

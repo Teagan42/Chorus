@@ -40,6 +40,10 @@ type Signal struct {
 	Speaker   string
 	Satellite string
 
+	// Session is the seq of the session_opened that turn ran under: where a
+	// late result belongs once the conversation has moved on.
+	Session uint64
+
 	// Detail says why, in a line: the failed tool, the flip, the correction.
 	Detail string
 
@@ -50,6 +54,7 @@ type Signal struct {
 // turnContext is where the conversation stood when an event was recorded.
 type turnContext struct {
 	utterance, speaker, satellite string
+	session                       uint64
 }
 
 // Scan returns the conversation's signals in log order.
@@ -82,7 +87,7 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 		out = append(out, Signal{
 			Kind: k, ConversationID: conversationID, Seq: e.Seq, At: e.At,
 			Utterance: turn.utterance, Speaker: turn.speaker, Satellite: turn.satellite,
-			Detail: detail,
+			Session: turn.session, Detail: detail,
 		})
 	}
 	raise := func(e journal.Event, k Kind, detail string) { raiseIn(cur, e, k, detail) }
@@ -92,7 +97,7 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 		}
 		switch e.Kind {
 		case journal.KindSessionOpened:
-			cur.satellite = e.Fields["satellite"]
+			cur.satellite, cur.session = e.Fields["satellite"], e.Seq
 			if cur.speaker == "" {
 				cur.speaker = e.Fields["speaker_id"]
 			}

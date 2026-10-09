@@ -14,6 +14,7 @@ import (
 	"github.com/teaganglenn/chorus/internal/blob"
 	"github.com/teaganglenn/chorus/internal/curation"
 	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teaganglenn/chorus/internal/triage"
 )
 
 // bargeInLog writes one barge-in conversation through a real journal, the
@@ -494,5 +495,117 @@ func TestTriageTabsFilterBySignal(t *testing.T) {
 	h = get(t, s, "/queue?tab=speaker-flip")
 	if !strings.Contains(h, "Nothing in this pile.") {
 		t.Error("an empty tab should say so")
+	}
+}
+
+// withWakeReject writes a stage-two rejection to the kitchen device's log,
+// where the listener records them (listen.DeviceConversation).
+func withWakeReject(t *testing.T, store *journal.MemStore) *journal.MemStore {
+	t.Helper()
+	j := journal.New(store, journal.FixedClock(time.Unix(1_760_001_800, 0)), journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7"})
+	r := journal.Record{Kind: journal.KindWakeRejected, AudioRef: "blob://wake/1", Fields: map[string]string{"reason": "no_speech"}}
+	if _, err := j.Append(context.Background(), "device:kitchen", r); err != nil {
+		t.Fatalf("append wake reject: %v", err)
+	}
+	return store
+}
+
+func newBrowseServer(t *testing.T) *server {
+	t.Helper()
+	store := withWakeReject(t, withFailure(t, bargeInLog(t)))
+	now := func() time.Time { return time.Unix(1_760_010_000, 0).UTC() }
+	return newServer(store, curation.NewMemStore(), fixtureBlobs(t), now)
+}
+
+// verifies SPEC §9.2
+func TestBrowseLaysTheDayOutBySatellite(t *testing.T) {
+	h := get(t, newBrowseServer(t), "/conversations")
+	for _, want := range []string{
+		"Thursday 9 October",               // today, in the server's zone
+		`class="day-lanes__name">kitchen<`, // one lane per satellite
+		`class="day-lanes__name">office<`,
+		`href="/conversations/conv-1"`, // sessions and rows open their conversation
+		"is-flagged tone-people",       // the barge-in flags its session
+		"is-flagged tone-home",         // the failure flags its session
+		"day-lanes__reject",            // the kitchen's rejected wake
+		"play something by zeppelin",   // the list names each conversation by its first ask
+		"is the garage door closed",
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("Browse is missing %q", want)
+		}
+	}
+	if strings.Contains(h, `href="/conversations/device:kitchen"`) {
+		t.Error("a device's rejection log is not a conversation")
+	}
+}
+
+// verifies SPEC §9.2
+func TestBrowseOnAQuietDaySaysSo(t *testing.T) {
+	h := get(t, newBrowseServer(t), "/conversations?day=2025-10-01")
+	if !strings.Contains(h, "No conversations this day.") {
+		t.Error("a quiet day should say so")
+	}
+	if !strings.Contains(h, "/conversations?day=2025-10-02") {
+		t.Error("the day after should be one click away")
+	}
+}
+
+// verifies SPEC §9.2
+func TestConversationPageReplaysTheLogWithItsAudio(t *testing.T) {
+	h := get(t, newBrowseServer(t), "/conversations/conv-1")
+	for _, want := range []string{
+		"play something by zeppelin",
+		"I found three",
+		" albums by that artist", // the unheard tail, as the log kept it
+		"speak",                  // the tool the turn dispatched
+		`id="seq-5"`,             // the cut, addressable from Triage
+		"/audio?ref=" + url.QueryEscape("blob://mic/1"),                   // the prompt, playable
+		"/audio?ref=" + url.QueryEscape("blob://tts/s1") + "&amp;to=2080", // the heard half only
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("conversation page is missing %q", want)
+		}
+	}
+	w := httptest.NewRecorder()
+	newBrowseServer(t).routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/conversations/conv-9", nil))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unknown conversation = %d, want 404", w.Code)
+	}
+}
+
+// verifies SPEC §9.2
+func TestTriageFailureRowsOpenTheirConversationAtTheEvent(t *testing.T) {
+	h := get(t, newTriageServer(t), "/queue?tab=failure")
+	if !strings.Contains(h, `href="/conversations/conv-2#seq-4"`) {
+		t.Error("a failure row should open its conversation at the failing event")
+	}
+}
+
+// A detached tool's failure can land after the conversation moved rooms; the
+// lane it flags is the one whose turn called it.
+//
+// verifies SPEC §9.2
+func TestALateFailureFlagsTheSessionThatCalledTheTool(t *testing.T) {
+	at := time.Unix(1_760_000_000, 0)
+	ev := func(seq uint64, kind journal.Kind, fields ...string) journal.Event {
+		e := journal.Event{Seq: seq, At: at, Kind: kind, Fields: map[string]string{}}
+		for i := 0; i+1 < len(fields); i += 2 {
+			e.Fields[fields[i]] = fields[i+1]
+		}
+		return e
+	}
+	events := []journal.Event{
+		ev(1, journal.KindSessionOpened, "satellite", "kitchen"),
+		ev(2, journal.KindUtteranceTranscribed, "text", "download the new album"),
+		ev(3, journal.KindToolCalled, "tool", "media.fetch", "call_id", "c1"),
+		ev(4, journal.KindSessionOpened, "satellite", "office"),
+		ev(5, journal.KindToolResult, "call_id", "c1", "outcome", "error"),
+	}
+	sig := triage.Signal{Kind: triage.KindFailure, Seq: 5, Satellite: "kitchen", Session: 1}
+	c := summarize("conv-1", events, []triage.Signal{sig})
+	if len(c.sessions[0].signals) != 1 || len(c.sessions[1].signals) != 0 {
+		t.Errorf("kitchen has %d signals, office %d; want the failure on the kitchen",
+			len(c.sessions[0].signals), len(c.sessions[1].signals))
 	}
 }
