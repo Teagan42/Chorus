@@ -21,7 +21,7 @@ const MaxEntities = 25
 // accepted here are one declaration (SPEC §6).
 func Tools(c *Client) map[string]session.Tool {
 	return map[string]session.Tool{
-		"ha_call_service":  tool("ha_call_service", c.callService),
+		"ha_call_service":  classified{tool("ha_call_service", c.callService), c.classify},
 		"ha_get_state":     tool("ha_get_state", c.getState),
 		"ha_find_entities": tool("ha_find_entities", c.findEntities),
 	}
@@ -52,6 +52,18 @@ func tool(name string, h handler) session.Tool {
 		}
 		return string(b), nil
 	})
+}
+
+// classified is a tool that can say what a call acts on before it runs, so
+// the session can hold the garage door and not the blinds (ADR-0041).
+type classified struct {
+	session.Tool
+	classify func(ctx context.Context, raw string) ([]string, error)
+}
+
+// Classify reports the classes of what the call acts on.
+func (t classified) Classify(ctx context.Context, raw string) ([]string, error) {
+	return t.classify(ctx, raw)
 }
 
 // --------------------------------------------------------------- arguments
@@ -164,6 +176,10 @@ var identifier = regexp.MustCompile(`^[a-z0-9_]+$`)
 // entityID is HA's domain.object_id.
 var entityID = regexp.MustCompile(`^[a-z0-9_]+\.[a-z0-9_]+$`)
 
+// targetKeys are the service-data fields Home Assistant reads a target from.
+// ha_call_service takes its target as entity_id or area_id, and nowhere else.
+var targetKeys = []string{"entity_id", "area_id", "device_id", "floor_id", "label_id"}
+
 type changedState struct {
 	EntityID string `json:"entity_id"`
 	State    string `json:"state"`
@@ -203,6 +219,12 @@ func (c *Client) callService(ctx context.Context, a *args) (any, error) {
 	if data == nil {
 		data = map[string]any{}
 	}
+	// A target in data would be acted on beside the one the gate classified.
+	for _, k := range targetKeys {
+		if _, ok := data[k]; ok {
+			return nil, fmt.Errorf("bad arguments: data.%s: name the target in entity_id or area_id", k)
+		}
+	}
 	if entity != "" {
 		data["entity_id"] = entity
 	}
@@ -219,6 +241,40 @@ func (c *Client) callService(ctx context.Context, a *args) (any, error) {
 		out.Changed = append(out.Changed, changedState{EntityID: s.EntityID, State: s.State})
 	}
 	return out, nil
+}
+
+// classify reads the device_class Home Assistant gives the entity a call
+// names: "garage" for the garage door, nothing for a plain window. A target
+// it cannot read is an error, which holds the call: an area's members are
+// not on the REST API (see Client.States).
+func (c *Client) classify(ctx context.Context, raw string) ([]string, error) {
+	var a struct {
+		EntityID string         `json:"entity_id"`
+		AreaID   string         `json:"area_id"`
+		Data     map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(raw), &a); err != nil {
+		return nil, fmt.Errorf("classify: bad arguments: %w", err)
+	}
+	if a.AreaID != "" {
+		return nil, fmt.Errorf("classify: area %q: its entities are not readable over REST", a.AreaID)
+	}
+	for _, k := range targetKeys {
+		if _, ok := a.Data[k]; ok {
+			return nil, fmt.Errorf("classify: %q in data names a target", k)
+		}
+	}
+	if !entityID.MatchString(a.EntityID) {
+		return nil, fmt.Errorf("classify: %q %q is not domain.object_id", "entity_id", a.EntityID)
+	}
+	st, err := c.EntityState(ctx, a.EntityID)
+	if err != nil {
+		return nil, fmt.Errorf("classify: %w", err)
+	}
+	if class, _ := st.Attributes["device_class"].(string); class != "" {
+		return []string{class}, nil
+	}
+	return nil, nil
 }
 
 func (a *args) ident(name string) (string, error) {

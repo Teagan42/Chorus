@@ -47,6 +47,7 @@ import (
 	"flag"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -359,5 +360,34 @@ func TestTheRESTContractStillHolds(t *testing.T) {
 	}
 	if status, _, body := raw(http.MethodPost, "/api/services/light/turn_off", `{"entity_id":"light.nope"}`, *accessToken); status != http.StatusOK || !strings.HasPrefix(body, "[") {
 		t.Errorf("service call: %d %q; the client decodes a list of states", status, body)
+	}
+}
+
+// The demo integration's garage door is classed "garage" and its windows
+// are classed nothing, which is what the hermetic tier's bodies assume. The
+// garage is read, never opened: a household instance's garage is real.
+//
+// verifies SPEC §6
+func TestTheDemoGarageSaysItIsAGarage(t *testing.T) {
+	tools := toolsAt(t)
+	c, ok := tools["ha_call_service"].(session.Classifier)
+	if !ok {
+		t.Fatal("ha_call_service cannot say what a call acts on")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), callBudget)
+	defer cancel()
+	for entity, want := range map[string][]string{
+		"cover.garage_door":        {"garage"},
+		"cover.living_room_window": nil,
+	} {
+		start := time.Now()
+		got, err := c.Classify(ctx, `{"domain":"cover","service":"open_cover","entity_id":"`+entity+`"}`)
+		t.Logf("classify %s -> %q, %v in %v", entity, got, err, time.Since(start).Round(time.Millisecond))
+		if err != nil || !slices.Equal(got, want) {
+			t.Errorf("Classify(%s) = %q, %v; want %q", entity, got, err, want)
+		}
+	}
+	if got, err := c.Classify(ctx, `{"domain":"cover","service":"open_cover","entity_id":"cover.nope"}`); err == nil {
+		t.Errorf("Classify(cover.nope) = %q, want an error", got)
 	}
 }

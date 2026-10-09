@@ -161,6 +161,19 @@ const (
 	// A rejected token is 401; HA never answers 403 for one.
 	unauthorized = "401: Unauthorized"
 
+	// The demo integration's garage door, which HA classes "garage", closed
+	// and then as open_cover answers.
+	garageClosed = `{"entity_id":"cover.garage_door","state":"closed","attributes":{"is_closed":true,"device_class":"garage","friendly_name":"Garage Door","supported_features":3},"last_changed":"2026-10-09T11:41:22.171699+00:00","last_reported":"2026-10-09T11:41:22.171699+00:00","last_updated":"2026-10-09T11:41:22.171699+00:00","context":{"id":"01M4G7FGVVEZKNPCXPTPW7X4N3","parent_id":null,"user_id":null}}`
+	garageOpened = `[{"entity_id":"cover.garage_door","state":"open","attributes":{"is_closed":false,"device_class":"garage","friendly_name":"Garage Door","supported_features":3},"last_changed":"2026-10-09T11:41:38.955342+00:00","last_reported":"2026-10-09T11:41:38.955342+00:00","last_updated":"2026-10-09T11:41:38.955342+00:00","context":{"id":"01M4G7G18AMZZ06XBDH8FBABB9","parent_id":null,"user_id":"dd68a957bf7846078356d1aebf879a95"}}]`
+
+	// The demo's living-room window: a cover HA gives no class at all.
+	livingRoomWindow = `{"entity_id":"cover.living_room_window","state":"open","attributes":{"supported_speeds":["slow","default"],"is_closed":false,"current_position":70,"current_tilt_position":50,"friendly_name":"Living Room Window","supported_features":511},"last_changed":"2026-10-09T11:41:22.171535+00:00","last_reported":"2026-10-09T11:41:22.171535+00:00","last_updated":"2026-10-09T11:41:22.171535+00:00","context":{"id":"01M4G7FGVV26EFBA0JVRQDE363","parent_id":null,"user_id":null}}`
+
+	// The living-room blinds: the window's recorded shape, shown as a blind
+	// in HA's UI, which sets device_class and nothing else.
+	livingRoomBlinds = `{"entity_id":"cover.living_room_blinds","state":"closed","attributes":{"current_position":0,"device_class":"blind","friendly_name":"Living Room Blinds","supported_features":15},"last_changed":"2026-10-09T06:30:02.418203+00:00","last_reported":"2026-10-09T06:30:02.418203+00:00","last_updated":"2026-10-09T06:30:02.418203+00:00","context":{"id":"01M4E2Q7HX3B4R8K1V6N9C0D2F","parent_id":null,"user_id":null}}`
+	blindsOpening    = `[{"entity_id":"cover.living_room_blinds","state":"opening","attributes":{"current_position":0,"device_class":"blind","friendly_name":"Living Room Blinds","supported_features":15},"last_changed":"2026-10-09T07:42:10.031552+00:00","last_reported":"2026-10-09T07:42:10.031552+00:00","last_updated":"2026-10-09T07:42:10.031552+00:00","context":{"id":"01M4E6X0K2C9P5W3T7R1M8B4QA","parent_id":null,"user_id":"dd68a957bf7846078356d1aebf879a95"}}]`
+
 	// A page of /api/services, as far as the client reads it.
 	catalogue = `[{"domain":"homeassistant","services":{"turn_on":{"fields":{},"target":{}}}},{"domain":"light","services":{"turn_on":{"fields":{"brightness_pct":{"selector":{"number":{"min":0,"max":100}}}},"target":{"entity":[{"domain":["light"]}]}},"turn_off":{"fields":{},"target":{"entity":[{"domain":["light"]}]}}}}]`
 )
