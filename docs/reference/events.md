@@ -63,6 +63,7 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 |---|---|---|---|
 | `call_id` | string | yes | The call that was held. |
 | `nonce` | string | yes | Redeemable once, by the same call, in the turn of the next thing the person says. |
+| `presented` | string |  | The nonce the call carried, which this refusal spends: a nonce gets one try. Empty when it carried none. |
 | `refused` | string |  | Why the nonce the call carried was not accepted. Empty when it carried none. One of: `unknown`, `used`, `args_changed`, `not_answered`, `expired`. |
 
 ## `model_completed`
