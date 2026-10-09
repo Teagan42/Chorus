@@ -28,10 +28,15 @@ type State struct {
 	Completions    []string
 	BargeInAt      []time.Duration
 	Calls          []Call
-	LastSeq        uint64
-	Speculative    int
-	Open           bool
-	Interrupted    bool
+
+	// Dialogue is the conversation as the model is told it on its next ask:
+	// what was heard, what was said, and every call and result, in order.
+	Dialogue []Entry
+
+	LastSeq     uint64
+	Speculative int
+	Open        bool
+	Interrupted bool
 }
 
 // Overrides substitute recorded nondeterministic inputs, which is how a
@@ -112,12 +117,14 @@ func Reduce(s State, e Event) (State, error) {
 		s.CloseReason = e.Fields["reason"]
 	case KindUtteranceTranscribed:
 		s.Heard = append(s.Heard, e.Fields["text"])
+		s.Dialogue = appendEntry(s.Dialogue, Entry{Kind: EntryHeard, Text: e.Fields["text"]})
 		if id := e.Fields["speaker_id"]; id != "" {
 			s.Speaker = id
 		}
 	case KindModelCompleted:
 		s.Completions = append(s.Completions, e.Fields["completion_json"])
 	case KindToolCalled:
+		s.Dialogue = s.called(e.Fields["call_id"], e.Fields["tool"], e.Fields["args_json"])
 		s.Calls = append(s.Calls, Call{
 			ID:   e.Fields["call_id"],
 			Tool: e.Fields["tool"],
@@ -134,14 +141,17 @@ func Reduce(s State, e Event) (State, error) {
 		calls[i].Outcome = e.Fields["outcome"]
 		calls[i].Result = e.Fields["result_json"]
 		s.Calls = calls
+		s.Dialogue = s.resulted(id, calls[i].Tool, calls[i].Outcome, calls[i].Result)
 	case KindSpeechSpoken:
 		s.Spoken = append(s.Spoken, e.Fields["text"])
+		s.Dialogue = s.played(e.Fields["call_id"], e.Fields["text"], false)
 	case KindSpeechTruncated:
 		// Heard and unheard text stay separate: the model may only see what
 		// the user actually heard (SPEC §4.2).
 		s.Spoken = append(s.Spoken, e.Fields["spoken_text"])
 		s.Unspoken = append(s.Unspoken, e.Fields["unspoken_text"])
 		s.Interrupted = true
+		s.Dialogue = s.played(e.Fields["call_id"], e.Fields["spoken_text"], true)
 	case KindSpeechDiscarded:
 		// Never played, so it joins Unspoken only. The model must not believe
 		// the user heard it (SPEC §4.4).
