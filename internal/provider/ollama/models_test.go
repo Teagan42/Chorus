@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/teaganglenn/chorus/internal/journal"
 	"github.com/teaganglenn/chorus/internal/provider/ollama"
 	"github.com/teaganglenn/chorus/internal/session"
 )
@@ -51,11 +52,18 @@ func engine(t *testing.T) *ollama.Engine {
 // turn runs one turn and reports what the model did, in order.
 func turn(t *testing.T, e *ollama.Engine, text string) []session.Action {
 	t.Helper()
+	return ask(t, e, session.Input{ConversationID: "models-test", Speaker: "alan", Text: text})
+}
+
+// ask runs one ask and reports what the model did, in order.
+func ask(t *testing.T, e *ollama.Engine, in session.Input) []session.Action {
+	t.Helper()
+	text := in.Text
 	ctx, cancel := context.WithTimeout(context.Background(), turnBudget)
 	defer cancel()
 
 	start := time.Now()
-	ch, err := e.Turn(ctx, session.Input{ConversationID: "models-test", Speaker: "alan", Text: text})
+	ch, err := e.Turn(ctx, in)
 	if err != nil {
 		t.Fatalf("turn %q: %v", text, err)
 	}
@@ -196,5 +204,43 @@ func TestAnUnusableModelFailsTheTurn(t *testing.T) {
 		t.Fatal("an unknown model must fail the turn")
 	} else {
 		t.Logf("unknown model: %v", err)
+	}
+}
+
+// The follow-up ask is only worth making if a real model answers from the
+// result it is given rather than calling the tool again or saying nothing.
+// Teagan's garage question, after the model said it was checking and read
+// the cover: the door is open, so the answer has to say so.
+//
+// verifies SPEC §4.1, §4.4
+func TestARealModelAnswersFromTheResultItIsGiven(t *testing.T) {
+	acts := ask(t, engine(t), session.Input{
+		ConversationID: "models-test",
+		Speaker:        "teagan",
+		Text:           "is the garage door closed",
+		Dialogue: []journal.Entry{
+			{Kind: journal.EntryHeard, Text: "is the garage door closed"},
+			{Kind: journal.EntrySaid, CallID: "call_s1", Text: "Let me check."},
+			{Kind: journal.EntryCall, CallID: "call_c1", Tool: "ha_get_state", Args: `{"entity_id":"cover.garage_door"}`},
+			{
+				Kind: journal.EntryResult, CallID: "call_c1", Tool: "ha_get_state", Outcome: "ok",
+				Result: `{"entity_id":"cover.garage_door","state":"open","attributes":{"friendly_name":"Garage Door","device_class":"garage"}}`,
+			},
+		},
+	})
+
+	var said string
+	for _, a := range acts {
+		switch v := a.(type) {
+		case session.SpeechDelta:
+			said += v.Text
+		case session.ToolCall:
+			if v.Tool == "ha_get_state" {
+				t.Errorf("%s read the cover again instead of answering: %v", *model, describe(acts))
+			}
+		}
+	}
+	if !strings.Contains(strings.ToLower(said), "open") {
+		t.Errorf("%s did not say the door is open: %q (%v)", *model, said, describe(acts))
 	}
 }
