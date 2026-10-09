@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/Teagan42/Chorus/compare/v0.6.0...v0.7.0) (2026-10-09)
+
+
+### Features
+
+* **reviewui:** Browse the household's day and each conversation's log ([#27](https://github.com/Teagan42/Chorus/issues/27)) ([5bee7a4](https://github.com/Teagan42/Chorus/commit/5bee7a41223c56e03033cbd10fae0ff6727a7ee0))
+
 ## [0.6.0](https://github.com/Teagan42/Chorus/compare/v0.5.0...v0.6.0) (2026-10-08)
 
 
