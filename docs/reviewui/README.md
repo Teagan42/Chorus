@@ -145,8 +145,10 @@ The dataset is every pair that is accepted, fixed, and attributed: the turn
 recorded the STT, LLM and TTS versions that produced it (ADR-0032), so a
 trainer can hold a configuration responsible. The page counts what each gate
 holds back (unreviewed, still being edited, discarded, unfixed, unattributed)
-and previews the first rows exactly as `/export/dpo.jsonl` writes them, in
-the same conversational shape as `task harvest` (`harvest.Export`).
+and previews the first rows exactly as `/export/dpo.jsonl` writes them
+(`harvest.Export`). This is the only curated export: `task harvest` writes
+the same shape but raw, every candidate with `meta.curated=false` and no
+chosen side, which a DPO loader cannot train on.
 
 ## The UI kit
 

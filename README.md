@@ -203,7 +203,10 @@ browse the day per satellite, triage what's worth a look, listen to each
 barge-in cut where the speaker actually stopped, re-run a conversation under
 an edited prompt, curate the pairs, and download the DPO dataset.
 [`docs/reviewui/README.md`](docs/reviewui/README.md) walks every screen.
-`task harvest -- <conversation-id>` is the same export from the command line.
+`task harvest -- <conversation-id>` writes one conversation's raw candidates
+from the command line: every barge-in, uncurated, with no `chosen` side
+(`meta.curated=false`), so it is for inspection, not training. The curated
+dataset comes from the Export screen.
 
 ## Tests
 
