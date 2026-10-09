@@ -103,9 +103,9 @@ func wireTools(specs map[string]registry.ToolSpec) []wireTool {
 	out := make([]wireTool, 0, len(names))
 	for _, name := range names {
 		spec := specs[name]
-		props := make(map[string]wireProp, len(spec.Params))
+		props := make(map[string]wireProp, len(spec.ModelParams))
 		var required []string
-		for _, p := range spec.Params {
+		for _, p := range spec.ModelParams {
 			prop := wireProp{Type: p.Type, Description: p.Description, Enum: p.Enum}
 			if p.Items != "" {
 				prop.Items = &wireProp{Type: p.Items}

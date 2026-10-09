@@ -45,7 +45,7 @@ func TestOnlyTheDoorsAndTheAlarmWaitForAYes(t *testing.T) {
 // verifies SPEC §6
 func TestAHeldToolOffersTheNonce(t *testing.T) {
 	offered := func(name string) bool {
-		for _, p := range registry.Specs[name].Params {
+		for _, p := range registry.Specs[name].ModelParams {
 			if p.Name == registry.ConfirmationParam {
 				return true
 			}
@@ -122,5 +122,32 @@ func TestArgumentsThatCannotBeReadAreRefused(t *testing.T) {
 		if _, err := registry.Split(args); err == nil {
 			t.Errorf("Split(%s) accepted it", args)
 		}
+	}
+}
+
+// An executor checks the calls it receives against Params, as the Home
+// Assistant adapter does, and the session strips the nonce and the
+// acknowledgement before it invokes one. Params must not declare either, or
+// every slow call would fail as missing a required argument the executor
+// never gets. The model is offered them in ModelParams.
+//
+// verifies SPEC §6
+func TestExecutorsAreNeverDeclaredTheOrchestratorsArguments(t *testing.T) {
+	for name, spec := range registry.Specs {
+		offered := map[string]bool{}
+		for _, p := range spec.ModelParams {
+			offered[p.Name] = true
+		}
+		for _, p := range spec.Params {
+			if p.Name == registry.ConfirmationParam || p.Name == registry.AcknowledgementParam {
+				t.Errorf("%s declares %q to its executor", name, p.Name)
+			}
+			if !offered[p.Name] {
+				t.Errorf("%s does not offer the model its own %q", name, p.Name)
+			}
+		}
+	}
+	if spec := registry.Specs["media_search"]; len(spec.ModelParams) != len(spec.Params)+1 {
+		t.Errorf("media_search offers %d parameters for %d declared, want one more: the acknowledgement", len(spec.ModelParams), len(spec.Params))
 	}
 }
