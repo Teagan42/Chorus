@@ -213,6 +213,10 @@ The review UI screenshots are re-taken by the browser tests on every build
 A committed screenshot the tests stop taking is deleted first, which fails a
 doc that still shows it. Refresh the committed copies the same way.
 
+The version in the site's header is the release `.release-please-manifest.json`
+names, baked in at build time. The site never asks GitHub's API, so a reader's
+tab cannot hold on to an older release than the one deployed.
+
 ## 4. Atomic commits
 
 Conventional Commits, enforced mechanically — because convention alone does not
