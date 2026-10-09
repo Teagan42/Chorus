@@ -614,3 +614,70 @@ func TestALateFailureFlagsTheSessionThatCalledTheTool(t *testing.T) {
 			len(c.sessions[0].signals), len(c.sessions[1].signals))
 	}
 }
+
+// withRepeat adds Alan in the kitchen asking for an oven timer, being asked
+// how long instead of getting one, and asking again 6.2 s later.
+func withRepeat(t *testing.T, store *journal.MemStore) *journal.MemStore {
+	t.Helper()
+	clk := &stepClock{}
+	j := journal.New(store, clk, journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7"})
+	start := time.Unix(1_760_007_200, 0)
+	for _, r := range []struct {
+		sec float64
+		rec journal.Record
+	}{
+		{0, journal.Record{Kind: journal.KindSessionOpened, Fields: map[string]string{"satellite": "kitchen", "speaker_id": "alan", "resumed": "false"}}},
+		{0.2, journal.Record{Kind: journal.KindUtteranceTranscribed, AudioRef: "blob://mic/20", Fields: map[string]string{"text": "set a timer for the oven", "speaker_id": "alan"}}},
+		{2.6, journal.Record{Kind: journal.KindToolCalled, Fields: map[string]string{"tool": "speak", "call_id": "s1", "args_json": `{"mode":"queue","streamed":true}`}}},
+		{4.4, journal.Record{Kind: journal.KindSpeechSpoken, AudioRef: "blob://tts/s20", Fields: map[string]string{"text": "Sure, how long?", "frames_played": "28800"}}},
+		{4.5, journal.Record{Kind: journal.KindModelCompleted, Fields: map[string]string{"completion_json": "{}", "finish_reason": "stop"}}},
+		{6.4, journal.Record{Kind: journal.KindUtteranceTranscribed, AudioRef: "blob://mic/21", Fields: map[string]string{"text": "set a timer for twelve minutes", "speaker_id": "alan"}}},
+		{6.9, journal.Record{Kind: journal.KindToolCalled, Fields: map[string]string{"tool": "ha_call_service", "call_id": "c1", "args_json": `{"domain":"timer","service":"start","entity_id":"timer.oven","data":{"duration":"00:12:00"}}`}}},
+	} {
+		clk.now = start.Add(time.Duration(r.sec * float64(time.Second)))
+		if _, err := j.Append(context.Background(), "conv-3", r.rec); err != nil {
+			t.Fatalf("append %s: %v", r.rec.Kind, err)
+		}
+	}
+	return store
+}
+
+// stepClock is set before each append, so a fixture says when each thing
+// was heard.
+type stepClock struct{ now time.Time }
+
+func (c *stepClock) Now() time.Time { return c.now }
+
+func newRepeatServer(t *testing.T) *server {
+	t.Helper()
+	store := withRepeat(t, withFailure(t, bargeInLog(t)))
+	return newServer(store, curation.NewMemStore(), fixtureBlobs(t), func() time.Time { return time.Unix(1_760_010_000, 0).UTC() })
+}
+
+// verifies SPEC §9.1
+func TestTriageQueuesARepeatedRequestAtTheSecondAsk(t *testing.T) {
+	h := get(t, newRepeatServer(t), "/queue?tab=repeated")
+	for _, want := range []string{
+		`href="/queue?tab=repeated">Repeated <span class="tabs__count">1</span>`,
+		"set a timer for twelve minutes",
+		"asked again 6.2 s after “set a timer for the oven” · no tool call on the first ask",
+		`href="/conversations/conv-3#seq-6"`,
+		"alan · kitchen",
+		"Barge-ins, failures, repeated asks and speaker flips",
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("repeated tab is missing %q", want)
+		}
+	}
+	if strings.Contains(h, "play something by zeppelin") || strings.Contains(h, "is the garage door closed") {
+		t.Error("the repeated tab should hold only the repeat")
+	}
+}
+
+// verifies SPEC §9.2
+func TestBrowseFlagsTheSessionWithARepeat(t *testing.T) {
+	h := get(t, newRepeatServer(t), "/conversations")
+	if !strings.Contains(h, `class="day-lanes__session is-flagged tone-voice" href="/conversations/conv-3"`) {
+		t.Error("the kitchen session with the repeated ask should be flagged")
+	}
+}

@@ -203,3 +203,175 @@ func TestALateToolFailureKeepsTheTurnThatCalledIt(t *testing.T) {
 		t.Errorf("late failure filed under session #%d, want the kitchen's opening at #1", s.Session)
 	}
 }
+
+// wallClock is set before each append, so a fixture says when each thing
+// was heard; a repeat is a question about seconds.
+type wallClock struct{ now time.Time }
+
+func (c *wallClock) Now() time.Time { return c.now }
+
+// timed is one record and how many seconds into the conversation it landed.
+type timed struct {
+	sec float64
+	rec journal.Record
+}
+
+func scanTimed(t *testing.T, recs ...timed) []triage.Signal {
+	t.Helper()
+	store := journal.NewMemStore()
+	clk := &wallClock{}
+	start := time.Unix(1_760_000_000, 0)
+	j := journal.New(store, clk, journal.Versions{Model: "qwen3:32b", Prompt: "sys@3", ToolSchema: "tools@7"})
+	for _, r := range recs {
+		clk.now = start.Add(time.Duration(r.sec * float64(time.Second)))
+		if _, err := j.Append(context.Background(), "conv-1", r.rec); err != nil {
+			t.Fatalf("append %s: %v", r.rec.Kind, err)
+		}
+	}
+	sigs, err := triage.Scan(context.Background(), store, "conv-1")
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	return sigs
+}
+
+func repeats(sigs []triage.Signal) []triage.Signal {
+	var out []triage.Signal
+	for _, s := range sigs {
+		if s.Kind == triage.KindRepeated {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func spoken(text string) journal.Record {
+	r := record(journal.KindSpeechSpoken, "blob://tts/x", "text", text, "frames_played", "16000")
+	return r
+}
+
+// Alan asks for an oven timer, the assistant asks how long instead of
+// setting one, and he says it again with the duration. SPEC §9.1: a
+// repeated request is a failure.
+//
+// verifies SPEC §9.1
+func TestAskingAgainSoonAfterIsARepeat(t *testing.T) {
+	sigs := repeats(scanTimed(t,
+		timed{0, opened("kitchen", "alan")},
+		timed{0.2, heard("set a timer for the oven", "alan")},
+		timed{2.6, called("speak", "s1")},
+		timed{4.4, spoken("Sure, how long?")},
+		timed{4.5, completed("stop")},
+		timed{6.4, heard("set a timer for twelve minutes", "alan")},
+		timed{6.9, called("ha_call_service", "c1")}, // timer.start on the oven timer
+	))
+	s := one(t, sigs)
+	if s.Seq != 6 || s.Utterance != "set a timer for twelve minutes" || s.Speaker != "alan" || s.Satellite != "kitchen" {
+		t.Errorf("repeat = %+v, want the second ask in the kitchen", s)
+	}
+	if s.Detail != "asked again 6.2 s after “set a timer for the oven” · no tool call on the first ask" {
+		t.Errorf("detail = %q", s.Detail)
+	}
+}
+
+// verifies SPEC §9.1
+func TestAFollowUpIsNotARepeat(t *testing.T) {
+	sigs := scanTimed(t,
+		timed{0, opened("kitchen", "teagan")},
+		timed{0.3, heard("turn off the kitchen lights", "teagan")},
+		timed{1.1, called("ha_call_service", "c1")},
+		timed{4.0, heard("and the porch light", "teagan")},
+		timed{9.0, heard("what's the weather tomorrow", "teagan")},
+	)
+	if r := repeats(sigs); len(r) != 0 {
+		t.Errorf("follow-ups raised %+v", r)
+	}
+}
+
+// verifies SPEC §9.1
+func TestTheSameAskMinutesLaterIsNotARepeat(t *testing.T) {
+	sigs := scanTimed(t,
+		timed{0, opened("office", "teagan")},
+		timed{0.4, heard("is the garage door closed", "teagan")},
+		timed{1.0, called("ha_get_state", "c1")},
+		timed{45, heard("is the garage door closed", "teagan")},
+	)
+	if r := repeats(sigs); len(r) != 0 {
+		t.Errorf("an ask 45 s later raised %+v", r)
+	}
+}
+
+// verifies SPEC §9.1
+func TestSomeoneElseAskingTheSameIsNotARepeat(t *testing.T) {
+	sigs := scanTimed(t,
+		timed{0, opened("living_room", "teagan")},
+		timed{0.4, heard("is the garage door closed", "teagan")},
+		timed{5.0, heard("is the garage door closed", "alan")},
+	)
+	if r := repeats(sigs); len(r) != 0 {
+		t.Errorf("Alan asking what Teagan asked raised %+v", r)
+	}
+}
+
+// verifies SPEC §9.1
+func TestShortAnswersAreNotRepeats(t *testing.T) {
+	sigs := scanTimed(t,
+		timed{0, opened("kitchen", "alice")},
+		timed{0.3, heard("play something by zeppelin", "alice")},
+		timed{3.0, heard("yes", "alice")},
+		timed{6.0, heard("yes please", "alice")},
+	)
+	if r := repeats(sigs); len(r) != 0 {
+		t.Errorf("confirming twice raised %+v", r)
+	}
+}
+
+// "Yes" is an answer, not the request it answers: Teagan confirms, nothing
+// happens, and she asks again.
+//
+// verifies SPEC §9.1
+func TestAConfirmationInBetweenDoesNotHideARepeat(t *testing.T) {
+	sigs := repeats(scanTimed(t,
+		timed{0, opened("kitchen", "teagan")},
+		timed{0.3, heard("turn off the kitchen lights", "teagan")},
+		timed{2.0, called("speak", "s1")},
+		timed{3.1, spoken("All of them?")},
+		timed{4.5, heard("yes", "teagan")},
+		timed{12.3, heard("turn off the kitchen lights", "teagan")},
+	))
+	s := one(t, sigs)
+	if s.Seq != 6 || s.Detail != "asked again 12.0 s after “turn off the kitchen lights” · no tool call on the first ask" {
+		t.Errorf("repeat = #%d %q", s.Seq, s.Detail)
+	}
+}
+
+// An unidentified voice after an identified one is a voice speaker ID could
+// not place, perhaps a guest: not evidence it is the same person.
+//
+// verifies SPEC §5
+func TestAnUnknownVoiceAfterAKnownOneIsNotARepeat(t *testing.T) {
+	sigs := scanTimed(t,
+		timed{0, opened("living_room", "teagan")},
+		timed{0.4, heard("is the garage door closed", "teagan")},
+		timed{5.0, heard("is the garage door closed", "")},
+	)
+	if r := repeats(sigs); len(r) != 0 {
+		t.Errorf("an unplaced voice asking what Teagan asked raised %+v", r)
+	}
+}
+
+// Without the speaker sidecar every utterance is unidentified (ADR-0031).
+// Requiring a known speaker would switch the signal off for that household;
+// one wake on one satellite is one person far more often than two.
+//
+// verifies SPEC §9.1
+func TestWithoutSpeakerIDARepeatStillCounts(t *testing.T) {
+	sigs := repeats(scanTimed(t,
+		timed{0, opened("kitchen", "")},
+		timed{0.2, heard("set a timer for the oven", "")},
+		timed{6.4, heard("set a timer for twelve minutes", "")},
+	))
+	if s := one(t, sigs); s.Satellite != "kitchen" {
+		t.Errorf("repeat = %+v", s)
+	}
+}

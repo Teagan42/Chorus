@@ -1,17 +1,19 @@
 // Package triage reads the journal for conversations worth a reviewer's time
-// (SPEC §9.1): barge-ins, failures and speaker flips. Like harvest, it is a
-// reader of existing data; a signal is derived on read, never recorded.
+// (SPEC §9.1): barge-ins, failures, repeated requests and speaker flips. Like
+// harvest, it is a reader of existing data; a signal is derived on read,
+// never recorded.
 //
-// Slow turns and repeated requests are not signalled yet. Speech events are
-// recorded when playback ends, not at its first frame, so the journal cannot
-// say how long a person waited for audio; and "repeated" needs a similarity
-// rule nobody has chosen.
+// Slow turns are not signalled yet. Speech events are recorded when playback
+// ends, not at its first frame, so the journal cannot say how long a person
+// waited for audio.
 package triage
 
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/teaganglenn/chorus/internal/harvest"
 	"github.com/teaganglenn/chorus/internal/journal"
@@ -24,6 +26,17 @@ const (
 	KindBargeIn     Kind = "barge-in"
 	KindFailure     Kind = "failure"
 	KindSpeakerFlip Kind = "speaker-flip"
+	KindRepeated    Kind = "repeated"
+)
+
+// A repeat is the same person asking substantially the same thing again
+// soon after: within RepeatWindow, with at least RepeatOverlap of the
+// shorter ask's content words in the longer one. Fewer than repeatMinWords
+// content words is an answer ("yes", "the first one"), not a request.
+const (
+	RepeatWindow   = 30 * time.Second
+	RepeatOverlap  = 0.6
+	repeatMinWords = 2
 )
 
 // Signal is one reason to look at a conversation, anchored to the event that
@@ -78,10 +91,19 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 		tool string
 		turn turnContext
 	}
+	// ask is the last utterance, to tell a repeat from a follow-up.
+	type ask struct {
+		at    time.Time
+		text  string
+		voice string // this utterance's own speaker_id: empty is unplaced
+		words map[string]bool
+		acted bool // it called a tool other than speak
+	}
 	var (
 		out   []Signal
 		cur   turnContext
 		calls = map[string]pending{}
+		last  *ask
 	)
 	raiseIn := func(turn turnContext, e journal.Event, k Kind, detail string) {
 		out = append(out, Signal{
@@ -112,8 +134,28 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 			} else {
 				cur.utterance = e.Fields["text"]
 			}
+			// Same voice means the same speaker_id on both utterances, not the
+			// attribution carried over: an unplaced voice after Teagan may be
+			// a guest. Both unplaced still counts, since without the speaker
+			// sidecar every utterance is (ADR-0031).
+			next := &ask{at: e.At, text: cur.utterance, voice: e.Fields["speaker_id"], words: contentWords(cur.utterance)}
+			if last != nil && last.voice == next.voice && next.at.Sub(last.at) <= RepeatWindow && similar(last.words, next.words) {
+				detail := fmt.Sprintf("asked again %.1f s after “%s”", next.at.Sub(last.at).Seconds(), last.text)
+				if !last.acted {
+					detail += " · no tool call on the first ask"
+				}
+				raise(e, KindRepeated, detail)
+			}
+			// An answer ("yes") is not a request, so the request it answered
+			// stays the one a repeat is measured against.
+			if len(next.words) >= repeatMinWords {
+				last = next
+			}
 		case journal.KindToolCalled:
 			calls[e.Fields["call_id"]] = pending{tool: e.Fields["tool"], turn: cur}
+			if last != nil && e.Fields["tool"] != "speak" {
+				last.acted = true
+			}
 		case journal.KindToolResult:
 			c, ok := calls[e.Fields["call_id"]]
 			if !ok {
@@ -139,4 +181,40 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 		}
 	}
 	return out, nil
+}
+
+// fillers carry no request: articles, pronouns, politeness, the wake phrase.
+var fillers = map[string]bool{
+	"a": true, "an": true, "the": true, "to": true, "for": true, "of": true, "on": true,
+	"in": true, "at": true, "and": true, "or": true, "is": true, "are": true, "it": true,
+	"i": true, "me": true, "my": true, "you": true, "can": true, "could": true, "would": true,
+	"please": true, "hey": true, "ok": true, "okay": true, "s": true, "that": true, "this": true,
+	"eddie": true,
+}
+
+// contentWords is an ask's words, lowercased, without fillers.
+func contentWords(text string) map[string]bool {
+	words := map[string]bool{}
+	for _, w := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if !fillers[w] {
+			words[w] = true
+		}
+	}
+	return words
+}
+
+// similar is the overlap coefficient: shared words over the shorter ask's.
+func similar(a, b map[string]bool) bool {
+	if len(a) < repeatMinWords || len(b) < repeatMinWords {
+		return false
+	}
+	shared := 0
+	for w := range a {
+		if b[w] {
+			shared++
+		}
+	}
+	return float64(shared) >= RepeatOverlap*float64(min(len(a), len(b)))
 }

@@ -71,22 +71,20 @@ func summarize(id string, events []journal.Event, sigs []triage.Signal) convSumm
 }
 
 // sessionFlag is the session's colour on the lane: the barge-in first, since it is
-// the training signal, then a failure, then a flip.
+// the training signal, then a failure, then a repeated ask, then a flip.
 func sessionFlag(sigs []triage.Signal) ui.Tone {
-	tone := ui.Tone("")
+	rank := map[triage.Kind]int{triage.KindBargeIn: 4, triage.KindFailure: 3, triage.KindRepeated: 2, triage.KindSpeakerFlip: 1}
+	tones := map[triage.Kind]ui.Tone{
+		triage.KindBargeIn: ui.TonePeople, triage.KindFailure: ui.ToneHome,
+		triage.KindRepeated: ui.ToneVoice, triage.KindSpeakerFlip: ui.TonePeople,
+	}
+	best := triage.Kind("")
 	for _, s := range sigs {
-		switch s.Kind {
-		case triage.KindBargeIn:
-			return ui.TonePeople
-		case triage.KindFailure:
-			tone = ui.ToneHome
-		case triage.KindSpeakerFlip:
-			if tone == "" {
-				tone = ui.TonePeople
-			}
+		if rank[s.Kind] > rank[best] {
+			best = s.Kind
 		}
 	}
-	return tone
+	return tones[best]
 }
 
 // plural counts a noun the way a reader expects: "1 turn", "2 turns".
