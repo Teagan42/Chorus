@@ -106,7 +106,7 @@ Actor: `speaking`. `has_audio`: no. `training_signal`: no. `speculative`: no. `r
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `call_id` | string | yes | The speak call whose audio played first. |
-| `since_endpoint_ms` | integer |  | Milliseconds from the endpoint that closed the ask to this frame. The endpointer's trailing silence precedes the endpoint and is not counted. Empty when the ask carried no endpoint time. |
+| `wait_ms` | integer |  | Milliseconds from when the person stopped speaking to this frame: the endpointer's trailing silence counts, as the household waits through it. Empty when the ask carried no stop time. |
 
 ## `speech_truncated`
 
