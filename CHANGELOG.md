@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/Teagan42/Chorus/compare/v0.10.0...v0.11.0) (2026-10-09)
+
+
+### Features
+
+* remember what each person asks to be remembered ([#46](https://github.com/Teagan42/Chorus/issues/46)) ([7a3bb42](https://github.com/Teagan42/Chorus/commit/7a3bb421c0ab8499488ba88b1b5d7445e38a27b3))
+
+
+### Bug Fixes
+
+* **docsite:** name the shipped release in the header, not a cached one ([#44](https://github.com/Teagan42/Chorus/issues/44)) ([3b30b76](https://github.com/Teagan42/Chorus/commit/3b30b76093500a567adacdd15ec258ccd110df4a))
+
 ## [0.10.0](https://github.com/Teagan42/Chorus/compare/v0.9.0...v0.10.0) (2026-10-09)
 
 
