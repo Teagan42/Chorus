@@ -317,3 +317,37 @@ func TestASummarizerNeedsMemories(t *testing.T) {
 		t.Error("a supervisor summarizes with nowhere to keep it")
 	}
 }
+
+// The kitchen satellite drops Teagan mid-conversation and Teagan wakes it
+// again straight away, resuming the same conversation. The first summary
+// describes the conversation as it was when the link dropped, not the one
+// that carried on, so it cannot race the summary the second end writes.
+//
+// verifies SPEC §4.5, §5
+func TestASummaryDescribesTheConversationAsItEnded(t *testing.T) {
+	r := newSummaryRig(t, &summarizer{text: "teagan asked about the porch light."})
+	first := r.open(t, "teagan")
+	wait(t, heardFrom(first, "teagan", "is the porch light on"))
+	if err := first.Close(context.Background(), "device_lost"); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	again := r.open(t, "teagan")
+	if !again.Resumed() {
+		t.Fatalf("the wake started a new conversation")
+	}
+	wait(t, heardFrom(again, "teagan", "turn it off then"))
+	if err := again.Close(context.Background(), "model_ended"); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	r.drained(t)
+
+	got := r.sum.asked()
+	slices.SortFunc(got, func(a, b summarized) int { return len(a.Heard) - len(b.Heard) })
+	want := []summarized{
+		{Heard: []string{"is the porch light on"}, People: []string{"teagan"}},
+		{Heard: []string{"is the porch light on", "turn it off then"}, People: []string{"teagan"}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("summarized %+v, want each end as it was: %+v", got, want)
+	}
+}

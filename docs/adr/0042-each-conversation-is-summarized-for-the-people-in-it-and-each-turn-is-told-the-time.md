@@ -31,8 +31,11 @@ zone from `TZ` and logs it at startup. A replay is told the time the turn
 was heard, not the time the replay runs.
 
 **A conversation is summarized when it ends, not when it moves.** A close
-for any reason but `migrated` starts the summary in the background, after
-the session is gone. The summary goes to the same Ollama model with its own
+for any reason but `migrated` snapshots the conversation and writes the
+summary in the background, after the session is gone. The snapshot is taken
+before the conversation is released, so a person waking again within the
+migration window resumes it only afterwards. That resumed conversation's
+own end writes a newer summary. The summary goes to the same Ollama model with its own
 prompt, no tools and no streaming. The model is shown the conversation as
 it happened: each utterance quoted, with who said it, which is why a heard
 dialogue entry now carries its speaker. It writes a sentence or two on who

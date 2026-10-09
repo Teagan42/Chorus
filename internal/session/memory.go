@@ -103,16 +103,33 @@ func sameSummary(a, b journal.Summary) bool {
 	return a.ConversationID == b.ConversationID && a.Text == b.Text && a.At.Equal(b.At)
 }
 
-// summarize writes what the conversation that just ended was about and keeps
-// it for each identified person who was in it. It runs after the session has
-// closed, on the supervisor's background, bounded by SummaryTimeout: the
-// people have walked away, and nobody is waiting on it.
+// startSummary snapshots the conversation as it ended and summarizes it in
+// the background. The snapshot is taken here, not in the background: a
+// person back within the migration window resumes the same log, and a
+// summary read after that would describe a conversation still going, racing
+// the one its own end starts (ADR-0041).
 //
-// Whether it worked is recorded either way, so a missing summary is in the
-// log rather than silently absent. Nothing is recorded for a conversation
-// with nobody identified in it, or nothing said: there is nobody to keep it
-// for, or nothing to keep.
-func (s *Session) summarize() {
+// Nothing is summarized for a conversation with nobody identified in it, or
+// nothing said: there is nobody to keep it for, or nothing to keep.
+func (s *Session) startSummary() {
+	st, err := s.State(context.WithoutCancel(s.ctx))
+	if err != nil {
+		s.sup.cfg.Log.Warn("summarize: replay", "conversation", s.convID, "err", err)
+		return
+	}
+	if len(st.Participants) == 0 || !slices.ContainsFunc(st.Dialogue, heard) {
+		return
+	}
+	s.sup.cfg.Summarizing.Add(1)
+	go s.summarize(st)
+}
+
+// summarize writes what the conversation was about and keeps it for each
+// identified person who was in it. It runs after the session has closed,
+// bounded by SummaryTimeout: the people have walked away, and nobody is
+// waiting on it. Whether it worked is recorded either way, so a missing
+// summary is in the log rather than silently absent.
+func (s *Session) summarize(st journal.State) {
 	defer s.sup.cfg.Summarizing.Done()
 	ctx, cancel := context.WithCancel(context.WithoutCancel(s.ctx))
 	defer cancel()
@@ -125,14 +142,6 @@ func (s *Session) summarize() {
 		}
 	}()
 
-	st, err := s.State(ctx)
-	if err != nil {
-		s.sup.cfg.Log.Warn("summarize: replay", "conversation", s.convID, "err", err)
-		return
-	}
-	if len(st.Participants) == 0 || !slices.ContainsFunc(st.Dialogue, heard) {
-		return
-	}
 	people, err := json.Marshal(st.Participants)
 	if err != nil {
 		// A slice of strings cannot fail to encode.

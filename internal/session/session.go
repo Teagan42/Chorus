@@ -810,15 +810,16 @@ func (s *Session) end(reason, discard string) error {
 			Kind:   journal.KindSessionClosed,
 			Fields: map[string]string{"reason": reason, "satellite": s.satellite},
 		})
+		// A conversation that moved to another room has not ended. Taken
+		// while this session is still the live one, so a wake that resumes
+		// the conversation waits for it rather than writing into it.
+		if reason != "migrated" && err == nil && s.sup.cfg.Summarizer != nil {
+			s.startSummary()
+		}
 		s.leave("listening")
 		s.cancel()
 		close(s.done)
 		s.sup.cfg.Conversations.release(s.convID, s)
-		// A conversation that moved to another room has not ended.
-		if reason != "migrated" && err == nil && s.sup.cfg.Summarizer != nil {
-			s.sup.cfg.Summarizing.Add(1)
-			go s.summarize()
-		}
 	})
 	return err
 }
