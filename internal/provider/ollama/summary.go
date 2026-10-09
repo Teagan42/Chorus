@@ -18,7 +18,7 @@ import (
 
 // SummaryPrompt is what the model is told when a conversation ends and it
 // writes what the conversation was about, for the people in it to be told
-// in their later ones (SPEC §5, ADR-0041). Who asked what matters, because
+// in their later ones (SPEC §5, ADR-0042). Who asked what matters, because
 // "what did I ask yesterday" is asked by one of them; how it turned out
 // matters, because "did you close it" is the next question.
 const SummaryPrompt = `You keep the memory of a voice assistant in a home. You are given one conversation it has just finished, as it happened. Write one or two short sentences saying who asked for what and how it turned out: what the assistant did, what it found, or what was left undone.
