@@ -1,8 +1,8 @@
-// Command reviewui serves the Curate and Review screens over the journal
-// (SPEC §9.2): harvested barge-in candidates, the pair flow, the barge-in
-// timeline with each clip playable, verdicts in the curation table. It
-// reads CHORUS_POSTGRES_DSN and CHORUS_BLOB_DIR like chorusd, and migrates
-// both schemas on start.
+// Command reviewui serves the review screens over the journal (SPEC §9.2):
+// harvested barge-in candidates, the pair flow, the barge-in timeline with
+// each clip playable, verdicts in the curation table, and Replay. It reads
+// CHORUS_POSTGRES_DSN and CHORUS_BLOB_DIR like chorusd, and migrates both
+// schemas on start; OLLAMA_URL and OLLAMA_MODEL let Replay re-run turns.
 package main
 
 import (
@@ -20,11 +20,20 @@ import (
 	"github.com/teaganglenn/chorus/internal/blob"
 	"github.com/teaganglenn/chorus/internal/curation"
 	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teaganglenn/chorus/internal/provider/ollama"
+	sess "github.com/teaganglenn/chorus/internal/session"
 )
 
 // blobDirEnv is where the journal's audio lives, the same variable chorusd
 // writes through (.env.example).
 const blobDirEnv = "CHORUS_BLOB_DIR"
+
+// Replay asks the same endpoint chorusd's turn engine does. Unset leaves
+// Replay showing the recorded turns with nothing to re-run them against.
+const (
+	ollamaURLEnv   = "OLLAMA_URL"
+	ollamaModelEnv = "OLLAMA_MODEL"
+)
 
 // version is set by the release build (-X main.version=...).
 var version = "dev"
@@ -61,6 +70,7 @@ func run(ctx context.Context, addr string) error {
 	}
 
 	s := newServer(pgJournal{journal.NewPgStore(pool)}, curation.NewPgStore(pool), blobs, time.Now)
+	s.engineFor = ollamaEngines(os.Getenv(ollamaURLEnv), os.Getenv(ollamaModelEnv))
 	srv := &http.Server{Addr: addr, Handler: s.routes(), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -73,6 +83,22 @@ func run(ctx context.Context, addr string) error {
 		return err
 	}
 	return nil
+}
+
+// ollamaEngines builds Replay's engines on the configured endpoint, or none
+// when it is not configured. The model must be configured too: it is the one
+// chorusd runs, which says the endpoint is meant to be asked.
+func ollamaEngines(baseURL, model string) engineFactory {
+	if baseURL == "" || model == "" {
+		return nil
+	}
+	return func(model, prompt string) (sess.Engine, journal.Versions, error) {
+		e, err := ollama.New(ollama.Config{BaseURL: baseURL, Model: model, Prompt: prompt})
+		if err != nil {
+			return nil, journal.Versions{}, err
+		}
+		return e, e.Versions(), nil
+	}
 }
 
 // pgJournal names the two read interfaces PgStore already satisfies.

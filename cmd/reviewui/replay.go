@@ -1,0 +1,344 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teaganglenn/chorus/internal/provider/ollama"
+	"github.com/teaganglenn/chorus/internal/rerun"
+	"github.com/teaganglenn/chorus/internal/reviewui/ui"
+	sess "github.com/teaganglenn/chorus/internal/session"
+)
+
+// engineFactory builds the turn engine a re-run asks: the model and system
+// prompt as the reviewer edited them, and the versions that makes.
+type engineFactory func(model, prompt string) (sess.Engine, journal.Versions, error)
+
+// runTimeout bounds a whole re-run. A turn streams for as long as the model
+// talks, and a conversation is a handful of turns.
+const runTimeout = 3 * time.Minute
+
+func replayHref(id string) string { return ui.Routes[ui.StepReplay] + "/" + id }
+
+// replayable is what one conversation offers Replay: its turns as recorded,
+// and how far the reducer got through its log.
+type replayable struct {
+	id     string
+	start  time.Time
+	turns  []rerun.Turn
+	events int
+	replay error
+	unread int
+}
+
+// readReplayable reads one conversation under the lock and lets it go: the
+// model is asked afterwards, and it can think for a while.
+func (s *server) readReplayable(ctx context.Context, id string) (replayable, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pairs, err := s.pairs(ctx)
+	if err != nil {
+		return replayable{}, err
+	}
+	events, err := s.journal.Events(ctx, id)
+	if err != nil {
+		return replayable{}, err
+	}
+	rp := replayable{id: id, events: len(events), unread: unreviewedCount(pairs)}
+	if len(events) == 0 {
+		return rp, nil
+	}
+	rp.start = events[0].At
+	if rp.turns, err = rerun.Turns(events); err != nil {
+		return replayable{}, err
+	}
+	// The reducer is what keeps the log honest (SPEC §8): if it cannot read
+	// the whole conversation back, nothing on this page can be trusted.
+	_, rp.replay = journal.Replay(ctx, s.journal, id, journal.Overrides{})
+	return rp, nil
+}
+
+func (s *server) replays(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	pairs, err := s.pairs(r.Context())
+	var ids []string
+	if err == nil {
+		ids, err = s.journal.Conversations(r.Context())
+	}
+	type row struct {
+		start time.Time
+		row   ui.ListRow
+	}
+	var rows []row
+	for _, id := range ids {
+		if err != nil || strings.HasPrefix(id, devicePrefix) {
+			continue
+		}
+		var events []journal.Event
+		if events, err = s.journal.Events(r.Context(), id); err != nil || len(events) == 0 {
+			continue
+		}
+		var turns []rerun.Turn
+		if turns, err = rerun.Turns(events); err != nil || len(turns) == 0 {
+			continue
+		}
+		v := turns[0].Versions
+		rows = append(rows, row{start: events[0].At, row: ui.ListRow{
+			Href:   replayHref(id),
+			Title:  turns[0].Text,
+			Detail: fmt.Sprintf("%s · %s · %s · %s", id, v.Model, v.Prompt, v.ToolSchema),
+			Who:    turns[0].Speaker,
+			Figure: plural(len(turns), "turn"),
+			When:   events[0].At.In(s.now().Location()).Format("2 Jan 15:04"),
+		}})
+	}
+	s.mu.Unlock()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	slices.SortFunc(rows, func(a, b row) int { return b.start.Compare(a.start) })
+	list := ui.List{
+		ID:      "replays",
+		Columns: [6]string{"", "First ask · recorded under", "", "Who", "Turns", "When"},
+		Empty:   &ui.EmptyState{Title: "Nothing to replay yet.", Body: "Conversations land here as the journal records them."},
+	}
+	for _, rw := range rows {
+		list.Rows = append(list.Rows, rw.row)
+	}
+	s.render(w, "page-replays", map[string]any{
+		"Doc":    ui.Doc{Title: "Replay", Static: "/static"},
+		"Header": ui.NewAppHeader(ui.StepReplay, unreviewedCount(pairs), "chorus · journal"),
+		"Head": ui.PageHead{
+			Eyebrow: "04 · Replay", Title: "Ask it again",
+			Subtitle: "Re-run a conversation's turns under another prompt or model and see what it would have said and done.",
+		},
+		"List": list,
+	})
+}
+
+// replayRow is one turn: what the journal recorded beside what the re-run
+// produced, if it ran.
+type replayRow struct {
+	Anchor   string
+	Seq      uint64
+	Speaker  string
+	Text     string
+	Recorded rerun.Take
+	Replayed *rerun.Take
+	Tag      ui.SigTag
+}
+
+// replayResult is the swappable half of the page: recorded turns before a
+// run, the comparison after one.
+type replayResult struct {
+	Stats *ui.MetricStrip
+	Diff  *ui.CodeDiff
+	Alert *ui.Alert
+	Rows  []replayRow
+}
+
+func recordedRows(turns []rerun.Turn) []replayRow {
+	rows := make([]replayRow, 0, len(turns))
+	for _, t := range turns {
+		rows = append(rows, replayRow{
+			Anchor: fmt.Sprintf("turn-%d", t.Seq), Seq: t.Seq, Speaker: t.Speaker, Text: t.Text,
+			Recorded: t.Recorded, Tag: ui.SigTag{Text: "recorded", Tone: ui.ToneMuted},
+		})
+	}
+	return rows
+}
+
+func (s *server) replayPage(w http.ResponseWriter, r *http.Request) {
+	rp, err := s.readReplayable(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if rp.events == 0 || len(rp.turns) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	recorded := rp.turns[len(rp.turns)-1].Versions
+
+	check := ui.Metric{Label: "Journal replay", Value: fmt.Sprintf("replay() reads back all %d events", rp.events), Tone: ui.ToneMuted}
+	if rp.replay != nil {
+		check = ui.Metric{Label: "Journal replay", Value: "replay() fails", Note: rp.replay.Error(), Tone: ui.TonePeople}
+	}
+	promptNote, connect := "", (*ui.Alert)(nil)
+	if s.engineFor == nil {
+		connect = &ui.Alert{
+			Title: "No model to ask.",
+			Body:  "Set OLLAMA_URL and OLLAMA_MODEL for reviewui, the same endpoint chorusd uses, to re-run these turns.",
+			Tone:  ui.ToneConv,
+		}
+	} else if _, v, err := s.engineFor(recorded.Model, ollama.DefaultPrompt); err == nil {
+		promptNote = "the default prompt (" + v.Prompt + ") matches the recorded prompt"
+		if v.Prompt != recorded.Prompt {
+			promptNote = fmt.Sprintf("recorded under %s; the default prompt is now %s, so this starts from the default", recorded.Prompt, v.Prompt)
+		}
+	}
+
+	s.render(w, "page-replay", map[string]any{
+		"Doc":    ui.Doc{Title: "Replay · " + rp.id, Static: "/static"},
+		"Header": ui.NewAppHeader(ui.StepReplay, rp.unread, recorded.Model+" · "+recorded.Prompt+" · "+recorded.ToolSchema),
+		"Head": ui.PageHead{
+			Eyebrow: "04 · Replay", Trace: true, Title: rp.turns[0].Text, SubtitleMono: true,
+			Subtitle: fmt.Sprintf("%s · %s · %s · %s", rp.id, rp.turns[0].Speaker, plural(len(rp.turns), "turn"), rp.start.In(s.now().Location()).Format("Mon 2 Jan 15:04")),
+			Actions:  []ui.Button{{Label: "‹ Conversation", Href: conversationHref(rp.id)}},
+		},
+		"Recorded": ui.MetricStrip{Label: "Recorded", Items: []ui.Metric{
+			{Label: "Model", Value: recorded.Model},
+			{Label: "Prompt", Value: recorded.Prompt},
+			{Label: "Tool schema", Value: recorded.ToolSchema},
+			check,
+		}},
+		"Connect": connect,
+		"Model":   ui.Field{Kind: ui.FieldInput, ID: "replay-model", Name: "model", Label: "Model", Value: recorded.Model},
+		"Prompt": ui.Field{
+			Kind: ui.FieldTextarea, ID: "replay-prompt", Name: "prompt", Label: "System prompt", Rows: 9,
+			Value: ollama.DefaultPrompt,
+		},
+		"PromptNote": promptNote,
+		"Run": ui.Button{
+			Label: "Re-run every turn", Type: "submit", Primary: true, Disabled: s.engineFor == nil,
+		},
+		"Action": replayHref(rp.id),
+		"Result": replayResult{Rows: recordedRows(rp.turns)},
+	})
+}
+
+func (s *server) replayRun(w http.ResponseWriter, r *http.Request) {
+	if s.engineFor == nil {
+		http.Error(w, "no model configured: set OLLAMA_URL and OLLAMA_MODEL", http.StatusServiceUnavailable)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	rp, err := s.readReplayable(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(rp.turns) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	// A refusal is still swapped in: htmx drops a 4xx body, and a button
+	// that silently does nothing is the worst answer.
+	model, prompt := strings.TrimSpace(r.PostForm.Get("model")), r.PostForm.Get("prompt")
+	if model == "" || strings.TrimSpace(prompt) == "" {
+		s.render(w, "replay-result", replayResult{
+			Alert: &ui.Alert{Title: "Nothing to run.", Body: "A re-run needs a model and a system prompt.", Tone: ui.ToneConv},
+			Rows:  recordedRows(rp.turns),
+		})
+		return
+	}
+	eng, v, err := s.engineFor(model, prompt)
+	if err != nil {
+		s.render(w, "replay-result", replayResult{
+			Alert: &ui.Alert{Title: "Cannot build the engine.", Body: err.Error(), Tone: ui.ToneConv},
+			Rows:  recordedRows(rp.turns),
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), runTimeout)
+	defer cancel()
+	res := replayResult{Rows: recordedRows(rp.turns)}
+	speech, calls, ran := 0, 0, 0
+	for i, t := range rp.turns {
+		take, err := rerun.Run(ctx, eng, rp.id, t)
+		if err != nil {
+			res.Alert = &ui.Alert{
+				Title: fmt.Sprintf("Re-run stopped at #%d.", t.Seq),
+				Body:  err.Error(),
+				Note:  "turns before it ran; the rest show what was recorded",
+				Tone:  ui.ToneConv,
+			}
+			break
+		}
+		ran++
+		c := rerun.Compare(t.Recorded, take)
+		row := &res.Rows[i]
+		row.Replayed = &take
+		switch {
+		case c.Speech && c.Calls:
+			row.Tag = ui.SigTag{Text: "speech and calls changed", Tone: ui.ToneVoice}
+		case c.Speech:
+			row.Tag = ui.SigTag{Text: "speech changed", Tone: ui.ToneVoice}
+		case c.Calls:
+			row.Tag = ui.SigTag{Text: "calls changed", Tone: ui.ToneHome}
+		default:
+			row.Tag = ui.SigTag{Text: "same", Tone: ui.ToneMuted}
+		}
+		if c.Speech {
+			speech++
+		}
+		if c.Calls {
+			calls++
+		}
+	}
+	res.Stats = &ui.MetricStrip{Label: "Outcome", Items: []ui.Metric{
+		{Label: "Turns re-run", Value: fmt.Sprintf("%d of %d", ran, len(rp.turns))},
+		{Label: "Speech changed", Value: fmt.Sprintf("%d of %d", speech, ran), Tone: when(speech > 0, ui.ToneVoice)},
+		{Label: "Tool calls changed", Value: fmt.Sprintf("%d of %d", calls, ran), Tone: when(calls > 0, ui.ToneHome)},
+		{Label: "Ran under", Value: v.Model + " · " + v.Prompt, Note: "tools are compared, never executed"},
+	}}
+	if d := lineDiff(ollama.DefaultPrompt, prompt); d != nil {
+		res.Diff = &ui.CodeDiff{Label: "Prompt diff", Lines: d}
+	}
+	s.render(w, "replay-result", res)
+}
+
+func when(ok bool, t ui.Tone) ui.Tone {
+	if ok {
+		return t
+	}
+	return ""
+}
+
+// lineDiff is the edit from a to b, line by line, or nil when they match.
+// Prompts are a few dozen lines; the quadratic table is nothing.
+func lineDiff(a, b string) []ui.DiffLine {
+	if a == b {
+		return nil
+	}
+	x, y := strings.Split(a, "\n"), strings.Split(b, "\n")
+	lcs := make([][]int, len(x)+1)
+	for i := range lcs {
+		lcs[i] = make([]int, len(y)+1)
+	}
+	for i := len(x) - 1; i >= 0; i-- {
+		for j := len(y) - 1; j >= 0; j-- {
+			if x[i] == y[j] {
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			} else {
+				lcs[i][j] = max(lcs[i+1][j], lcs[i][j+1])
+			}
+		}
+	}
+	var out []ui.DiffLine
+	i, j := 0, 0
+	for i < len(x) || j < len(y) {
+		switch {
+		case i < len(x) && j < len(y) && x[i] == y[j]:
+			out = append(out, ui.DiffLine{Kind: " ", Text: x[i]})
+			i, j = i+1, j+1
+		case j < len(y) && (i == len(x) || lcs[i][j+1] >= lcs[i+1][j]):
+			out = append(out, ui.DiffLine{Kind: "+", Text: y[j]})
+			j++
+		default:
+			out = append(out, ui.DiffLine{Kind: "-", Text: x[i]})
+			i++
+		}
+	}
+	return out
+}

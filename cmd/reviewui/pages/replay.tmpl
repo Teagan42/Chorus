@@ -1,0 +1,43 @@
+{{/* Replay · re-run a conversation's turns under an edited prompt or model (SPEC §9.2). */}}
+
+{{define "page-replays"}}{{template "doc-start" .Doc}}
+{{template "app-header" .Header}}
+{{template "page-head" .Head}}
+{{template "list" .List}}
+{{template "doc-end"}}{{end}}
+
+{{define "page-replay"}}{{template "doc-start" .Doc}}
+{{template "app-header" .Header}}
+{{template "page-head" .Head}}
+{{template "metric-strip" .Recorded}}
+<form class="stack pad" style="gap: 14px; border-bottom: 1px solid var(--c-rule)" hx-post="{{.Action}}" hx-target="#replay-result" hx-swap="outerHTML" hx-disabled-elt="find button">
+<span class="cap">Overrides</span>
+{{with .Connect}}{{template "alert" .}}{{end}}
+<div class="row" style="gap: 14px; align-items: flex-end; flex-wrap: wrap">{{template "field" .Model}}{{template "button" .Run}}<span class="meta htmx-indicator">asking the model, turn by turn…</span></div>
+{{template "field" .Prompt}}
+{{with .PromptNote}}<span class="meta">{{.}}</span>{{end}}
+</form>
+{{template "replay-result" .Result}}
+{{template "doc-end"}}{{end}}
+
+{{define "replay-result"}}<section id="replay-result" aria-label="Turns">
+{{with .Alert}}<div class="pad">{{template "alert" .}}</div>{{end}}
+{{with .Stats}}{{template "metric-strip" .}}{{end}}
+{{with .Diff}}<div class="pad">{{template "code-diff" .}}</div>{{end}}
+<div class="list__row list__row--head" style="grid-template-columns: 70px minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr) 180px"><span>Turn</span><span>Heard</span><span>Recorded</span><span>Replayed</span><span></span></div>
+{{- range .Rows}}
+<div id="{{.Anchor}}" class="list__row" style="grid-template-columns: 70px minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr) 180px; align-items: start">
+<span class="list__when">#{{.Seq}}</span>
+<span class="list__text"><span class="list__title" style="white-space: normal">{{.Text}}</span><span class="list__detail">{{.Speaker}}</span></span>
+<span class="list__text">{{template "replay-take" .Recorded}}</span>
+<span class="list__text">{{with .Replayed}}{{template "replay-take" .}}{{else}}<span class="list__detail">not re-run</span>{{end}}</span>
+<span>{{template "sig-tag" .Tag}}</span>
+</div>{{end}}
+</section>{{end}}
+
+{{define "replay-take"}}
+{{- range .Speech}}<span class="list__title" style="white-space: normal">{{.Text}}{{with .Unheard}}<span class="inspector__unheard">{{.}}</span>{{end}}</span>{{end}}
+{{- range .Calls}}<span class="list__detail tone-home" style="white-space: normal; word-break: break-word; color: var(--tone-text)">{{.Tool}} {{.Args}}</span>{{end}}
+{{- if and (not .Speech) (not .Calls)}}<span class="list__detail">said and did nothing</span>{{end}}
+{{- if and .Finish (ne .Finish "stop")}}<span class="list__detail tone-conv" style="color: var(--tone-text)">finished: {{.Finish}}</span>{{end}}
+{{- end}}
