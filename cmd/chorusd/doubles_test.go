@@ -194,6 +194,10 @@ type scriptEngine struct {
 	// utterance led to. Nil says nothing.
 	answer func(journal.Entry) []session.Action
 
+	// decide, when set, answers every ask from the dialogue it carries, as a
+	// model that has to remember an earlier turn would.
+	decide func(session.Input) []session.Action
+
 	mu     sync.Mutex
 	inputs []session.Input
 }
@@ -208,6 +212,9 @@ func (e *scriptEngine) Turn(ctx context.Context, in session.Input) (<-chan sessi
 		if e.answer != nil {
 			acts = e.answer(r)
 		}
+	}
+	if e.decide != nil {
+		acts = e.decide(in)
 	}
 	out := make(chan session.Action)
 	go func() {

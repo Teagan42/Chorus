@@ -13,19 +13,30 @@ import (
 )
 
 // homeAssistant answers the REST calls the ha_* tools make, in-process: the
-// garage door is open this morning. It keeps the paths it was asked for.
+// garage door is open this morning, and the front door unlocks when told to.
+// It keeps the paths it was asked for and the bodies it was sent.
 type homeAssistant struct {
-	mu    sync.Mutex
-	asked []string
+	mu     sync.Mutex
+	asked  []string
+	bodies []string
 }
 
 func (h *homeAssistant) RoundTrip(r *http.Request) (*http.Response, error) {
+	var sent []byte
+	if r.Body != nil {
+		sent, _ = io.ReadAll(r.Body)
+	}
 	h.mu.Lock()
 	h.asked = append(h.asked, r.Method+" "+r.URL.Path)
+	h.bodies = append(h.bodies, string(sent))
 	h.mu.Unlock()
 	body, status := `{"message":"Entity not found."}`, http.StatusNotFound
-	if r.Method == http.MethodGet && r.URL.Path == "/api/states/cover.garage_door" {
+	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/api/states/cover.garage_door":
 		body = `{"entity_id":"cover.garage_door","state":"open","attributes":{"friendly_name":"Garage Door","device_class":"garage","current_position":100},"last_changed":"2026-10-09T06:51:12+00:00"}`
+		status = http.StatusOK
+	case r.Method == http.MethodPost && r.URL.Path == "/api/services/lock/unlock":
+		body = `[{"entity_id":"lock.front_door","state":"unlocked","attributes":{"friendly_name":"Front Door"}}]`
 		status = http.StatusOK
 	}
 	return &http.Response{
@@ -41,6 +52,12 @@ func (h *homeAssistant) paths() []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return append([]string(nil), h.asked...)
+}
+
+func (h *homeAssistant) sent() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.bodies...)
 }
 
 // Alan asks the kitchen satellite whether the garage is shut. The model says
