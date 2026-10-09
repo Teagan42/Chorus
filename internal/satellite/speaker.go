@@ -113,6 +113,9 @@ type Satellite struct {
 	// notify is closed and replaced on every report, so a waiter cannot miss
 	// one between reading the position and sleeping.
 	notify chan struct{}
+	// starting closes on the first report past base: the newest utterance's
+	// first frame reached the ear (ADR-0035). Nil once closed.
+	starting chan struct{}
 }
 
 // New validates the wiring and applies defaults.
@@ -152,6 +155,10 @@ func (s *Satellite) OnPlayed(p bridge.Played) error {
 	if p.Stop != 0 {
 		s.stopped = p.Stop
 	}
+	if s.starting != nil && s.played > s.base {
+		close(s.starting)
+		s.starting = nil
+	}
 	close(s.notify)
 	s.notify = make(chan struct{})
 	s.mu.Unlock()
@@ -189,11 +196,13 @@ func (s *Satellite) position() (uint64, <-chan struct{}) {
 
 // rebase takes the position an opening utterance counts from and publishes it
 // in the same lock, so the base the listener reads is the base the stream kept.
-func (s *Satellite) rebase() uint64 {
+// The channel it returns closes when the DAC first moves past that base.
+func (s *Satellite) rebase() (uint64, <-chan struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.base = s.played
-	return s.base
+	s.starting = make(chan struct{})
+	return s.base, s.starting
 }
 
 // SpeechBase is the DAC position the newest utterance's frames count from.
@@ -226,9 +235,9 @@ func (s *Satellite) Open(ctx context.Context, callID string) (session.Stream, er
 	if err != nil {
 		return nil, fmt.Errorf("satellite: open audio for %s: %w", callID, err)
 	}
-	base := s.rebase()
+	base, started := s.rebase()
 	st := &stream{
-		sat: s, ctx: ctx, callID: callID, base: base, audio: w,
+		sat: s, ctx: ctx, callID: callID, base: base, started: started, audio: w,
 		in: make(chan int, deltaQueue), quit: make(chan struct{}), done: make(chan struct{}),
 	}
 	go st.feed()
@@ -253,6 +262,9 @@ type stream struct {
 	ctx    context.Context
 	callID string
 	base   uint64
+
+	// started closes on the device's first report past base.
+	started <-chan struct{}
 
 	in   chan int      // indexes into segs, in generation order
 	quit chan struct{} // Close asked the feeder to stop
@@ -392,6 +404,12 @@ func (s *stream) send(i int) bool {
 	}
 	return true
 }
+
+var _ session.Starter = (*stream)(nil)
+
+// Started closes when the device first reports playing this utterance's
+// audio, which is when the household starts hearing it (ADR-0035).
+func (s *stream) Started() <-chan struct{} { return s.started }
 
 // Close ends the utterance and reports the split. It is called when
 // *generation* ends, not when playback does (internal/session/speechchan.go),

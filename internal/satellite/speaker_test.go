@@ -1102,3 +1102,110 @@ func TestUplinkFramesReachTheConfiguredHooks(t *testing.T) {
 		t.Error("mute did not report the hardware state")
 	}
 }
+
+func started(t *testing.T, st session.Stream) <-chan struct{} {
+	t.Helper()
+	s, ok := st.(session.Starter)
+	if !ok {
+		t.Fatal("a satellite stream must report when its DAC starts")
+	}
+	return s.Started()
+}
+
+func isClosed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// The answer to "turn off the kitchen lights" has reached the device but
+// the DAC has not played it yet: that is not a start. The first report past
+// where the utterance began is.
+//
+// verifies SPEC §11, §3.2.1
+func TestTheFirstReportPastTheBaseIsTheStart(t *testing.T) {
+	r := newRig(t)
+	st, _ := r.open(t, "call-1")
+	start := started(t, st)
+
+	text := "Turning off the kitchen lights."
+	if err := st.Write(text); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len(text)*framesPerByte*2)
+	if isClosed(start) {
+		t.Fatal("started before the DAC reported a frame")
+	}
+
+	r.play(t, 160)
+	if !isClosed(start) {
+		t.Fatal("not started after the DAC reported playing the utterance")
+	}
+	done := closeAsync(st)
+	r.dev.AwaitFinish(t, 1)
+	r.playAll(t)
+	await(t, done)
+}
+
+// PLAYED counts the whole connection, so "One sec" having played must not
+// read as the search result behind it having started.
+//
+// verifies SPEC §11, §3.2.1
+func TestASecondUtteranceStartsOnItsOwnFrames(t *testing.T) {
+	r := newRig(t)
+
+	first, _ := r.open(t, "call-1")
+	if err := first.Write("One sec."); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len("One sec.")*framesPerByte*2)
+	done := closeAsync(first)
+	r.dev.AwaitFinish(t, 1)
+	r.playAll(t)
+	await(t, done)
+
+	second, _ := r.open(t, "call-2")
+	start := started(t, second)
+	if isClosed(start) {
+		t.Fatal("the second utterance started on the first one's frames")
+	}
+	text := "I found three albums by Led Zeppelin."
+	if err := second.Write(text); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, (len("One sec.")+len(text))*framesPerByte*2)
+	r.play(t, 160)
+	if !isClosed(start) {
+		t.Fatal("the second utterance never started")
+	}
+	done = closeAsync(second)
+	r.dev.AwaitFinish(t, 2)
+	r.playAll(t)
+	await(t, done)
+}
+
+// A barge-in before the DAC reached the answer: it never started.
+//
+// verifies SPEC §11, §4.4
+func TestAnUtteranceCutBeforeItPlayedNeverStarts(t *testing.T) {
+	r := newRig(t)
+	st, cancel := r.open(t, "call-1")
+	start := started(t, st)
+
+	text := "Here is the forecast for Saturday."
+	if err := st.Write(text); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len(text)*framesPerByte*2)
+	cancel()
+	pb := await(t, closeAsync(st))
+	if pb.Spoken != "" {
+		t.Fatalf("Spoken = %q before any frame played", pb.Spoken)
+	}
+	if isClosed(start) {
+		t.Error("an utterance nobody heard reported a start")
+	}
+}
