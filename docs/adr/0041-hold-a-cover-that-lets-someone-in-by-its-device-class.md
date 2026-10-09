@@ -64,17 +64,24 @@ instance, the read took about a millisecond.
 - A target inside `data` (`entity_id`, `area_id`, `device_id`, `floor_id`,
   `label_id`).
 - An entity Home Assistant does not have.
-- Home Assistant being down.
+- Home Assistant being down, or not answering within the tool's timeout.
 - A turn barged in on during the read.
 
 The executor also refuses a target inside `data`. Home Assistant acts on
 targets there beside the one the gate read, so a yes to the blinds could
 otherwise open the garage too.
 
-**A redeemed call is read again.** The call that comes back with its nonce
-is classified like the first one, because it is dispatched like the first
-one. If the cover's class changed in between, the arguments did not.
-`State.Redeemable` still lets the nonce run the call it was handed to.
+**A call that presents a nonce goes to the log, not to the target.** The
+call that comes back with its nonce is decided by `State.Redeemable` alone,
+and its target is not read again. A cover's class can change between the
+question and the answer: Home Assistant was down and is back, or someone
+reclassed the cover. Reading it again would let the yes fall through as an
+unheld call, with the nonce still in its arguments.
+
+**The read has the tool's timeout.** It runs before the call is
+dispatched, so it is bounded by the tool's declared `timeout_ms` on the
+session's clock, as the call itself is. A read that times out holds the
+call.
 
 ## Alternatives rejected
 
