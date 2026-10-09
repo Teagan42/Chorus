@@ -144,6 +144,17 @@ events: {
 		fields: [
 			{name: "person", type: "string", description: "Whose memories these are: the identified speaker.", required: true},
 			{name: "memories_json", type: "string", description: "The memories as a JSON array of {id, person, fact, shareable}, newest first. An empty array means nothing is remembered.", required: true},
+			{name: "summaries_json", type: "string", description: "The person's recent conversations as a JSON array of {conversation_id, at, text}, newest first. Empty in logs from before conversations were summarized."},
+		]
+	}
+	conversation_summarized: {
+		name:              "conversation_summarized", actor: "session"
+		description:       "The conversation ended and the model summarized it for the identified people in it, to be told in their later conversations. Recorded in full, as a completion is, because replay cannot regenerate it (SPEC §5, §8)."
+		requires_versions: true
+		fields: [
+			{name: "people_json", type: "string", description: "Whom the summary is kept for: every identified person who spoke, as a JSON array of ids.", required: true},
+			{name: "summary", type: "string", description: "What the model wrote. Empty when it failed."},
+			{name: "error", type: "string", description: "Why there is no summary, or why it was not kept. Empty when it was."},
 		]
 	}
 	model_completed: {
