@@ -127,6 +127,8 @@ tasks:
       # (the STT tiers take a WAV of consented speech the same way, since no
       # recording lives in the repo; `./internal/stt` takes the same two flags)
       # or `task test:models -- ./internal/hass -hass-url http://127.0.0.1:8123 -hass-token "$HASS_TOKEN"`
+      # or `task test:models -- ./internal/provider/smartturn -smartturn-url http://127.0.0.1:8891 -smartturn-wavs /path/to/turns`
+      # (complete/*.wav and incomplete/*.wav; `./cmd/chorusd` takes the URL and one -smartturn-wav)
       - go test -race -count=1 -tags=models {{.CLI_ARGS | default "./..."}}
 
   tts:up:
@@ -179,6 +181,29 @@ tasks:
     cmds:
       - uv sync --all-packages
       - uv run pytest sidecars/speakerid
+
+  smartturn:up:
+    desc: Start the local Smart Turn sidecar. First run builds the image and bakes the 8 MB model.
+    cmds:
+      - docker compose up -d --wait --build smartturn
+
+  smartturn:down:
+    desc: Stop the local Smart Turn sidecar
+    cmds:
+      - docker compose stop smartturn
+
+  smartturn:serve:
+    desc: Serve the Smart Turn sidecar without Docker on 127.0.0.1:8891. First run fetches the model into .models/.
+    cmds:
+      - uv sync --all-packages
+      - uv run --package smartturn smartturn --download-only --model-dir .models/smartturn
+      - uv run --package smartturn smartturn --model-dir .models/smartturn --host 127.0.0.1 --port 8891
+
+  smartturn:test:
+    desc: The sidecar's own contract tests. Hermetic, but Python, so not part of `task test`.
+    cmds:
+      - uv sync --all-packages
+      - uv run pytest sidecars/smartturn
 
   test:hardware:
     desc: Requires a reachable satellite from devices.yaml.
