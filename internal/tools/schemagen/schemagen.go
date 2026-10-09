@@ -152,12 +152,22 @@ func LLMToolSchemas(tools map[string]Tool) []map[string]any {
 	return out
 }
 
-// slowHint is appended to a slow tool's model-facing description. Measured, not
-// assumed: with it, qwen3:14b and ornith:9b volunteer a `speak` alongside the
-// slow call; without it both call the tool alone and leave the user in silence.
-// The latency field is the registry's own, so the hint cannot drift from the
+// slowHint is appended to a slow tool's model-facing description. The
+// latency field is the registry's own, so the hint cannot drift from the
 // timeout policy generated beside it (SPEC §6, §14).
 const slowHint = " Takes several seconds to return."
+
+// ackParam is required on every slow tool: the words said aloud while it
+// works. The orchestrator speaks them as the call starts, so an
+// acknowledgement no longer depends on the model volunteering a speak call
+// beside the tool, which measured models do some of the time and not
+// others (ADR-0039). Spelled as registry.AcknowledgementParam.
+var ackParam = Param{
+	Name:        "acknowledgement",
+	Type:        "string",
+	Description: "A few words said aloud while this runs, e.g. \"Searching the library.\" They are spoken for you as it starts; do not also call speak for them.",
+	Required:    true,
+}
 
 // confirmParam carries a confirmed call's nonce. Spelled as
 // registry.ConfirmationParam, which this generator cannot import: it writes
@@ -179,13 +189,20 @@ const (
 // person's yes.
 func confirmable(t Tool) bool { return t.RequiresConfirmation || len(t.ConfirmWhen) > 0 }
 
-// offered is the parameters the model is offered: the declared ones, and the
-// nonce on a confirmable tool.
+// offered is the parameters the model is offered: the declared ones, the
+// acknowledgement on a slow tool, and the nonce on a confirmable one.
 func offered(t Tool) []Param {
-	if !confirmable(t) {
-		return t.Params
+	out := append([]Param(nil), t.Params...)
+	if t.Latency == "slow" {
+		out = append(out, ackParam)
 	}
-	return append(append([]Param(nil), t.Params...), confirmParam)
+	if confirmable(t) {
+		out = append(out, confirmParam)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // describe is the tool description the model sees, which is not quite the one
