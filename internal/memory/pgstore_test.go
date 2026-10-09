@@ -40,7 +40,7 @@ func openPg(t *testing.T) *pgxpool.Pool {
 func TestPgStoreConformance(t *testing.T) {
 	pool := openPg(t)
 	runStoreConformance(t, func(t *testing.T) memory.Store {
-		if _, err := pool.Exec(context.Background(), `TRUNCATE memories`); err != nil {
+		if _, err := pool.Exec(context.Background(), `TRUNCATE memories, conversation_summaries`); err != nil {
 			t.Fatalf("truncate: %v", err)
 		}
 		return memory.NewPgStore(pool)
@@ -65,5 +65,17 @@ func TestPgStoreRefusesAMemoryAboutNobody(t *testing.T) {
 		INSERT INTO memories VALUES ('m_00000000', '', 'Takes oat milk in coffee.', true, 'conv-raw', 'call_r1', now())`)
 	if err == nil {
 		t.Error("the database accepted a memory with no person")
+	}
+}
+
+// A summary kept for nobody would be recalled to whoever has no id.
+//
+// verifies SPEC §5
+func TestPgStoreRefusesASummaryForNobody(t *testing.T) {
+	pool := openPg(t)
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO conversation_summaries VALUES ('conv-raw', '', 'Somebody set a timer for the eggs.', now())`)
+	if err == nil {
+		t.Error("the database accepted a summary kept for nobody")
 	}
 }

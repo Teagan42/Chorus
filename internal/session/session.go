@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 	"strconv"
@@ -30,6 +31,11 @@ const DefaultSilence = 20 * time.Second
 // model that reads a state before it acts, and the cap is what stops one
 // that never stops calling tools.
 const DefaultRounds = 4
+
+// DefaultSummaryTimeout bounds writing a conversation's summary. Generous:
+// nobody is waiting on it, and the model may be cold by the time the
+// silence backstop ends the conversation.
+const DefaultSummaryTimeout = 60 * time.Second
 
 // Reserved tool names the supervisor implements itself. They are ordinary
 // registry entries; only their executor is internal.
@@ -60,6 +66,23 @@ type Config struct {
 	// Memories recalls what each turn's speaker is remembered by. Nil
 	// remembers nothing, and the model is told nothing (SPEC §5).
 	Memories Memories
+
+	// Summarizer writes what each conversation was about when it ends, kept
+	// in Memories for the people in it. Nil keeps no summaries; it needs
+	// Memories to keep them in.
+	Summarizer Summarizer
+
+	// SummaryTimeout bounds one summary. Zero is DefaultSummaryTimeout.
+	SummaryTimeout time.Duration
+
+	// Summarizing counts the summaries still being written: they outlive the
+	// session, and the supervisor, that ended the conversation, so whoever
+	// owns the process waits on it before exiting. Nil is the supervisor's own.
+	Summarizing *sync.WaitGroup
+
+	// Log is where what has no event to go in is reported: a summary that
+	// could not be recorded. Nil discards.
+	Log *slog.Logger
 
 	// Rounds caps how many times one utterance asks the model: the first ask,
 	// and one more after each set of tool results. Zero is DefaultRounds.
@@ -93,6 +116,18 @@ func New(cfg Config) (*Supervisor, error) {
 	}
 	if cfg.Rounds == 0 {
 		cfg.Rounds = DefaultRounds
+	}
+	if cfg.Summarizer != nil && cfg.Memories == nil {
+		return nil, errors.New("session: a summarizer needs memories to keep summaries in")
+	}
+	if cfg.SummaryTimeout == 0 {
+		cfg.SummaryTimeout = DefaultSummaryTimeout
+	}
+	if cfg.Summarizing == nil {
+		cfg.Summarizing = &sync.WaitGroup{}
+	}
+	if cfg.Log == nil {
+		cfg.Log = slog.New(slog.DiscardHandler)
 	}
 	return &Supervisor{cfg: cfg}, nil
 }
@@ -293,6 +328,8 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 			Text:           t.Text,
 			Dialogue:       st.Dialogue,
 			Memories:       st.Recalled,
+			Summaries:      st.RecalledSummaries,
+			Now:            st.HeardAt,
 		})
 		if err != nil {
 			return err
@@ -777,6 +814,11 @@ func (s *Session) end(reason, discard string) error {
 		s.cancel()
 		close(s.done)
 		s.sup.cfg.Conversations.release(s.convID, s)
+		// A conversation that moved to another room has not ended.
+		if reason != "migrated" && err == nil && s.sup.cfg.Summarizer != nil {
+			s.sup.cfg.Summarizing.Add(1)
+			go s.summarize()
+		}
 	})
 	return err
 }

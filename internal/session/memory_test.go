@@ -5,8 +5,10 @@ import (
 	"errors"
 	"maps"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/teaganglenn/chorus/internal/journal"
 	"github.com/teaganglenn/chorus/internal/registry"
@@ -14,25 +16,58 @@ import (
 )
 
 // remembered is the household's memory as a test sets it: what each person
-// recalls right now.
+// recalls right now, and the summaries the session asked it to keep.
 type remembered struct {
-	mu       sync.Mutex
-	byPerson map[string][]journal.Memory
-	err      error
-	asked    []string
+	mu        sync.Mutex
+	byPerson  map[string][]journal.Memory
+	summaries map[string][]journal.Summary
+	err       error
+	keepErr   error
+	asked     []string
+	askedAt   []time.Time
+	kept      []kept
 }
 
-func (r *remembered) Recall(_ context.Context, person string) ([]journal.Memory, error) {
+// kept is one Keep call: a conversation's summary and whom it was kept for.
+type kept struct {
+	People  []string
+	Summary journal.Summary
+}
+
+func (r *remembered) Recall(_ context.Context, person, _ string, now time.Time) (session.Recollection, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.asked = append(r.asked, person)
-	return r.byPerson[person], r.err
+	r.askedAt = append(r.askedAt, now)
+	return session.Recollection{Memories: r.byPerson[person], Summaries: r.summaries[person]}, r.err
+}
+
+func (r *remembered) Keep(_ context.Context, people []string, s journal.Summary) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.keepErr != nil {
+		return r.keepErr
+	}
+	r.kept = append(r.kept, kept{People: slices.Clone(people), Summary: s})
+	return nil
+}
+
+func (r *remembered) keeps() []kept {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.kept)
 }
 
 func (r *remembered) set(person string, ms ...journal.Memory) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.byPerson[person] = ms
+}
+
+func (r *remembered) setSummaries(person string, ss ...journal.Summary) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.summaries[person] = ss
 }
 
 var (
@@ -46,7 +81,7 @@ func newMemoryRig(t *testing.T, steps []step, tools map[string]session.Tool, spe
 	mem := &remembered{byPerson: map[string][]journal.Memory{
 		"teagan": {oatMilk, wifi},
 		"alice":  {wifi},
-	}}
+	}, summaries: map[string][]journal.Summary{}}
 	r := newRigWith(t, steps, tools, specs, func(c *session.Config) { c.Memories = mem })
 	return r, mem
 }

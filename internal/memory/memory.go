@@ -24,6 +24,16 @@ import (
 // first, until a household outgrows it and recall ranks by relevance.
 const RecallLimit = 20
 
+// What a turn is told of the person's earlier conversations: the few most
+// recent from the past week, enough for "what did I ask yesterday" without
+// crowding out the conversation in progress. A summary is kept a month,
+// then pruned as newer ones are kept (SPEC §5, ADR-0041).
+const (
+	SummaryLimit  = 5
+	SummaryWindow = 7 * 24 * time.Hour
+	SummaryKeep   = 30 * 24 * time.Hour
+)
+
 // Memory is one remembered fact and where it was said.
 type Memory struct {
 	ID        string
@@ -55,6 +65,35 @@ func (m Memory) validate() error {
 	return nil
 }
 
+// Summary is what one conversation was about, kept for one person who was in
+// it. Private to them: everyone it is kept for was there.
+type Summary struct {
+	ConversationID string
+	Person         string
+	Text           string
+
+	// At is when the conversation last heard anyone: what "yesterday" is
+	// measured against.
+	At time.Time
+}
+
+// Recalled is the summary as the model is told it.
+func (s Summary) Recalled() journal.Summary {
+	return journal.Summary{ConversationID: s.ConversationID, At: s.At, Text: s.Text}
+}
+
+func (s Summary) validate() error {
+	switch {
+	case s.ConversationID == "":
+		return fmt.Errorf("summary: no conversation")
+	case s.Person == "":
+		return fmt.Errorf("summary of %s: nobody it is kept for", s.ConversationID)
+	case strings.TrimSpace(s.Text) == "":
+		return fmt.Errorf("summary of %s: nothing to keep", s.ConversationID)
+	}
+	return nil
+}
+
 // Store persists memories. Postgres is the real backend; MemStore keeps
 // `task test` hermetic, as with the journal.
 type Store interface {
@@ -68,6 +107,16 @@ type Store interface {
 	// Recall returns the person's memories and the ones others shared, newest
 	// first, at most limit.
 	Recall(ctx context.Context, person string, limit int) ([]Memory, error)
+
+	// Summarized keeps a conversation's summary for one person. A newer
+	// summary of the same conversation, which a resumed conversation that
+	// ended again writes, replaces it; an older one does not. Keeping one
+	// prunes that person's summaries older than SummaryKeep before it.
+	Summarized(ctx context.Context, s Summary) error
+
+	// Summaries returns the person's summaries at or after since, other than
+	// the conversation named, newest first, at most limit.
+	Summaries(ctx context.Context, person, except string, since time.Time, limit int) ([]Summary, error)
 }
 
 // visible reports whether a memory may be recalled to person.
@@ -84,12 +133,17 @@ func newestFirst(a, b Memory) int {
 
 // MemStore is the in-memory Store used by tests.
 type MemStore struct {
-	mu   sync.Mutex
-	byID map[string]Memory
+	mu        sync.Mutex
+	byID      map[string]Memory
+	summaries map[summaryKey]Summary
 }
 
+type summaryKey struct{ conversation, person string }
+
 // NewMemStore returns an empty store.
-func NewMemStore() *MemStore { return &MemStore{byID: map[string]Memory{}} }
+func NewMemStore() *MemStore {
+	return &MemStore{byID: map[string]Memory{}, summaries: map[summaryKey]Summary{}}
+}
 
 // Remember stores m, refusing an id already taken.
 func (s *MemStore) Remember(_ context.Context, m Memory) error {
@@ -135,23 +189,87 @@ func (s *MemStore) Recall(_ context.Context, person string, limit int) ([]Memory
 	return out, nil
 }
 
+// Summarized keeps s unless a newer summary of the conversation is kept.
+func (s *MemStore) Summarized(_ context.Context, sum Summary) error {
+	if err := sum.validate(); err != nil {
+		return err
+	}
+	sum.At = sum.At.Truncate(journal.StoredClockResolution).UTC()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, old := range s.summaries {
+		if k.person == sum.Person && old.At.Before(sum.At.Add(-SummaryKeep)) {
+			delete(s.summaries, k)
+		}
+	}
+	k := summaryKey{sum.ConversationID, sum.Person}
+	if old, ok := s.summaries[k]; !ok || !old.At.After(sum.At) {
+		s.summaries[k] = sum
+	}
+	return nil
+}
+
+// Summaries returns the person's recent summaries, newest first.
+func (s *MemStore) Summaries(_ context.Context, person, except string, since time.Time, limit int) ([]Summary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []Summary
+	for k, sum := range s.summaries {
+		if k.person == person && k.conversation != except && !sum.At.Before(since) {
+			out = append(out, sum)
+		}
+	}
+	slices.SortFunc(out, func(a, b Summary) int {
+		if c := b.At.Compare(a.At); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.ConversationID, b.ConversationID)
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 // Recaller is a Store as the session asks it: a guest recalls nothing, and
-// anyone else at most RecallLimit memories.
+// anyone else at most RecallLimit memories and SummaryLimit conversations
+// from the past SummaryWindow.
 func Recaller(s Store) session.Memories { return recaller{s} }
 
 type recaller struct{ s Store }
 
-func (r recaller) Recall(ctx context.Context, person string) ([]journal.Memory, error) {
+func (r recaller) Recall(ctx context.Context, person, conversationID string, now time.Time) (session.Recollection, error) {
+	var out session.Recollection
 	if person == "" {
-		return nil, nil
+		return out, nil
 	}
 	ms, err := r.s.Recall(ctx, person, RecallLimit)
 	if err != nil {
-		return nil, fmt.Errorf("recall %s: %w", person, err)
+		return out, fmt.Errorf("recall %s: %w", person, err)
 	}
-	var out []journal.Memory
 	for _, m := range ms {
-		out = append(out, m.Recalled())
+		out.Memories = append(out.Memories, m.Recalled())
+	}
+	ss, err := r.s.Summaries(ctx, person, conversationID, now.Add(-SummaryWindow), SummaryLimit)
+	if err != nil {
+		return out, fmt.Errorf("recall %s's conversations: %w", person, err)
+	}
+	for _, s := range ss {
+		out.Summaries = append(out.Summaries, s.Recalled())
 	}
 	return out, nil
+}
+
+// Keep stores the summary for each person; a guest is nobody to keep it for.
+func (r recaller) Keep(ctx context.Context, people []string, s journal.Summary) error {
+	for _, p := range people {
+		if p == "" {
+			continue
+		}
+		err := r.s.Summarized(ctx, Summary{ConversationID: s.ConversationID, Person: p, Text: s.Text, At: s.At})
+		if err != nil {
+			return fmt.Errorf("keep %s's summary of %s: %w", p, s.ConversationID, err)
+		}
+	}
+	return nil
 }

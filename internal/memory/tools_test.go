@@ -61,10 +61,11 @@ func TestASharedFactReachesTheRestOfTheHousehold(t *testing.T) {
 	if _, err := tools["remember"].Invoke(call("alice", "call_r2"), `{"fact":"Teagan's surprise party is Saturday at the Lantern."}`); err != nil {
 		t.Fatalf("remember: %v", err)
 	}
-	got, err := memory.Recaller(store).Recall(context.Background(), "teagan")
+	rec, err := memory.Recaller(store).Recall(context.Background(), "teagan", "conv-kitchen-2", breakfast)
 	if err != nil {
 		t.Fatalf("recall: %v", err)
 	}
+	got := rec.Memories
 	if len(got) != 1 || got[0].Fact != "The guest wifi password is on the fridge." || !got[0].Shareable || got[0].Person != "alice" {
 		t.Errorf("teagan recalls %+v, want only Alice's shared password", got)
 	}
@@ -136,7 +137,7 @@ func TestTheRecallerGivesAGuestNothingAndAPersonTheNewest(t *testing.T) {
 	store := memory.NewMemStore()
 	rememberAll(t, store, household())
 	r := memory.Recaller(store)
-	if got, err := r.Recall(context.Background(), ""); err != nil || got != nil {
+	if got, err := r.Recall(context.Background(), "", "conv-front-door-1", breakfast); err != nil || got.Memories != nil || got.Summaries != nil {
 		t.Errorf("a guest recalls %+v, %v; want nothing", got, err)
 	}
 
@@ -146,10 +147,11 @@ func TestTheRecallerGivesAGuestNothingAndAPersonTheNewest(t *testing.T) {
 			t.Fatalf("remember: %v", err)
 		}
 	}
-	got, err := r.Recall(context.Background(), "teagan")
+	rec, err := r.Recall(context.Background(), "teagan", "conv-kitchen-2", breakfast.Add(24*time.Hour))
 	if err != nil {
 		t.Fatalf("recall: %v", err)
 	}
+	got := rec.Memories
 	if len(got) != memory.RecallLimit {
 		t.Fatalf("recalled %d, want the limit of %d", len(got), memory.RecallLimit)
 	}
