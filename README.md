@@ -43,7 +43,7 @@ it has not yet been run against a real satellite. What exists today:
 | `internal/blob` — the audio a journal event refers to | under test |
 | `esphome/components/chorus_bridge` — firmware component | runs on a Satellite1 |
 | `cmd/probe` — connect to a satellite and dump what it exposes | works |
-| LLM — `internal/provider/ollama`, the turn engine | dials a real endpoint |
+| LLM — `internal/provider/ollama`, the turn engine | dials a real endpoint; asked again with each tool result and the conversation so far |
 | TTS — `internal/provider/kokoro`, resampled to the device's rate | dials a real endpoint |
 | STT — `internal/stt` partials over `internal/provider/speaches` | measured against real Parakeet TDT 0.6B v2 on CPU |
 | speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX) | thresholds measured on 37 speakers; sidecar runs without Docker |

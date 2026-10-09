@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,15 +27,28 @@ type stillClock struct{ now time.Time }
 func (c stillClock) Now() time.Time                       { return c.now }
 func (c stillClock) After(time.Duration) <-chan time.Time { return make(chan time.Time) }
 
-// scriptEngine replays a fixed action stream, in order, as fast as the
-// session drains it.
-type scriptEngine struct{ acts []session.Action }
+// scriptEngine replays a fixed action stream to the utterance, in order, as
+// fast as the session drains it. The follow-up ask the session makes with
+// the tool's result is kept and answered with nothing.
+type scriptEngine struct {
+	acts []session.Action
 
-func (e *scriptEngine) Turn(ctx context.Context, _ session.Input) (<-chan session.Action, error) {
+	mu       sync.Mutex
+	followUp []session.Input
+}
+
+func (e *scriptEngine) Turn(ctx context.Context, in session.Input) (<-chan session.Action, error) {
+	acts := e.acts
+	if n := len(in.Dialogue); n > 0 && in.Dialogue[n-1].Kind == journal.EntryResult {
+		e.mu.Lock()
+		e.followUp = append(e.followUp, in)
+		e.mu.Unlock()
+		acts = nil
+	}
 	out := make(chan session.Action)
 	go func() {
 		defer close(out)
-		for _, a := range e.acts {
+		for _, a := range acts {
 			select {
 			case out <- a:
 			case <-ctx.Done():
@@ -105,6 +119,7 @@ func (s *heldStream) Close() session.Playback {
 type rig struct {
 	sup     *session.Supervisor
 	store   *journal.MemStore
+	engine  *scriptEngine
 	speaker *heldSpeaker
 	wire    *transport
 }
@@ -114,12 +129,13 @@ func newRig(t *testing.T, wire *transport, acts ...session.Action) *rig {
 	store := journal.NewMemStore()
 	clk := stillClock{now: time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC)}
 	sp := newSpeaker()
+	eng := &scriptEngine{acts: acts}
 	sup, err := session.New(session.Config{
 		Journal: journal.New(store, clk, journal.Versions{Model: "qwen3-32b", Prompt: "p1", ToolSchema: "t1"}),
 		Store:   store,
 		Clock:   clk,
 		Timers:  clk,
-		Engine:  &scriptEngine{acts: acts},
+		Engine:  eng,
 		Speaker: sp,
 		Tools:   hass.Tools(clientOn(t, wire)),
 		Gate:    session.Gate{MinEnergy: 0.2, MinWords: 2, Household: []string{"alice"}},
@@ -127,7 +143,7 @@ func newRig(t *testing.T, wire *transport, acts ...session.Action) *rig {
 	if err != nil {
 		t.Fatalf("new supervisor: %v", err)
 	}
-	return &rig{sup: sup, store: store, speaker: sp, wire: wire}
+	return &rig{sup: sup, store: store, engine: eng, speaker: sp, wire: wire}
 }
 
 func (r *rig) open(t *testing.T) *session.Session {
@@ -239,6 +255,16 @@ func TestTheAcknowledgementPlaysWhileTheServiceCallIsInFlight(t *testing.T) {
 	}
 	if call.Outcome != "ok" || call.Result != offAgain {
 		t.Errorf("call = %+v, want ok with %s", call, offAgain)
+	}
+	// What HA said goes back to the model before the turn ends (ADR-0037).
+	r.engine.mu.Lock()
+	defer r.engine.mu.Unlock()
+	if n := len(r.engine.followUp); n != 1 {
+		t.Fatalf("model asked again %d times with the result, want 1", n)
+	}
+	d := r.engine.followUp[0].Dialogue
+	if got := d[len(d)-1]; got.CallID != "c1" || got.Result != offAgain {
+		t.Errorf("follow-up ended on %+v, want HA's answer", got)
 	}
 }
 

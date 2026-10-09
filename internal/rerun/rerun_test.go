@@ -334,3 +334,35 @@ func TestAnOllamaRunnerThatDiesMidStreamFailsTheRerun(t *testing.T) {
 		t.Errorf("err = %v, want the runner's death", err)
 	}
 }
+
+// Teagan's garage question under the session that asks again: the first ask
+// said it was checking and read the cover; the follow-up answered from the
+// state. A re-run asks with the transcript alone, so only the first ask is
+// what it can be compared with.
+//
+// verifies SPEC §9.2
+func TestATakeIsTheTurnsFirstAsk(t *testing.T) {
+	events := garageLog(t,
+		record(journal.KindUtteranceTranscribed, "text", "is the porch light on", "speaker_id", "teagan"),
+		record(journal.KindToolCalled, "tool", "speak", "call_id", "s4", "args_json", `{"mode":"queue","streamed":true,"text":"Let me check."}`),
+		record(journal.KindToolCalled, "tool", "ha_get_state", "call_id", "c4", "args_json", `{"entity_id":"light.porch"}`),
+		record(journal.KindModelCompleted, "completion_json", "{}", "finish_reason", "stop"),
+		record(journal.KindToolResult, "call_id", "c4", "outcome", "ok", "result_json", `{"state":"on"}`),
+		record(journal.KindSpeechSpoken, "text", "Let me check.", "frames_played", "19200", "call_id", "s4"),
+		record(journal.KindToolResult, "call_id", "s4", "outcome", "ok"),
+		record(journal.KindToolCalled, "tool", "speak", "call_id", "s5", "args_json", `{"mode":"queue","streamed":true,"text":"Yes, the porch light is on."}`),
+		record(journal.KindToolCalled, "tool", "ha_call_service", "call_id", "c5", "args_json", `{"domain":"light","service":"turn_off","entity_id":"light.porch"}`),
+		record(journal.KindModelCompleted, "completion_json", "{}", "finish_reason", "length"),
+		record(journal.KindSpeechSpoken, "text", "Yes, the porch light is on.", "frames_played", "38400", "call_id", "s5"),
+	)
+	porch := turns(t, events)[2]
+	if got := porch.Recorded.Speech; len(got) != 1 || got[0].Text != "Let me check." {
+		t.Errorf("speech = %+v, want only the first ask's", got)
+	}
+	if got := porch.Recorded.Calls; len(got) != 1 || got[0].Tool != "ha_get_state" {
+		t.Errorf("calls = %+v, want only the first ask's", got)
+	}
+	if porch.Recorded.Finish != "stop" {
+		t.Errorf("finish = %q, want the first ask's", porch.Recorded.Finish)
+	}
+}

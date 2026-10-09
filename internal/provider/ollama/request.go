@@ -33,11 +33,14 @@ When a tool will take a moment, FIRST call speak to tell the person you are work
 
 Call end_session once the conversation is finished.`
 
-// message is one chat message. Only role and content are sent: tool results
-// come back on a later turn, which the session does not drive yet.
+// message is one chat message. An assistant message carries the calls the
+// model made; a tool message carries one call's result, named by its tool,
+// which is how this endpoint matches the two.
 type message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string     `json:"role"`
+	Content   string     `json:"content"`
+	ToolCalls []toolCall `json:"tool_calls,omitempty"`
+	ToolName  string     `json:"tool_name,omitempty"`
 }
 
 // request is one POST /api/chat body.

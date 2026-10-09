@@ -2,10 +2,11 @@
 // journal recorded, asks a turn engine the same question again, perhaps under
 // a different prompt or model, and says what changed.
 //
-// It is safe to point at the live model. The engine is single-shot: a turn is
-// the system prompt and one transcript, and tool results never feed back into
-// it. So a re-run executes nothing; it only compares the calls the model
-// would make with the ones it made.
+// It is safe to point at the live model. An engine never runs a tool: asking
+// again with results is the session's job (ADR-0037), and a re-run asks once,
+// with the system prompt and the transcript alone. So a re-run executes
+// nothing; it only compares the calls the model would make with the ones it
+// made, and the take it compares against is the turn's first ask.
 package rerun
 
 import (
@@ -64,11 +65,20 @@ type Turn struct {
 // Turns splits a conversation's log at each transcribed utterance. The
 // speaker is the one the reducer held when the turn ran, which is what the
 // session handed the engine.
+//
+// A turn's recorded take is its first ask: the calls made before its first
+// completion, and the speech of those calls. A follow-up ask answered tool
+// results a re-run never has, so comparing against it would report every
+// answer as a change.
 func Turns(events []journal.Event) ([]Turn, error) {
 	var (
 		out   []Turn
 		state journal.State
 		err   error
+		// asked is set once the turn's first ask completed; later holds the
+		// follow-up asks' speak calls, whose speech is not the first ask's.
+		asked bool
+		later map[string]bool
 	)
 	for _, e := range events {
 		if state, err = journal.Reduce(state, e); err != nil {
@@ -80,6 +90,7 @@ func Turns(events []journal.Event) ([]Turn, error) {
 		f := e.Fields
 		if e.Kind == journal.KindUtteranceTranscribed {
 			out = append(out, Turn{Seq: e.Seq, Speaker: state.Speaker, Text: f["text"], Versions: e.Versions})
+			asked, later = false, map[string]bool{}
 			continue
 		}
 		if len(out) == 0 {
@@ -88,18 +99,31 @@ func Turns(events []journal.Event) ([]Turn, error) {
 		t := &out[len(out)-1]
 		switch e.Kind {
 		case journal.KindSpeechSpoken:
-			t.Recorded.Speech = append(t.Recorded.Speech, Speech{Text: f["text"]})
+			if !later[f["call_id"]] {
+				t.Recorded.Speech = append(t.Recorded.Speech, Speech{Text: f["text"]})
+			}
 		case journal.KindSpeechTruncated:
-			t.Recorded.Speech = append(t.Recorded.Speech, Speech{Text: f["spoken_text"], Unheard: f["unspoken_text"]})
+			if !later[f["call_id"]] {
+				t.Recorded.Speech = append(t.Recorded.Speech, Speech{Text: f["spoken_text"], Unheard: f["unspoken_text"]})
+			}
 		case journal.KindSpeechDiscarded:
+			// Names no call, so a follow-up's discarded speech cannot be
+			// told apart from the first ask's and is kept with the turn.
 			t.Recorded.Speech = append(t.Recorded.Speech, Speech{Unheard: f["unspoken_text"]})
 		case journal.KindToolCalled:
-			if f["tool"] != toolSpeak {
+			switch {
+			case asked && f["tool"] == toolSpeak:
+				later[f["call_id"]] = true
+			case asked:
+			case f["tool"] != toolSpeak:
 				t.Recorded.Calls = append(t.Recorded.Calls, Call{Tool: f["tool"], Args: f["args_json"]})
 			}
 		case journal.KindModelCompleted:
-			t.Recorded.Finish = f["finish_reason"]
-			t.Versions = e.Versions
+			if !asked {
+				t.Recorded.Finish = f["finish_reason"]
+				t.Versions = e.Versions
+			}
+			asked = true
 		}
 	}
 	return out, nil

@@ -68,12 +68,10 @@ type Config struct {
 	SpeakInlineContent bool
 }
 
-// Engine turns one transcript into one streamed /api/chat turn.
-//
-// Single-shot: the request carries the system prompt and this turn's
-// transcript, and nothing else. Conversation history and tool results fed back
-// for a follow-up turn are session-level concerns, and the session does not
-// call Turn a second time yet, so there is no history to send.
+// Engine turns one ask into one streamed /api/chat turn. The request carries
+// the system prompt and the dialogue the session derived from the log, so a
+// follow-up ask sees the calls it made and what they returned. Deciding when
+// to ask again is the session's; this only says it.
 type Engine struct {
 	cfg      Config
 	url      string
@@ -181,9 +179,9 @@ func (e *Engine) Turn(ctx context.Context, in session.Input) (<-chan session.Act
 	return out, nil
 }
 
-// messages is what the model sees. The transcript is sent verbatim: it is
-// training data, and a label prefixed onto it is something a small model reads
-// back out loud.
+// messages is what the model sees. Transcripts are sent verbatim: they are
+// training data, and a label prefixed onto one is something a small model
+// reads back out loud.
 func (e *Engine) messages(in session.Input) []message {
 	sys := e.cfg.Prompt
 	if in.Speaker != "" {
@@ -191,10 +189,12 @@ func (e *Engine) messages(in session.Input) []message {
 		// (SPEC §5). /api/chat has no per-message name field to put it in.
 		sys += "\n\nYou are speaking with " + in.Speaker + "."
 	}
-	return []message{
-		{Role: "system", Content: sys},
-		{Role: "user", Content: in.Text},
+	out := []message{{Role: "system", Content: sys}}
+	if len(in.Dialogue) == 0 {
+		// Asked a turn on its own, as Replay's re-runs are.
+		return append(out, message{Role: "user", Content: in.Text})
 	}
+	return append(out, dialogue(in.Dialogue)...)
 }
 
 func fingerprint(b []byte) string {

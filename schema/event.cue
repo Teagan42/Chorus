@@ -78,6 +78,7 @@ events: {
 		fields: [
 			{name: "text", type: "string", description: "Text corresponding to played audio.", required: true},
 			{name: "frames_played", type: "integer", description: "DAC frame count at completion.", required: true},
+			{name: "call_id", type: "string", description: "The speak call this audio played, so the dialogue the model is told puts it where the model said it. Empty in logs from before it was recorded."},
 		]
 	}
 	speech_truncated: {
@@ -89,6 +90,7 @@ events: {
 			{name: "spoken_text", type: "string", description: "What the user heard.", required: true},
 			{name: "unspoken_text", type: "string", description: "Generated but never played.", required: true},
 			{name: "frames_played", type: "integer", description: "DAC frame count at cut.", required: true},
+			{name: "call_id", type: "string", description: "The speak call that was cut. Empty in logs from before it was recorded."},
 		]
 	}
 	speech_discarded: {
