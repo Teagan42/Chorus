@@ -157,6 +157,18 @@ func TestARealCorpusEndsTurnsSoonerThanTheSilence(t *testing.T) {
 		t.Skip("no -smartturn-wavs")
 	}
 	takes := readTakes(t, *wavs)
+	var kinds [2]int
+	for _, tk := range takes {
+		if tk.complete {
+			kinds[1]++
+		} else {
+			kinds[0]++
+		}
+	}
+	// Asked for a corpus and given none is a mistake, not a skip.
+	if kinds[0] == 0 || kinds[1] == 0 {
+		t.Fatalf("%s: %d complete and %d incomplete takes; want both. `task smartturn:corpus` renders them", *wavs, kinds[1], kinds[0])
+	}
 	var sum [2]float64
 	var n [2]int
 	right := 0
@@ -171,9 +183,6 @@ func TestARealCorpusEndsTurnsSoonerThanTheSilence(t *testing.T) {
 		if v.Complete == tk.complete {
 			right++
 		}
-	}
-	if n[0] == 0 || n[1] == 0 {
-		t.Skipf("%s: needs complete and incomplete takes", *wavs)
 	}
 	t.Logf("verdicts right on %d of %d takes; mean p complete %.3f, incomplete %.3f", right, len(takes), sum[1]/float64(n[1]), sum[0]/float64(n[0]))
 	if sum[1]/float64(n[1]) <= sum[0]/float64(n[0]) {

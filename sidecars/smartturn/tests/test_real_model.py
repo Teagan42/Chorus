@@ -46,7 +46,9 @@ def corpus() -> dict[str, list[Path]]:
         pytest.skip("no corpus: set SMARTTURN_CORPUS to <dir>/{complete,incomplete}/*.wav")
     out = {k: sorted((Path(CORPUS) / k).glob("*.wav")) for k in ("complete", "incomplete")}
     if not all(out.values()):
-        pytest.skip(f"{CORPUS}: needs at least one complete and one incomplete turn")
+        pytest.fail(
+            f"{CORPUS}: needs complete and incomplete turns; task smartturn:corpus renders them"
+        )
     return out
 
 

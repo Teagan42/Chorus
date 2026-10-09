@@ -54,7 +54,7 @@ From the repo root, which is the uv workspace root:
 
 ```sh norun
 task smartturn:up                 # builds the image, bakes the model, serves on 127.0.0.1:8891
-task test:models -- ./internal/provider/smartturn -smartturn-url http://127.0.0.1:8891
+task test:models -- -v ./internal/provider/smartturn -smartturn-url http://127.0.0.1:8891
 ```
 
 Without Docker:
