@@ -97,6 +97,37 @@ jobs:
         env:
           CHORUS_POSTGRES_DSN: postgres://chorus:chorus@localhost:5432/chorus?sslmode=disable
 
+  # Separate job for the same reason as db: the browser is a dependency
+  # `task test` must keep proving it does not have.
+  e2e:
+    name: test:e2e (review UI in Chrome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.54.0
+
+      # Set explicitly so the tests fail rather than skip. The runner image
+      # ships Chrome; a missing binary is a red build, not a quiet pass.
+      - run: task test:e2e
+        env:
+          CHORUS_E2E_CHROME: /usr/bin/google-chrome
+          CHORUS_E2E_SHOTS: ${{ runner.temp }}/reviewui-screens
+
+      # What each screen looked like when the tests ran, pass or fail.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reviewui-screens
+          path: ${{ runner.temp }}/reviewui-screens
+          if-no-files-found: ignore
+
   # Blocking since every SPEC §15 critical clause has coverage. It was advisory
   # while the runtime did not exist. If it goes red, add the test — do not
   # weaken spectrace or drop a citation.
