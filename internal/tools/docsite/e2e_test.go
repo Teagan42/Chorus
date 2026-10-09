@@ -10,6 +10,7 @@ package docsite
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -87,6 +88,12 @@ func open(t *testing.T, width, height int64) *page {
 			// Only our own pages: fonts and the CDN are not the site.
 			if ev.Response.Status >= 400 && strings.HasPrefix(ev.Response.URL, srv.URL) {
 				p.fail("%d from %s", ev.Response.Status, ev.Response.URL)
+			}
+		case *network.EventRequestWillBeSent:
+			// The header's facts are baked in at build time; asking GitHub is
+			// how a tab ended up showing a release older than the site.
+			if strings.HasPrefix(ev.Request.URL, "https://api.github.com/") {
+				p.fail("asked the GitHub API: %s", ev.Request.URL)
 			}
 		case *fetch.EventRequestPaused:
 			go p.serveMermaid(ev, mermaid)
@@ -281,4 +288,44 @@ func TestE2EPhoneWidthHasNoSidewaysScroll(t *testing.T) {
 	}
 	p.visit("reviewui/")
 	p.shot("site-phone-reviewui")
+}
+
+// shipped is the release the site was built from, as the header names it.
+func shipped(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile("../../../.release-please-manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]string
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatalf("release manifest: %v", err)
+	}
+	return "v" + manifest["."]
+}
+
+func TestE2EHeaderNamesTheReleaseThatShipped(t *testing.T) {
+	want := shipped(t)
+	p := open(t, 1280, 900)
+	p.visit("")
+	p.waitFor("the header's version",
+		fmt.Sprintf(`document.querySelector(".md-source__fact--version")?.innerText === %q`, want))
+
+	// A tab opened before the release, holding what GitHub said back then.
+	p.eval(`sessionStorage.setItem("/Chorus/.__source", JSON.stringify({version: "v0.9.0", stars: 0, forks: 0})), true`, nil)
+	p.run(chromedp.Reload())
+	p.waitFor("the header's version after a reload",
+		fmt.Sprintf(`document.querySelector(".md-source__fact--version")?.innerText === %q`, want))
+
+	// And on the next page, which instant navigation loads without a reload.
+	p.eval(`document.querySelector('a[href="changelog/"], a[href$="/changelog/"]').click()`, nil)
+	p.waitFor("the changelog", `location.pathname.endsWith("/Chorus/changelog/")`)
+	p.waitFor("the header's version on the changelog",
+		fmt.Sprintf(`document.querySelector(".md-source__fact--version")?.innerText === %q`, want))
+	var latest string
+	p.eval(`document.querySelector("article h2").firstChild.textContent.trim()`, &latest)
+	if !strings.HasPrefix("v"+latest, want) {
+		t.Errorf("the changelog's newest entry is %q, the header says %q", latest, want)
+	}
+	p.shot("site-header-version")
 }

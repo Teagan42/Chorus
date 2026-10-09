@@ -1,0 +1,13 @@
+{#-
+  The header's version is the release this site was built from. Left to
+  itself, Material asks the GitHub API from the reader's browser and keeps
+  the answer for the life of the tab, so a tab opened before a release
+  shows the old one. Seeding that cache means it never asks.
+-#}
+{% extends "base.html" %}
+{% block scripts %}
+  {%- if config.extra.docsite.version %}
+  <script>__md_set("__source", {"version": {{ config.extra.docsite.version | tojson }}}, sessionStorage)</script>
+  {%- endif %}
+  {{ super() }}
+{% endblock %}

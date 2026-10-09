@@ -8,6 +8,7 @@ purpose to prove the strict build refuses it.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import textwrap
@@ -17,9 +18,10 @@ import hooks
 import pytest
 from mkdocs.commands.build import build
 from mkdocs.config import load_config
-from mkdocs.exceptions import Abort
+from mkdocs.exceptions import Abort, PluginError
 
 REPO = Path(__file__).resolve().parents[3]
+OVERRIDES = Path(hooks.__file__).parent / "overrides"
 URL = "https://github.com/Teagan42/Chorus"
 
 # The repo as rewrite_links sees it: what is published, and what else exists.
@@ -263,6 +265,7 @@ def household_repo(root: Path) -> Path:
     (root / "docs/adr/0004-barge-in-detection-gate.md").write_text(
         "# 4. Gate barge-in on detection\n\nSee [SPEC §4](../SPEC.md#4-sessions).\n"
     )
+    release(root, "0.10.0")
     (root / "mkdocs.yml").write_text(
         textwrap.dedent(
             f"""\
@@ -275,8 +278,12 @@ def household_repo(root: Path) -> Path:
               unrecognized_links: warn
               anchors: warn
             hooks: [{Path(hooks.__file__).as_posix()}]
+            theme:
+              name: material
+              custom_dir: {OVERRIDES.as_posix()}
             extra:
               docsite:
+                version_from: .release-please-manifest.json
                 pages:
                   README.md: index.md
             nav:
@@ -287,6 +294,11 @@ def household_repo(root: Path) -> Path:
         )
     )
     return root
+
+
+def release(root: Path, version: str) -> None:
+    """What release-please does to the manifest when it tags a release."""
+    (root / ".release-please-manifest.json").write_text(json.dumps({".": version}, indent=2))
 
 
 def build_repo(root: Path) -> Path:
@@ -364,3 +376,43 @@ def test_docexec_tags_leave_the_fence_and_examples_of_them_stay():
 def test_screens_after_a_norun_block_are_still_images(built):
     html = (built / "reviewui" / "index.html").read_text()
     assert '<img alt="Browse" src="browse.png"' in html
+
+
+# ------------------------------------------------------- the header version
+
+
+def seeded_version(html: str) -> str | None:
+    m = re.search(r'__md_set\("__source", \{"version": "([^"]+)"\}, sessionStorage\)', html)
+    return m and m.group(1)
+
+
+def test_the_released_version_comes_from_the_manifest(tmp_path):
+    release(tmp_path, "0.10.0")
+    assert hooks.released_version(str(tmp_path / ".release-please-manifest.json")) == "v0.10.0"
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [None, "{not json", json.dumps({"sidecars/speakerid": "0.3.0"})],
+    ids=["missing", "malformed", "no-root-package"],
+)
+def test_an_unreadable_manifest_fails_the_build_rather_than_guess(tmp_path, manifest):
+    path = tmp_path / ".release-please-manifest.json"
+    if manifest is not None:
+        path.write_text(manifest)
+    with pytest.raises(PluginError, match="read the released version"):
+        hooks.released_version(str(path))
+
+
+def test_every_page_of_this_repo_names_the_release_it_was_built_from(built):
+    want = "v" + json.loads((REPO / ".release-please-manifest.json").read_text())["."]
+    for page in ["index.html", "SPEC/index.html", "reviewui/index.html", "changelog/index.html"]:
+        assert seeded_version((built / page).read_text()) == want, page
+
+
+def test_the_header_follows_the_release_that_shipped(tmp_path):
+    root = household_repo(tmp_path)
+    assert seeded_version((build_repo(root) / "index.html").read_text()) == "v0.10.0"
+
+    release(root, "0.11.0")
+    assert seeded_version((build_repo(root) / "index.html").read_text()) == "v0.11.0"
