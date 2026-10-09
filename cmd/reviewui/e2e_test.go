@@ -380,6 +380,60 @@ func TestE2EBrowseOpensEachConversationAndComesBack(t *testing.T) {
 	p.waitText("body", "is the garage door closed")
 }
 
+// A reviewer opens the Zeppelin barge-in from its log, adds a line to the
+// prompt, re-runs it and reads what the model would have done instead.
+//
+// verifies SPEC §9.2
+func TestE2EReplayRerunsAnEditedPromptAndShowsWhatChanged(t *testing.T) {
+	hh := leadsWithTheCount()
+	p := open(t, newReplayServer(t, hh))
+	p.visit("/replays")
+	p.waitText("#replays", "play something by zeppelin")
+	p.shot("replays")
+
+	p.visit("/conversations/conv-1")
+	p.follow(`a[href="/replays/conv-1"]`)
+	p.waitText("#replay-result", "albums by that artist")
+	if got := p.path(); got != "/replays/conv-1" {
+		t.Errorf("landed on %s, want the conversation's replay", got)
+	}
+	p.shot("replay")
+
+	edit := "When there are several results, say how many, offer the first, and stop."
+	p.run(
+		chromedp.Evaluate(`(() => { const a = document.querySelector("#replay-prompt"); a.value = a.value.trimEnd() + "\n\n"; })()`, nil),
+		chromedp.SendKeys("#replay-prompt", edit, chromedp.ByQuery),
+	)
+	p.click(`form button[type="submit"]`)
+	p.waitText("#replay-result", "I found three albums. Want Led Zeppelin one?")
+	for _, want := range []string{"speech and calls changed", "media_search", "1 of 2", edit} {
+		if !strings.Contains(p.text("#replay-result"), want) {
+			t.Errorf("the re-run is missing %q", want)
+		}
+	}
+	if got := hh.built[len(hh.built)-1]; !strings.HasSuffix(got, edit) {
+		t.Errorf("the model was built with %q, want the edited prompt", got)
+	}
+	// The page stays put: the run swapped in, it did not navigate.
+	if got := p.path(); got != "/replays/conv-1" {
+		t.Errorf("a re-run moved the page to %s", got)
+	}
+	p.shot("replay-rerun")
+}
+
+// verifies SPEC §9.2
+func TestE2EReplayWithoutAModelCannotRun(t *testing.T) {
+	p := open(t, newReplayServer(t, nil))
+	p.visit("/replays/conv-1")
+	p.waitText(".alert", "No model to ask.")
+	var disabled bool
+	p.eval(`document.querySelector('form button[type="submit"]').disabled`, &disabled)
+	if !disabled {
+		t.Error("with no model configured, the run button should be disabled")
+	}
+	p.shot("replay-no-model")
+}
+
 // verifies SPEC §9.1
 func TestE2EExportDownloadsTheAcceptedPair(t *testing.T) {
 	s, decisions := newTestServer(t)
@@ -406,6 +460,7 @@ func TestE2EEveryScreenSaysWhenItIsEmpty(t *testing.T) {
 		{"/queue", "Nothing in this pile."},
 		{"/export", "Nothing to export yet."},
 		{"/conversations", "No conversations this day."},
+		{"/replays", "Nothing to replay yet."},
 	} {
 		p.visit(c.path)
 		p.waitText("body", c.want)
@@ -424,7 +479,7 @@ func TestE2EHeaderLinksLandOnTheirScreens(t *testing.T) {
 	s, _ := newTestServer(t)
 	p := open(t, s)
 	p.visit("/export")
-	for _, path := range []string{"/conversations", "/queue", "/review", "/curate/pairs", "/export"} {
+	for _, path := range []string{"/conversations", "/queue", "/review", "/replays", "/curate/pairs", "/export"} {
 		p.follow(fmt.Sprintf(`header nav a[href="%s"]`, path))
 		if got := p.path(); got != path {
 			t.Errorf("header link to %s landed on %s", path, got)
