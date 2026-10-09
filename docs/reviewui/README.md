@@ -32,6 +32,49 @@ task reviewui -- -addr :9090   # somewhere other than :8080
 These are the same variables `chorusd` reads, so the `.env` copied from
 `.env.example` already serves both. `/` redirects to Curate.
 
+## The hosted demo
+
+[teagan42.github.io/Chorus/demo](https://teagan42.github.io/Chorus/demo/)
+is this UI running in a visitor's browser over one made-up household's
+Thursday: Teagan, Alice and Alan, the kitchen, office and living room, three
+barge-ins, a garage sensor that times out, an oven timer asked for twice, and
+Alice carrying her music to the living room. It is the same day the browser
+tests walk (`internal/reviewui/household`), so what the demo shows is what CI
+checked.
+
+There is no server behind it. `cmd/reviewui` compiles to WebAssembly
+(`main_js.go`) and serves the household from memory inside the tab;
+`cmd/reviewui/web` is the shell page that hands it every request the screens
+make and routes the address bar's `#/path` to it, so a link or a reload lands
+where it says.
+
+![The demo, open on the household's Thursday](demo-browse.png)
+
+Three things differ from a household's own review box, and a notice above
+every screen says so:
+
+- verdicts live in the tab and are gone on reload;
+- Replay asks `household.Model`, not Ollama: under the default prompt it
+  answers each turn as the journal recorded it, and under an edited one as the
+  model did once told to lead with the count, offer the first, and stop;
+- the clock is fixed at 22:30 that Thursday, when the reviewer sits down.
+
+![The demo's Replay, under a prompt edited to lead with the count](demo-replay.png)
+
+The audio is synthetic. `voice.json` scripts who says what and for how long,
+and `task household:voice` speaks it with Kokoro, the TTS `chorusd` uses, into
+16 kHz device PCM. A cut answer is spoken in two halves so the cut lands on
+the word the journal recorded.
+
+```sh norun
+task demo:serve        # build into site/demo, serve http://127.0.0.1:8090/demo/
+task household:voice   # re-speak the clips after editing voice.json
+```
+
+The docs workflow builds the demo on every PR and publishes it with the site.
+`demo_e2e_test.go` serves the built demo under the Pages path in a headless
+Chrome, so a URL the shell fails to re-point is a 404 the test fails on.
+
 ## The screens
 
 The header runs left to right in the order a reviewer usually works, and
@@ -176,7 +219,7 @@ and the store stays raw.
 
 ## Tests
 
-Three layers, all over the same household fixtures (`household_test.go`):
+Three layers, all over the same household fixtures (`internal/reviewui/household`, the day the demo serves):
 named people, real rooms, real tool calls, barge-ins cut where a DAC would
 cut them.
 

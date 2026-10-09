@@ -51,7 +51,7 @@ it has not yet been run against a real satellite. What exists today:
 | `internal/hass` — the one real tool (SPEC §14 item 5) | verified against Home Assistant 2026.10 |
 | `internal/listen` — the Listening child: mic stream to utterances, barge-in candidates, attribution | under test |
 | `internal/harvest`, `cmd/harvest` — barge-ins as DPO candidates | under test |
-| `cmd/reviewui` — Browse, Triage, Review, Replay, Curate and Export over the journal ([guide](docs/reviewui/README.md)) | under test, in a headless Chrome too |
+| `cmd/reviewui` — Browse, Triage, Review, Replay, Curate and Export over the journal ([guide](docs/reviewui/README.md), [demo](https://teagan42.github.io/Chorus/demo/)) | under test, in a headless Chrome too |
 | `internal/triage` — barge-ins, failures, repeated asks, slow answers and speaker flips, derived on read | under test |
 | `internal/rerun` — edit-and-replay: a conversation's turns asked again under another prompt or model | under test |
 | `internal/curation` — a reviewer's verdicts, in a table beside the journal | under test |
@@ -204,7 +204,9 @@ The review UI reads the journal and the blob directory `chorusd` writes:
 browse the day per satellite, triage what's worth a look, listen to each
 barge-in cut where the speaker actually stopped, re-run a conversation under
 an edited prompt, curate the pairs, and download the DPO dataset.
-[`docs/reviewui/README.md`](docs/reviewui/README.md) walks every screen.
+[`docs/reviewui/README.md`](docs/reviewui/README.md) walks every screen, and
+the [demo](https://teagan42.github.io/Chorus/demo/) runs it in your browser
+over a made-up household's Thursday.
 `task harvest -- <conversation-id>` writes one conversation's raw candidates
 from the command line: every barge-in, uncurated, with no `chosen` side
 (`meta.curated=false`), so it is for inspection, not training. The curated

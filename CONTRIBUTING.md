@@ -274,9 +274,11 @@ internal/
   rerun/                edit-and-replay (SPEC §9.2)
   curation/             reviewer verdicts, beside the journal (ADR-0034)
   reviewui/             the review UI's component kit and audio handler
+    household/          the made-up household's Thursday: tests' fixture, the demo's data
   config/               satellite inventory
   msgid/                ESPHome wire ids, derived from the proto descriptors
-  tools/                build-time tooling (schemagen, spectrace, atomic, docexec, docsite)
+  tools/                build-time tooling (schemagen, spectrace, atomic, docexec, docsite,
+                        demosite, householdvoice)
 schema/                 CUE source of truth
   json/                 generated JSON Schema (do not edit)
 sidecars/               Python model services (uv workspace): speakerid, smartturn
