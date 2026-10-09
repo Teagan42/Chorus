@@ -57,7 +57,15 @@ type ToolSpec struct {
 
 	// ConfirmWhen holds the calls whose arguments match any entry for the
 	// person's yes, when the tool as a whole needs none (ADR-0038).
-	ConfirmWhen []map[string]string
+	ConfirmWhen []ConfirmRule
+}
+
+// ConfirmRule is one confirm_when entry. A call matches when its arguments
+// carry every value in Args and, when TargetClass names any, what it acts
+// on has one of those classes (ADR-0041).
+type ConfirmRule struct {
+	Args        map[string]string
+	TargetClass []string
 }
 
 // Specs is every declared tool, keyed by name.
@@ -113,10 +121,14 @@ var Specs = map[string]ToolSpec{
 		Timeout:              10000 * time.Millisecond,
 		RequiresConfirmation: false,
 		Slow:                 false,
-		ConfirmWhen: []map[string]string{
-			{"domain": "lock", "service": "unlock"},
-			{"domain": "lock", "service": "open"},
-			{"domain": "alarm_control_panel", "service": "alarm_disarm"},
+		ConfirmWhen: []ConfirmRule{
+			{Args: map[string]string{"domain": "lock", "service": "unlock"}},
+			{Args: map[string]string{"domain": "lock", "service": "open"}},
+			{Args: map[string]string{"domain": "alarm_control_panel", "service": "alarm_disarm"}},
+			{Args: map[string]string{"domain": "cover", "service": "open_cover"}, TargetClass: []string{"door", "garage", "gate"}},
+			{Args: map[string]string{"domain": "cover", "service": "toggle"}, TargetClass: []string{"door", "garage", "gate"}},
+			{Args: map[string]string{"domain": "cover", "service": "set_cover_position"}, TargetClass: []string{"door", "garage", "gate"}},
+			{Args: map[string]string{"domain": "homeassistant", "service": "toggle"}, TargetClass: []string{"door", "garage", "gate"}},
 		},
 	},
 	"ha_find_entities": {
