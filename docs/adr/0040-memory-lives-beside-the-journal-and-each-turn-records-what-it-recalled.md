@@ -94,8 +94,8 @@ said. A memory somebody else shared says whose it is. A re-run of a turn
   newest first. A household past twenty memories a person loses its oldest
   from the prompt until recall ranks by relevance.
 - **"What did I ask yesterday" is not this.** Only facts the person asked to
-  keep are remembered. The rolling per-person summary SPEC §5 also names
-  comes separately.
+  keep are remembered. The per-person summaries SPEC §5 also names are
+  ADR-0042.
 - **The prompt is unmeasured.** The models tier asks qwen3:14b to remember
   the oat milk, to answer from it, and to forget it by its id. It has not run
   where this was written, which has no Ollama endpoint.
