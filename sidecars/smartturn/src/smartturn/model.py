@@ -15,7 +15,6 @@ import hashlib
 import os
 import shutil
 import tempfile
-import threading
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -131,10 +130,10 @@ class OnnxTurn:
     def __init__(self, model_dir: str | os.PathLike[str], threads: int | None = None) -> None:
         self._model_dir = Path(model_dir)
         self._threads = threads or default_threads()
+        # One runtime session behind many threadpool workers, unlocked: ONNX
+        # Runtime's run is thread-safe, and satellites pausing together must
+        # not queue behind each other past the endpointer's 800 ms.
         self._session = None
-        # One runtime session behind many threadpool workers. Serialised here:
-        # a satellite asks about one pause at a time, and the lock costs nothing.
-        self._lock = threading.Lock()
 
     def load(self, download_only: bool = False) -> None:
         """Fetch the pinned model and load it. download_only bakes it into an image."""
@@ -159,8 +158,7 @@ class OnnxTurn:
         if self._session is None:
             raise RuntimeError("model is not loaded")
         features = compute_whisper_log_mel_features(window(samples), do_normalize=True)
-        with self._lock:
-            out = self._session.run(None, {"input_features": np.expand_dims(features, 0)})
+        out = self._session.run(None, {"input_features": np.expand_dims(features, 0)})
         p = float(np.asarray(out[0]).reshape(-1)[0])
         if not 0.0 <= p <= 1.0:
             raise RuntimeError(f"model answered {p}, not a probability")

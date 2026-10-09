@@ -11,6 +11,7 @@ mono, never committed: the repo holds no real recordings (CONTRIBUTING §7).
 
 import os
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -65,6 +66,18 @@ def test_the_model_answers_a_probability(turn: OnnxTurn) -> None:
     p = turn.probability(hum)
     assert 0.0 <= p <= 1.0
     assert turn.probability(hum) == p
+
+
+# The kitchen and the office pause at once: both are judged on the one
+# session, concurrently, and each gets the verdict it would get alone.
+#
+# verifies SPEC §4.5
+def test_two_satellites_are_judged_at_once(turn: OnnxTurn) -> None:
+    t = np.arange(int(1.5 * SAMPLE_RATE)) / SAMPLE_RATE
+    takes = [(0.2 * np.sin(2 * np.pi * f * t)).astype(np.float32) for f in (140, 210)] * 4
+    alone = [turn.probability(x) for x in takes]
+    with ThreadPoolExecutor(len(takes)) as pool:
+        assert list(pool.map(turn.probability, takes)) == alone
 
 
 # What makes it a turn model: finished turns score above unfinished ones on
