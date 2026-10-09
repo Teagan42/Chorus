@@ -205,6 +205,13 @@ tasks:
       - uv sync --all-packages
       - uv run pytest sidecars/smartturn
 
+  smartturn:corpus:
+    desc: Render finished and cut-off household commands with Chatterbox into .corpus/turns for the models tier. First run fetches torch and the weights.
+    cmds:
+      # A standalone script with its own environment, so torch never enters
+      # the workspace lockfile. Arguments pass through, e.g. -- --voice me.wav
+      - uv run --script sidecars/smartturn/corpus.py {{.CLI_ARGS}}
+
   test:hardware:
     desc: Requires a reachable satellite from devices.yaml.
     cmds:

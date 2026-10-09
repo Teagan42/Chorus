@@ -82,7 +82,12 @@ These exercise the contract against a fake model and the pin against
 runs under `tests/test_model.py` when `SMARTTURN_MODEL_DIR` holds the asset,
 and with `SMARTTURN_CORPUS` pointing at `<dir>/complete/*.wav` and
 `<dir>/incomplete/*.wav` (16 kHz s16le mono) it checks finished turns score
-above unfinished ones. That corpus is never committed (CONTRIBUTING §7). The
+above unfinished ones. That corpus is never committed (CONTRIBUTING §7).
+`task smartturn:corpus` renders one on your machine: about twenty household
+commands, finished and cut off mid-sentence, spoken by Chatterbox (or cloned
+from a reference WAV with `-- --voice teagan.wav`) into `.corpus/turns`. It is
+a standalone `uv run --script`, so torch and the Chatterbox weights stay out
+of the workspace; the weights come from Hugging Face on first run. The
 models tier of the Go tests covers the same ground over HTTP and, with
 `-smartturn-wavs`, prints every take's verdict and what it cost. `task test`
 runs nothing in Python.
