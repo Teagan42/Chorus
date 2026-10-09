@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/Teagan42/Chorus/compare/v0.7.0...v0.8.0) (2026-10-09)
+
+
+### Features
+
+* **reviewui:** Replay re-runs a conversation under an edited prompt ([#30](https://github.com/Teagan42/Chorus/issues/30)) ([835502f](https://github.com/Teagan42/Chorus/commit/835502f9500fb6027ceda4462694e9613f86b7de))
+* **triage:** flag a request asked again soon after ([#32](https://github.com/Teagan42/Chorus/issues/32)) ([90720ca](https://github.com/Teagan42/Chorus/commit/90720caac75bccedb7c5edc35e89ff2e9c4b747b))
+
 ## [0.7.0](https://github.com/Teagan42/Chorus/compare/v0.6.0...v0.7.0) (2026-10-09)
 
 
