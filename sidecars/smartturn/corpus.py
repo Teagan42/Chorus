@@ -1,6 +1,11 @@
 # /// script
 # requires-python = "==3.11.*"
-# dependencies = ["chatterbox-tts==0.1.7"]
+# dependencies = [
+#   "chatterbox-tts==0.1.7",
+#   # resemble-perth imports pkg_resources without declaring it, and newer
+#   # setuptools no longer ship it; without it the watermarker is None.
+#   "setuptools==80.9.0",
+# ]
 # ///
 """Render a turn corpus for the models tier with Chatterbox, on your own machine.
 
