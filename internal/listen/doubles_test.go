@@ -93,6 +93,10 @@ func (e *scriptEngine) heard() []session.Input {
 type fakeSpeaker struct {
 	hold bool
 
+	// dac makes its streams report their first frame on their first write,
+	// as a satellite's do once the device plays (session.Starter).
+	dac bool
+
 	written chan string
 	release chan struct{}
 	once    sync.Once
@@ -103,7 +107,26 @@ func newSpeaker() *fakeSpeaker {
 }
 
 func (f *fakeSpeaker) Open(ctx context.Context, callID string) (session.Stream, error) {
-	return &fakeStream{sp: f, ctx: ctx, callID: callID}, nil
+	st := &fakeStream{sp: f, ctx: ctx, callID: callID}
+	if f.dac {
+		return &dacStream{fakeStream: st, started: make(chan struct{})}, nil
+	}
+	return st, nil
+}
+
+// dacStream is a fakeStream that can see its DAC: the first write plays.
+type dacStream struct {
+	*fakeStream
+	started chan struct{}
+	once    sync.Once
+}
+
+func (s *dacStream) Started() <-chan struct{} { return s.started }
+
+func (s *dacStream) Write(text string) error {
+	err := s.fakeStream.Write(text)
+	s.once.Do(func() { close(s.started) })
+	return err
 }
 
 // wrote blocks until the session has started playing an utterance.

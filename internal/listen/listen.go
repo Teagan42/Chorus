@@ -79,6 +79,11 @@ type Config struct {
 	// Endpointer defaults to NewEnergy.
 	Endpointer Endpointer
 
+	// Clock stamps when the endpointer closed each utterance, where the wait
+	// for an answer starts (ADR-0035). Nil leaves the ask without an endpoint
+	// time, and its turn records no wait.
+	Clock journal.Clock
+
 	// STT tunes each utterance's partial cadence and bound.
 	STT stt.Options
 
@@ -316,6 +321,9 @@ func (l *Listener) endLocked() {
 	u := l.cur
 	l.cur = nil
 	l.lead = l.lead[:0]
+	if l.cfg.Clock != nil {
+		u.endpoint = l.cfg.Clock.Now()
+	}
 	close(u.ended)
 }
 
@@ -416,6 +424,9 @@ type utterance struct {
 	ticket  chan struct{}
 	ended   chan struct{}
 	aborted chan struct{}
+
+	// endpoint is when the endpointer closed it, set before ended closes.
+	endpoint time.Time
 
 	// Touched only by run.
 	bargedIn   bool
@@ -564,6 +575,7 @@ func (l *Listener) complete(u *utterance) {
 	}
 	err = sess.Heard(l.ctx, session.Transcript{
 		Text: res.Text, SpeakerID: out.PersonID, AudioRef: ref, Embedding: out.Embedding,
+		Ended: u.endpoint,
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		l.warn("hear utterance", err)
