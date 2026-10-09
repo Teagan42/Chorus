@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/teaganglenn/chorus/internal/config"
 	"github.com/teaganglenn/chorus/internal/journal"
 	"github.com/teaganglenn/chorus/internal/listen"
+	"github.com/teaganglenn/chorus/internal/memory"
 	"github.com/teaganglenn/chorus/internal/satellite"
 	"github.com/teaganglenn/chorus/internal/session"
 )
@@ -60,6 +62,12 @@ type deps struct {
 	Clock  journal.Clock
 	Timers session.Timers
 	providers
+
+	// Memories keeps what each person asked to be remembered. Nil remembers
+	// nothing: remember and forget answer not_implemented, and no turn is
+	// told anything (SPEC §5).
+	Memories memory.Store
+
 	Log *slog.Logger
 }
 
@@ -71,9 +79,10 @@ type daemon struct {
 	journal *journal.Journal
 	// convs is the one thing per-satellite supervisors share: the person's
 	// conversation follows them from device to device (SPEC §4.5, ADR-0022).
-	convs *session.Conversations
-	gate  session.Gate
-	wg    sync.WaitGroup
+	convs    *session.Conversations
+	gate     session.Gate
+	memories session.Memories
+	wg       sync.WaitGroup
 }
 
 // run serves satellites until ctx ends, then returns once every link is
@@ -96,6 +105,15 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 		journal: journal.New(d.Store, d.Clock, d.versions),
 		convs:   session.NewConversations(d.Clock, session.MigrationWindow),
 		gate:    d.bargeInGate(),
+	}
+	if d.Memories != nil {
+		// The executors join whatever else is wired, Home Assistant's included.
+		tools := maps.Clone(d.tools)
+		if tools == nil {
+			tools = map[string]session.Tool{}
+		}
+		maps.Copy(tools, memory.Tools(d.Memories, d.Clock))
+		dm.tools, dm.memories = tools, memory.Recaller(d.Memories)
 	}
 	if d.Native != nil {
 		for i := range inv.Satellites {
@@ -265,7 +283,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	sup, err := session.New(session.Config{
 		Journal: d.journal, Store: d.Store, Clock: d.Clock, Timers: d.Timers,
 		Engine: d.engine, Speaker: speaker, Conversations: d.convs,
-		Tools: d.tools, Gate: d.gate,
+		Tools: d.tools, Gate: d.gate, Memories: d.memories,
 	})
 	if err != nil {
 		return err

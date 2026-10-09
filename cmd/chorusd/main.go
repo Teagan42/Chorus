@@ -29,6 +29,7 @@ import (
 	"github.com/teaganglenn/chorus/internal/esphome"
 	"github.com/teaganglenn/chorus/internal/identity"
 	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teaganglenn/chorus/internal/memory"
 )
 
 // version is set by the release build (-X main.version=...).
@@ -90,6 +91,9 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 	if err := journal.Migrate(ctx, pool); err != nil {
 		return fmt.Errorf("migrate journal: %w", err)
 	}
+	if err := memory.Migrate(ctx, pool); err != nil {
+		return fmt.Errorf("migrate memory: %w", err)
+	}
 
 	blobs, err := blob.NewDir(cfg.BlobDir)
 	if err != nil {
@@ -108,6 +112,7 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 		Listener:  ln,
 		Native:    esphomeDialer{},
 		Store:     journal.NewPgStore(pool),
+		Memories:  memory.NewPgStore(pool),
 		Blobs:     blobs,
 		Clock:     wallClock{},
 		Timers:    wallTimers{},
