@@ -74,11 +74,18 @@ func openOn(t *testing.T, h http.Handler) *page {
 		chromedp.WindowSize(1280, 900),
 		// Clips are played by script, not a click.
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
+		// A cold Chrome on a CI runner, right after a build, can take
+		// past chromedp's 20 s to come up; the test's clock starts after.
+		chromedp.WSURLReadTimeout(time.Minute),
 	)
 	actx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
-	ctx, cancelTab := chromedp.NewContext(actx)
-	ctx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
-	t.Cleanup(func() { cancelTimeout(); cancelTab(); cancelAlloc() })
+	tab, cancelTab := chromedp.NewContext(actx)
+	t.Cleanup(func() { cancelTab(); cancelAlloc() })
+	if err := chromedp.Run(tab); err != nil {
+		t.Fatalf("start browser: %v", err)
+	}
+	ctx, cancelTimeout := context.WithTimeout(tab, 30*time.Second)
+	t.Cleanup(cancelTimeout)
 
 	p := &page{t: t, ctx: ctx, base: srv.URL}
 	chromedp.ListenTarget(ctx, func(ev any) {
