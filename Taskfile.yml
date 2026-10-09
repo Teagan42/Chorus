@@ -128,7 +128,8 @@ tasks:
       # recording lives in the repo; `./internal/stt` takes the same two flags)
       # or `task test:models -- ./internal/hass -hass-url http://127.0.0.1:8123 -hass-token "$HASS_TOKEN"`
       # or `task test:models -- -v ./internal/provider/smartturn -smartturn-url http://127.0.0.1:8891 -smartturn-wavs .corpus/turns`
-      # (after `task smartturn:corpus`; -v prints each take's verdict)
+      # (after `task smartturn:corpus`; -v prints each take's verdict, and
+      # `-stt-url http://127.0.0.1:8000` judges each again with its words)
       # (complete/*.wav and incomplete/*.wav; `./cmd/chorusd` takes the URL and one -smartturn-wav)
       - go test -race -count=1 -tags=models {{.CLI_ARGS | default "./..."}}
 

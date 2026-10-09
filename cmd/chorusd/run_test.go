@@ -453,3 +453,65 @@ func TestSmartTurnShortensTheWaitForAnAnswer(t *testing.T) {
 		t.Errorf("waited %d ms, want the pause the judge was asked after, under Energy's 800", wait)
 	}
 }
+
+// Alan asks the kitchen satellite to "set a timer for", stops for a second to
+// think, then says "twelve minutes". Smart Turn hears the first pause as
+// finished, as it did on every voice in the corpus (ADR-0036); the daemon
+// reads the words with the same transcriber, holds the turn past Energy's
+// 800 ms, and the model is asked once, for the whole command (ADR-0042).
+//
+// verifies SPEC §4.5
+func TestACutOffCommandReachesTheModelWhole(t *testing.T) {
+	answer := "Twelve minutes, starting now."
+	j := &turnJudge{}
+	engine := &scriptEngine{acts: []session.Action{
+		session.SpeechDelta{CallID: "call_1", Text: answer, Last: true},
+		session.TurnEnd{FinishReason: "stop", Completion: "{}"},
+	}}
+	r := newRig(t, inventory(), func(d *deps) {
+		d.judge = j
+		d.engine = engine
+	})
+	dev := r.join(t, kitchenIP)
+	cut := r.line("Set a timer for", alan)
+	// The doubles decode the loudest voice, so the whole turn reads as this.
+	whole := r.line("Set a timer for twelve minutes.", alan)
+
+	dev.SendWake(t, "hey_eddie")
+	for range 8 {
+		dev.SendMic(t, bridge.ChannelAEC, voice(cut, chunkBytes))
+	}
+	sent := 0
+	for ; sent < listen.DefaultPause; sent += chunkBytes {
+		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+	}
+	await(t, "Smart Turn to judge the first pause", func() bool { return j.asks() == 1 })
+	// A second of thought, past the 800 ms Energy would have ended it at.
+	for ; sent < listen.DefaultPause+2*bridge.SampleRate; sent += chunkBytes {
+		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+	}
+	for range 8 {
+		dev.SendMic(t, bridge.ChannelAEC, voice(whole, chunkBytes))
+	}
+	for sent = 0; sent < silence; sent += chunkBytes {
+		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+	}
+
+	dev.AwaitTTS(t, 2*len(answer))
+	dev.PlayAll(t)
+	r.store.awaitKind(t, journal.KindSpeechStarted, 1)
+	heard := engine.heard()
+	if len(heard) != 1 || heard[0].Text != "Set a timer for twelve minutes." {
+		var said []string
+		for _, in := range heard {
+			said = append(said, in.Text)
+		}
+		t.Errorf("the model was asked %q, want the whole command once", said)
+	}
+	if n := len(r.store.ofKind(journal.KindUtteranceTranscribed)); n != 1 {
+		t.Errorf("%d utterances transcribed, want one", n)
+	}
+	if j.asks() != 2 {
+		t.Errorf("Smart Turn judged %d pauses, want the cut and the end", j.asks())
+	}
+}

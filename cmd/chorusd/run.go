@@ -40,12 +40,13 @@ func (p providers) bargeInGate() session.Gate {
 }
 
 // endpointer is a link's own: it holds the turn in progress on that device.
-// Nil leaves the listener's Energy default.
+// Nil leaves the listener's Energy default. The judge's "finished" is checked
+// against the words, decoded by the transcriber every turn is (ADR-0042).
 func (p providers) endpointer() listen.Endpointer {
 	if p.judge == nil {
 		return nil
 	}
-	return listen.NewSemantic(p.judge)
+	return listen.NewSemantic(listen.Dangling{Judge: p.judge, Words: p.stt})
 }
 
 // deps is everything the daemon composes that does I/O or reads a clock, so

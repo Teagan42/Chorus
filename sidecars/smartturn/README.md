@@ -89,5 +89,6 @@ from a reference WAV with `-- --voice teagan.wav`) into `.corpus/turns`. It is
 a standalone `uv run --script`, so torch and the Chatterbox weights stay out
 of the workspace; the weights come from Hugging Face on first run. The
 models tier of the Go tests covers the same ground over HTTP and, with
-`-smartturn-wavs`, prints every take's verdict and what it cost. `task test`
-runs nothing in Python.
+`-smartturn-wavs`, prints every take's verdict and what it cost; adding
+`-stt-url` judges each take again with its words, as the daemon does
+(ADR-0042). `task test` runs nothing in Python.
