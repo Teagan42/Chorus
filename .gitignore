@@ -31,3 +31,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .claude/worktrees/
+
+# The docs site, built by `task docs:build`.
+/site/

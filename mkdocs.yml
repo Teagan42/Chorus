@@ -1,0 +1,115 @@
+# The docs site: docs/ and the root Markdown, published as they are in the
+# repo. `task docs:serve` to preview, `task docs:build` is the CI gate.
+# Nothing here is copied; internal/tools/docsite/hooks.py explains how.
+site_name: Chorus
+site_description: A full-duplex voice orchestrator for ESP32 satellites.
+site_url: https://teagan42.github.io/Chorus/
+repo_url: https://github.com/Teagan42/Chorus
+repo_name: Teagan42/Chorus
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+# A warning is a broken promise to a reader: a link to a page that moved, an
+# anchor that was renamed, a doc nobody can reach from the nav.
+strict: true
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+# Scaffolding, not reading. Links to it land on the source instead.
+exclude_docs: |
+  adr/0000-template.md
+
+hooks:
+  - internal/tools/docsite/hooks.py
+
+extra:
+  docsite:
+    # Repo path → site path, for Markdown outside docs/.
+    pages:
+      README.md: index.md
+      CONTRIBUTING.md: contributing.md
+      esphome/README.md: esphome.md
+      sidecars/speakerid/README.md: speakerid.md
+      CHANGELOG.md: changelog.md
+
+nav:
+  - Home: index.md
+  - Spec: SPEC.md
+  - Decisions:
+      - adr/README.md
+      - adr/[0-9]*.md
+  - Review UI: reviewui/README.md
+  - Reference:
+      - reference/events.md
+      - reference/tools.md
+      - Bridge protocol: esphome.md
+      - Speaker-ID sidecar: speakerid.md
+  - Contributing: contributing.md
+  - Changelog: changelog.md
+
+theme:
+  name: material
+  # System fonts: no request to Google from a page about a private household.
+  font: false
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.action.edit
+    - content.action.view
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - glightbox
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tasklist:
+      custom_checkbox: true
