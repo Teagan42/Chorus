@@ -4,8 +4,8 @@
 # tag, so a published artifact always has a changelog entry behind it.
 #
 # The orchestrator daemon (cmd/chorusd) ships both ways from the same tag: a
-# tarball beside probe and harvest for a household on bare metal, and a
-# container image on ghcr.io, so the compose file and a release install the
+# tarball beside probe, harvest and reviewui for a household on bare metal, and
+# a container image on ghcr.io, so the compose file and a release install the
 # same bytes.
 name: release
 
@@ -100,7 +100,8 @@ jobs:
       # CGO_ENABLED=0: a static binary, and nothing here needs libc. One
       # tarball per command so a bare-metal household installs the daemon
       # without the probe, and the image job's -X main.version is the same
-      # flag here, so every command reports the release it came from.
+      # flag here, so every command reports the release it came from. reviewui
+      # embeds its templates and htmx, so its tarball needs nothing beside it.
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
@@ -108,7 +109,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           set -euo pipefail
-          for cmd in probe chorusd harvest; do
+          for cmd in probe chorusd harvest reviewui; do
             out="${cmd}_${{ needs.release-please.outputs.version }}_${GOOS}_${GOARCH}"
             mkdir -p "dist/$out"
             go build -trimpath \
