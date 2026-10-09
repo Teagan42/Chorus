@@ -43,6 +43,8 @@ func wantReplayState() journal.State {
 		Interrupted:    true,
 		BargeInAt:      []time.Duration{420 * time.Millisecond},
 		Completions:    []string{`{"say":"one sec"}`},
+		HeardAt:        time.Unix(1_760_000_000, 0).UTC(),
+		Participants:   []string{"teagan"},
 		Calls: []journal.Call{{
 			ID: "c1", Tool: "media_search", Args: "{}",
 			Outcome: "ok", Result: `{"hits":3}`,
