@@ -327,5 +327,7 @@ func TestE2EHeaderNamesTheReleaseThatShipped(t *testing.T) {
 	if !strings.HasPrefix("v"+latest, want) {
 		t.Errorf("the changelog's newest entry is %q, the header says %q", latest, want)
 	}
+	// The facts fade in; a shot taken mid-fade shows an empty header.
+	p.waitFor("the facts faded in", `document.querySelector(".md-source__facts")?.getAnimations().length === 0`)
 	p.shot("site-header-version")
 }
