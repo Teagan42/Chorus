@@ -488,7 +488,7 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 		return
 	}
 
-	held := spec.NeedsConfirmation(tc.Args)
+	held := spec.NeedsConfirmationOf(tc.Args, s.classes(ctx, tc))
 	ack := ""
 	if held || spec.Slow {
 		args, err := registry.Split(tc.Args)
@@ -515,6 +515,16 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 	wg.Add(1)
 	s.enter("tool:" + tc.ID)
 	go s.runTool(ctx, wg, tc, caller, spec, tool)
+}
+
+// classes reads what tc acts on from its tool, when the tool can say. On
+// the turn's context: a call barged in on is held, never run unread.
+func (s *Session) classes(ctx context.Context, tc ToolCall) registry.Classes {
+	c, ok := s.sup.cfg.Tools[tc.Tool].(Classifier)
+	if !ok {
+		return nil
+	}
+	return func() ([]string, error) { return c.Classify(ctx, tc.Args) }
 }
 
 // confirmed decides a call that needs the person's yes. One that carries a
