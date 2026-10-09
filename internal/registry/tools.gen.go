@@ -124,6 +124,7 @@ var Specs = map[string]ToolSpec{
 		Params: []ParamSpec{
 			{Name: "query", Type: "string", Description: "Free-text search.", Required: true},
 			{Name: "limit", Type: "integer", Description: "Maximum results.", Required: false},
+			{Name: "acknowledgement", Type: "string", Description: "A few words said aloud while this runs, e.g. \"Searching the library.\" They are spoken for you as it starts; do not also call speak for them.", Required: true},
 		},
 		OnInterrupt:          "detach",
 		Scope:                "household",
