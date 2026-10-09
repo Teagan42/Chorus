@@ -35,6 +35,7 @@ extra:
       CONTRIBUTING.md: contributing.md
       esphome/README.md: esphome.md
       sidecars/speakerid/README.md: speakerid.md
+      sidecars/smartturn/README.md: smartturn.md
       CHANGELOG.md: changelog.md
 
 nav:
@@ -49,6 +50,7 @@ nav:
       - reference/tools.md
       - Bridge protocol: esphome.md
       - Speaker-ID sidecar: speakerid.md
+      - Smart Turn sidecar: smartturn.md
   - Contributing: contributing.md
   - Changelog: changelog.md
 
