@@ -42,4 +42,4 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.ruff.lint.isort]
 # Run from the workspace root, ruff cannot see that a member's own package
 # is first-party; without this its tests sort it among the third parties.
-known-first-party = ["speakerid"]
+known-first-party = ["smartturn", "speakerid"]

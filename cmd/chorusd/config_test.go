@@ -10,6 +10,7 @@ import (
 	"github.com/teaganglenn/chorus/internal/hass"
 	"github.com/teaganglenn/chorus/internal/identity"
 	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teaganglenn/chorus/internal/listen"
 	"github.com/teaganglenn/chorus/internal/provider/kokoro"
 	"github.com/teaganglenn/chorus/internal/provider/speaches"
 )
@@ -25,6 +26,7 @@ func complete() map[string]string {
 		kokoroURLEnv:    "http://kokoro:8880",
 		sttURLEnv:       "http://speaches:8000",
 		speakerIDURLEnv: "http://speakerid:8890",
+		smartTurnURLEnv: "http://smartturn:8891",
 		hass.URLEnv:     "http://homeassistant:8123",
 		hass.TokenEnv:   "token",
 	}
@@ -52,7 +54,7 @@ func TestValidateNamesEveryMissingVariable(t *testing.T) {
 		}
 	}
 	// Optional ones are not demanded.
-	for _, name := range []string{speakerIDURLEnv, hass.URLEnv, hass.TokenEnv} {
+	for _, name := range []string{speakerIDURLEnv, smartTurnURLEnv, hass.URLEnv, hass.TokenEnv} {
 		if strings.Contains(err.Error(), name) {
 			t.Errorf("error demands optional %s: %v", name, err)
 		}
@@ -94,12 +96,14 @@ func TestValidateRefusesHalfAHomeAssistant(t *testing.T) {
 // one: without speaker identification everyone is a guest and barge-in
 // gates on energy and words alone, so the television can interrupt; without
 // Home Assistant the declared ha_* tools answer not_implemented, which the
-// model sees (SPEC §5, §7, ADR-0031).
+// model sees; without Smart Turn every turn waits out 800 ms of quiet
+// (SPEC §4.5, §5, §7, ADR-0031, ADR-0036).
 //
-// verifies SPEC §5
+// verifies SPEC §5, §4.5
 func TestOptionalSidecarsDegradeWithALogLine(t *testing.T) {
 	env := complete()
 	delete(env, speakerIDURLEnv)
+	delete(env, smartTurnURLEnv)
 	delete(env, hass.URLEnv)
 	delete(env, hass.TokenEnv)
 	var logs bytes.Buffer
@@ -115,7 +119,10 @@ func TestOptionalSidecarsDegradeWithALogLine(t *testing.T) {
 	if len(p.tools) != 0 {
 		t.Errorf("tools = %v, want none wired", p.tools)
 	}
-	for _, want := range []string{"guest", "barge-in", "television", "not_implemented"} {
+	if p.judge != nil || p.endpointer() != nil {
+		t.Error("a semantic endpointer was built with no Smart Turn endpoint")
+	}
+	for _, want := range []string{"guest", "barge-in", "television", "not_implemented", "800 ms of quiet", "mid-sentence"} {
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("log does not say %q:\n%s", want, logs.String())
 		}
@@ -159,12 +166,18 @@ func TestFullyConfiguredProvidersWireEverything(t *testing.T) {
 	if p.speakers == nil {
 		t.Error("no resolver with a speaker-ID endpoint and a household")
 	}
+	if _, ok := p.endpointer().(*listen.Semantic); !ok {
+		t.Errorf("endpointer is %T with a Smart Turn endpoint, want a semantic one", p.endpointer())
+	}
+	if a, b := p.endpointer(), p.endpointer(); a == b {
+		t.Error("two links share one endpointer, and with it one turn in progress")
+	}
 	for _, name := range []string{"ha_call_service", "ha_get_state", "ha_find_entities"} {
 		if _, ok := p.tools[name]; !ok {
 			t.Errorf("%s not wired", name)
 		}
 	}
-	for _, off := range []string{"speaker identification is off", "home assistant is off"} {
+	for _, off := range []string{"speaker identification is off", "semantic endpointing is off", "home assistant is off"} {
 		if strings.Contains(logs.String(), off) {
 			t.Errorf("a fully configured daemon logged %q:\n%s", off, logs.String())
 		}

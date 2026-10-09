@@ -76,7 +76,8 @@ type Config struct {
 	// Journal takes the wake rejections, which belong to no conversation.
 	Journal *journal.Journal
 
-	// Endpointer defaults to NewEnergy.
+	// Endpointer defaults to NewEnergy. A Semantic one asks its judge on
+	// the listener's goroutines, which end with the link.
 	Endpointer Endpointer
 
 	// Clock stamps when each utterance's speech stopped, where the wait for
@@ -155,6 +156,9 @@ func Open(ctx context.Context, cfg Config) (*Listener, error) {
 	heard := make(chan struct{})
 	close(heard)
 	l := &Listener{cfg: cfg, ctx: ctx, log: cfg.Log, done: make(chan struct{}), last: heard}
+	if b, ok := cfg.Endpointer.(binder); ok {
+		b.bind(ctx, l.spawnLocked, cfg.Log)
+	}
 	go l.watch()
 	return l, nil
 }

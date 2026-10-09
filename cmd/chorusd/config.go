@@ -11,6 +11,7 @@ import (
 	"github.com/teaganglenn/chorus/internal/listen"
 	"github.com/teaganglenn/chorus/internal/provider/kokoro"
 	"github.com/teaganglenn/chorus/internal/provider/ollama"
+	"github.com/teaganglenn/chorus/internal/provider/smartturn"
 	"github.com/teaganglenn/chorus/internal/provider/speaches"
 	"github.com/teaganglenn/chorus/internal/provider/speakerid"
 	"github.com/teaganglenn/chorus/internal/satellite"
@@ -28,6 +29,7 @@ const (
 	kokoroURLEnv    = "KOKORO_URL"
 	sttURLEnv       = "STT_URL"
 	speakerIDURLEnv = "SPEAKERID_URL"
+	smartTurnURLEnv = "SMARTTURN_URL"
 )
 
 // defaultListen is the port the firmware dials (esphome/packages/chorus-bridge.yaml).
@@ -47,6 +49,7 @@ type Config struct {
 	KokoroURL    string
 	STTURL       string
 	SpeakerIDURL string
+	SmartTurnURL string
 	HassURL      string
 	HassToken    string
 }
@@ -63,6 +66,7 @@ func configFromEnv(getenv func(string) string) Config {
 		KokoroURL:    getenv(kokoroURLEnv),
 		STTURL:       getenv(sttURLEnv),
 		SpeakerIDURL: getenv(speakerIDURLEnv),
+		SmartTurnURL: getenv(smartTurnURLEnv),
 		HassURL:      getenv(hass.URLEnv),
 		HassToken:    getenv(hass.TokenEnv),
 	}
@@ -112,6 +116,7 @@ type providers struct {
 	synth     satellite.Synth
 	stt       stt.Transcriber
 	speakers  listen.Speakers
+	judge     listen.Judge
 	household []string
 	tools     map[string]session.Tool
 }
@@ -120,8 +125,8 @@ type providers struct {
 // client is a URL and a config until its first request. ids is the enrolled
 // household, or nil when nobody is.
 //
-// The two optional sidecars degrade rather than fail, and never silently: a
-// household without them is a house that still answers (SPEC §5, §7).
+// The optional sidecars degrade rather than fail, and never silently: a
+// household without them is a house that still answers (SPEC §4.5, §5, §7).
 func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger) (providers, error) {
 	engine, err := ollama.New(ollama.Config{BaseURL: cfg.OllamaURL, Model: cfg.OllamaModel})
 	if err != nil {
@@ -167,6 +172,16 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger) (pro
 		if len(p.household) == 0 {
 			log.Warn("nobody is enrolled: every speaker is a guest until someone is (identities.yaml)")
 		}
+	}
+
+	if cfg.SmartTurnURL == "" {
+		log.Warn("semantic endpointing is off: " + smartTurnURLEnv + " is not set, so every turn ends after 800 ms of quiet: the household waits that long for every answer, and a longer pause mid-sentence cuts the speaker off")
+	} else {
+		judge, err := smartturn.New(smartturn.Config{BaseURL: cfg.SmartTurnURL})
+		if err != nil {
+			return providers{}, err
+		}
+		p.judge = judge
 	}
 
 	if cfg.HassURL == "" {

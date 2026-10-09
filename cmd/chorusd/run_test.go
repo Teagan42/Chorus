@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -407,5 +408,48 @@ func TestTheFirstPlayedFrameIsJournalledWithItsWait(t *testing.T) {
 	spoken := r.store.awaitKind(t, journal.KindSpeechSpoken, 1)
 	if start.Seq >= spoken.Seq {
 		t.Errorf("speech_started at seq %d, speech_spoken at %d: wrong order", start.Seq, spoken.Seq)
+	}
+}
+
+// With SMARTTURN_URL set every link endpoints semantically: Alan's answer
+// waits on the short pause Smart Turn is asked after, not the 800 ms the
+// test above records without it (ADR-0036).
+//
+// verifies SPEC §4.5, §11
+func TestSmartTurnShortensTheWaitForAnAnswer(t *testing.T) {
+	answer := "Turning off the kitchen lights."
+	j := &turnJudge{}
+	r := newRig(t, inventory(), func(d *deps) {
+		d.judge = j
+		d.engine = &scriptEngine{acts: []session.Action{
+			session.SpeechDelta{CallID: "call_1", Text: answer, Last: true},
+			session.TurnEnd{FinishReason: "stop", Completion: "{}"},
+		}}
+	})
+	dev := r.join(t, kitchenIP)
+	lights := r.line("turn off the kitchen lights", alan)
+
+	dev.SendWake(t, "hey_eddie")
+	for range 8 {
+		dev.SendMic(t, bridge.ChannelAEC, voice(lights, chunkBytes))
+	}
+	sent := 0
+	for ; sent < listen.DefaultPause; sent += chunkBytes {
+		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+	}
+	await(t, "the judge to be asked", func() bool { return j.asks() == 1 })
+	for ; sent < silence; sent += chunkBytes {
+		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+	}
+
+	dev.AwaitTTS(t, 2*len(answer))
+	dev.PlayAll(t)
+	start := r.store.awaitKind(t, journal.KindSpeechStarted, 1)
+	wait, err := strconv.Atoi(start.Fields["wait_ms"])
+	if err != nil {
+		t.Fatalf("wait_ms = %q: %v", start.Fields["wait_ms"], err)
+	}
+	if wait < 200 || wait >= 800 {
+		t.Errorf("waited %d ms, want the pause the judge was asked after, under Energy's 800", wait)
 	}
 }

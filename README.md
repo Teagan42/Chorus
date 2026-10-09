@@ -47,6 +47,7 @@ it has not yet been run against a real satellite. What exists today:
 | TTS — `internal/provider/kokoro`, resampled to the device's rate | dials a real endpoint |
 | STT — `internal/stt` partials over `internal/provider/speaches` | measured against real Parakeet TDT 0.6B v2 on CPU |
 | speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX) | thresholds measured on 37 speakers; sidecar runs without Docker |
+| endpointing — `listen.Semantic` over `internal/provider/smartturn` and `sidecars/smartturn` (Smart Turn v3.2 on ONNX) | ends a turn ~340 ms after the last word on CPU; right on 76 of 88 synthetic household takes, not yet measured on recorded speech |
 | `internal/hass` — the one real tool (SPEC §14 item 5) | verified against Home Assistant 2026.10 |
 | `internal/listen` — the Listening child: mic stream to utterances, barge-in candidates, attribution | under test |
 | `internal/harvest`, `cmd/harvest` — barge-ins as DPO candidates | under test |
@@ -70,7 +71,7 @@ flowchart LR
         SUP --> JRN["event journal<br/><b>source of truth</b>"]
     end
 
-    SIDE["<b>model services — HTTP</b><br/>STT · Parakeet via speaches<br/>LLM · Qwen3 via Ollama<br/>TTS · Kokoro<br/>speaker-ID · TitaNet-L"]
+    SIDE["<b>model services — HTTP</b><br/>STT · Parakeet via speaches<br/>LLM · Qwen3 via Ollama<br/>TTS · Kokoro<br/>speaker-ID · TitaNet-L<br/>endpointing · Smart Turn"]
     STORE["<b>storage</b><br/>Postgres · JSONB log<br/>blob directory · raw PCM"]
     UI["<b>review UI</b> — Go + htmx<br/>triage · replay · DPO export"]
 
@@ -82,9 +83,9 @@ flowchart LR
 
 Polyglot by seam: Go where it's a concurrent socket server, Python where the
 ecosystem is Python. No shoehorning either direction. The model services are
-off-the-shelf servers behind small Go clients in `internal/provider`; the one
-Chorus owns is the speaker-ID sidecar in `sidecars/speakerid`. SPEC §10 is the
-stack and its alternatives.
+off-the-shelf servers behind small Go clients in `internal/provider`; the two
+Chorus owns are the speaker-ID and Smart Turn sidecars in `sidecars/`. SPEC §10
+is the stack and its alternatives.
 
 The device is the TCP server and the controller is the client, so Chorus dials
 out — `aioesphomeapi` is the reference implementation. Audio cannot ride the
@@ -180,17 +181,18 @@ task run                                  # go run ./cmd/chorusd
 ```
 
 It fails at startup naming every variable that is missing. The speaker-ID
-sidecar and Home Assistant are optional and say so in the log when absent:
-without the first everyone is a guest and barge-in gates on energy and words
-alone, so the television can interrupt (ADR-0031); without the second the
-`ha_*` tools answer `not_implemented`, which the model sees. Point
+and Smart Turn sidecars and Home Assistant are optional and say so in the log
+when absent: without the first everyone is a guest and barge-in gates on
+energy and words alone, so the television can interrupt (ADR-0031); without
+the second every turn ends after 800 ms of quiet (ADR-0036); without the third
+the `ha_*` tools answer `not_implemented`, which the model sees. Point
 `orchestrator_host` in the device YAML at this machine, and the satellites
 dial in on port 6055. `docker compose up chorusd` runs the same daemon as an
 image beside the database.
 
 The model services start locally one task each: `task stt:up`, `task tts:up`,
-and `task speakerid:up` (or `task speakerid:serve` without Docker). Ollama is
-yours to run.
+`task speakerid:up` and `task smartturn:up` (or `task speakerid:serve` and
+`task smartturn:serve` without Docker). Ollama is yours to run.
 
 ### Review what happened
 
@@ -237,6 +239,7 @@ The site is these same files, rebuilt and republished on every push to `main`.
 | [`docs/reviewui/`](docs/reviewui/README.md) | The review UI: running it, every screen, its browser tests. |
 | [`esphome/README.md`](esphome/README.md) | The `chorus_bridge` wire protocol. |
 | [`sidecars/speakerid/README.md`](sidecars/speakerid/README.md) | The speaker-ID sidecar and its embed contract. |
+| [`sidecars/smartturn/README.md`](sidecars/smartturn/README.md) | The Smart Turn sidecar and its end-of-turn contract. |
 | [`CHANGELOG.md`](CHANGELOG.md) | Every release, written by release-please. |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Five rules. Read before the first PR. |
 

@@ -268,7 +268,7 @@ internal/
   blob/                 the audio a journal event refers to
   registry/             generated tool registry and policy (SPEC §6)
   hass/                 Home Assistant tools
-  provider/             model clients: ollama, kokoro, speaches, speakerid (SPEC §10)
+  provider/             model clients: ollama, kokoro, speaches, speakerid, smartturn (SPEC §10)
   harvest/              barge-ins as preference candidates (SPEC §9.1)
   triage/               signals worth a reviewer's time, derived on read
   rerun/                edit-and-replay (SPEC §9.2)
@@ -279,7 +279,7 @@ internal/
   tools/                build-time tooling (schemagen, spectrace, atomic, docexec, docsite)
 schema/                 CUE source of truth
   json/                 generated JSON Schema (do not edit)
-sidecars/               Python model services (uv workspace): speakerid
+sidecars/               Python model services (uv workspace): speakerid, smartturn
 esphome/                chorus_bridge external component + YAML packages
 docs/
   SPEC.md               normative spec

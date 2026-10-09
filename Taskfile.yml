@@ -127,6 +127,9 @@ tasks:
       # (the STT tiers take a WAV of consented speech the same way, since no
       # recording lives in the repo; `./internal/stt` takes the same two flags)
       # or `task test:models -- ./internal/hass -hass-url http://127.0.0.1:8123 -hass-token "$HASS_TOKEN"`
+      # or `task test:models -- -v ./internal/provider/smartturn -smartturn-url http://127.0.0.1:8891 -smartturn-wavs .corpus/turns`
+      # (after `task smartturn:corpus`; -v prints each take's verdict)
+      # (complete/*.wav and incomplete/*.wav; `./cmd/chorusd` takes the URL and one -smartturn-wav)
       - go test -race -count=1 -tags=models {{.CLI_ARGS | default "./..."}}
 
   tts:up:
@@ -179,6 +182,36 @@ tasks:
     cmds:
       - uv sync --all-packages
       - uv run pytest sidecars/speakerid
+
+  smartturn:up:
+    desc: Start the local Smart Turn sidecar. First run builds the image and bakes the 8 MB model.
+    cmds:
+      - docker compose up -d --wait --build smartturn
+
+  smartturn:down:
+    desc: Stop the local Smart Turn sidecar
+    cmds:
+      - docker compose stop smartturn
+
+  smartturn:serve:
+    desc: Serve the Smart Turn sidecar without Docker on 127.0.0.1:8891. First run fetches the model into .models/.
+    cmds:
+      - uv sync --all-packages
+      - uv run --package smartturn smartturn --download-only --model-dir .models/smartturn
+      - uv run --package smartturn smartturn --model-dir .models/smartturn --host 127.0.0.1 --port 8891
+
+  smartturn:test:
+    desc: The sidecar's own contract tests. Hermetic, but Python, so not part of `task test`.
+    cmds:
+      - uv sync --all-packages
+      - uv run pytest sidecars/smartturn
+
+  smartturn:corpus:
+    desc: Render finished and cut-off household commands with Chatterbox into .corpus/turns for the models tier. First run fetches torch and the weights.
+    cmds:
+      # A standalone script with its own environment, so torch never enters
+      # the workspace lockfile. Arguments pass through, e.g. -- --voice me.wav
+      - uv run --script sidecars/smartturn/corpus.py {{.CLI_ARGS}}
 
   test:hardware:
     desc: Requires a reachable satellite from devices.yaml.
