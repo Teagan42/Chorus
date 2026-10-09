@@ -488,20 +488,24 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 		return
 	}
 
-	held := spec.NeedsConfirmationOf(tc.Args, s.classes(ctx, tc))
 	ack := ""
-	if held || spec.Slow {
+	if spec.Slow || spec.RequiresConfirmation || len(spec.ConfirmWhen) > 0 {
 		args, err := registry.Split(tc.Args)
 		if err != nil {
 			s.result(tc.ID, "error", `{"error":"bad_arguments"}`)
 			return
 		}
+		// A presented nonce goes to the log whatever the target is now: its
+		// class may have changed since the question was asked.
+		held := args.Nonce != "" || spec.NeedsConfirmationOf(args.Rest, s.classes(ctx, tc.Tool, args.Rest, spec.Timeout))
 		if held && !s.confirmed(tc, args) {
 			return
 		}
 		// The nonce and the acknowledgement are the orchestrator's: the tool
-		// gets what it declared.
-		tc.Args, ack = args.Rest, strings.TrimSpace(args.Acknowledgement)
+		// gets what it declared. A call that carries neither goes as written.
+		if held || spec.Slow {
+			tc.Args, ack = args.Rest, strings.TrimSpace(args.Acknowledgement)
+		}
 	}
 
 	tool, ok := s.sup.cfg.Tools[tc.Tool]
@@ -517,14 +521,33 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 	go s.runTool(ctx, wg, tc, caller, spec, tool)
 }
 
-// classes reads what tc acts on from its tool, when the tool can say. On
-// the turn's context: a call barged in on is held, never run unread.
-func (s *Session) classes(ctx context.Context, tc ToolCall) registry.Classes {
-	c, ok := s.sup.cfg.Tools[tc.Tool].(Classifier)
+// classes reads what a call acts on from its tool, when the tool can say,
+// within the tool's own timeout. On the turn's context: a call barged in on
+// is held, never run unread.
+func (s *Session) classes(ctx context.Context, tool, args string, timeout time.Duration) registry.Classes {
+	c, ok := s.sup.cfg.Tools[tool].(Classifier)
 	if !ok {
 		return nil
 	}
-	return func() ([]string, error) { return c.Classify(ctx, tc.Args) }
+	return func() ([]string, error) {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		type read struct {
+			classes []string
+			err     error
+		}
+		done := make(chan read, 1)
+		go func() {
+			classes, err := c.Classify(ctx, args)
+			done <- read{classes, err}
+		}()
+		select {
+		case r := <-done:
+			return r.classes, r.err
+		case <-s.sup.cfg.Timers.After(timeout):
+			return nil, fmt.Errorf("classify %s: timed out after %v", tool, timeout)
+		}
+	}
 }
 
 // confirmed decides a call that needs the person's yes. One that carries a
