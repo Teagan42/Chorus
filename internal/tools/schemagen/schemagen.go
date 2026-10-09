@@ -35,7 +35,40 @@ type Tool struct {
 	Latency              string  `json:"latency"`
 	UnknownSpeaker       string  `json:"unknown_speaker,omitempty"`
 
-	ConfirmWhen []map[string]string `json:"confirm_when,omitempty"`
+	ConfirmWhen []ConfirmRule `json:"confirm_when,omitempty"`
+}
+
+// targetClassKey names the classes in a confirm_when entry; every other key
+// is a string parameter.
+const targetClassKey = "target_class"
+
+// ConfirmRule is one confirm_when entry, split into the arguments it matches
+// and the classes of target it holds (ADR-0041).
+type ConfirmRule struct {
+	Args        map[string]string
+	TargetClass []string
+}
+
+func (r *ConfirmRule) UnmarshalJSON(b []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return fmt.Errorf("confirm_when entry: %w", err)
+	}
+	r.Args = map[string]string{}
+	for k, v := range raw {
+		if k == targetClassKey {
+			if err := json.Unmarshal(v, &r.TargetClass); err != nil {
+				return fmt.Errorf("confirm_when %s: %w", k, err)
+			}
+			continue
+		}
+		var arg string
+		if err := json.Unmarshal(v, &arg); err != nil {
+			return fmt.Errorf("confirm_when %s: %w", k, err)
+		}
+		r.Args[k] = arg
+	}
+	return nil
 }
 
 type Event struct {
@@ -280,7 +313,15 @@ type ToolSpec struct {
 
 	// ConfirmWhen holds the calls whose arguments match any entry for the
 	// person's yes, when the tool as a whole needs none (ADR-0038).
-	ConfirmWhen []map[string]string
+	ConfirmWhen []ConfirmRule
+}
+
+// ConfirmRule is one confirm_when entry. A call matches when its arguments
+// carry every value in Args and, when TargetClass names any, what it acts
+// on has one of those classes (ADR-0041).
+type ConfirmRule struct {
+	Args        map[string]string
+	TargetClass []string
 }
 
 `)
@@ -333,18 +374,26 @@ func renderParams(field string, params []Param) string {
 	return b.String()
 }
 
-func renderConfirmWhen(when []map[string]string) string {
+func renderConfirmWhen(when []ConfirmRule) string {
 	if len(when) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\t\tConfirmWhen: []map[string]string{\n")
-	for _, m := range when {
-		pairs := make([]string, 0, len(m))
-		for _, k := range sortedKeys(m) {
-			pairs = append(pairs, fmt.Sprintf("%q: %q", k, m[k]))
+	b.WriteString("\t\tConfirmWhen: []ConfirmRule{\n")
+	for _, r := range when {
+		pairs := make([]string, 0, len(r.Args))
+		for _, k := range sortedKeys(r.Args) {
+			pairs = append(pairs, fmt.Sprintf("%q: %q", k, r.Args[k]))
 		}
-		b.WriteString(fmt.Sprintf("\t\t\t{%s},\n", strings.Join(pairs, ", ")))
+		b.WriteString(fmt.Sprintf("\t\t\t{Args: map[string]string{%s}", strings.Join(pairs, ", ")))
+		if len(r.TargetClass) > 0 {
+			quoted := make([]string, len(r.TargetClass))
+			for i, c := range r.TargetClass {
+				quoted[i] = fmt.Sprintf("%q", c)
+			}
+			b.WriteString(fmt.Sprintf(", TargetClass: []string{%s}", strings.Join(quoted, ", ")))
+		}
+		b.WriteString("},\n")
 	}
 	b.WriteString("\t\t},\n")
 	return b.String()
@@ -425,18 +474,26 @@ func renderToolDocs(tools map[string]Tool) string {
 
 // renderConfirmDocs lists the calls a tool holds for the person's yes, one
 // per line, as the arguments that match.
-func renderConfirmDocs(when []map[string]string) string {
+func renderConfirmDocs(when []ConfirmRule) string {
 	if len(when) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("Needs the person's yes when called with:\n\n")
-	for _, m := range when {
-		pairs := make([]string, 0, len(m))
-		for _, k := range sortedKeys(m) {
-			pairs = append(pairs, fmt.Sprintf("`%s` `%s`", k, m[k]))
+	for _, r := range when {
+		pairs := make([]string, 0, len(r.Args))
+		for _, k := range sortedKeys(r.Args) {
+			pairs = append(pairs, fmt.Sprintf("`%s` `%s`", k, r.Args[k]))
 		}
-		b.WriteString("- " + strings.Join(pairs, ", ") + "\n")
+		line := "- " + strings.Join(pairs, ", ")
+		if len(r.TargetClass) > 0 {
+			classes := make([]string, len(r.TargetClass))
+			for i, c := range r.TargetClass {
+				classes[i] = "`" + c + "`"
+			}
+			line += ", on a target of class " + strings.Join(classes, ", ")
+		}
+		b.WriteString(line + "\n")
 	}
 	b.WriteString("\n")
 	return b.String()
