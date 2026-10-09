@@ -187,7 +187,7 @@ func TestUninterruptibleCallMustComplete(t *testing.T) {
 		RequiresConfirmation: true,
 	}
 	steps := []step{
-		{act: session.ToolCall{ID: "c1", Tool: "unlock_door", Args: `{"nonce":"n1"}`}},
+		{act: session.ToolCall{ID: "c1", Tool: "unlock_door", Args: `{"confirmation":"cf_4c1e9a07"}`}},
 		{act: session.SpeechDelta{CallID: "s1", Text: line, Last: true}},
 		{act: session.TurnEnd{FinishReason: "tool_calls", Completion: "{}"}},
 	}
@@ -197,7 +197,9 @@ func TestUninterruptibleCallMustComplete(t *testing.T) {
 	r.speaker.cut = len("I found three")
 
 	s := r.open(t, "alice")
-	errc := heard(s, "unlock the door")
+	// Alice was already asked; this utterance is her yes.
+	r.held(t, s.ConversationID(), "c0", "unlock_door", `{}`, "cf_4c1e9a07")
+	errc := heard(s, "yes, unlock the door")
 	gate.enter(t)
 	r.speaker.wrote(t)
 

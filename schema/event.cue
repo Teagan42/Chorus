@@ -116,8 +116,26 @@ events: {
 		description: "Tool completed, failed, or timed out. Failures are results the model reasons about (SPEC §7)."
 		fields: [
 			{name: "call_id", type: "string", description: "Matches the call.", required: true},
-			{name: "outcome", type: "string", description: "How it ended.", required: true, enum: ["ok", "error", "timed_out", "cancelled", "detached"]},
+			{name: "outcome", type: "string", description: "How it ended. confirmation_required means the call never ran: it needs the person's yes first (SPEC §6).", required: true, enum: ["ok", "error", "timed_out", "cancelled", "detached", "confirmation_required"]},
 			{name: "result_json", type: "string", description: "Serialized result."},
+		]
+	}
+	confirmation_requested: {
+		name:        "confirmation_requested", actor: "session"
+		description: "A call that needs the person's yes was held, and the model was handed a nonce to call again with once they agree (SPEC §6)."
+		fields: [
+			{name: "call_id", type: "string", description: "The call that was held.", required: true},
+			{name: "nonce", type: "string", description: "Redeemable once, by the same call, in the turn of the next thing the person says.", required: true},
+			{name: "presented", type: "string", description: "The nonce the call carried, which this refusal spends: a nonce gets one try. Empty when it carried none."},
+			{name: "refused", type: "string", description: "Why the nonce the call carried was not accepted. Empty when it carried none.", enum: ["unknown", "used", "args_changed", "not_answered", "expired"]},
+		]
+	}
+	confirmation_given: {
+		name:        "confirmation_given", actor: "session"
+		description: "A held call came back with its nonce after the person answered, and ran. What they said is the utterance the nonce was redeemed after (SPEC §6)."
+		fields: [
+			{name: "call_id", type: "string", description: "The call that ran.", required: true},
+			{name: "nonce", type: "string", description: "The nonce it redeemed.", required: true},
 		]
 	}
 	model_completed: {

@@ -49,6 +49,10 @@ type ToolSpec struct {
 	RequiresConfirmation bool
 	Slow                 bool
 	UnknownSpeaker       string
+
+	// ConfirmWhen holds the calls whose arguments match any entry for the
+	// person's yes, when the tool as a whole needs none (ADR-0038).
+	ConfirmWhen []map[string]string
 }
 
 // Specs is every declared tool, keyed by name.
@@ -66,19 +70,25 @@ var Specs = map[string]ToolSpec{
 	"ha_call_service": {
 		Name:             "ha_call_service",
 		Description:      "Act on the home through a Home Assistant service: lights, switches, covers, media players, scripts. Target an entity_id from ha_find_entities, or an area_id. Returns the entities whose state changed; an empty list means nothing matched or nothing needed to change.",
-		ModelDescription: "Act on the home through a Home Assistant service: lights, switches, covers, media players, scripts. Target an entity_id from ha_find_entities, or an area_id. Returns the entities whose state changed; an empty list means nothing matched or nothing needed to change.",
+		ModelDescription: "Act on the home through a Home Assistant service: lights, switches, covers, media players, scripts. Target an entity_id from ha_find_entities, or an area_id. Returns the entities whose state changed; an empty list means nothing matched or nothing needed to change. Some calls need the person's yes: they return confirmation_required with a nonce. Ask them, and once they agree, call again with the same arguments and confirmation set to the nonce.",
 		Params: []ParamSpec{
 			{Name: "domain", Type: "string", Description: "Service domain, e.g. light, switch, script.", Required: true},
 			{Name: "service", Type: "string", Description: "Service within the domain, e.g. turn_on, turn_off, toggle.", Required: true},
 			{Name: "entity_id", Type: "string", Description: "Entity to act on, e.g. light.kitchen. Required unless area_id is given.", Required: false},
 			{Name: "area_id", Type: "string", Description: "Area to act on, e.g. kitchen. Required unless entity_id is given.", Required: false},
 			{Name: "data", Type: "object", Description: "Extra service fields, e.g. {\"brightness_pct\": 50}.", Required: false},
+			{Name: "confirmation", Type: "string", Description: "The nonce from a confirmation_required result, once the person has said yes. Omit it otherwise.", Required: false},
 		},
 		OnInterrupt:          "detach",
 		Scope:                "household",
 		Timeout:              10000 * time.Millisecond,
 		RequiresConfirmation: false,
 		Slow:                 false,
+		ConfirmWhen: []map[string]string{
+			{"domain": "lock", "service": "unlock"},
+			{"domain": "lock", "service": "open"},
+			{"domain": "alarm_control_panel", "service": "alarm_disarm"},
+		},
 	},
 	"ha_find_entities": {
 		Name:             "ha_find_entities",

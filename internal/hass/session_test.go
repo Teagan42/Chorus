@@ -126,10 +126,19 @@ type rig struct {
 
 func newRig(t *testing.T, wire *transport, acts ...session.Action) *rig {
 	t.Helper()
+	eng := &scriptEngine{acts: acts}
+	r := newRigOn(t, wire, eng)
+	r.engine = eng
+	return r
+}
+
+// newRigOn runs the supervisor over any engine, for a test whose model has to
+// answer from what it is told.
+func newRigOn(t *testing.T, wire *transport, eng session.Engine) *rig {
+	t.Helper()
 	store := journal.NewMemStore()
 	clk := stillClock{now: time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC)}
 	sp := newSpeaker()
-	eng := &scriptEngine{acts: acts}
 	sup, err := session.New(session.Config{
 		Journal: journal.New(store, clk, journal.Versions{Model: "qwen3-32b", Prompt: "p1", ToolSchema: "t1"}),
 		Store:   store,
@@ -143,7 +152,7 @@ func newRig(t *testing.T, wire *transport, acts ...session.Action) *rig {
 	if err != nil {
 		t.Fatalf("new supervisor: %v", err)
 	}
-	return &rig{sup: sup, store: store, engine: eng, speaker: sp, wire: wire}
+	return &rig{sup: sup, store: store, speaker: sp, wire: wire}
 }
 
 func (r *rig) open(t *testing.T) *session.Session {
