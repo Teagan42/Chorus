@@ -76,7 +76,9 @@ func open(t *testing.T, s *server) *page {
 		case *runtime.EventExceptionThrown:
 			p.fail("script error: %s", ev.ExceptionDetails.Error())
 		case *network.EventResponseReceived:
-			if ev.Response.Status >= 400 {
+			// Only our own routes: the shell also asks Google for fonts, and
+			// a throttled font is not a broken screen.
+			if ev.Response.Status >= 400 && strings.HasPrefix(ev.Response.URL, p.base+"/") {
 				p.fail("%d from %s", ev.Response.Status, ev.Response.URL)
 			}
 		}
