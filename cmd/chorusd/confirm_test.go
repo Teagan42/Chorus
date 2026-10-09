@@ -179,10 +179,10 @@ func TestTheGarageDoorOpensOnlyAfterAlanSaysYes(t *testing.T) {
 	r.store.awaitKind(t, journal.KindSpeechSpoken, 2)
 
 	got := ha.paths()
-	if len(got) != 3 || got[2] != "POST /api/services/cover/open_cover" {
+	if len(got) != 2 || got[1] != "POST /api/services/cover/open_cover" {
 		t.Fatalf("home assistant was asked %q, want the garage door opened once, after his yes", got)
 	}
-	if body := ha.sent()[2]; body != `{"entity_id":"cover.garage_door"}` {
+	if body := ha.sent()[1]; body != `{"entity_id":"cover.garage_door"}` {
 		t.Errorf("open body = %s, want only the garage door: no nonce", body)
 	}
 	var spoken []string
