@@ -46,9 +46,12 @@ import "struct"
 	// Calls whose arguments match any entry need the person's yes even when
 	// the tool as a whole does not: "unlock the front door" is the same
 	// service call as "turn on the kitchen lights". An entry matches when
-	// every string parameter it names has that value (ADR-0038).
+	// every string parameter it names has that value (ADR-0038), and, when
+	// it names target_class, the thing the call acts on has one of those
+	// classes, as its executor reads them (ADR-0041).
 	confirm_when?: [...close({
 		for p in params if p.type == "string" {(p.name)?: string & !=""}
+		target_class?: [string & !="", ...string & !=""]
 	}) & struct.MinFields(1)]
 
 	// Latency hint lets the model decide whether to speak before results land.
@@ -76,6 +79,10 @@ import "struct"
 // ---------------------------------------------------------------- the registry
 
 tools: [string]: #Tool
+
+// _waysIn are the cover device classes that let someone into the house when
+// they open. Home Assistant sets them per entity ("Show as" in its UI).
+_waysIn: ["door", "garage", "gate"]
 
 tools: {
 	speak: {
@@ -140,13 +147,19 @@ tools: {
 		// the call runs to completion and keeps its result (SPEC §4.4).
 		on_interrupt: "detach"
 		// Opening the house to whoever is at the door, or switching the alarm
-		// off, is not undone by "never mind" (ADR-0038). A garage cover opens
-		// with the same cover.open_cover as a blind, so it cannot be told
-		// apart here.
+		// off, is not undone by "never mind" (ADR-0038). A garage opens with
+		// the same cover.open_cover as a blind, so those entries hold only
+		// the covers Home Assistant classes as a way in (ADR-0041).
 		confirm_when: [
 			{domain: "lock", service: "unlock"},
 			{domain: "lock", service: "open"},
 			{domain: "alarm_control_panel", service: "alarm_disarm"},
+			for s in ["open_cover", "toggle", "set_cover_position"] {
+				{domain: "cover", service: s, target_class: _waysIn}
+			},
+			// homeassistant.toggle reaches cover.toggle; turn_on does not
+			// support covers.
+			{domain: "homeassistant", service: "toggle", target_class: _waysIn},
 		]
 		params: [
 			{name: "domain", type: "string", description: "Service domain, e.g. light, switch, script.", required: true},

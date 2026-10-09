@@ -127,6 +127,11 @@ func TestPolicyViolationsAreRejected(t *testing.T) {
 			"confirm_when",
 		},
 		{
+			"confirm_when_empty_target_class.cue",
+			"a confirmation gate that names no target class holds no target",
+			"target_class",
+		},
+		{
 			"confirmation_param_declared.cue",
 			"the nonce argument is the orchestrator's, not a tool's",
 			"confirmation",
