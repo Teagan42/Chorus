@@ -4,8 +4,6 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"path"
-	"sort"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/teaganglenn/chorus/internal/journal"
@@ -26,51 +24,7 @@ func NewPgStore(db journal.Querier) *PgStore { return &PgStore{db: db} }
 // Migrate applies this package's migrations through the shared ledger, so
 // one `schema_migrations` table records the whole database's history.
 func Migrate(ctx context.Context, db journal.Querier) error {
-	const ledger = `CREATE TABLE IF NOT EXISTS schema_migrations (
-		version    text        PRIMARY KEY,
-		applied_at timestamptz NOT NULL DEFAULT now()
-	)`
-	if _, err := db.Exec(ctx, ledger); err != nil {
-		return fmt.Errorf("create schema_migrations: %w", err)
-	}
-
-	entries, err := migrations.ReadDir("migrations")
-	if err != nil {
-		return fmt.Errorf("read migrations: %w", err)
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
-		// Namespaced in the ledger: the journal's 0001 is not this 0001.
-		version := "curation/" + name
-		var applied bool
-		err := db.QueryRow(ctx,
-			`SELECT exists(SELECT 1 FROM schema_migrations WHERE version = $1)`, version,
-		).Scan(&applied)
-		if err != nil {
-			return fmt.Errorf("check migration %s: %w", version, err)
-		}
-		if applied {
-			continue
-		}
-		body, err := migrations.ReadFile(path.Join("migrations", name))
-		if err != nil {
-			return fmt.Errorf("read migration %s: %w", version, err)
-		}
-		if _, err := db.Exec(ctx, string(body)); err != nil {
-			return fmt.Errorf("apply migration %s: %w", version, err)
-		}
-		if _, err := db.Exec(ctx,
-			`INSERT INTO schema_migrations (version) VALUES ($1)`, version,
-		); err != nil {
-			return fmt.Errorf("record migration %s: %w", version, err)
-		}
-	}
-	return nil
+	return journal.ApplyMigrations(ctx, db, migrations, "curation/")
 }
 
 // Put stores or replaces the decision on its pair.
