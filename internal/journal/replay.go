@@ -33,6 +33,10 @@ type State struct {
 	// what was heard, what was said, and every call and result, in order.
 	Dialogue []Entry
 
+	// Confirmations are the calls held for the person's yes, in the order
+	// they were held, and what became of their nonces (SPEC §6).
+	Confirmations []Confirmation
+
 	LastSeq     uint64
 	Speculative int
 	Open        bool
@@ -121,6 +125,7 @@ func Reduce(s State, e Event) (State, error) {
 		if id := e.Fields["speaker_id"]; id != "" {
 			s.Speaker = id
 		}
+		s.Confirmations = s.answered(e.Fields["text"], e.Fields["speaker_id"])
 	case KindModelCompleted:
 		s.Completions = append(s.Completions, e.Fields["completion_json"])
 	case KindToolCalled:
@@ -142,6 +147,18 @@ func Reduce(s State, e Event) (State, error) {
 		calls[i].Result = e.Fields["result_json"]
 		s.Calls = calls
 		s.Dialogue = s.resulted(id, calls[i].Tool, calls[i].Outcome, calls[i].Result)
+	case KindConfirmationRequested:
+		c, ok := s.requested(e.Fields["call_id"], e.Fields["nonce"])
+		if !ok {
+			return s, fmt.Errorf("confirmation for unknown call %q", e.Fields["call_id"])
+		}
+		s.Confirmations = c
+	case KindConfirmationGiven:
+		c, ok := s.given(e.Fields["call_id"], e.Fields["nonce"])
+		if !ok {
+			return s, fmt.Errorf("confirmation given on unknown nonce %q", e.Fields["nonce"])
+		}
+		s.Confirmations = c
 	case KindSpeechSpoken:
 		s.Spoken = append(s.Spoken, e.Fields["text"])
 		s.Dialogue = s.played(e.Fields["call_id"], e.Fields["text"], false)
@@ -182,19 +199,21 @@ func indexOfCall(calls []Call, id string) int {
 
 // handled is the reducer's exhaustiveness claim, asserted against AllKinds.
 var handled = map[Kind]bool{
-	KindBargeInDetected:      true,
-	KindBargeInRejected:      true,
-	KindModelCompleted:       true,
-	KindSessionClosed:        true,
-	KindSessionOpened:        true,
-	KindSpeechDiscarded:      true,
-	KindSpeechSpoken:         true,
-	KindSpeechStarted:        true,
-	KindSpeechTruncated:      true,
-	KindToolCalled:           true,
-	KindToolResult:           true,
-	KindUtteranceTranscribed: true,
-	KindWakeRejected:         true,
+	KindBargeInDetected:       true,
+	KindBargeInRejected:       true,
+	KindConfirmationGiven:     true,
+	KindConfirmationRequested: true,
+	KindModelCompleted:        true,
+	KindSessionClosed:         true,
+	KindSessionOpened:         true,
+	KindSpeechDiscarded:       true,
+	KindSpeechSpoken:          true,
+	KindSpeechStarted:         true,
+	KindSpeechTruncated:       true,
+	KindToolCalled:            true,
+	KindToolResult:            true,
+	KindUtteranceTranscribed:  true,
+	KindWakeRejected:          true,
 }
 
 // Handled reports whether the reducer folds this kind. A new generated kind
