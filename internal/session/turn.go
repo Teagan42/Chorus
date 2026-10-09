@@ -1,6 +1,10 @@
 package session
 
-import "context"
+import (
+	"context"
+
+	"github.com/teaganglenn/chorus/internal/journal"
+)
 
 // Mode selects how a speak call joins the speech channel (SPEC §4.2).
 type Mode string
@@ -63,7 +67,15 @@ type Engine interface {
 type Input struct {
 	ConversationID string
 	Speaker        string
-	Text           string
+
+	// Text is the utterance this turn answers.
+	Text string
+
+	// Dialogue is the conversation so far, derived from the log: every
+	// earlier turn, this turn's utterance, and on a follow-up ask the calls
+	// this turn made and what they returned (SPEC §4.4). Empty for an engine
+	// asked a turn on its own, which then has only Text.
+	Dialogue []journal.Entry
 }
 
 // Tool is one executable registry entry. Failures come back as errors and

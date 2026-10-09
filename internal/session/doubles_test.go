@@ -28,25 +28,54 @@ type step struct {
 	gate <-chan struct{}
 }
 
-// scriptEngine replays a fixed action stream. It records a stall instead of
-// hanging, so a serialising orchestrator fails with a readable message.
+// scriptEngine replays a fixed action stream to every utterance. It records
+// a stall instead of hanging, so a serialising orchestrator fails with a
+// readable message.
 type scriptEngine struct {
 	steps []step
+
+	// then answers the follow-up asks the session makes once tools return,
+	// in order. A follow-up with nothing left here says nothing, as a model
+	// with nothing to add would.
+	then [][]step
 
 	mu     sync.Mutex
 	stall  string
 	inputs []session.Input
+	asked  int
+}
+
+// followUp reports whether an ask carries results the utterance led to,
+// which is what tells it apart from the ask that answers the utterance.
+func followUp(in session.Input) bool {
+	for i := len(in.Dialogue) - 1; i >= 0; i-- {
+		switch in.Dialogue[i].Kind {
+		case journal.EntryHeard:
+			return false
+		case journal.EntryResult:
+			return true
+		}
+	}
+	return false
 }
 
 func (e *scriptEngine) Turn(ctx context.Context, in session.Input) (<-chan session.Action, error) {
 	e.mu.Lock()
 	e.inputs = append(e.inputs, in)
+	steps := e.steps
+	if followUp(in) {
+		steps = nil
+		if e.asked < len(e.then) {
+			steps = e.then[e.asked]
+		}
+		e.asked++
+	}
 	e.mu.Unlock()
 
 	out := make(chan session.Action)
 	go func() {
 		defer close(out)
-		for i, s := range e.steps {
+		for i, s := range steps {
 			select {
 			case out <- s.act:
 			case <-ctx.Done():
@@ -68,6 +97,13 @@ func (e *scriptEngine) Turn(ctx context.Context, in session.Input) (<-chan sessi
 		}
 	}()
 	return out, nil
+}
+
+// asks returns every input the engine was asked with, in order.
+func (e *scriptEngine) asks() []session.Input {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]session.Input(nil), e.inputs...)
 }
 
 func (e *scriptEngine) stalled() string {

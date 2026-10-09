@@ -24,6 +24,12 @@ type Timers interface {
 // DefaultSilence is the backstop for a model that never calls end_session.
 const DefaultSilence = 20 * time.Second
 
+// DefaultRounds is how many asks one utterance gets. Finding an entity,
+// acting on it, and saying what happened is three; the fourth is slack for a
+// model that reads a state before it acts, and the cap is what stops one
+// that never stops calling tools.
+const DefaultRounds = 4
+
 // Reserved tool names the supervisor implements itself. They are ordinary
 // registry entries; only their executor is internal.
 const (
@@ -49,6 +55,10 @@ type Config struct {
 
 	Gate    Gate
 	Silence time.Duration
+
+	// Rounds caps how many times one utterance asks the model: the first ask,
+	// and one more after each set of tool results. Zero is DefaultRounds.
+	Rounds int
 }
 
 // Supervisor opens sessions. It holds no per-session state.
@@ -75,6 +85,9 @@ func New(cfg Config) (*Supervisor, error) {
 	}
 	if cfg.Silence == 0 {
 		cfg.Silence = DefaultSilence
+	}
+	if cfg.Rounds == 0 {
+		cfg.Rounds = DefaultRounds
 	}
 	return &Supervisor{cfg: cfg}, nil
 }
@@ -238,8 +251,8 @@ func (s *Session) Heard(ctx context.Context, t Transcript) error {
 	return s.turn(ctx, t)
 }
 
-// turn runs the Thinking child: it drains the action stream, dispatching each
-// action as it arrives, and never reorders it (SPEC §4.1).
+// turn runs the Thinking child over one utterance. Each ask dispatches the
+// model's actions as they arrive and never reorders them (SPEC §4.1).
 func (s *Session) turn(ctx context.Context, t Transcript) error {
 	st, err := s.State(ctx)
 	if err != nil {
@@ -251,22 +264,56 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 	defer cancel()
 
 	s.mu.Lock()
-	s.turnCancel, s.turnErr, s.implicitID = cancel, nil, newID()
+	s.turnCancel, s.turnErr = cancel, nil
 	s.mu.Unlock()
-
-	actions, err := s.sup.cfg.Engine.Turn(turnCtx, Input{
-		ConversationID: s.convID,
-		Speaker:        st.Speaker,
-		Text:           t.Text,
-	})
-	if err != nil {
-		return fmt.Errorf("turn %s: %w", s.convID, err)
-	}
 
 	s.enter("thinking")
 	defer s.leave("thinking")
 
+	// One ask, then another for as long as the model acts: a tool's result is
+	// only worth having if the model is asked again with it. Speech alone
+	// needs no answer, and a barge-in or a closing session ends the turn.
+	for round := 1; ; round++ {
+		acted, err := s.ask(turnCtx, Input{
+			ConversationID: s.convID,
+			Speaker:        st.Speaker,
+			Text:           t.Text,
+			Dialogue:       st.Dialogue,
+		})
+		if err != nil {
+			return err
+		}
+		if !acted || turnCtx.Err() != nil || round >= s.sup.cfg.Rounds || s.failed() {
+			break
+		}
+		if st, err = s.State(ctx); err != nil {
+			return err
+		}
+	}
+	s.speech.waitIdle()
+	s.poke()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turnCancel = nil
+	return s.turnErr
+}
+
+// ask runs one completion: it drains the action stream, dispatching each
+// action as it arrives, and waits for the calls it made. It reports whether
+// the model called anything that answers, which is what earns a follow-up.
+func (s *Session) ask(turnCtx context.Context, in Input) (bool, error) {
+	actions, err := s.sup.cfg.Engine.Turn(turnCtx, in)
+	if err != nil {
+		return false, fmt.Errorf("turn %s: %w", s.convID, err)
+	}
+	// Inline speech has no id of its own, and each ask's is a new utterance.
+	s.mu.Lock()
+	s.implicitID = newID()
+	s.mu.Unlock()
+
 	var wg sync.WaitGroup
+	acted := false
 	open := map[string]bool{}
 	dropped := map[string]string{}
 	for a := range actions {
@@ -275,6 +322,7 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 			s.deliverSpeech(turnCtx, act, open, dropped)
 		case ToolCall:
 			s.dispatch(turnCtx, &wg, act)
+			acted = acted || (act.Tool != toolSpeak && act.Tool != toolEndSession)
 		case TurnEnd:
 			s.fail(s.record(journal.Record{
 				Kind: journal.KindModelCompleted,
@@ -290,13 +338,15 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 		s.discardSpeech(id, dropped[id])
 	}
 	wg.Wait()
-	s.speech.waitIdle()
-	s.poke()
+	return acted, nil
+}
 
+// failed reports whether this turn has already lost a write, after which
+// asking again would reason over a log that is missing something.
+func (s *Session) failed() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.turnCancel = nil
-	return s.turnErr
+	return s.turnErr != nil
 }
 
 // deliverSpeech routes a delta to the speech channel. Inline content carries
@@ -313,8 +363,7 @@ func (s *Session) deliverSpeech(turnCtx context.Context, d SpeechDelta, open map
 		s.fail(s.record(journal.Record{
 			Kind: journal.KindToolCalled,
 			Fields: map[string]string{
-				"tool": toolSpeak, "call_id": d.CallID,
-				"args_json": fmt.Sprintf(`{"mode":%q,"streamed":true}`, mode(d.Mode)),
+				"tool": toolSpeak, "call_id": d.CallID, "args_json": streamedArgs(d),
 			},
 		}))
 	}
@@ -328,6 +377,23 @@ func (s *Session) deliverSpeech(turnCtx context.Context, d SpeechDelta, open map
 		s.discardSpeech(d.CallID, dropped[d.CallID])
 		delete(dropped, d.CallID)
 	}
+}
+
+// streamedArgs is the speak call a streamed utterance is recorded as. One
+// that arrived whole, as every Ollama speak call does, carries its words, so
+// a follow-up ask made while it is still playing knows what it is saying.
+func streamedArgs(d SpeechDelta) string {
+	args := struct {
+		Mode     Mode   `json:"mode"`
+		Streamed bool   `json:"streamed"`
+		Text     string `json:"text,omitempty"`
+	}{Mode: mode(d.Mode), Streamed: true}
+	if d.Last {
+		args.Text = d.Text
+	}
+	// Strings and a bool: marshalling cannot fail.
+	b, _ := json.Marshal(args)
+	return string(b)
 }
 
 // discardSpeech records text the model generated for a turn that was cut off.

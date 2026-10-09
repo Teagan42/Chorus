@@ -300,14 +300,14 @@ func (c *speechChannel) record(callID, reason string, pb Playback) {
 			Kind: journal.KindSpeechTruncated, AudioRef: pb.AudioRef,
 			Fields: map[string]string{
 				"spoken_text": pb.Spoken, "unspoken_text": pb.Unspoken,
-				"frames_played": frames,
+				"frames_played": frames, "call_id": callID,
 			},
 		}))
 		c.s.result(callID, "cancelled", "")
 	case pb.Spoken != "":
 		c.s.fail(c.s.record(journal.Record{
 			Kind: journal.KindSpeechSpoken, AudioRef: pb.AudioRef,
-			Fields: map[string]string{"text": pb.Spoken, "frames_played": frames},
+			Fields: map[string]string{"text": pb.Spoken, "frames_played": frames, "call_id": callID},
 		}))
 		c.s.result(callID, "ok", "")
 	default:

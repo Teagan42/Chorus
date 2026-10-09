@@ -185,10 +185,14 @@ func (s *spyStore) awaitKind(t *testing.T, k journal.Kind, n int) journal.Event 
 
 // ------------------------------------------------------------------ model
 
-// scriptEngine replays a fixed action stream on every turn and records what
-// it was asked. The same shape as the session package's own double.
+// scriptEngine replays a fixed action stream to every utterance and records
+// what it was asked. The same shape as the session package's own double.
 type scriptEngine struct {
 	acts []session.Action
+
+	// answer is how it speaks to a follow-up ask, given the result the
+	// utterance led to. Nil says nothing.
+	answer func(journal.Entry) []session.Action
 
 	mu     sync.Mutex
 	inputs []session.Input
@@ -198,10 +202,17 @@ func (e *scriptEngine) Turn(ctx context.Context, in session.Input) (<-chan sessi
 	e.mu.Lock()
 	e.inputs = append(e.inputs, in)
 	e.mu.Unlock()
+	acts := e.acts
+	if r, ok := lastResult(in); ok {
+		acts = nil
+		if e.answer != nil {
+			acts = e.answer(r)
+		}
+	}
 	out := make(chan session.Action)
 	go func() {
 		defer close(out)
-		for _, a := range e.acts {
+		for _, a := range acts {
 			select {
 			case out <- a:
 			case <-ctx.Done():
@@ -210,6 +221,20 @@ func (e *scriptEngine) Turn(ctx context.Context, in session.Input) (<-chan sessi
 		}
 	}()
 	return out, nil
+}
+
+// lastResult is the newest result the utterance being answered led to. An
+// ask that has one is a follow-up, not the answer to the utterance itself.
+func lastResult(in session.Input) (journal.Entry, bool) {
+	for i := len(in.Dialogue) - 1; i >= 0; i-- {
+		switch in.Dialogue[i].Kind {
+		case journal.EntryHeard:
+			return journal.Entry{}, false
+		case journal.EntryResult:
+			return in.Dialogue[i], true
+		}
+	}
+	return journal.Entry{}, false
 }
 
 func (e *scriptEngine) heard() []session.Input {
