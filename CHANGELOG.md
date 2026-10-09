@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/Teagan42/Chorus/compare/v0.8.0...v0.9.0) (2026-10-09)
+
+
+### Features
+
+* journal the first frame each turn played, and flag slow answers ([#33](https://github.com/Teagan42/Chorus/issues/33)) ([52b3023](https://github.com/Teagan42/Chorus/commit/52b30233df4cbf5edc18a1d8da1703ffbd374a8d))
+
+
+### Documentation
+
+* a review UI guide, and README/CONTRIBUTING caught up to main ([#35](https://github.com/Teagan42/Chorus/issues/35)) ([b836e39](https://github.com/Teagan42/Chorus/commit/b836e39b8db054b78781384e9ab0b28e8d75bab7))
+
 ## [0.8.0](https://github.com/Teagan42/Chorus/compare/v0.7.0...v0.8.0) (2026-10-09)
 
 
