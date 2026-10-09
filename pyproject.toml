@@ -28,6 +28,11 @@ docs = [
   "mkdocs-material==9.7.7",
   "mkdocs-glightbox==0.5.2",
 ]
+# The household fixture's voices (task household:voice): Kokoro, the TTS
+# chorusd speaks with, run locally over ONNX.
+voice = [
+  "kokoro-onnx==0.6.1",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["sidecars"]
