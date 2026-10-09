@@ -27,6 +27,11 @@ type Entry struct {
 	// Text is the transcript of a heard entry, or the heard words of a said one.
 	Text string
 
+	// Speaker is who a heard entry was attributed to: the speaker it matched,
+	// or the conversation's current one when it matched nobody, and empty in
+	// a guest's conversation. Whom a summary says asked what (SPEC §5).
+	Speaker string
+
 	// Cut marks said speech a barge-in stopped after Text.
 	Cut bool
 

@@ -51,7 +51,7 @@ func TestTheDialogueIsWhatThePersonHeardInTheOrderItHappened(t *testing.T) {
 	})
 
 	want := []journal.Entry{
-		{Kind: journal.EntryHeard, Text: "is the garage door closed"},
+		{Kind: journal.EntryHeard, Text: "is the garage door closed", Speaker: "teagan"},
 		{Kind: journal.EntrySaid, CallID: "call_s1", Text: "Let me check."},
 		{Kind: journal.EntryCall, CallID: "call_c1", Tool: "ha_get_state", Args: `{"entity_id":"cover.garage_door"}`},
 		{Kind: journal.EntryResult, CallID: "call_c1", Tool: "ha_get_state", Outcome: "ok", Result: `{"entity_id":"cover.garage_door","state":"open"}`},

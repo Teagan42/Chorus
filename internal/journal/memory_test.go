@@ -172,3 +172,31 @@ func TestTheConversationKeepsItsSummary(t *testing.T) {
 		t.Errorf("a failed summary left %q", failed.Summary)
 	}
 }
+
+// An utterance nobody was matched to is still the current speaker's, as the
+// session attributes it; in a guest's conversation it is nobody's.
+//
+// verifies SPEC §5
+func TestAnUnmatchedUtteranceIsTheCurrentSpeakers(t *testing.T) {
+	st := reduceAll(t, []journal.Event{
+		ev(journal.KindSessionOpened, map[string]string{"satellite": "kitchen", "speaker_id": "teagan"}),
+		ev(journal.KindUtteranceTranscribed, map[string]string{"text": "set a timer for the pasta"}),
+		ev(journal.KindUtteranceTranscribed, map[string]string{"text": "how long is left", "speaker_id": "alan"}),
+		ev(journal.KindUtteranceTranscribed, map[string]string{"text": "and the oven"}),
+	})
+	var got []string
+	for _, e := range st.Dialogue {
+		got = append(got, e.Speaker)
+	}
+	if want := []string{"teagan", "alan", "alan"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("attributed %v, want %v", got, want)
+	}
+
+	guest := reduceAll(t, []journal.Event{
+		ev(journal.KindSessionOpened, map[string]string{"satellite": "front door"}),
+		ev(journal.KindUtteranceTranscribed, map[string]string{"text": "is anyone home"}),
+	})
+	if guest.Dialogue[0].Speaker != "" {
+		t.Errorf("a guest's utterance was attributed to %q", guest.Dialogue[0].Speaker)
+	}
+}

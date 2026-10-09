@@ -141,10 +141,12 @@ func Reduce(s State, e Event) (State, error) {
 		s.CloseReason = e.Fields["reason"]
 	case KindUtteranceTranscribed:
 		s.Heard = append(s.Heard, e.Fields["text"])
-		s.Dialogue = appendEntry(s.Dialogue, Entry{Kind: EntryHeard, Text: e.Fields["text"]})
 		if id := e.Fields["speaker_id"]; id != "" {
 			s.Speaker = id
 		}
+		// Attributed as the session attributes it: an utterance nobody was
+		// matched to is still the current speaker's (SPEC §5).
+		s.Dialogue = appendEntry(s.Dialogue, Entry{Kind: EntryHeard, Text: e.Fields["text"], Speaker: s.Speaker})
 		s.HeardAt = e.At.UTC()
 		s.Participants = participate(s.Participants, e.Fields["speaker_id"])
 		s.Confirmations = s.answered(e.Fields["text"], e.Fields["speaker_id"])

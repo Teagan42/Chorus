@@ -52,7 +52,7 @@ func wantReplayState() journal.State {
 		// The speech events predate naming their call, so each one lands
 		// where it was heard.
 		Dialogue: []journal.Entry{
-			{Kind: journal.EntryHeard, Text: "play something"},
+			{Kind: journal.EntryHeard, Text: "play something", Speaker: "teagan"},
 			{Kind: journal.EntryCall, CallID: "c1", Tool: "media_search", Args: "{}"},
 			{Kind: journal.EntrySaid, Text: "one sec"},
 			{Kind: journal.EntryResult, CallID: "c1", Tool: "media_search", Outcome: "ok", Result: `{"hits":3}`},
