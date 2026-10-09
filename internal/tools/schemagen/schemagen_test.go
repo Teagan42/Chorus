@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"go/parser"
 	"go/token"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -201,8 +202,9 @@ func TestLLMToolSchemasShape(t *testing.T) {
 	}
 
 	ms := byName["media_search"]["input_schema"].(map[string]any)
-	if req := ms["required"].([]string); len(req) != 1 || req[0] != "query" {
-		t.Errorf("required = %v, want [query]", req)
+	// The acknowledgement is required too: media_search is slow.
+	if req := ms["required"].([]string); len(req) != 2 || req[0] != "query" || req[1] != "acknowledgement" {
+		t.Errorf("required = %v, want [query acknowledgement]", req)
 	}
 	props := ms["properties"].(map[string]any)
 	if props["limit"].(map[string]any)["type"] != "integer" {
@@ -296,6 +298,35 @@ func TestConfirmableToolsOfferTheNonce(t *testing.T) {
 		if !strings.Contains(doc, want) {
 			t.Errorf("tool docs are missing %q", want)
 		}
+	}
+}
+
+// A slow tool cannot be called without saying something: the words the
+// person hears while it works are a required argument, not a speak call the
+// model may or may not volunteer beside it.
+//
+// verifies SPEC §4.1, §11
+func TestSlowToolsRequireAnAcknowledgement(t *testing.T) {
+	byName := map[string]map[string]any{}
+	for _, s := range LLMToolSchemas(fixtureTools()) {
+		byName[s["name"].(string)] = s
+	}
+	schema := func(name string) (map[string]any, []string) {
+		in := byName[name]["input_schema"].(map[string]any)
+		req, _ := in["required"].([]string)
+		return in["properties"].(map[string]any), req
+	}
+	props, req := schema("media_search")
+	if _, ok := props["acknowledgement"]; !ok || !slices.Contains(req, "acknowledgement") {
+		t.Errorf("media_search offers %v requiring %v: want a required acknowledgement", props, req)
+	}
+	for _, fast := range []string{"remember", "end_session", "front_door"} {
+		if props, _ := schema(fast); props["acknowledgement"] != nil {
+			t.Errorf("%s is fast, so it should not ask for an acknowledgement", fast)
+		}
+	}
+	if !strings.Contains(renderToolDocs(fixtureTools()), "| `acknowledgement` | string | yes |") {
+		t.Error("tool docs do not show the acknowledgement as required")
 	}
 }
 

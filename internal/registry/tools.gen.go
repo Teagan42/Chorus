@@ -42,7 +42,12 @@ type ToolSpec struct {
 	// show: a slow tool carries a latency hint it has to act on (SPEC §14).
 	ModelDescription string
 
+	// Params are what the tool's executor declares and receives. ModelParams
+	// are what the model is offered, which adds the arguments the
+	// orchestrator acts on and strips before the executor sees the call: the
+	// acknowledgement on a slow tool, the nonce on a confirmable one.
 	Params               []ParamSpec
+	ModelParams          []ParamSpec
 	OnInterrupt          InterruptPolicy
 	Scope                Scope
 	Timeout              time.Duration
@@ -77,6 +82,13 @@ var Specs = map[string]ToolSpec{
 			{Name: "entity_id", Type: "string", Description: "Entity to act on, e.g. light.kitchen. Required unless area_id is given.", Required: false},
 			{Name: "area_id", Type: "string", Description: "Area to act on, e.g. kitchen. Required unless entity_id is given.", Required: false},
 			{Name: "data", Type: "object", Description: "Extra service fields, e.g. {\"brightness_pct\": 50}.", Required: false},
+		},
+		ModelParams: []ParamSpec{
+			{Name: "domain", Type: "string", Description: "Service domain, e.g. light, switch, script.", Required: true},
+			{Name: "service", Type: "string", Description: "Service within the domain, e.g. turn_on, turn_off, toggle.", Required: true},
+			{Name: "entity_id", Type: "string", Description: "Entity to act on, e.g. light.kitchen. Required unless area_id is given.", Required: false},
+			{Name: "area_id", Type: "string", Description: "Area to act on, e.g. kitchen. Required unless entity_id is given.", Required: false},
+			{Name: "data", Type: "object", Description: "Extra service fields, e.g. {\"brightness_pct\": 50}.", Required: false},
 			{Name: "confirmation", Type: "string", Description: "The nonce from a confirmation_required result, once the person has said yes. Omit it otherwise.", Required: false},
 		},
 		OnInterrupt:          "detach",
@@ -98,6 +110,10 @@ var Specs = map[string]ToolSpec{
 			{Name: "domain", Type: "string", Description: "Only entities in this domain, e.g. light.", Required: false},
 			{Name: "name", Type: "string", Description: "Only entities whose name or id contains this text, e.g. kitchen.", Required: false},
 		},
+		ModelParams: []ParamSpec{
+			{Name: "domain", Type: "string", Description: "Only entities in this domain, e.g. light.", Required: false},
+			{Name: "name", Type: "string", Description: "Only entities whose name or id contains this text, e.g. kitchen.", Required: false},
+		},
 		OnInterrupt:          "cancel",
 		Scope:                "household",
 		Timeout:              10000 * time.Millisecond,
@@ -109,6 +125,9 @@ var Specs = map[string]ToolSpec{
 		Description:      "Read one entity's current state and attributes from Home Assistant.",
 		ModelDescription: "Read one entity's current state and attributes from Home Assistant.",
 		Params: []ParamSpec{
+			{Name: "entity_id", Type: "string", Description: "Entity to read, e.g. sensor.living_room_temperature.", Required: true},
+		},
+		ModelParams: []ParamSpec{
 			{Name: "entity_id", Type: "string", Description: "Entity to read, e.g. sensor.living_room_temperature.", Required: true},
 		},
 		OnInterrupt:          "cancel",
@@ -125,6 +144,11 @@ var Specs = map[string]ToolSpec{
 			{Name: "query", Type: "string", Description: "Free-text search.", Required: true},
 			{Name: "limit", Type: "integer", Description: "Maximum results.", Required: false},
 		},
+		ModelParams: []ParamSpec{
+			{Name: "query", Type: "string", Description: "Free-text search.", Required: true},
+			{Name: "limit", Type: "integer", Description: "Maximum results.", Required: false},
+			{Name: "acknowledgement", Type: "string", Description: "A few words said aloud while this runs, e.g. \"Searching the library.\" They are spoken for you as it starts; do not also call speak for them.", Required: true},
+		},
 		OnInterrupt:          "detach",
 		Scope:                "household",
 		Timeout:              20000 * time.Millisecond,
@@ -136,6 +160,10 @@ var Specs = map[string]ToolSpec{
 		Description:      "Store a durable fact about the current speaker.",
 		ModelDescription: "Store a durable fact about the current speaker.",
 		Params: []ParamSpec{
+			{Name: "fact", Type: "string", Description: "The fact to retain.", Required: true},
+			{Name: "shareable", Type: "boolean", Description: "Whether other household members may see this.", Required: false},
+		},
+		ModelParams: []ParamSpec{
 			{Name: "fact", Type: "string", Description: "The fact to retain.", Required: true},
 			{Name: "shareable", Type: "boolean", Description: "Whether other household members may see this.", Required: false},
 		},
@@ -151,6 +179,10 @@ var Specs = map[string]ToolSpec{
 		Description:      "Say something to the user. Runs concurrently with other tools; the model chooses when and whether to speak.",
 		ModelDescription: "Say something to the user. Runs concurrently with other tools; the model chooses when and whether to speak.",
 		Params: []ParamSpec{
+			{Name: "text", Type: "string", Description: "What to say.", Required: true},
+			{Name: "mode", Type: "string", Description: "queue appends after current speech; preempt cancels it; interject ducks and cuts in.", Required: false, Enum: []string{"queue", "preempt", "interject"}},
+		},
+		ModelParams: []ParamSpec{
 			{Name: "text", Type: "string", Description: "What to say.", Required: true},
 			{Name: "mode", Type: "string", Description: "queue appends after current speech; preempt cancels it; interject ducks and cuts in.", Required: false, Enum: []string{"queue", "preempt", "interject"}},
 		},

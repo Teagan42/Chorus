@@ -152,12 +152,22 @@ func LLMToolSchemas(tools map[string]Tool) []map[string]any {
 	return out
 }
 
-// slowHint is appended to a slow tool's model-facing description. Measured, not
-// assumed: with it, qwen3:14b and ornith:9b volunteer a `speak` alongside the
-// slow call; without it both call the tool alone and leave the user in silence.
-// The latency field is the registry's own, so the hint cannot drift from the
+// slowHint is appended to a slow tool's model-facing description. The
+// latency field is the registry's own, so the hint cannot drift from the
 // timeout policy generated beside it (SPEC §6, §14).
 const slowHint = " Takes several seconds to return."
+
+// ackParam is required on every slow tool: the words said aloud while it
+// works. The orchestrator speaks them as the call starts, so an
+// acknowledgement no longer depends on the model volunteering a speak call
+// beside the tool, which measured models do some of the time and not
+// others (ADR-0039). Spelled as registry.AcknowledgementParam.
+var ackParam = Param{
+	Name:        "acknowledgement",
+	Type:        "string",
+	Description: "A few words said aloud while this runs, e.g. \"Searching the library.\" They are spoken for you as it starts; do not also call speak for them.",
+	Required:    true,
+}
 
 // confirmParam carries a confirmed call's nonce. Spelled as
 // registry.ConfirmationParam, which this generator cannot import: it writes
@@ -179,13 +189,20 @@ const (
 // person's yes.
 func confirmable(t Tool) bool { return t.RequiresConfirmation || len(t.ConfirmWhen) > 0 }
 
-// offered is the parameters the model is offered: the declared ones, and the
-// nonce on a confirmable tool.
+// offered is the parameters the model is offered: the declared ones, the
+// acknowledgement on a slow tool, and the nonce on a confirmable one.
 func offered(t Tool) []Param {
-	if !confirmable(t) {
-		return t.Params
+	out := append([]Param(nil), t.Params...)
+	if t.Latency == "slow" {
+		out = append(out, ackParam)
 	}
-	return append(append([]Param(nil), t.Params...), confirmParam)
+	if confirmable(t) {
+		out = append(out, confirmParam)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // describe is the tool description the model sees, which is not quite the one
@@ -248,7 +265,12 @@ type ToolSpec struct {
 	// show: a slow tool carries a latency hint it has to act on (SPEC §14).
 	ModelDescription string
 
+	// Params are what the tool's executor declares and receives. ModelParams
+	// are what the model is offered, which adds the arguments the
+	// orchestrator acts on and strips before the executor sees the call: the
+	// acknowledgement on a slow tool, the nonce on a confirmable one.
 	Params               []ParamSpec
+	ModelParams          []ParamSpec
 	OnInterrupt          InterruptPolicy
 	Scope                Scope
 	Timeout              time.Duration
@@ -269,7 +291,8 @@ type ToolSpec struct {
 		b.WriteString(fmt.Sprintf("\t\tName: %q,\n", t.Name))
 		b.WriteString(fmt.Sprintf("\t\tDescription: %q,\n", t.Description))
 		b.WriteString(fmt.Sprintf("\t\tModelDescription: %q,\n", describe(t)))
-		b.WriteString(renderParams(offered(t)))
+		b.WriteString(renderParams("Params", t.Params))
+		b.WriteString(renderParams("ModelParams", offered(t)))
 		b.WriteString(fmt.Sprintf("\t\tOnInterrupt: %q,\n", t.OnInterrupt))
 		b.WriteString(fmt.Sprintf("\t\tScope: %q,\n", t.Scope))
 		b.WriteString(fmt.Sprintf("\t\tTimeout: %d * time.Millisecond,\n", t.TimeoutMS))
@@ -285,12 +308,12 @@ type ToolSpec struct {
 	return b.String()
 }
 
-func renderParams(params []Param) string {
+func renderParams(field string, params []Param) string {
 	if len(params) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\t\tParams: []ParamSpec{\n")
+	b.WriteString("\t\t" + field + ": []ParamSpec{\n")
 	for _, p := range params {
 		b.WriteString(fmt.Sprintf("\t\t\t{Name: %q, Type: %q, Description: %q, Required: %t",
 			p.Name, p.Type, p.Description, p.Required))

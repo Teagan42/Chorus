@@ -28,7 +28,7 @@ type Confirmation struct {
 	Tool   string
 
 	// Args are the held call's arguments without a nonce, as
-	// registry.Unconfirmed encodes them: what a redeeming call must match.
+	// registry.Split encodes them: what a redeeming call must match.
 	Args string
 
 	// Heard counts what the person has said since the nonce was handed out.
@@ -52,7 +52,7 @@ type Confirmation struct {
 func (c Confirmation) open() bool { return c.RedeemedBy == "" && c.RefusedBy == "" }
 
 // Redeemable decides whether a call may run on nonce. Args are the call's
-// arguments without the nonce, encoded by registry.Unconfirmed. It returns
+// arguments without the nonce, encoded by registry.Split. It returns
 // the refusal, or "" when the call may run.
 //
 // Whether the answer was a yes is the model's to judge: it wrote the
@@ -94,12 +94,12 @@ func (s State) requested(callID, nonce, presented string) ([]Confirmation, bool)
 		return nil, false
 	}
 	call := s.Calls[i]
-	args, _, err := registry.Unconfirmed(call.Args)
-	if err != nil {
-		// The session holds no call it cannot read, so only a hand-written
-		// log gets here; raw arguments still compare equal to themselves.
-		args = call.Args
+	args := call.Args
+	if o, err := registry.Split(call.Args); err == nil {
+		args = o.Rest
 	}
+	// Otherwise only a hand-written log: the session holds no call it cannot
+	// read. Raw arguments still compare equal to themselves.
 	out := make([]Confirmation, len(s.Confirmations), len(s.Confirmations)+1)
 	copy(out, s.Confirmations)
 	if j := s.confirmation(presented); presented != "" && j >= 0 && out[j].open() {

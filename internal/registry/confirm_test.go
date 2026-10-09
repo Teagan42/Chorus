@@ -45,7 +45,7 @@ func TestOnlyTheDoorsAndTheAlarmWaitForAYes(t *testing.T) {
 // verifies SPEC §6
 func TestAHeldToolOffersTheNonce(t *testing.T) {
 	offered := func(name string) bool {
-		for _, p := range registry.Specs[name].Params {
+		for _, p := range registry.Specs[name].ModelParams {
 			if p.Name == registry.ConfirmationParam {
 				return true
 			}
@@ -65,28 +65,47 @@ func TestAHeldToolOffersTheNonce(t *testing.T) {
 //
 // verifies SPEC §6
 func TestTheNonceComesOffAndTheRestComparesEqual(t *testing.T) {
-	first, nonce, err := registry.Unconfirmed(`{"domain":"lock","service":"unlock","entity_id":"lock.front_door"}`)
-	if err != nil || nonce != "" {
-		t.Fatalf("Unconfirmed = %q, %q, %v", first, nonce, err)
+	first, err := registry.Split(`{"domain":"lock","service":"unlock","entity_id":"lock.front_door"}`)
+	if err != nil || first.Nonce != "" {
+		t.Fatalf("Split = %+v, %v", first, err)
 	}
-	again, nonce, err := registry.Unconfirmed(`{ "entity_id": "lock.front_door", "confirmation": "cf_4c1e9a07", "service": "unlock", "domain": "lock" }`)
+	again, err := registry.Split(`{ "entity_id": "lock.front_door", "confirmation": "cf_4c1e9a07", "service": "unlock", "domain": "lock" }`)
 	if err != nil {
-		t.Fatalf("Unconfirmed: %v", err)
+		t.Fatalf("Split: %v", err)
 	}
-	if nonce != "cf_4c1e9a07" {
-		t.Errorf("nonce = %q, want cf_4c1e9a07", nonce)
+	if again.Nonce != "cf_4c1e9a07" {
+		t.Errorf("nonce = %q, want cf_4c1e9a07", again.Nonce)
 	}
-	if again != first {
-		t.Errorf("the re-call reads %s, the held call %s: the same door should compare equal", again, first)
+	if again.Rest != first.Rest {
+		t.Errorf("the re-call reads %s, the held call %s: the same door should compare equal", again.Rest, first.Rest)
 	}
 
 	// Values are kept as written: the rest is what the tool receives.
-	got, _, err := registry.Unconfirmed(`{"domain":"alarm_control_panel","service":"alarm_disarm","data":{"code":"004512","delay":30.0},"confirmation":"cf_77d01b2e"}`)
+	got, err := registry.Split(`{"domain":"alarm_control_panel","service":"alarm_disarm","data":{"code":"004512","delay":30.0},"confirmation":"cf_77d01b2e"}`)
 	if err != nil {
-		t.Fatalf("Unconfirmed: %v", err)
+		t.Fatalf("Split: %v", err)
 	}
-	if want := `{"data":{"code":"004512","delay":30.0},"domain":"alarm_control_panel","service":"alarm_disarm"}`; got != want {
-		t.Errorf("rest = %s, want %s", got, want)
+	if want := `{"data":{"code":"004512","delay":30.0},"domain":"alarm_control_panel","service":"alarm_disarm"}`; got.Rest != want {
+		t.Errorf("rest = %s, want %s", got.Rest, want)
+	}
+}
+
+// What to say while a slow tool works comes off as well, and does not count
+// as an argument: "Searching the library." and "One moment." are the same
+// search, and the library does not want either.
+//
+// verifies SPEC §6
+func TestTheAcknowledgementComesOffWithTheNonce(t *testing.T) {
+	got, err := registry.Split(`{"query":"led zeppelin","acknowledgement":"Searching the library.","limit":5}`)
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	want := registry.Orchestrated{Rest: `{"limit":5,"query":"led zeppelin"}`, Acknowledgement: "Searching the library."}
+	if got != want {
+		t.Errorf("Split = %+v, want %+v", got, want)
+	}
+	if _, err := registry.Split(`{"query":"led zeppelin","acknowledgement":["one","moment"]}`); err == nil {
+		t.Error("an acknowledgement that is not a string was accepted")
 	}
 }
 
@@ -100,8 +119,35 @@ func TestArgumentsThatCannotBeReadAreRefused(t *testing.T) {
 		`{"domain":"lock","service":"unlock"} {"confirmation":"cf_4c1e9a07"}`,
 		`{"domain":"lock","service":`,
 	} {
-		if _, _, err := registry.Unconfirmed(args); err == nil {
-			t.Errorf("Unconfirmed(%s) accepted it", args)
+		if _, err := registry.Split(args); err == nil {
+			t.Errorf("Split(%s) accepted it", args)
 		}
+	}
+}
+
+// An executor checks the calls it receives against Params, as the Home
+// Assistant adapter does, and the session strips the nonce and the
+// acknowledgement before it invokes one. Params must not declare either, or
+// every slow call would fail as missing a required argument the executor
+// never gets. The model is offered them in ModelParams.
+//
+// verifies SPEC §6
+func TestExecutorsAreNeverDeclaredTheOrchestratorsArguments(t *testing.T) {
+	for name, spec := range registry.Specs {
+		offered := map[string]bool{}
+		for _, p := range spec.ModelParams {
+			offered[p.Name] = true
+		}
+		for _, p := range spec.Params {
+			if p.Name == registry.ConfirmationParam || p.Name == registry.AcknowledgementParam {
+				t.Errorf("%s declares %q to its executor", name, p.Name)
+			}
+			if !offered[p.Name] {
+				t.Errorf("%s does not offer the model its own %q", name, p.Name)
+			}
+		}
+	}
+	if spec := registry.Specs["media_search"]; len(spec.ModelParams) != len(spec.Params)+1 {
+		t.Errorf("media_search offers %d parameters for %d declared, want one more: the acknowledgement", len(spec.ModelParams), len(spec.Params))
 	}
 }

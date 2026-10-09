@@ -131,6 +131,11 @@ func TestPolicyViolationsAreRejected(t *testing.T) {
 			"the nonce argument is the orchestrator's, not a tool's",
 			"confirmation",
 		},
+		{
+			"acknowledgement_param_declared.cue",
+			"what to say while a slow tool works is the orchestrator's, not a tool's",
+			"acknowledgement",
+		},
 	}
 
 	for _, c := range cases {

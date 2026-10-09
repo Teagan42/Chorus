@@ -81,6 +81,10 @@
     "description": "Search the media library. Takes several seconds to return.",
     "input_schema": {
       "properties": {
+        "acknowledgement": {
+          "description": "A few words said aloud while this runs, e.g. \"Searching the library.\" They are spoken for you as it starts; do not also call speak for them.",
+          "type": "string"
+        },
         "limit": {
           "description": "Maximum results.",
           "type": "integer"
@@ -91,7 +95,8 @@
         }
       },
       "required": [
-        "query"
+        "query",
+        "acknowledgement"
       ],
       "type": "object"
     },

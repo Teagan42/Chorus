@@ -142,3 +142,22 @@ func TestAFailedCallIsInTheDialogueWithItsOutcome(t *testing.T) {
 		t.Errorf("last entry = %+v, want %+v", got, want)
 	}
 }
+
+// Speech the session said for a slow call's acknowledgement is tied to that
+// call, so the model can be shown the call it made rather than a speak it
+// never did (ADR-0039).
+//
+// verifies SPEC §4.4
+func TestAnAcknowledgementIsTiedToItsCall(t *testing.T) {
+	s := reduceAll(t, []journal.Event{
+		ev(journal.KindUtteranceTranscribed, map[string]string{"text": "recommend a movie like indiana jones starring tom holland", "speaker_id": "alan"}),
+		ev(journal.KindToolCalled, map[string]string{"tool": "media_search", "call_id": "call_c1", "args_json": `{"query":"Tom Holland adventure","acknowledgement":"Let me look through the library."}`}),
+		ev(journal.KindToolCalled, map[string]string{"tool": "speak", "call_id": "call_c1_ack", "args_json": `{"text":"Let me look through the library.","mode":"queue","acknowledges":"call_c1"}`}),
+		ev(journal.KindSpeechSpoken, map[string]string{"text": "Let me look through the library.", "frames_played": "30400", "call_id": "call_c1_ack"}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "call_c1_ack", "outcome": "ok"}),
+	})
+	want := journal.Entry{Kind: journal.EntrySaid, CallID: "call_c1_ack", Text: "Let me look through the library.", Acknowledges: "call_c1"}
+	if got := s.Dialogue[2]; got != want {
+		t.Errorf("acknowledgement = %+v, want %+v", got, want)
+	}
+}

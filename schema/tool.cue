@@ -29,9 +29,11 @@ import "struct"
 	name!:        =~"^[a-z][a-z0-9_]*$"
 	description!: string & !=""
 
-	// "confirmation" is the orchestrator's: it carries the nonce a confirmed
-	// call is redeemed with, and is offered on every confirmable tool.
-	params: [...#Param & {name: !="confirmation"}] | *[]
+	// Two names are the orchestrator's. "confirmation" carries the nonce a
+	// confirmed call is redeemed with, and is offered on every confirmable
+	// tool. "acknowledgement" is what to say while a slow tool works, and is
+	// required on every slow one (ADR-0039).
+	params: [...#Param & {name: !="confirmation" & !="acknowledgement"}] | *[]
 
 	on_interrupt: #InterruptPolicy | *"cancel"
 	scope:        #Scope | *"household"

@@ -64,6 +64,7 @@ Search the media library.
 |---|---|---|---|
 | `query` | string | yes | Free-text search. |
 | `limit` | integer |  | Maximum results. |
+| `acknowledgement` | string | yes | A few words said aloud while this runs, e.g. "Searching the library." They are spoken for you as it starts; do not also call speak for them. |
 
 ## `remember`
 

@@ -25,6 +25,12 @@ func dialogue(entries []journal.Entry) []message {
 				// yet: nothing to tell the model it said.
 				continue
 			}
+			if e.Acknowledges != "" && !e.Cut {
+				// The model wrote these words as the slow call's argument,
+				// which it is shown already. A speak call it never made
+				// would teach it to make one, and say everything twice.
+				continue
+			}
 			// The words alone: the mode the model chose is the speech
 			// channel's business, and an empty one is not in the enum.
 			args, _ := json.Marshal(map[string]string{"text": e.Text})

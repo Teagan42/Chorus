@@ -132,7 +132,7 @@ func TestTheRequestTellsTheModelHowToSpeak(t *testing.T) {
 	}
 
 	sys := got.Messages[0].Content
-	for _, want := range []string{"speak tool", "FIRST call speak", "end_session"} {
+	for _, want := range []string{"speak tool", "acknowledgement", "end_session"} {
 		if !strings.Contains(sys, want) {
 			t.Errorf("system prompt omits %q", want)
 		}
