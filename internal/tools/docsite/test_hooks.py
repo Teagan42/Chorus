@@ -295,7 +295,15 @@ def build_repo(root: Path) -> Path:
     return site
 
 
-def test_the_household_repo_builds(tmp_path):
+def test_the_household_repo_builds_with_source_links_at_the_built_commit(tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_SHA", "b836e39b")
+    site = build_repo(household_repo(tmp_path))
+    spec = (site / "SPEC" / "index.html").read_text()
+    assert f'href="{URL}/blob/b836e39b/internal/session/supervisor.go"' in spec
+
+
+def test_a_local_build_links_source_on_main(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITHUB_SHA", raising=False)
     site = build_repo(household_repo(tmp_path))
     spec = (site / "SPEC" / "index.html").read_text()
     assert f'href="{URL}/blob/main/internal/session/supervisor.go"' in spec
