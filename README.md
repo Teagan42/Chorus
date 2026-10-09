@@ -28,9 +28,10 @@ Assistant integration; Home Assistant is one tool backend among several.
 
 ## Status
 
-**Phase 1, in progress.** The device bridge, session engine, and event journal
-are built, and `cmd/chorusd` now runs them together as the orchestrator daemon;
-it has not yet been run against a real satellite. What exists today:
+**Phase 1 is built, and phase 2 is under way** ([SPEC §14](docs/SPEC.md#14-phase-plan)).
+`cmd/chorusd` runs the device bridge, session engine, and event journal
+together as the orchestrator daemon; it has not yet been run against a real
+satellite. What exists today:
 
 | Piece | State |
 |---|---|

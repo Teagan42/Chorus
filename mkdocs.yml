@@ -120,3 +120,7 @@ markdown_extensions:
           format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tasklist:
       custom_checkbox: true
+  # SPEC §14 strikes through what has landed, as GitHub renders it. Subscript
+  # off: "~2 minutes" is an approximation, not markup.
+  - pymdownx.tilde:
+      subscript: false
