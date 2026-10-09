@@ -76,6 +76,10 @@ type Input struct {
 	// this turn made and what they returned (SPEC §4.4). Empty for an engine
 	// asked a turn on its own, which then has only Text.
 	Dialogue []journal.Entry
+
+	// Memories are what the model is told it remembers, as the log recorded
+	// them for this speaker, newest first. Empty for a guest (SPEC §5).
+	Memories []journal.Memory
 }
 
 // Tool is one executable registry entry. Failures come back as errors and

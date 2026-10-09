@@ -10,6 +10,7 @@ package harvest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -107,6 +108,11 @@ type Pair struct {
 	// reviewer, never pair text.
 	Calls []journal.Call
 
+	// Recalled is what the rejected turn was told it remembers. A pair
+	// trained without it teaches a model to state facts it was never given
+	// (SPEC §5).
+	Recalled []journal.Memory
+
 	// BargeInPositionMS is how far into playback the interruption landed,
 	// as the listener snapshotted it at detection. The DAC keeps playing for
 	// the stop's flight time, so this lags the real cut.
@@ -171,6 +177,7 @@ type turn struct {
 	spoken      []string
 	spokenAudio []string
 	calls       []journal.Call
+	recalled    []journal.Memory
 
 	versions  journal.Versions
 	completed bool
@@ -210,6 +217,10 @@ type walker struct {
 	cur            *turn
 	answering      *draft
 	result         Result
+
+	// recalled is the last memory_recalled. A turn whose memories had not
+	// changed recorded none, and was told these.
+	recalled []journal.Memory
 }
 
 func (w *walker) fold(e journal.Event) error {
@@ -222,6 +233,16 @@ func (w *walker) fold(e journal.Event) error {
 		w.cur = &turn{
 			promptSeq: e.Seq, heard: e.Fields["text"],
 			speaker: e.Fields["speaker_id"], heardAudio: e.AudioRef,
+			recalled: w.recalled,
+		}
+	case journal.KindMemoryRecalled:
+		var ms []journal.Memory
+		if err := json.Unmarshal([]byte(e.Fields["memories_json"]), &ms); err != nil {
+			return fmt.Errorf("memories_json: %w", err)
+		}
+		w.recalled = ms
+		if w.cur != nil {
+			w.cur.recalled = ms
 		}
 	case journal.KindSessionClosed:
 		if w.cur != nil && e.Fields["reason"] != "migrated" {
@@ -367,6 +388,7 @@ func (w *walker) finish(d *draft, answer turn) Pair {
 		Versions:          r.versions,
 		Attributed:        r.completed && complete(r.versions),
 		Calls:             r.calls,
+		Recalled:          r.recalled,
 		BargeInPositionMS: r.bargeIn.positionMS,
 		CutFrames:         r.cutFrames,
 		Seq: Seq{

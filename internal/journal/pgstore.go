@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path"
@@ -55,6 +56,14 @@ func NewPgStore(db Querier) *PgStore { return &PgStore{db: db} }
 // Migrate applies every embedded migration not yet recorded, in name order.
 // Deliberately not a framework: the ledger is one table and one query.
 func Migrate(ctx context.Context, db Querier) error {
+	return ApplyMigrations(ctx, db, migrations, "")
+}
+
+// ApplyMigrations applies fsys's migrations/*.sql not yet in the shared
+// ledger, in name order. A package beside the journal passes its name as the
+// prefix, so its 0001 is not mistaken for the journal's; the journal's own
+// predate the prefix and keep their bare names.
+func ApplyMigrations(ctx context.Context, db Querier, fsys fs.ReadDirFS, prefix string) error {
 	const ledger = `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    text        PRIMARY KEY,
 		applied_at timestamptz NOT NULL DEFAULT now()
@@ -63,7 +72,7 @@ func Migrate(ctx context.Context, db Querier) error {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
-	entries, err := migrations.ReadDir("migrations")
+	entries, err := fsys.ReadDir("migrations")
 	if err != nil {
 		return fmt.Errorf("read migrations: %w", err)
 	}
@@ -74,27 +83,28 @@ func Migrate(ctx context.Context, db Querier) error {
 	sort.Strings(names)
 
 	for _, name := range names {
+		version := prefix + name
 		var applied bool
 		err := db.QueryRow(ctx,
-			`SELECT exists(SELECT 1 FROM schema_migrations WHERE version = $1)`, name,
+			`SELECT exists(SELECT 1 FROM schema_migrations WHERE version = $1)`, version,
 		).Scan(&applied)
 		if err != nil {
-			return fmt.Errorf("check migration %s: %w", name, err)
+			return fmt.Errorf("check migration %s: %w", version, err)
 		}
 		if applied {
 			continue
 		}
-		body, err := migrations.ReadFile(path.Join("migrations", name))
+		body, err := fs.ReadFile(fsys, path.Join("migrations", name))
 		if err != nil {
-			return fmt.Errorf("read migration %s: %w", name, err)
+			return fmt.Errorf("read migration %s: %w", version, err)
 		}
 		if _, err := db.Exec(ctx, string(body)); err != nil {
-			return fmt.Errorf("apply migration %s: %w", name, err)
+			return fmt.Errorf("apply migration %s: %w", version, err)
 		}
 		if _, err := db.Exec(ctx,
-			`INSERT INTO schema_migrations (version) VALUES ($1)`, name,
+			`INSERT INTO schema_migrations (version) VALUES ($1)`, version,
 		); err != nil {
-			return fmt.Errorf("record migration %s: %w", name, err)
+			return fmt.Errorf("record migration %s: %w", version, err)
 		}
 	}
 	return nil

@@ -72,6 +72,23 @@ var Specs = map[string]ToolSpec{
 		RequiresConfirmation: false,
 		Slow:                 false,
 	},
+	"forget": {
+		Name:             "forget",
+		Description:      "Forget something you remember about the person you are speaking with, so it is never recalled again. Name it by the id shown beside it in what you remember.",
+		ModelDescription: "Forget something you remember about the person you are speaking with, so it is never recalled again. Name it by the id shown beside it in what you remember.",
+		Params: []ParamSpec{
+			{Name: "memory_id", Type: "string", Description: "The id of the memory to forget, e.g. m_3f9c2a10.", Required: true},
+		},
+		ModelParams: []ParamSpec{
+			{Name: "memory_id", Type: "string", Description: "The id of the memory to forget, e.g. m_3f9c2a10.", Required: true},
+		},
+		OnInterrupt:          "cancel",
+		Scope:                "person",
+		Timeout:              10000 * time.Millisecond,
+		RequiresConfirmation: false,
+		Slow:                 false,
+		UnknownSpeaker:       "deny",
+	},
 	"ha_call_service": {
 		Name:             "ha_call_service",
 		Description:      "Act on the home through a Home Assistant service: lights, switches, covers, media players, scripts. Target an entity_id from ha_find_entities, or an area_id. Returns the entities whose state changed; an empty list means nothing matched or nothing needed to change.",
@@ -157,15 +174,15 @@ var Specs = map[string]ToolSpec{
 	},
 	"remember": {
 		Name:             "remember",
-		Description:      "Store a durable fact about the current speaker.",
-		ModelDescription: "Store a durable fact about the current speaker.",
+		Description:      "Keep a lasting fact about the person you are speaking with, to recall in later conversations. Use it when they ask you to remember something, or tell you a preference that will still hold tomorrow.",
+		ModelDescription: "Keep a lasting fact about the person you are speaking with, to recall in later conversations. Use it when they ask you to remember something, or tell you a preference that will still hold tomorrow.",
 		Params: []ParamSpec{
-			{Name: "fact", Type: "string", Description: "The fact to retain.", Required: true},
-			{Name: "shareable", Type: "boolean", Description: "Whether other household members may see this.", Required: false},
+			{Name: "fact", Type: "string", Description: "The fact, as one plain sentence that makes sense on its own later, e.g. Takes oat milk in coffee.", Required: true},
+			{Name: "shareable", Type: "boolean", Description: "True only when they say the rest of the household may know it.", Required: false},
 		},
 		ModelParams: []ParamSpec{
-			{Name: "fact", Type: "string", Description: "The fact to retain.", Required: true},
-			{Name: "shareable", Type: "boolean", Description: "Whether other household members may see this.", Required: false},
+			{Name: "fact", Type: "string", Description: "The fact, as one plain sentence that makes sense on its own later, e.g. Takes oat milk in coffee.", Required: true},
+			{Name: "shareable", Type: "boolean", Description: "True only when they say the rest of the household may know it.", Required: false},
 		},
 		OnInterrupt:          "cancel",
 		Scope:                "person",

@@ -37,6 +37,11 @@ type State struct {
 	// they were held, and what became of their nonces (SPEC §6).
 	Confirmations []Confirmation
 
+	// Recalled is what the model is told it remembers, and RecalledFor whose
+	// memories they are: the last memory_recalled, newest first (SPEC §5).
+	Recalled    []Memory
+	RecalledFor string
+
 	LastSeq     uint64
 	Speculative int
 	Open        bool
@@ -128,6 +133,12 @@ func Reduce(s State, e Event) (State, error) {
 		s.Confirmations = s.answered(e.Fields["text"], e.Fields["speaker_id"])
 	case KindModelCompleted:
 		s.Completions = append(s.Completions, e.Fields["completion_json"])
+	case KindMemoryRecalled:
+		ms, err := decodeMemories(e.Fields["memories_json"])
+		if err != nil {
+			return s, err
+		}
+		s.Recalled, s.RecalledFor = ms, e.Fields["person"]
 	case KindToolCalled:
 		s.Dialogue = s.called(e.Fields["call_id"], e.Fields["tool"], e.Fields["args_json"])
 		s.Calls = append(s.Calls, Call{
@@ -203,6 +214,7 @@ var handled = map[Kind]bool{
 	KindBargeInRejected:       true,
 	KindConfirmationGiven:     true,
 	KindConfirmationRequested: true,
+	KindMemoryRecalled:        true,
 	KindModelCompleted:        true,
 	KindSessionClosed:         true,
 	KindSessionOpened:         true,

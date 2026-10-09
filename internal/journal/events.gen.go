@@ -18,6 +18,8 @@ const (
 	KindConfirmationGiven Kind = "confirmation_given"
 	// A call that needs the person's yes was held, and the model was handed a nonce to call again with once they agree (SPEC §6).
 	KindConfirmationRequested Kind = "confirmation_requested"
+	// What the model is told it remembers, from this turn on: the speaker's own memories and what others shared. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5).
+	KindMemoryRecalled Kind = "memory_recalled"
 	// Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8).
 	KindModelCompleted Kind = "model_completed"
 	// Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5).
@@ -58,6 +60,7 @@ var Meta = map[Kind]EventMeta{
 	KindBargeInRejected:       {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"stage"}},
 	KindConfirmationGiven:     {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id", "nonce"}},
 	KindConfirmationRequested: {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id", "nonce"}},
+	KindMemoryRecalled:        {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"person", "memories_json"}},
 	KindModelCompleted:        {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: true, RequiredFields: []string{"completion_json", "finish_reason"}},
 	KindSessionClosed:         {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"reason", "satellite"}},
 	KindSessionOpened:         {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"satellite"}},
@@ -77,6 +80,7 @@ var AllKinds = []Kind{
 	KindBargeInRejected,
 	KindConfirmationGiven,
 	KindConfirmationRequested,
+	KindMemoryRecalled,
 	KindModelCompleted,
 	KindSessionClosed,
 	KindSessionOpened,

@@ -57,6 +57,10 @@ type Config struct {
 	Gate    Gate
 	Silence time.Duration
 
+	// Memories recalls what each turn's speaker is remembered by. Nil
+	// remembers nothing, and the model is told nothing (SPEC §5).
+	Memories Memories
+
 	// Rounds caps how many times one utterance asks the model: the first ask,
 	// and one more after each set of tool results. Zero is DefaultRounds.
 	Rounds int
@@ -139,6 +143,10 @@ type Session struct {
 	turnCancel context.CancelFunc
 	turnErr    error
 	implicitID string
+
+	// speaker is who this turn is for, as the log identified them: whom a
+	// person-scoped call is made for (SPEC §5).
+	speaker string
 
 	speech    *speechChannel
 	closeOnce sync.Once
@@ -259,6 +267,9 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 	if err != nil {
 		return err
 	}
+	if st, err = s.recall(ctx, st); err != nil {
+		return err
+	}
 
 	s.speech.resume(t.Ended)
 	turnCtx, cancel := context.WithCancel(s.ctx)
@@ -266,6 +277,7 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 
 	s.mu.Lock()
 	s.turnCancel, s.turnErr = cancel, nil
+	s.speaker = st.Speaker
 	s.mu.Unlock()
 
 	s.enter("thinking")
@@ -280,6 +292,7 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 			Speaker:        st.Speaker,
 			Text:           t.Text,
 			Dialogue:       st.Dialogue,
+			Memories:       st.Recalled,
 		})
 		if err != nil {
 			return err
@@ -465,6 +478,16 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 		return
 	}
 
+	s.mu.Lock()
+	caller := Caller{Person: s.speaker, ConversationID: s.convID, CallID: tc.ID}
+	s.mu.Unlock()
+	if denied(spec, caller.Person) {
+		// Before any confirmation: a guest is not asked to confirm what
+		// they may not do at all.
+		s.result(tc.ID, "error", `{"error":"unidentified_speaker"}`)
+		return
+	}
+
 	held := spec.NeedsConfirmation(tc.Args)
 	ack := ""
 	if held || spec.Slow {
@@ -491,7 +514,7 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 	}
 	wg.Add(1)
 	s.enter("tool:" + tc.ID)
-	go s.runTool(ctx, wg, tc, spec, tool)
+	go s.runTool(ctx, wg, tc, caller, spec, tool)
 }
 
 // confirmed decides a call that needs the person's yes. One that carries a
@@ -581,7 +604,7 @@ func (s *Session) acknowledge(callID, text string) {
 
 // runTool is one tool child. Its context comes from the declared interrupt
 // policy, so barge-in needs no special case here (SPEC §4.4).
-func (s *Session) runTool(parent context.Context, wg *sync.WaitGroup, tc ToolCall, spec registry.ToolSpec, tool Tool) {
+func (s *Session) runTool(parent context.Context, wg *sync.WaitGroup, tc ToolCall, caller Caller, spec registry.ToolSpec, tool Tool) {
 	var once sync.Once
 	release := func() { once.Do(wg.Done) }
 	// Deferred first so it runs last: a released turn must not still see this child.
@@ -601,7 +624,7 @@ func (s *Session) runTool(parent context.Context, wg *sync.WaitGroup, tc ToolCal
 	}
 	results := make(chan outcome, 1)
 	go func() {
-		out, err := tool.Invoke(ctx, tc.Args)
+		out, err := tool.Invoke(WithCaller(ctx, caller), tc.Args)
 		late := false
 		select {
 		case <-parent.Done():

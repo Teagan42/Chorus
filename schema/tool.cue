@@ -93,14 +93,26 @@ tools: {
 		description: "Close the conversation. Call when the task is complete rather than waiting for silence."
 	}
 
+	// Memory belongs to the person it is about, so an unidentified voice can
+	// neither add to nor erase anyone's (SPEC §5, ADR-0040).
 	remember: {
 		name:            "remember"
-		description:     "Store a durable fact about the current speaker."
+		description:     "Keep a lasting fact about the person you are speaking with, to recall in later conversations. Use it when they ask you to remember something, or tell you a preference that will still hold tomorrow."
 		scope:           "person"
 		unknown_speaker: "deny"
 		params: [
-			{name: "fact", type: "string", description: "The fact to retain.", required: true},
-			{name: "shareable", type: "boolean", description: "Whether other household members may see this."},
+			{name: "fact", type: "string", description: "The fact, as one plain sentence that makes sense on its own later, e.g. Takes oat milk in coffee.", required: true},
+			{name: "shareable", type: "boolean", description: "True only when they say the rest of the household may know it."},
+		]
+	}
+
+	forget: {
+		name:            "forget"
+		description:     "Forget something you remember about the person you are speaking with, so it is never recalled again. Name it by the id shown beside it in what you remember."
+		scope:           "person"
+		unknown_speaker: "deny"
+		params: [
+			{name: "memory_id", type: "string", description: "The id of the memory to forget, e.g. m_3f9c2a10.", required: true},
 		]
 	}
 

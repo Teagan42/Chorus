@@ -4,9 +4,10 @@
 //
 // It is safe to point at the live model. An engine never runs a tool: asking
 // again with results is the session's job (ADR-0037), and a re-run asks once,
-// with the system prompt and the transcript alone. So a re-run executes
-// nothing; it only compares the calls the model would make with the ones it
-// made, and the take it compares against is the turn's first ask.
+// with the system prompt, what the turn remembered, and the transcript. So a
+// re-run executes nothing; it only compares the calls the model would make
+// with the ones it made, and the take it compares against is the turn's
+// first ask.
 package rerun
 
 import (
@@ -60,6 +61,11 @@ type Turn struct {
 	Text     string
 	Versions journal.Versions
 	Recorded Take
+
+	// Memories are what the turn was told it remembers: the memory_recalled
+	// it recorded before its first ask, or the last one before it, since an
+	// unchanged memory is not recorded again (SPEC §5).
+	Memories []journal.Memory
 }
 
 // Turns splits a conversation's log at each transcribed utterance. The
@@ -89,7 +95,7 @@ func Turns(events []journal.Event) ([]Turn, error) {
 		}
 		f := e.Fields
 		if e.Kind == journal.KindUtteranceTranscribed {
-			out = append(out, Turn{Seq: e.Seq, Speaker: state.Speaker, Text: f["text"], Versions: e.Versions})
+			out = append(out, Turn{Seq: e.Seq, Speaker: state.Speaker, Text: f["text"], Versions: e.Versions, Memories: state.Recalled})
 			asked, later = false, map[string]bool{}
 			continue
 		}
@@ -98,6 +104,10 @@ func Turns(events []journal.Event) ([]Turn, error) {
 		}
 		t := &out[len(out)-1]
 		switch e.Kind {
+		case journal.KindMemoryRecalled:
+			if !asked {
+				t.Memories = state.Recalled
+			}
 		case journal.KindSpeechSpoken:
 			if !later[f["call_id"]] {
 				t.Recorded.Speech = append(t.Recorded.Speech, Speech{Text: f["text"]})
@@ -144,7 +154,7 @@ func (f *Failed) Error() string { return "the model failed mid-answer: " + f.Rea
 // drains the stream to the end, as the engine contract requires, and
 // returns a *Failed alongside the partial take when the turn ended in error.
 func Run(ctx context.Context, eng session.Engine, conversationID string, t Turn) (Take, error) {
-	actions, err := eng.Turn(ctx, session.Input{ConversationID: conversationID, Speaker: t.Speaker, Text: t.Text})
+	actions, err := eng.Turn(ctx, session.Input{ConversationID: conversationID, Speaker: t.Speaker, Text: t.Text, Memories: t.Memories})
 	if err != nil {
 		return Take{}, err
 	}

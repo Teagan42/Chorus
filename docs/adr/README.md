@@ -48,6 +48,7 @@ decision rather than by clause: facets of one choice share one record.
 | [0037](0037-the-model-is-asked-again-with-the-dialogue-from-the-log.md) | Ask the model again after each set of tool results, up to four asks, with the dialogue derived from the log | §4.1, §4.4, §7, §8 |
 | [0038](0038-hold-a-call-for-the-persons-yes-and-redeem-it-from-the-log.md) | Hold a call for the person's yes; the log decides whether its nonce may run it | §6, §8 |
 | [0039](0039-a-slow-tool-carries-what-to-say-while-it-works.md) | A slow tool carries what to say while it works; the session speaks it as the call starts | §4.1, §11, §14 |
+| [0040](0040-memory-lives-beside-the-journal-and-each-turn-records-what-it-recalled.md) | Memory is a store beside the journal; person-scoped tools refuse a guest; each turn records what it recalled | §5, §8 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
