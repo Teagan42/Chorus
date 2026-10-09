@@ -185,6 +185,34 @@ Note the limit: `go` blocks are type-checked, not executed, so they catch
 renamed and removed symbols — not changed values. Assert behavior in a real
 test, not in prose.
 
+### The docs site
+
+[teagan42.github.io/Chorus](https://teagan42.github.io/Chorus/) is `docs/`
+plus the root Markdown (`mkdocs.yml` lists which), published as they are.
+There is no copy to keep in step: write for GitHub, linking files by their
+relative repo path, and `internal/tools/docsite/hooks.py` re-points each link
+to the page that file became, or to the source on GitHub at the built commit.
+
+```sh norun
+task docs:serve     # preview on 127.0.0.1:8000, rebuilding on save
+task docs:build     # what CI runs; strict
+task docs:test      # the hooks' own tests
+task docs:e2e       # the built site in a headless Chrome
+```
+
+The build is strict, and runs on every PR, so each of these fails it:
+
+- a link to a file, directory, or heading that is gone, including a source
+  file a doc cites;
+- an image that does not exist;
+- a page under `docs/` that is not in the nav. ADRs join the nav by
+  existing; anything else gets a line in `mkdocs.yml`.
+
+The review UI screenshots are re-taken by the browser tests on every build
+(`task docs:shots`), so the published ones show the code that was deployed.
+A committed screenshot the tests stop taking is deleted first, which fails a
+doc that still shows it. Refresh the committed copies the same way.
+
 ## 4. Atomic commits
 
 Conventional Commits, enforced mechanically — because convention alone does not
@@ -248,7 +276,7 @@ internal/
   reviewui/             the review UI's component kit and audio handler
   config/               satellite inventory
   msgid/                ESPHome wire ids, derived from the proto descriptors
-  tools/                build-time tooling (schemagen, spectrace, atomic, docexec)
+  tools/                build-time tooling (schemagen, spectrace, atomic, docexec, docsite)
 schema/                 CUE source of truth
   json/                 generated JSON Schema (do not edit)
 sidecars/               Python model services (uv workspace): speakerid
@@ -258,6 +286,7 @@ docs/
   adr/                  architecture decision records
   reference/            generated reference docs (do not edit)
   reviewui/             review UI guide and screenshots
+mkdocs.yml              the docs site: which Markdown, in what nav
 proto/esphome/          vendored ESPHome protos
 ```
 

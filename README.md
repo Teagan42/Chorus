@@ -226,6 +226,9 @@ that reaches the network is a bug in the test.
 
 ## Documentation
 
+All of it, searchable, at **[teagan42.github.io/Chorus](https://teagan42.github.io/Chorus/)**.
+The site is these same files, rebuilt and republished on every push to `main`.
+
 | Where | What |
 |---|---|
 | [`docs/SPEC.md`](docs/SPEC.md) | Normative. Tests cite the clause they verify. |
@@ -238,8 +241,9 @@ that reaches the network is a bug in the test.
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Five rules. Read before the first PR. |
 
 Docs are build artifacts or they are executed: `task test:docs` extracts and
-runs the code examples, and `task spec:check` fails on spec clauses that claim
-coverage they don't have.
+runs the code examples, `task spec:check` fails on spec clauses that claim
+coverage they don't have, and `task docs:build` fails on a link, anchor, or
+screenshot that no longer exists.
 
 ## Contributing
 
