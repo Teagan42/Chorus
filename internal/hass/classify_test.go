@@ -177,9 +177,9 @@ func TestHomeAssistantIsNotAskedToOpenTheGarageUntilAliceSaysYes(t *testing.T) {
 	}
 
 	wait(t, heard(s, "yes, open it"))
-	// The re-call is classified again, then sent.
-	if n := wire.count(); n != 3 {
-		t.Fatalf("home assistant got %d requests, want the state twice and the one open", n)
+	// The re-call runs on the log's word: HA is not asked again what it is.
+	if n := wire.count(); n != 2 {
+		t.Fatalf("home assistant got %d requests, want the state and then the one open", n)
 	}
 	req := wire.last(t)
 	if req.method != http.MethodPost || req.path != "/api/services/cover/open_cover" || req.body != `{"entity_id":"cover.garage_door"}` {
