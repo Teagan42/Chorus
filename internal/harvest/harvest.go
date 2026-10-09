@@ -290,8 +290,9 @@ func (w *walker) fold(e journal.Event) error {
 			w.cur.versions = e.Versions
 			w.cur.completed = true
 		}
-	case journal.KindSessionOpened, journal.KindBargeInRejected, journal.KindWakeRejected:
-		// A resumed open continues the same log; rejections tune the gate.
+	case journal.KindSessionOpened, journal.KindBargeInRejected, journal.KindWakeRejected, journal.KindSpeechStarted:
+		// A resumed open continues the same log; rejections tune the gate; a
+		// start is when speech was heard, and the pair is what (ADR-0035).
 	default:
 		return fmt.Errorf("unhandled event kind %q", e.Kind)
 	}

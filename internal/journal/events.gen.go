@@ -24,6 +24,8 @@ const (
 	KindSpeechDiscarded Kind = "speech_discarded"
 	// Audio the user actually heard, bounded by DAC-reported playback position.
 	KindSpeechSpoken Kind = "speech_spoken"
+	// The DAC played the first frame of a turn's speech. Recorded once per turn, when the device reports it, so its wall clock is when the household first heard the answer (SPEC §11).
+	KindSpeechStarted Kind = "speech_started"
 	// Barge-in cut speech short. Carries the exact split between heard and unheard text.
 	KindSpeechTruncated Kind = "speech_truncated"
 	// Model dispatched a tool; emitted when its JSON closed, not at end of message.
@@ -55,6 +57,7 @@ var Meta = map[Kind]EventMeta{
 	KindSessionOpened:        {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"satellite"}},
 	KindSpeechDiscarded:      {Actor: "speaking", HasAudio: false, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"unspoken_text", "reason"}},
 	KindSpeechSpoken:         {Actor: "speaking", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"text", "frames_played"}},
+	KindSpeechStarted:        {Actor: "speaking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id"}},
 	KindSpeechTruncated:      {Actor: "speaking", HasAudio: true, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"spoken_text", "unspoken_text", "frames_played"}},
 	KindToolCalled:           {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"tool", "call_id", "args_json"}},
 	KindToolResult:           {Actor: "tool", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id", "outcome"}},
@@ -71,6 +74,7 @@ var AllKinds = []Kind{
 	KindSessionOpened,
 	KindSpeechDiscarded,
 	KindSpeechSpoken,
+	KindSpeechStarted,
 	KindSpeechTruncated,
 	KindToolCalled,
 	KindToolResult,

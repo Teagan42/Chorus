@@ -500,3 +500,31 @@ func TestPairCarriesTheDACConfirmedCutFrames(t *testing.T) {
 		t.Errorf("CutFrames = %d, want 0 when nothing of the cut clip played", p.CutFrames)
 	}
 }
+
+// A live satellite journals when each turn's answer starts playing. The
+// start says when, not what, so the pair is the one the log without starts
+// yields: same sides, same audio, same cut.
+//
+// verifies SPEC §9.1, §11
+func TestTheFirstPlayedFrameDoesNotChangeThePair(t *testing.T) {
+	started := func(id, ms string) journal.Record {
+		return record(journal.KindSpeechStarted, "", "call_id", id, "wait_ms", ms)
+	}
+	plain := onePair(t, scan(t, conversation(t, versions(), concat(
+		[]journal.Record{opened("kitchen")}, cutTurn(), correctedTurn(),
+	))))
+
+	cut, corrected := cutTurn(), correctedTurn()
+	live := concat(
+		[]journal.Record{opened("kitchen")},
+		cut[:3], []journal.Record{started("s1", "1460")}, cut[3:],
+		corrected[:2], []journal.Record{started("s2", "880")}, corrected[2:],
+	)
+	got := onePair(t, scan(t, conversation(t, versions(), live)))
+
+	if got.Rejected != plain.Rejected || got.RejectedUnheard != plain.RejectedUnheard ||
+		got.Heard != plain.Heard || got.AsSaid != plain.AsSaid || got.CutFrames != plain.CutFrames ||
+		!reflect.DeepEqual(got.Audio, plain.Audio) || !reflect.DeepEqual(got.Prompt, plain.Prompt) {
+		t.Errorf("starts changed the pair\n got: %+v\nwant: %+v", got, plain)
+	}
+}

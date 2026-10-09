@@ -376,3 +376,36 @@ func TestTheNativeAPIIsHeldAndRedialed(t *testing.T) {
 		t.Errorf("run returned %v on cancel", err)
 	}
 }
+
+// The whole stack measures the wait: the listener stamps when speech stopped
+// with the daemon's clock, and the satellite's first PLAYED report past the
+// answer's start journals it (ADR-0035). The clock is fixed, so the wait is
+// exactly the default endpointer's 800 ms of quiet; a daemon that left the
+// listener without a clock would record none.
+//
+// verifies SPEC §11
+func TestTheFirstPlayedFrameIsJournalledWithItsWait(t *testing.T) {
+	answer := "Turning off the kitchen lights."
+	r := newRig(t, inventory(), func(d *deps) {
+		d.engine = &scriptEngine{acts: []session.Action{
+			session.SpeechDelta{CallID: "call_1", Text: answer, Last: true},
+			session.TurnEnd{FinishReason: "stop", Completion: "{}"},
+		}}
+	})
+	dev := r.join(t, kitchenIP)
+	lights := r.line("turn off the kitchen lights", alan)
+
+	dev.SendWake(t, "hey_eddie")
+	r.utter(t, dev, lights)
+
+	dev.AwaitTTS(t, 2*len(answer))
+	dev.PlayAll(t)
+	start := r.store.awaitKind(t, journal.KindSpeechStarted, 1)
+	if start.Fields["call_id"] != "call_1" || start.Fields["wait_ms"] != "800" {
+		t.Errorf("speech_started = %v, want call_1 with the wait measured", start.Fields)
+	}
+	spoken := r.store.awaitKind(t, journal.KindSpeechSpoken, 1)
+	if start.Seq >= spoken.Seq {
+		t.Errorf("speech_started at seq %d, speech_spoken at %d: wrong order", start.Seq, spoken.Seq)
+	}
+}

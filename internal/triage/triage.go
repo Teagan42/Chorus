@@ -1,16 +1,13 @@
 // Package triage reads the journal for conversations worth a reviewer's time
-// (SPEC §9.1): barge-ins, failures, repeated requests and speaker flips. Like
-// harvest, it is a reader of existing data; a signal is derived on read,
-// never recorded.
-//
-// Slow turns are not signalled yet. Speech events are recorded when playback
-// ends, not at its first frame, so the journal cannot say how long a person
-// waited for audio.
+// (SPEC §9.1): barge-ins, failures, repeated requests, slow answers and
+// speaker flips. Like harvest, it is a reader of existing data; a signal is
+// derived on read, never recorded.
 package triage
 
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -27,7 +24,12 @@ const (
 	KindFailure     Kind = "failure"
 	KindSpeakerFlip Kind = "speaker-flip"
 	KindRepeated    Kind = "repeated"
+	KindSlow        Kind = "slow"
 )
+
+// SlowAfter is SPEC §11's first-audio target. A turn whose first frame came
+// later than this after the person stopped speaking is slow (ADR-0035).
+const SlowAfter = 700 * time.Millisecond
 
 // A repeat is the same person asking substantially the same thing again
 // soon after: within RepeatWindow, with at least RepeatOverlap of the
@@ -165,6 +167,12 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 			// the turn by design. Neither failed.
 			if o := e.Fields["outcome"]; o == "error" || o == "timed_out" {
 				raiseIn(c.turn, e, KindFailure, c.tool+" "+o)
+			}
+		case journal.KindSpeechStarted:
+			// No wait recorded means no stop to measure from, not a fast turn.
+			ms, err := strconv.ParseInt(e.Fields["wait_ms"], 10, 64)
+			if wait := time.Duration(ms) * time.Millisecond; err == nil && wait > SlowAfter {
+				raise(e, KindSlow, fmt.Sprintf("first audio %.1f s after the ask · target %.1f s", wait.Seconds(), SlowAfter.Seconds()))
 			}
 		case journal.KindModelCompleted:
 			if e.Fields["finish_reason"] == "error" {

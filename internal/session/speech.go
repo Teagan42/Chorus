@@ -18,6 +18,14 @@ type Stream interface {
 	Close() Playback
 }
 
+// Starter is a Stream that can see its DAC. Started closes when the device
+// first reports playing the utterance's audio. A stream that cannot see
+// playback does not implement it, and its turns record no first frame rather
+// than a guess (ADR-0035).
+type Starter interface {
+	Started() <-chan struct{}
+}
+
 // Playback is the truth about one utterance. The split comes from
 // DAC-reported frames, not an estimate (SPEC §3.2.1).
 type Playback struct {

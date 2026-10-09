@@ -154,6 +154,9 @@ func Reduce(s State, e Event) (State, error) {
 		s.BargeInAt = append(s.BargeInAt, time.Duration(ms)*time.Millisecond)
 	case KindBargeInRejected, KindWakeRejected:
 		// Tuning corpus only; a rejected candidate changes no state.
+	case KindSpeechStarted:
+		// Timing only: what was heard is the spoken or truncated event that
+		// closes the same speech (ADR-0035).
 	}
 	return s, nil
 }
@@ -176,6 +179,7 @@ var handled = map[Kind]bool{
 	KindSessionOpened:        true,
 	KindSpeechDiscarded:      true,
 	KindSpeechSpoken:         true,
+	KindSpeechStarted:        true,
 	KindSpeechTruncated:      true,
 	KindToolCalled:           true,
 	KindToolResult:           true,

@@ -533,3 +533,47 @@ func TestOpenRequiresItsWiring(t *testing.T) {
 		t.Error("a listener with no sessions opened")
 	}
 }
+
+// The wait for an answer starts when Alan stops talking, not when the
+// endpointer is sure he has: he waits through the quiet it needs too. When
+// the kitchen satellite first plays the answer, the turn journals how long
+// that was (ADR-0035).
+//
+// verifies SPEC §11
+func TestTheWaitForAnAnswerStartsWhenSpeechStops(t *testing.T) {
+	// The journal's clock reads 12:00:00 when the answer starts playing; the
+	// listener's read 1.84 s earlier when the endpoint fired, after the rig's
+	// 128 ms of quiet (four 32 ms chunks).
+	endpoint := time.Date(2026, 10, 6, 11, 59, 58, 160_000_000, time.UTC)
+	r := newRig(t, talking(), func(c *listen.Config) { c.Clock = journal.FixedClock(endpoint) })
+	r.speaker.dac = true
+	lights := r.line("turn off the kitchen lights", alan)
+
+	r.dev.SendWake(t, "hey_eddie")
+	r.utter(t, lights, 8*chunkBytes)
+
+	conv := r.session(t).ConversationID()
+	start := r.awaitKind(t, conv, journal.KindSpeechStarted, 1)
+	if start.Fields["wait_ms"] != "1968" || start.Fields["call_id"] != "s1" {
+		t.Errorf("speech_started = %v, want call s1 after 1840 + 128 ms", start.Fields)
+	}
+}
+
+// Without a clock the ask has no stop time, and the start says so by leaving
+// the wait out rather than measuring from when the transcript landed.
+//
+// verifies SPEC §11
+func TestAListenerWithoutAClockRecordsNoWait(t *testing.T) {
+	r := newRig(t, talking())
+	r.speaker.dac = true
+	lights := r.line("turn off the kitchen lights", alan)
+
+	r.dev.SendWake(t, "hey_eddie")
+	r.utter(t, lights, 8*chunkBytes)
+
+	conv := r.session(t).ConversationID()
+	start := r.awaitKind(t, conv, journal.KindSpeechStarted, 1)
+	if wait, ok := start.Fields["wait_ms"]; ok {
+		t.Errorf("wait_ms = %q with no clock to measure it", wait)
+	}
+}

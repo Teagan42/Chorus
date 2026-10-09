@@ -224,3 +224,30 @@ func TestReduceKeepsDiscardedSpeechOutOfWhatWasHeard(t *testing.T) {
 		t.Errorf("Unspoken = %q, want %q", got.Unspoken, want)
 	}
 }
+
+// The first frame is when the answer was heard, not what was heard: the
+// reducer must not count "one sec" twice because its start was journalled.
+//
+// verifies SPEC §11
+func TestReduceTreatsTheFirstPlayedFrameAsTimingOnly(t *testing.T) {
+	events := []journal.Event{
+		{Seq: 1, Kind: journal.KindUtteranceTranscribed, AudioRef: "blob/1", Fields: map[string]string{"text": "play something by zeppelin"}},
+		{Seq: 2, Kind: journal.KindSpeechStarted, Fields: map[string]string{"call_id": "call_2", "wait_ms": "1840"}},
+		{Seq: 3, Kind: journal.KindSpeechSpoken, AudioRef: "blob/2", Fields: map[string]string{"text": "One sec.", "frames_played": "12800"}},
+	}
+	var (
+		s   journal.State
+		err error
+	)
+	for _, e := range events {
+		if s, err = journal.Reduce(s, e); err != nil {
+			t.Fatalf("reduce %s: %v", e.Kind, err)
+		}
+	}
+	if want := []string{"One sec."}; !reflect.DeepEqual(s.Spoken, want) {
+		t.Errorf("Spoken = %q, want %q", s.Spoken, want)
+	}
+	if s.LastSeq != 3 {
+		t.Errorf("LastSeq = %d, want 3", s.LastSeq)
+	}
+}

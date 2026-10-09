@@ -63,6 +63,14 @@ events: {
 			{name: "embedding_json", type: "string", description: "The utterance's speaker embedding as a JSON array of numbers, stored whether or not it matched anyone (SPEC §5). Empty when the embedder was unavailable."},
 		]
 	}
+	speech_started: {
+		name:        "speech_started", actor: "speaking"
+		description: "The DAC played the first frame of a turn's speech. Recorded once per turn, when the device reports it, so its wall clock is when the household first heard the answer (SPEC §11)."
+		fields: [
+			{name: "call_id", type: "string", description: "The speak call whose audio played first.", required: true},
+			{name: "wait_ms", type: "integer", description: "Milliseconds from when the person stopped speaking to this frame: the endpointer's trailing silence counts, as the household waits through it. Empty when the ask carried no stop time."},
+		]
+	}
 	speech_spoken: {
 		name:        "speech_spoken", actor: "speaking"
 		description: "Audio the user actually heard, bounded by DAC-reported playback position."
