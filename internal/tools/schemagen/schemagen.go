@@ -265,7 +265,12 @@ type ToolSpec struct {
 	// show: a slow tool carries a latency hint it has to act on (SPEC §14).
 	ModelDescription string
 
+	// Params are what the tool's executor declares and receives. ModelParams
+	// are what the model is offered, which adds the arguments the
+	// orchestrator acts on and strips before the executor sees the call: the
+	// acknowledgement on a slow tool, the nonce on a confirmable one.
 	Params               []ParamSpec
+	ModelParams          []ParamSpec
 	OnInterrupt          InterruptPolicy
 	Scope                Scope
 	Timeout              time.Duration
@@ -286,7 +291,8 @@ type ToolSpec struct {
 		b.WriteString(fmt.Sprintf("\t\tName: %q,\n", t.Name))
 		b.WriteString(fmt.Sprintf("\t\tDescription: %q,\n", t.Description))
 		b.WriteString(fmt.Sprintf("\t\tModelDescription: %q,\n", describe(t)))
-		b.WriteString(renderParams(offered(t)))
+		b.WriteString(renderParams("Params", t.Params))
+		b.WriteString(renderParams("ModelParams", offered(t)))
 		b.WriteString(fmt.Sprintf("\t\tOnInterrupt: %q,\n", t.OnInterrupt))
 		b.WriteString(fmt.Sprintf("\t\tScope: %q,\n", t.Scope))
 		b.WriteString(fmt.Sprintf("\t\tTimeout: %d * time.Millisecond,\n", t.TimeoutMS))
@@ -302,12 +308,12 @@ type ToolSpec struct {
 	return b.String()
 }
 
-func renderParams(params []Param) string {
+func renderParams(field string, params []Param) string {
 	if len(params) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\t\tParams: []ParamSpec{\n")
+	b.WriteString("\t\t" + field + ": []ParamSpec{\n")
 	for _, p := range params {
 		b.WriteString(fmt.Sprintf("\t\t\t{Name: %q, Type: %q, Description: %q, Required: %t",
 			p.Name, p.Type, p.Description, p.Required))
