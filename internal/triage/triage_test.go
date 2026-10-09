@@ -375,3 +375,70 @@ func TestWithoutSpeakerIDARepeatStillCounts(t *testing.T) {
 		t.Errorf("repeat = %+v", s)
 	}
 }
+
+func startedAfter(callID, ms string) journal.Record {
+	if ms == "" {
+		return record(journal.KindSpeechStarted, "", "call_id", callID)
+	}
+	return record(journal.KindSpeechStarted, "", "call_id", callID, "since_endpoint_ms", ms)
+}
+
+func spokeText(text string) journal.Record {
+	return record(journal.KindSpeechSpoken, "blob://tts/x", "text", text, "frames_played", "28800")
+}
+
+// Alan asked for the garage door and the answer took 2.3 s to start: three
+// times SPEC §11's budget, which is what a reviewer should hear for themselves.
+//
+// verifies SPEC §11
+func TestAnAnswerThatStartsLateIsSlow(t *testing.T) {
+	sig := one(t, scan(t,
+		opened("garage", "alan"),
+		heard("is the garage door closed", "alan"),
+		called("ha_get_state", "c1"), result("c1", "ok"),
+		startedAfter("c2", "2340"), spokeText("The garage door is open."),
+		completed("stop"),
+	))
+	if sig.Kind != triage.KindSlow || sig.Seq != 5 {
+		t.Errorf("signal = %s at seq %d, want slow at the start, seq 5", sig.Kind, sig.Seq)
+	}
+	if want := "first audio 2.3 s after the ask · target 0.7 s"; sig.Detail != want {
+		t.Errorf("Detail = %q, want %q", sig.Detail, want)
+	}
+	if sig.Utterance != "is the garage door closed" || sig.Speaker != "alan" || sig.Satellite != "garage" {
+		t.Errorf("signal belongs to %q by %s on %s", sig.Utterance, sig.Speaker, sig.Satellite)
+	}
+}
+
+// Inside the budget, and exactly on it, a turn is not slow.
+//
+// verifies SPEC §11
+func TestAnAnswerWithinTheBudgetIsNotSlow(t *testing.T) {
+	for _, ms := range []string{"480", "700"} {
+		sigs := scan(t,
+			opened("kitchen", "teagan"),
+			heard("turn off the kitchen lights", "teagan"),
+			startedAfter("c1", ms), spokeText("Turning off the kitchen lights."),
+			completed("stop"),
+		)
+		if len(sigs) != 0 {
+			t.Errorf("a %s ms wait raised %+v", ms, sigs)
+		}
+	}
+}
+
+// A start with no wait had no endpoint to measure from: that is unknown,
+// not fast and not slow.
+//
+// verifies SPEC §11
+func TestAStartWithNoWaitIsNotJudged(t *testing.T) {
+	sigs := scan(t,
+		opened("kitchen", "teagan"),
+		heard("turn off the kitchen lights", "teagan"),
+		startedAfter("c1", ""), spokeText("Turning off the kitchen lights."),
+		completed("stop"),
+	)
+	if len(sigs) != 0 {
+		t.Errorf("a start with no wait raised %+v", sigs)
+	}
+}
