@@ -79,7 +79,7 @@ uv run pytest sidecars/smartturn
 
 These exercise the contract against a fake model and the pin against
 `file://` wheels; they need neither the model nor the network. The real model
-runs under `tests/test_model.py` when `SMARTTURN_MODEL_DIR` holds the asset,
+runs under `tests/test_real_model.py` when `SMARTTURN_MODEL_DIR` holds the asset,
 and with `SMARTTURN_CORPUS` pointing at `<dir>/complete/*.wav` and
 `<dir>/incomplete/*.wav` (16 kHz s16le mono) it checks finished turns score
 above unfinished ones. That corpus is never committed (CONTRIBUTING §7).
