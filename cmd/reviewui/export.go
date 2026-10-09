@@ -121,7 +121,7 @@ func (s *server) export(w http.ResponseWriter, r *http.Request) {
 	c := countExport(pairs)
 
 	data := map[string]any{
-		"Doc":    ui.Doc{Title: "Export · DPO dataset", Static: "/static"},
+		"Doc":    s.doc("Export · DPO dataset"),
 		"Header": ui.NewAppHeader(ui.StepExport, unreviewedCount(pairs), "chorus · journal"),
 		"Head": ui.PageHead{
 			Eyebrow: "06 · Export", Title: "DPO dataset",

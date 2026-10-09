@@ -257,7 +257,7 @@ func (s *server) browse(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "page-browse", map[string]any{
-		"Doc":    ui.Doc{Title: "Browse · " + day.Format("Monday 2 January"), Static: "/static"},
+		"Doc":    s.doc("Browse · " + day.Format("Monday 2 January")),
 		"Header": ui.NewAppHeader(ui.StepBrowse, unreviewed, "chorus · journal"),
 		"Head": ui.PageHead{
 			Eyebrow: "01 · Browse", Title: "The household's day",

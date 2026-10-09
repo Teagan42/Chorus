@@ -112,7 +112,7 @@ func (s *server) replays(w http.ResponseWriter, r *http.Request) {
 		list.Rows = append(list.Rows, rw.row)
 	}
 	s.render(w, "page-replays", map[string]any{
-		"Doc":    ui.Doc{Title: "Replay", Static: "/static"},
+		"Doc":    s.doc("Replay"),
 		"Header": ui.NewAppHeader(ui.StepReplay, unreviewedCount(pairs), "chorus · journal"),
 		"Head": ui.PageHead{
 			Eyebrow: "04 · Replay", Title: "Ask it again",
@@ -185,7 +185,7 @@ func (s *server) replayPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "page-replay", map[string]any{
-		"Doc":    ui.Doc{Title: "Replay · " + rp.id, Static: "/static"},
+		"Doc":    s.doc("Replay · " + rp.id),
 		"Header": ui.NewAppHeader(ui.StepReplay, rp.unread, recorded.Model+" · "+recorded.Prompt+" · "+recorded.ToolSchema),
 		"Head": ui.PageHead{
 			Eyebrow: "04 · Replay", Trace: true, Title: rp.turns[0].Text, SubtitleMono: true,

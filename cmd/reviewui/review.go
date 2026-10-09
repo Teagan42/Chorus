@@ -229,7 +229,7 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 	sel, ok := selectPair(pairs, r.URL.Query().Get("pair"), "all")
 	if !ok {
 		s.render(w, "page-review-empty", map[string]any{
-			"Doc":    ui.Doc{Title: "Review", Static: "/static"},
+			"Doc":    s.doc("Review"),
 			"Header": ui.NewAppHeader(ui.StepReview, 0, "chorus · journal"),
 			"Empty": ui.EmptyState{
 				Title: "Nothing to review.",
@@ -258,7 +258,7 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "page-review", map[string]any{
-		"Doc":    ui.Doc{Title: "Review · " + sel.ID, Static: "/static"},
+		"Doc":    s.doc("Review · " + sel.ID),
 		"Header": ui.NewAppHeader(ui.StepReview, unreviewedCount(pairs), "chorus · journal"),
 		"Head": ui.PageHead{
 			Eyebrow: "03 · Review", Trace: true,

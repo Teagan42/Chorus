@@ -42,6 +42,10 @@ type server struct {
 	// endpoint is configured, and Replay says so.
 	engineFor engineFactory
 
+	// notice says above every screen what kind of instance this is; nil on
+	// a household's own review box.
+	notice *ui.Notice
+
 	// One reviewer at a time is the household reality; the lock keeps a
 	// read-modify-write on a pair from racing itself.
 	mu sync.Mutex
@@ -284,7 +288,7 @@ func (s *server) curate(w http.ResponseWriter, r *http.Request) {
 	sel, selected := selectPair(pairs, q.Get("pair"), status)
 
 	data := map[string]any{
-		"Doc":    ui.Doc{Title: "Curate · DPO pairs", Static: "/static"},
+		"Doc":    s.doc("Curate · DPO pairs"),
 		"Header": ui.NewAppHeader(ui.StepCurate, unreviewedCount(pairs), "chorus · journal"),
 		"Head": ui.PageHead{
 			Eyebrow: "05 · Curate", Title: "DPO pairs",
@@ -358,6 +362,11 @@ func (s *server) pairAction(w http.ResponseWriter, r *http.Request) {
 		"Rows": pairRows(pairs, id, "all", true),
 		"Tabs": pairTabs(pairs, id, "all", true),
 	})
+}
+
+// doc is the shell every page opens with.
+func (s *server) doc(title string) ui.Doc {
+	return ui.Doc{Title: title, Static: "/static", Notice: s.notice}
 }
 
 func (s *server) render(w http.ResponseWriter, name string, data any) {

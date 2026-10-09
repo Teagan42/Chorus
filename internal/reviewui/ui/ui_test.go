@@ -52,7 +52,7 @@ func TestEveryComponentHasTemplateAndCSS(t *testing.T) {
 		"app-header", "page-head", "button", "segmented", "tabs", "chip", "chip-group", "switch",
 		"sig-tag", "metric-strip", "transport", "timeline", "event-pins", "conv-thumb", "list", "list-row", "day-lanes", "option-cards", "data-table",
 		"clip-tile", "clip-grid", "inspector", "pair-actions", "pair-checks", "checks", "alert", "done-card", "empty-state",
-		"field", "code-diff", "legend", "doc-start", "doc-end",
+		"field", "code-diff", "legend", "notice", "doc-start", "doc-end",
 	} {
 		if tpl.Lookup(name) == nil {
 			t.Errorf("template %q not defined", name)
@@ -259,4 +259,18 @@ func TestListRowWithoutAHrefIsNotALink(t *testing.T) {
 
 	h = render(t, "list-row", ui.ListRow{Href: "/review?pair=x", Title: "linked"})
 	mustContain(t, "linked row", h, `<a class="list__row" href="/review?pair=x"`)
+}
+
+// The hosted demo says what it is above every screen; the household's own
+// review box says nothing.
+func TestTheShellCarriesANoticeOnlyWhenGivenOne(t *testing.T) {
+	h := render(t, "doc-start", ui.Doc{Title: "Browse", Static: "/static", Notice: &ui.Notice{
+		Label: "Demo", Text: "Teagan, Alice and Alan's Thursday. Verdicts reset when you reload.",
+		LinkText: "About Chorus", Href: "https://teagan42.github.io/Chorus/",
+	}})
+	mustContain(t, "notice", h, `<aside class="notice tone-conv" role="note" aria-label="Demo">`,
+		"Alice and Alan&#39;s Thursday", `href="https://teagan42.github.io/Chorus/">About Chorus ↗</a>`)
+	if h := render(t, "doc-start", ui.Doc{Title: "Browse", Static: "/static"}); strings.Contains(h, "notice") {
+		t.Error("a review box with no notice still renders the strip")
+	}
 }

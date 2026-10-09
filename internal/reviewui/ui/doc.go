@@ -4,4 +4,5 @@ package ui
 type Doc struct {
 	Title  string
 	Static string // URL prefix where Static() is mounted, e.g. "/static"
+	Notice *Notice
 }
