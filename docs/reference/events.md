@@ -13,6 +13,7 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | `session_opened` | session |  |  | Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5). |
 | `speech_discarded` | speaking |  | yes | Speech generated but never played, because a barge-in emptied the queue first. Distinct from truncation: nothing was heard. |
 | `speech_spoken` | speaking | yes |  | Audio the user actually heard, bounded by DAC-reported playback position. |
+| `speech_started` | speaking |  |  | The DAC played the first frame of a turn's speech. Recorded once per turn, when the device reports it, so its wall clock is when the household first heard the answer (SPEC §11). |
 | `speech_truncated` | speaking | yes | yes | Barge-in cut speech short. Carries the exact split between heard and unheard text. |
 | `tool_called` | thinking |  |  | Model dispatched a tool; emitted when its JSON closed, not at end of message. |
 | `tool_result` | tool |  |  | Tool completed, failed, or timed out. Failures are results the model reasons about (SPEC §7). |
@@ -95,6 +96,17 @@ Actor: `speaking`. `has_audio`: yes. `training_signal`: no. `speculative`: no. `
 |---|---|---|---|
 | `text` | string | yes | Text corresponding to played audio. |
 | `frames_played` | integer | yes | DAC frame count at completion. |
+
+## `speech_started`
+
+The DAC played the first frame of a turn's speech. Recorded once per turn, when the device reports it, so its wall clock is when the household first heard the answer (SPEC §11).
+
+Actor: `speaking`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `call_id` | string | yes | The speak call whose audio played first. |
+| `since_endpoint_ms` | integer |  | Milliseconds from the endpoint that closed the ask to this frame. The endpointer's trailing silence precedes the endpoint and is not counted. Empty when the ask carried no endpoint time. |
 
 ## `speech_truncated`
 
