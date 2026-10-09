@@ -30,7 +30,11 @@ func record(kind journal.Kind, fields ...string) journal.Record {
 // cut by "just close it", and the turn that closed the door.
 func garageLog(t *testing.T, extra ...journal.Record) []journal.Event {
 	t.Helper()
-	recs := []journal.Record{
+	return logOf(t, append(garageRecords(), extra...))
+}
+
+func garageRecords() []journal.Record {
+	return []journal.Record{
 		record(journal.KindSessionOpened, "satellite", "kitchen", "speaker_id", "teagan", "resumed", "false"),
 		record(journal.KindUtteranceTranscribed, "text", "turn off the kitchen lights and is the garage door closed", "speaker_id", "teagan"),
 		record(journal.KindToolCalled, "tool", "speak", "call_id", "s1", "args_json", `{"mode":"queue","streamed":true}`),
@@ -48,7 +52,12 @@ func garageLog(t *testing.T, extra ...journal.Record) []journal.Event {
 		record(journal.KindSpeechSpoken, "text", "Closing the garage door.", "frames_played", "24000"),
 		record(journal.KindModelCompleted, "completion_json", "{}", "finish_reason", "stop"),
 	}
-	recs = append(recs, extra...)
+}
+
+// logOf writes records through a real journal, so they carry the stamps a
+// session's log would.
+func logOf(t *testing.T, recs []journal.Record) []journal.Event {
+	t.Helper()
 	store := journal.NewMemStore()
 	v := journal.Versions{Model: "qwen3:32b", Prompt: "sys@3", ToolSchema: "tools@7"}
 	j := journal.New(store, journal.FixedClock(time.Unix(1_760_000_000, 0)), v)
