@@ -1,0 +1,21 @@
+[project]
+name = "smartturn"
+version = "0.1.0"
+description = "End-of-turn detection over HTTP for Chorus: Smart Turn v3.2 on ONNX behind POST /v1/turn (SPEC §4.5)"
+requires-python = ">=3.13,<3.14"
+# Exact pins, like the Go tools: a runtime release must not move when every
+# satellite decides a person has finished talking. onnxruntime is the release
+# before the newest: 1.31.0 was published the day this was pinned.
+dependencies = [
+  "fastapi==0.142.4",
+  "uvicorn==0.54.0",
+  "numpy==2.5.3",
+  "onnxruntime==1.30.0",
+]
+
+[project.scripts]
+smartturn = "smartturn.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.11.32,<0.13"]
+build-backend = "uv_build"
