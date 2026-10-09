@@ -1,6 +1,7 @@
 package registry_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/teaganglenn/chorus/internal/registry"
@@ -37,6 +38,79 @@ func TestOnlyTheDoorsAndTheAlarmWaitForAYes(t *testing.T) {
 	}
 	if !(registry.ToolSpec{RequiresConfirmation: true}).NeedsConfirmation(`{}`) {
 		t.Error("a tool that requires confirmation should hold every call")
+	}
+}
+
+// The garage door and the living-room blinds are both covers, opened by the
+// same cover.open_cover. What tells them apart is the class Home Assistant
+// gives each, read from the cover the call names (ADR-0041).
+//
+// verifies SPEC §6
+func TestTheGarageWaitsForAYesAndTheBlindsDoNot(t *testing.T) {
+	ha := registry.Specs["ha_call_service"]
+	classed := func(classes ...string) registry.Classes {
+		return func() ([]string, error) { return classes, nil }
+	}
+	unreadable := func() ([]string, error) {
+		return nil, errors.New("get state cover.garage_door: 503 Service Unavailable")
+	}
+	cases := []struct {
+		why     string
+		args    string
+		classes registry.Classes
+		want    bool
+	}{
+		{"opening the garage door", `{"domain":"cover","service":"open_cover","entity_id":"cover.garage_door"}`, classed("garage"), true},
+		{"opening the side gate", `{"domain":"cover","service":"open_cover","entity_id":"cover.side_gate"}`, classed("gate"), true},
+		{"opening the motorised front door", `{"domain":"cover","service":"open_cover","entity_id":"cover.front_door"}`, classed("door"), true},
+		{"toggling the garage from closed", `{"domain":"cover","service":"toggle","entity_id":"cover.garage_door"}`, classed("garage"), true},
+		{"raising the garage halfway", `{"domain":"cover","service":"set_cover_position","entity_id":"cover.garage_door","data":{"position":50}}`, classed("garage"), true},
+		{"toggling the garage through homeassistant", `{"domain":"homeassistant","service":"toggle","entity_id":"cover.garage_door"}`, classed("garage"), true},
+		{"a class written as HA never would", `{"domain":"cover","service":"open_cover","entity_id":"cover.garage_door"}`, classed(" Garage "), true},
+		{"a garage nobody can read", `{"domain":"cover","service":"open_cover","entity_id":"cover.garage_door"}`, unreadable, true},
+		{"a garage nothing can classify", `{"domain":"cover","service":"open_cover","entity_id":"cover.garage_door"}`, nil, true},
+		{"opening the living-room blinds", `{"domain":"cover","service":"open_cover","entity_id":"cover.living_room_blinds"}`, classed("blind"), false},
+		{"opening the kitchen window, which has no class", `{"domain":"cover","service":"open_cover","entity_id":"cover.kitchen_window"}`, classed(), false},
+		{"closing the garage door", `{"domain":"cover","service":"close_cover","entity_id":"cover.garage_door"}`, classed("garage"), false},
+		{"the kitchen lights, whatever they claim to be", `{"domain":"light","service":"turn_on","entity_id":"light.kitchen"}`, classed("garage"), false},
+		{"unlocking the front door, whatever it is", `{"domain":"lock","service":"unlock","entity_id":"lock.front_door"}`, classed(), true},
+	}
+	for _, c := range cases {
+		if got := ha.NeedsConfirmationOf(c.args, c.classes); got != c.want {
+			t.Errorf("%s: NeedsConfirmationOf = %t, want %t", c.why, got, c.want)
+		}
+	}
+}
+
+// The garage's class is read once per call, and not at all for a call no
+// class could change: every read is a round trip to Home Assistant before
+// the person hears anything.
+//
+// verifies SPEC §6
+func TestTheTargetIsReadOnlyWhenItDecides(t *testing.T) {
+	ha := registry.Specs["ha_call_service"]
+	reads := 0
+	counted := func() ([]string, error) { reads++; return []string{"blind"}, nil }
+
+	ha.NeedsConfirmationOf(`{"domain":"light","service":"turn_on","entity_id":"light.kitchen"}`, counted)
+	ha.NeedsConfirmationOf(`{"domain":"lock","service":"unlock","entity_id":"lock.front_door"}`, counted)
+	if reads != 0 {
+		t.Errorf("the kitchen lights and the front door read a class %d times, want none", reads)
+	}
+	ha.NeedsConfirmationOf(`{"domain":"cover","service":"open_cover","entity_id":"cover.living_room_blinds"}`, counted)
+	if reads != 1 {
+		t.Errorf("the living-room blinds read their class %d times, want once", reads)
+	}
+
+	// Two entries that both match the call still read the target once.
+	both := registry.ToolSpec{ConfirmWhen: []registry.ConfirmRule{
+		{Args: map[string]string{"domain": "cover"}, TargetClass: []string{"garage"}},
+		{Args: map[string]string{"service": "open_cover"}, TargetClass: []string{"gate"}},
+	}}
+	reads = 0
+	both.NeedsConfirmationOf(`{"domain":"cover","service":"open_cover","entity_id":"cover.living_room_blinds"}`, counted)
+	if reads != 1 {
+		t.Errorf("two matching entries read the class %d times, want once", reads)
 	}
 }
 
