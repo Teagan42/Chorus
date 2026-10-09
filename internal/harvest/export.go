@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/teaganglenn/chorus/internal/journal"
 )
@@ -41,6 +42,12 @@ type meta struct {
 	// nothing was: a loader must put it in the prompt's context to train
 	// the pair faithfully.
 	Recalled []journal.Memory `json:"recalled,omitempty"`
+
+	// RecalledConversations are the person's earlier conversations the turn
+	// was told of, and HeardAt the time it was told it was (RFC 3339). Both
+	// belong in the prompt's context beside Recalled.
+	RecalledConversations []journal.Summary `json:"recalled_conversations,omitempty"`
+	HeardAt               string            `json:"heard_at,omitempty"`
 }
 
 // versions mirrors journal.Versions field for field, so the struct conversion
@@ -99,6 +106,9 @@ func toRow(p Pair) (row, error) {
 			Audio:    nonNilAudio(p.Audio),
 			Calls:    calls(p.Calls),
 			Recalled: p.Recalled,
+
+			RecalledConversations: p.RecalledSummaries,
+			HeardAt:               stamp(p.HeardAt),
 		},
 	}
 	if p.Curated {
@@ -132,4 +142,12 @@ func nonNilAudio(a Audio) Audio {
 		a.AsSaid = []string{}
 	}
 	return a
+}
+
+// stamp is a time as the export writes it, absent when the log had none.
+func stamp(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
 }
