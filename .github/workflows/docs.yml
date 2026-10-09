@@ -1,0 +1,78 @@
+name: Docs
+
+# Every PR builds the site, so a change that breaks a doc (a moved file, a
+# renamed heading, a screenshot the browser tests stopped taking) is red
+# before it merges. Every push to main publishes that build, so the site is
+# never older than main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  # Never cancel a deploy halfway; a newer push queues behind it instead.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: docs (build, hooks, site in Chrome)
+    runs-on: ubuntu-latest
+    env:
+      # Set so the browser tiers fail rather than skip, as in ci.yml.
+      CHORUS_E2E_CHROME: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.54.0
+
+      - run: task docs:test
+
+      # The review UI screenshots on the site are of this commit, not of
+      # whenever someone last committed them.
+      - run: task docs:shots
+
+      # docs:e2e builds first; strict, so a broken link or image stops here.
+      - run: task docs:e2e
+        env:
+          CHORUS_E2E_SHOTS: ${{ runner.temp }}/site-screens
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: site-screens
+          path: ${{ runner.temp }}/site-screens
+          if-no-files-found: ignore
+
+      - uses: actions/upload-pages-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          path: site
+
+  deploy:
+    name: publish to GitHub Pages
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

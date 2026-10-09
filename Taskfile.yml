@@ -190,6 +190,47 @@ tasks:
     cmds:
       - go run ./internal/tools/docexec docs/ CONTRIBUTING.md
 
+  # ----------------------------------------------------------------- docs site
+  # The site is docs/ and the root Markdown as they are; mkdocs.yml says how.
+  # Material nags about MkDocs 2 on every run; the pin in pyproject.toml is
+  # the answer, so the nag is silenced rather than read.
+  docs:serve:
+    desc: Preview the docs site on 127.0.0.1:8000, rebuilding on save
+    env: {NO_MKDOCS_2_WARNING: "1"}
+    cmds: ["uv run --group docs mkdocs serve {{.CLI_ARGS}}"]
+
+  docs:build:
+    desc: Build the docs site into site/. Strict, so a broken link or image fails it.
+    env: {NO_MKDOCS_2_WARNING: "1"}
+    cmds: ["uv run --group docs mkdocs build"]
+
+  docs:test:
+    desc: The site hooks' own tests and lint. Python, so not part of `task test`.
+    env: {NO_MKDOCS_2_WARNING: "1"}
+    cmds:
+      - uv run --group docs ruff check internal/tools/docsite
+      - uv run --group docs ruff format --check internal/tools/docsite
+      - uv run --group docs pytest internal/tools/docsite
+
+  docs:shots:
+    desc: Re-take every committed review UI screenshot from the browser tests (needs CHORUS_E2E_CHROME)
+    cmds:
+      - |
+        shots=$(mktemp -d)
+        CHORUS_E2E_SHOTS="$shots" task test:e2e
+        # A committed screenshot the tests no longer take is deleted, so a doc
+        # still showing that screen fails `task docs:build`.
+        for f in docs/reviewui/*.png docs/reviewui/e2e/*.png; do
+          cp "$shots/$(basename "$f")" "$f" 2>/dev/null || rm "$f"
+        done
+        rm -rf "$shots"
+
+  docs:e2e:
+    desc: The built site in a headless Chrome. Skips unless CHORUS_E2E_CHROME names one.
+    deps: [docs:build]
+    cmds:
+      - CHORUS_DOCS_SITE={{.ROOT_DIR}}/site go test -race -count=1 -tags=e2e ./internal/tools/docsite
+
   # -------------------------------------------------------------- spec tracing
   spec:
     desc: Report SPEC.md clause/test traceability
