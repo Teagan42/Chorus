@@ -93,7 +93,10 @@ tasks:
   test:db:
     desc: Requires Postgres. Start one with `task db:up`.
     cmds:
-      - go test -race -count=1 -tags=db ./...
+      # -p 1: every package shares one database, and the store conformance
+      # suites truncate their tables, which would wipe a conversation another
+      # package's test is still reading.
+      - go test -race -count=1 -p 1 -tags=db ./...
 
   test:e2e:
     desc: Review UI in a headless Chrome. Skips unless CHORUS_E2E_CHROME names one.
