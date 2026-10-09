@@ -95,3 +95,10 @@ type ToolFunc func(ctx context.Context, args string) (string, error)
 func (f ToolFunc) Invoke(ctx context.Context, args string) (string, error) {
 	return f(ctx, args)
 }
+
+// Classifier is a Tool that can say what a call acts on before it runs, so
+// a confirm_when entry naming target classes holds the garage door and not
+// the blinds (ADR-0041). The orchestrator's arguments are already off.
+type Classifier interface {
+	Classify(ctx context.Context, args string) ([]string, error)
+}

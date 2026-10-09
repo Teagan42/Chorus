@@ -14,8 +14,11 @@ import (
 
 // homeAssistant answers the REST calls the ha_* tools make, in-process: the
 // garage door is open this morning, and the front door unlocks when told to.
-// It keeps the paths it was asked for and the bodies it was sent.
+// It keeps the paths it was asked for and the bodies it was sent. answers
+// overrides the reply to a "METHOD path" with a body HA answers 200.
 type homeAssistant struct {
+	answers map[string]string
+
 	mu     sync.Mutex
 	asked  []string
 	bodies []string
@@ -31,7 +34,10 @@ func (h *homeAssistant) RoundTrip(r *http.Request) (*http.Response, error) {
 	h.bodies = append(h.bodies, string(sent))
 	h.mu.Unlock()
 	body, status := `{"message":"Entity not found."}`, http.StatusNotFound
+	answer, answered := h.answers[r.Method+" "+r.URL.Path]
 	switch {
+	case answered:
+		body, status = answer, http.StatusOK
 	case r.Method == http.MethodGet && r.URL.Path == "/api/states/cover.garage_door":
 		body = `{"entity_id":"cover.garage_door","state":"open","attributes":{"friendly_name":"Garage Door","device_class":"garage","current_position":100},"last_changed":"2026-10-09T06:51:12+00:00"}`
 		status = http.StatusOK

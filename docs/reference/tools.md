@@ -40,6 +40,10 @@ Needs the person's yes when called with:
 - `domain` `lock`, `service` `unlock`
 - `domain` `lock`, `service` `open`
 - `domain` `alarm_control_panel`, `service` `alarm_disarm`
+- `domain` `cover`, `service` `open_cover`, on a target of class `door`, `garage`, `gate`
+- `domain` `cover`, `service` `toggle`, on a target of class `door`, `garage`, `gate`
+- `domain` `cover`, `service` `set_cover_position`, on a target of class `door`, `garage`, `gate`
+- `domain` `homeassistant`, `service` `toggle`, on a target of class `door`, `garage`, `gate`
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|

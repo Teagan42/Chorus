@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"go/parser"
 	"go/token"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -46,7 +47,7 @@ func fixtureTools() map[string]Tool {
 			Params: []Param{
 				{Name: "action", Type: "string", Description: "lock or unlock.", Required: true},
 			},
-			ConfirmWhen: []map[string]string{{"action": "unlock"}},
+			ConfirmWhen: []ConfirmRule{{Args: map[string]string{"action": "unlock"}}},
 		},
 		"garage_opener": {
 			Name: "garage_opener", Description: "Press the garage door opener.",
@@ -290,7 +291,7 @@ func TestConfirmableToolsOfferTheNonce(t *testing.T) {
 
 	src := renderToolsGo(fixtureTools())
 	parses(t, src)
-	if !strings.Contains(src, `ConfirmWhen: []map[string]string{`) || !strings.Contains(src, `{"action": "unlock"}`) {
+	if !strings.Contains(src, `ConfirmWhen: []ConfirmRule{`) || !strings.Contains(src, `{Args: map[string]string{"action": "unlock"}},`) {
 		t.Error("the generated registry does not carry front_door's confirm_when")
 	}
 	doc := renderToolDocs(fixtureTools())
@@ -411,5 +412,53 @@ func TestGoName(t *testing.T) {
 		if got := goName(in); got != want {
 			t.Errorf("goName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// The garage opens with the same cover.open_cover as the living-room blinds,
+// so its entry carries the classes it holds. They reach the registry as
+// classes, never as an argument a call would have to match (ADR-0041).
+//
+// verifies SPEC §6
+func TestATargetClassReachesTheRegistryAsAClassNotAnArgument(t *testing.T) {
+	// As `cue export` writes ha_call_service's entry.
+	var tool Tool
+	exported := `{"name":"ha_call_service","description":"Act on the home.","on_interrupt":"detach","scope":"household","timeout_ms":10000,"latency":"fast",
+		"params":[{"name":"domain","type":"string","description":"Service domain.","required":true},{"name":"service","type":"string","description":"Service.","required":true}],
+		"confirm_when":[{"domain":"lock","service":"unlock"},{"target_class":["door","garage","gate"],"domain":"cover","service":"open_cover"}]}`
+	if err := json.Unmarshal([]byte(exported), &tool); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := []ConfirmRule{
+		{Args: map[string]string{"domain": "lock", "service": "unlock"}},
+		{Args: map[string]string{"domain": "cover", "service": "open_cover"}, TargetClass: []string{"door", "garage", "gate"}},
+	}
+	if !reflect.DeepEqual(tool.ConfirmWhen, want) {
+		t.Errorf("confirm_when = %+v, want %+v", tool.ConfirmWhen, want)
+	}
+
+	tools := map[string]Tool{"ha_call_service": tool}
+	src := renderToolsGo(tools)
+	parses(t, src)
+	for _, line := range []string{
+		`{Args: map[string]string{"domain": "lock", "service": "unlock"}},`,
+		`{Args: map[string]string{"domain": "cover", "service": "open_cover"}, TargetClass: []string{"door", "garage", "gate"}},`,
+	} {
+		if !strings.Contains(src, line) {
+			t.Errorf("the generated registry is missing %s", line)
+		}
+	}
+	doc := renderToolDocs(tools)
+	for _, line := range []string{
+		"- `domain` `lock`, `service` `unlock`\n",
+		"- `domain` `cover`, `service` `open_cover`, on a target of class `door`, `garage`, `gate`\n",
+	} {
+		if !strings.Contains(doc, line) {
+			t.Errorf("tool docs are missing %q", line)
+		}
+	}
+
+	if err := json.Unmarshal([]byte(`{"target_class":"garage","domain":"cover"}`), new(ConfirmRule)); err == nil {
+		t.Error("a target_class that is not a list was accepted")
 	}
 }
