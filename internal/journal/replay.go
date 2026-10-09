@@ -148,7 +148,7 @@ func Reduce(s State, e Event) (State, error) {
 		s.Calls = calls
 		s.Dialogue = s.resulted(id, calls[i].Tool, calls[i].Outcome, calls[i].Result)
 	case KindConfirmationRequested:
-		c, ok := s.requested(e.Fields["call_id"], e.Fields["nonce"])
+		c, ok := s.requested(e.Fields["call_id"], e.Fields["nonce"], e.Fields["presented"])
 		if !ok {
 			return s, fmt.Errorf("confirmation for unknown call %q", e.Fields["call_id"])
 		}

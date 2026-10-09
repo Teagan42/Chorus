@@ -70,6 +70,30 @@ func TestANonceIsRedeemedOnlyAfterThePersonAnswers(t *testing.T) {
 	}
 }
 
+// A refused nonce is spent by its try. The model switched from the front
+// door to the back door before anyone answered, so the back door got a
+// nonce of its own; Teagan's yes to the back-door question must not unlock
+// the front door on the nonce the switch was refused with.
+//
+// verifies SPEC §6
+func TestARefusedNonceCannotRideTheNextAnswer(t *testing.T) {
+	s := reduceAll(t, append(heldFrontDoor()[:5],
+		ev(journal.KindToolCalled, map[string]string{"tool": "ha_call_service", "call_id": "call_c2", "args_json": `{"domain":"lock","service":"unlock","entity_id":"lock.back_door","confirmation":"cf_4c1e9a07"}`}),
+		ev(journal.KindConfirmationRequested, map[string]string{"call_id": "call_c2", "nonce": "cf_9d02b5e1", "presented": "cf_4c1e9a07", "refused": journal.RefusedArgsChanged}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "call_c2", "outcome": "confirmation_required"}),
+		answer("yes, the back door", "teagan"),
+	))
+	if got := s.Redeemable("cf_4c1e9a07", "ha_call_service", frontDoorRest); got != journal.RefusedUsed {
+		t.Errorf("front door on the refused nonce = %q, want %q", got, journal.RefusedUsed)
+	}
+	if got := s.Redeemable("cf_9d02b5e1", "ha_call_service", backDoorRest); got != "" {
+		t.Errorf("back door on its own nonce = %q, want it redeemable", got)
+	}
+	if c := s.Confirmations[0]; c.RefusedBy != "call_c2" || c.Heard != 0 {
+		t.Errorf("front door's confirmation = %+v, want spent by call_c2 and not counting the answer", c)
+	}
+}
+
 // The audit: which call was held, what the person said next and who said
 // it, and which call ran on the nonce. All of it is replayed from the log.
 //

@@ -521,7 +521,9 @@ func (s *Session) confirmed(tc ToolCall) (string, bool) {
 	fresh := "cf_" + newID()[:8]
 	fields := map[string]string{"call_id": tc.ID, "nonce": fresh}
 	if refused != "" {
-		fields["refused"] = refused
+		// Spent by this try: a refused nonce left open could ride the
+		// answer to the next question, whatever that question was.
+		fields["presented"], fields["refused"] = nonce, refused
 	}
 	if err := s.record(journal.Record{Kind: journal.KindConfirmationRequested, Fields: fields}); err != nil {
 		// A nonce the log does not have can never be redeemed; say so rather

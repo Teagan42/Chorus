@@ -257,6 +257,49 @@ func TestAYesToTheFrontDoorDoesNotOpenTheBackDoor(t *testing.T) {
 	}
 }
 
+// The model switches from the front door to the back door before Teagan has
+// answered, and asks about the back door. Her yes is to the back door, so
+// the front door's nonce, refused when it was presented for the back door,
+// must not open the front door.
+//
+// verifies SPEC §6
+func TestAYesToTheBackDoorQuestionDoesNotOpenTheFrontDoor(t *testing.T) {
+	lock := &lockTool{}
+	var front string
+	m := &model{answer: func(in session.Input) []session.Action {
+		last := in.Dialogue[len(in.Dialogue)-1]
+		nonce, isHeld := held(in)
+		switch {
+		case last.Kind == journal.EntryHeard && last.Text == "unlock the front door":
+			return []session.Action{session.ToolCall{ID: "call_c1", Tool: "ha_call_service", Args: unlockFrontDoor}, done}
+		case last.Kind == journal.EntryHeard && last.Text == "yes please":
+			return []session.Action{session.ToolCall{ID: "call_c3", Tool: "ha_call_service", Args: withNonce(unlockFrontDoor, front)}, done}
+		case isHeld && front == "":
+			front = nonce
+			return []session.Action{session.ToolCall{ID: "call_c2", Tool: "ha_call_service", Args: withNonce(unlockBackDoor, nonce)}, done}
+		case isHeld:
+			return []session.Action{said("call_s1", "Unlock the back door?"), done}
+		}
+		return []session.Action{done}
+	}}
+	r := modelRig(t, m, map[string]session.Tool{"ha_call_service": lock})
+	s := r.open(t, "teagan")
+
+	wait(t, heard(s, "unlock the front door"))
+	wait(t, heard(s, "yes please"))
+
+	if got := lock.calls(); len(got) != 0 {
+		t.Errorf("the lock was sent %q on a yes to a different question", got)
+	}
+	requested, given := r.confirmations(t, s.ConversationID())
+	if len(given) != 0 {
+		t.Errorf("confirmations given: %v", given)
+	}
+	if last := requested[len(requested)-1]; last["presented"] != front || last["refused"] != journal.RefusedUsed {
+		t.Errorf("front door re-call = %v, want %s refused as %s", last, front, journal.RefusedUsed)
+	}
+}
+
 // The kitchen lights are not a front door. They run on the call, with no
 // nonce in the log.
 //

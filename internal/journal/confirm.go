@@ -6,7 +6,8 @@ import "github.com/teaganglenn/chorus/internal/registry"
 const (
 	// RefusedUnknown: no call in this conversation was handed the nonce.
 	RefusedUnknown = "unknown"
-	// RefusedUsed: the nonce already let one call run.
+	// RefusedUsed: the nonce has had its one try, whether it let a call run
+	// or was refused.
 	RefusedUsed = "used"
 	// RefusedArgsChanged: the nonce was for another call. A yes to the front
 	// door is not a yes to the back door.
@@ -39,9 +40,16 @@ type Confirmation struct {
 	Answer     string
 	AnsweredBy string
 
-	// RedeemedBy is the call that ran on this nonce. Empty while it is open.
+	// RedeemedBy is the call that ran on this nonce, and RefusedBy the call
+	// that presented it and was refused. A nonce gets one try: a refused one
+	// would otherwise stay open and could ride the answer to a different
+	// question. Both are empty while it is open.
 	RedeemedBy string
+	RefusedBy  string
 }
+
+// open reports whether the nonce has not had its try yet.
+func (c Confirmation) open() bool { return c.RedeemedBy == "" && c.RefusedBy == "" }
 
 // Redeemable decides whether a call may run on nonce. Args are the call's
 // arguments without the nonce, encoded by registry.Unconfirmed. It returns
@@ -57,7 +65,7 @@ func (s State) Redeemable(nonce, tool, args string) string {
 	}
 	c := s.Confirmations[i]
 	switch {
-	case c.RedeemedBy != "":
+	case !c.open():
 		return RefusedUsed
 	case c.Tool != tool || c.Args != args:
 		return RefusedArgsChanged
@@ -78,8 +86,9 @@ func (s State) confirmation(nonce string) int {
 	return -1
 }
 
-// requested opens a confirmation for a held call.
-func (s State) requested(callID, nonce string) ([]Confirmation, bool) {
+// requested opens a confirmation for a held call, and spends the nonce the
+// call presented, if it presented one this conversation handed out.
+func (s State) requested(callID, nonce, presented string) ([]Confirmation, bool) {
 	i := indexOfCall(s.Calls, callID)
 	if i < 0 {
 		return nil, false
@@ -93,6 +102,9 @@ func (s State) requested(callID, nonce string) ([]Confirmation, bool) {
 	}
 	out := make([]Confirmation, len(s.Confirmations), len(s.Confirmations)+1)
 	copy(out, s.Confirmations)
+	if j := s.confirmation(presented); presented != "" && j >= 0 && out[j].open() {
+		out[j].RefusedBy = callID
+	}
 	return append(out, Confirmation{Nonce: nonce, CallID: callID, Tool: call.Tool, Args: args}), true
 }
 
@@ -117,7 +129,7 @@ func (s State) answered(text, speaker string) []Confirmation {
 	out := make([]Confirmation, len(s.Confirmations))
 	copy(out, s.Confirmations)
 	for i := range out {
-		if out[i].RedeemedBy != "" {
+		if !out[i].open() {
 			continue
 		}
 		out[i].Heard++
