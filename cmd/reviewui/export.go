@@ -127,7 +127,7 @@ func (s *server) export(w http.ResponseWriter, r *http.Request) {
 			Eyebrow: "06 · Export", Title: "DPO dataset",
 			Subtitle: "Accepted, fixed and attributed pairs, derived from the journal on every read. Nothing is frozen yet; the file is the current state of curation.",
 			Actions: []ui.Button{{
-				Label: fmt.Sprintf("Download %d rows (JSONL)", c.Exportable),
+				Label: "Download " + plural(c.Exportable, "row") + " (JSONL)",
 				Href:  "/export/dpo.jsonl", Primary: true, Disabled: c.Exportable == 0,
 			}},
 		},

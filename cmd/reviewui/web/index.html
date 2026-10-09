@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review UI demo · Chorus</title>
+<meta name="description" content="The Chorus review UI over one made-up household's Thursday, running entirely in your browser.">
+<link rel="icon" href="static/img/chorus-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="static/css/chorus.css">
+<style>
+  .boot { margin: auto; max-width: 34rem; padding: 48px 24px; display: flex; flex-direction: column; gap: 14px; }
+  .boot img { border-radius: 22%; }
+  .boot h1 { font-size: var(--fs-title); font-weight: var(--fw-title); }
+  .boot p { color: var(--c-text-2); line-height: 1.5; }
+  .boot progress { width: 100%; accent-color: var(--conv); }
+  .boot .meta { font-family: var(--font-mono); font-size: var(--fs-small); color: var(--c-muted); }
+  .boot.is-failed .meta { color: var(--people-text); }
+</style>
+<!-- The shell must patch XMLHttpRequest before htmx loads. -->
+<script src="wasm_exec.js"></script>
+<script src="shell.js"></script>
+<script src="static/js/htmx.min.js" defer></script>
+</head>
+<body>
+<div class="page">
+<main class="boot" id="boot" aria-live="polite">
+<img src="static/img/chorus-icon.png" width="56" height="56" alt="">
+<h1>Loading the household</h1>
+<p>Teagan, Alice and Alan's Thursday: seven conversations across the kitchen, office and living room, three barge-ins, a garage sensor that timed out, and an oven timer asked for twice. The review server runs here, in this tab, as WebAssembly.</p>
+<progress id="boot-progress" max="1" value="0"></progress>
+<span class="meta" id="boot-status">Fetching the server…</span>
+<noscript><p>The demo is the review server compiled to WebAssembly, so it needs JavaScript.</p></noscript>
+</main>
+</div>
+</body>
+</html>

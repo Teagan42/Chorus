@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -54,11 +55,17 @@ type page struct {
 // inert control is exactly the bug these tests exist for.
 func open(t *testing.T, s *server) *page {
 	t.Helper()
+	return openOn(t, s.routes())
+}
+
+// openOn is open for any handler, such as a static host serving the demo.
+func openOn(t *testing.T, h http.Handler) *page {
+	t.Helper()
 	chrome := os.Getenv(chromeEnv)
 	if chrome == "" {
 		t.Skipf("%s is unset; point it at a Chrome or Chromium binary", chromeEnv)
 	}
-	srv := httptest.NewServer(s.routes())
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],

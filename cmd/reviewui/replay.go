@@ -19,6 +19,22 @@ import (
 // prompt as the reviewer edited them, and the versions that makes.
 type engineFactory func(model, prompt string) (sess.Engine, journal.Versions, error)
 
+// ollamaEngines builds Replay's engines on the configured endpoint, or none
+// when it is not configured. The model must be configured too: it is the one
+// chorusd runs, which says the endpoint is meant to be asked.
+func ollamaEngines(baseURL, model string) engineFactory {
+	if baseURL == "" || model == "" {
+		return nil
+	}
+	return func(model, prompt string) (sess.Engine, journal.Versions, error) {
+		e, err := ollama.New(ollama.Config{BaseURL: baseURL, Model: model, Prompt: prompt})
+		if err != nil {
+			return nil, journal.Versions{}, err
+		}
+		return e, e.Versions(), nil
+	}
+}
+
 // runTimeout bounds a whole re-run. A turn streams for as long as the model
 // talks, and a conversation is a handful of turns.
 const runTimeout = 3 * time.Minute

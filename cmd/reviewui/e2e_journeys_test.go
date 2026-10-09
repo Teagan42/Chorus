@@ -68,7 +68,7 @@ func (p *page) metrics(strip string) map[string]string {
 func (p *page) badge() int {
 	p.t.Helper()
 	var n int
-	p.eval(`+((document.querySelector('header nav a[href="/queue"] .app-header__count') || {}).textContent || 0)`, &n)
+	p.eval(`+((document.querySelector('header nav a[href$="/queue"] .app-header__count') || {}).textContent || 0)`, &n)
 	return n
 }
 
