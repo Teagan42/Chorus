@@ -458,7 +458,7 @@ func TestSmartTurnShortensTheWaitForAnAnswer(t *testing.T) {
 // think, then says "twelve minutes". Smart Turn hears the first pause as
 // finished, as it did on every voice in the corpus (ADR-0036); the daemon
 // reads the words with the same transcriber, holds the turn past Energy's
-// 800 ms, and the model is asked once, for the whole command (ADR-0041).
+// 800 ms, and the model is asked once, for the whole command (ADR-0042).
 //
 // verifies SPEC §4.5
 func TestACutOffCommandReachesTheModelWhole(t *testing.T) {

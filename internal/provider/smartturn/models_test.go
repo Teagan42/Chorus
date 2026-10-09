@@ -16,7 +16,7 @@
 // through listen.Semantic, and the quiet each one waited through is printed:
 // that is the number the endpointer exists to shrink (ADR-0036). With
 // -stt-url naming a speaches endpoint as well, every take is judged again with
-// listen.Dangling reading its words, as the daemon does (ADR-0041).
+// listen.Dangling reading its words, as the daemon does (ADR-0042).
 package smartturn_test
 
 import (

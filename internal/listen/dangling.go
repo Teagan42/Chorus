@@ -12,7 +12,7 @@ import (
 // Dangling is a Judge that will not call a turn finished while its words end
 // on one no command ends on. Smart Turn hears "set a timer for", said on a
 // falling pitch, as done; the words say the duration is still coming
-// (ADR-0041).
+// (ADR-0042).
 type Dangling struct {
 	Judge Judge
 
