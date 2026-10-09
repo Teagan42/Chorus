@@ -64,8 +64,9 @@ type deps struct {
 	Timers session.Timers
 	providers
 
-	// Memories keeps what each person asked to be remembered. Nil remembers
-	// nothing: remember and forget answer not_implemented, and no turn is
+	// Memories keeps what each person asked to be remembered, and what their
+	// conversations were about. Nil remembers nothing: remember and forget
+	// answer not_implemented, no conversation is summarized, and no turn is
 	// told anything (SPEC §5).
 	Memories memory.Store
 
@@ -83,7 +84,9 @@ type daemon struct {
 	convs    *session.Conversations
 	gate     session.Gate
 	memories session.Memories
-	wg       sync.WaitGroup
+	// wg also counts the summaries still being written, which outlive the
+	// link whose conversation ended: run returns only once they are kept.
+	wg sync.WaitGroup
 }
 
 // run serves satellites until ctx ends, then returns once every link is
@@ -115,6 +118,9 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 		}
 		maps.Copy(tools, memory.Tools(d.Memories, d.Clock))
 		dm.tools, dm.memories = tools, memory.Recaller(d.Memories)
+	} else {
+		// Nowhere to keep a summary, so none is written.
+		dm.summarizer = nil
 	}
 	if d.Native != nil {
 		for i := range inv.Satellites {
@@ -285,6 +291,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 		Journal: d.journal, Store: d.Store, Clock: d.Clock, Timers: d.Timers,
 		Engine: d.engine, Speaker: speaker, Conversations: d.convs,
 		Tools: d.tools, Gate: d.gate, Memories: d.memories,
+		Summarizer: d.summarizer, Summarizing: &d.wg, Log: log,
 	})
 	if err != nil {
 		return err

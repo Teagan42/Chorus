@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"reflect"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/teaganglenn/chorus/internal/journal"
 	"github.com/teaganglenn/chorus/internal/memory"
@@ -96,5 +98,84 @@ func TestAGuestCannotTeachTheKitchenAnything(t *testing.T) {
 	}
 	if n := len(r.store.ofKind(journal.KindMemoryRecalled)); n != 0 {
 		t.Errorf("a guest's turn recorded %d recalls", n)
+	}
+}
+
+// summarizer is the model writing what a conversation was about.
+type summarizer struct {
+	mu     sync.Mutex
+	people [][]string
+}
+
+func (z *summarizer) Summarize(_ context.Context, dialogue []journal.Entry, people []string) (string, error) {
+	z.mu.Lock()
+	defer z.mu.Unlock()
+	z.people = append(z.people, people)
+	return "alan asked whether the garage door was closed; the assistant said it was.", nil
+}
+
+// Alan asks the garage about the door on Monday at noon, and the daemon
+// shuts down with the conversation still open. The summary is written and
+// kept before the daemon exits. Tuesday, asked what he asked yesterday, the
+// model is told the time and Monday's conversation.
+//
+// verifies SPEC §5
+func TestAlanIsToldWhatHeAskedYesterday(t *testing.T) {
+	memories := memory.NewMemStore()
+	sum := &summarizer{}
+	monday := newRig(t, inventory(), func(d *deps) {
+		d.Memories, d.summarizer = memories, sum
+	})
+	dev := monday.join(t, kitchenIP)
+	dev.SendWake(t, "hey_eddie")
+	monday.utter(t, dev, monday.line("is the garage door closed", alan))
+	monday.store.awaitKind(t, journal.KindModelCompleted, 1)
+	monday.cancel()
+	if err := monday.exit(t); err != nil {
+		t.Fatalf("monday's daemon: %v", err)
+	}
+	summarized := monday.store.ofKind(journal.KindConversationSummarized)
+	if len(summarized) != 1 || summarized[0].Fields["people_json"] != `["alan"]` {
+		t.Fatalf("summarized %+v, want once, for Alan", summarized)
+	}
+
+	tuesday := epoch.Add(24 * time.Hour)
+	eng := &scriptEngine{acts: []session.Action{session.TurnEnd{FinishReason: "stop", Completion: "{}"}}}
+	today := newRig(t, inventory(), func(d *deps) {
+		d.engine, d.Memories, d.summarizer = eng, memories, sum
+		d.Clock = journal.FixedClock(tuesday)
+	})
+	dev = today.join(t, kitchenIP)
+	dev.SendWake(t, "hey_eddie")
+	today.utter(t, dev, today.line("what did i ask you yesterday", alan))
+	await(t, "tuesday's ask", func() bool { return len(eng.heard()) > 0 })
+
+	in := eng.heard()[0]
+	want := []journal.Summary{{
+		ConversationID: summarized[0].ConversationID, At: epoch,
+		Text: "alan asked whether the garage door was closed; the assistant said it was.",
+	}}
+	if !in.Now.Equal(tuesday) || len(in.Summaries) != 1 || !in.Summaries[0].At.Equal(epoch) ||
+		in.Summaries[0].Text != want[0].Text || in.Summaries[0].ConversationID != want[0].ConversationID {
+		t.Errorf("tuesday's ask was told %v and %+v, want %v and %+v", in.Now, in.Summaries, tuesday, want)
+	}
+}
+
+// Without anywhere to keep memories, no conversation is summarized.
+//
+// verifies SPEC §5
+func TestNoMemoryMeansNoSummaries(t *testing.T) {
+	sum := &summarizer{}
+	r := newRig(t, inventory(), func(d *deps) { d.summarizer = sum })
+	dev := r.join(t, kitchenIP)
+	dev.SendWake(t, "hey_eddie")
+	r.utter(t, dev, r.line("is the garage door closed", alan))
+	r.store.awaitKind(t, journal.KindModelCompleted, 1)
+	r.cancel()
+	if err := r.exit(t); err != nil {
+		t.Fatalf("daemon: %v", err)
+	}
+	if n := len(r.store.ofKind(journal.KindConversationSummarized)); n != 0 || len(sum.people) != 0 {
+		t.Errorf("summarized %d times with no memory", n)
 	}
 }
