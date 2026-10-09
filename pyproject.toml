@@ -21,6 +21,13 @@ dev = [
   "httpx==0.28.1",
   "ruff==0.16.10",
 ]
+# The docs site (mkdocs.yml). Material is in maintenance mode upstream;
+# its successor reads the same mkdocs.yml, so pinning here is the whole cost.
+docs = [
+  "mkdocs==1.6.1",
+  "mkdocs-material==9.7.7",
+  "mkdocs-glightbox==0.5.2",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["sidecars"]
