@@ -240,7 +240,7 @@ func (c *speechChannel) watch(u *utterance, started <-chan struct{}) {
 	fields := map[string]string{"call_id": u.callID}
 	if !asked.IsZero() {
 		wait := c.s.sup.cfg.Clock.Now().Sub(asked)
-		fields["since_endpoint_ms"] = strconv.FormatInt(wait.Milliseconds(), 10)
+		fields["wait_ms"] = strconv.FormatInt(wait.Milliseconds(), 10)
 	}
 	c.s.fail(c.s.record(journal.Record{Kind: journal.KindSpeechStarted, Fields: fields}))
 }

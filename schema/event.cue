@@ -68,7 +68,7 @@ events: {
 		description: "The DAC played the first frame of a turn's speech. Recorded once per turn, when the device reports it, so its wall clock is when the household first heard the answer (SPEC §11)."
 		fields: [
 			{name: "call_id", type: "string", description: "The speak call whose audio played first.", required: true},
-			{name: "since_endpoint_ms", type: "integer", description: "Milliseconds from the endpoint that closed the ask to this frame. The endpointer's trailing silence precedes the endpoint and is not counted. Empty when the ask carried no endpoint time."},
+			{name: "wait_ms", type: "integer", description: "Milliseconds from when the person stopped speaking to this frame: the endpointer's trailing silence counts, as the household waits through it. Empty when the ask carried no stop time."},
 		]
 	}
 	speech_spoken: {

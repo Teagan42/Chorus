@@ -50,6 +50,14 @@ type Endpointer interface {
 	Reset()
 }
 
+// Trailer is an Endpointer that can say how much quiet its last End waited
+// through, in bytes. The person stopped speaking that long before the End,
+// which is where the wait for an answer starts (ADR-0035). An Endpointer
+// that cannot say is taken to have ended on the last word.
+type Trailer interface {
+	Trailing() int
+}
+
 // DefaultSpeechEnergy is the RMS, as a fraction of full scale, at or above
 // which a chunk counts as speech: -40 dBFS. The XMOS AGC lands speech well
 // above it and the AEC residual during playback well below. Unmeasured on a
@@ -75,6 +83,7 @@ type Energy struct {
 
 	voiced bool
 	quiet  int
+	trail  int
 }
 
 // NewEnergy returns the defaults.
@@ -99,11 +108,14 @@ func (e *Energy) Feed(pcm []byte) Boundary {
 	if e.quiet < e.Silence {
 		return Continue
 	}
-	e.voiced, e.quiet = false, 0
+	e.voiced, e.quiet, e.trail = false, 0, e.quiet
 	return End
 }
 
 func (e *Energy) Reset() { e.voiced, e.quiet = false, 0 }
+
+// Trailing is the quiet the last End waited through, in bytes.
+func (e *Energy) Trailing() int { return e.trail }
 
 // RMS is a chunk's level as a fraction of full scale, so Candidate.Energy and
 // session.Gate.MinEnergy share a unit. A torn trailing byte is ignored.

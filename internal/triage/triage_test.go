@@ -380,7 +380,7 @@ func startedAfter(callID, ms string) journal.Record {
 	if ms == "" {
 		return record(journal.KindSpeechStarted, "", "call_id", callID)
 	}
-	return record(journal.KindSpeechStarted, "", "call_id", callID, "since_endpoint_ms", ms)
+	return record(journal.KindSpeechStarted, "", "call_id", callID, "wait_ms", ms)
 }
 
 func spokeText(text string) journal.Record {
@@ -427,7 +427,7 @@ func TestAnAnswerWithinTheBudgetIsNotSlow(t *testing.T) {
 	}
 }
 
-// A start with no wait had no endpoint to measure from: that is unknown,
+// A start with no wait had no stop time to measure from: that is unknown,
 // not fast and not slow.
 //
 // verifies SPEC §11

@@ -69,7 +69,7 @@ func newDACRig(t *testing.T, steps []step, dac *dacSpeaker) *rig {
 	})
 }
 
-// endedAt runs a turn whose ask the endpointer closed at ended.
+// endedAt runs a turn whose speaker stopped talking at ended.
 func endedAt(s *session.Session, text string, ended time.Time) <-chan error {
 	out := make(chan error, 1)
 	go func() {
@@ -98,7 +98,7 @@ func starts(events []journal.Event) []map[string]string {
 }
 
 // Alan asks for the kitchen lights; the model answers and the satellite
-// first reports playing it 1.84 s after the endpoint closed the ask.
+// first reports playing it 1.84 s after he stopped talking.
 //
 // verifies SPEC §11
 func TestTheFirstPlayedFrameIsJournalledWithTheWait(t *testing.T) {
@@ -113,7 +113,7 @@ func TestTheFirstPlayedFrameIsJournalledWithTheWait(t *testing.T) {
 	wait(t, endedAt(s, "turn off the kitchen lights", epoch))
 
 	events := r.events(t, s.ConversationID())
-	want := []map[string]string{{"call_id": "call_1", "since_endpoint_ms": "1840"}}
+	want := []map[string]string{{"call_id": "call_1", "wait_ms": "1840"}}
 	if got := starts(events); !reflect.DeepEqual(got, want) {
 		t.Fatalf("speech_started = %v, want %v", got, want)
 	}
@@ -152,7 +152,7 @@ func TestOnlyTheTurnsFirstUtteranceCountsAsItsStart(t *testing.T) {
 	s := r.open(t, "teagan")
 	wait(t, endedAt(s, "play something by zeppelin", epoch))
 
-	want := []map[string]string{{"call_id": "call_1", "since_endpoint_ms": "620"}}
+	want := []map[string]string{{"call_id": "call_1", "wait_ms": "620"}}
 	if got := starts(r.events(t, s.ConversationID())); !reflect.DeepEqual(got, want) {
 		t.Errorf("speech_started = %v, want only the first utterance's", got)
 	}
@@ -182,8 +182,8 @@ func TestEachTurnRecordsItsOwnStart(t *testing.T) {
 	if len(got) != 2 || got[0]["call_id"] != "call_1" || got[1]["call_id"] != "call_2" {
 		t.Fatalf("speech_started = %v, want one for each turn", got)
 	}
-	if got[0]["since_endpoint_ms"] != "900" || got[1]["since_endpoint_ms"] != "1300" {
-		t.Errorf("waits = %s and %s ms, want 900 and 1300", got[0]["since_endpoint_ms"], got[1]["since_endpoint_ms"])
+	if got[0]["wait_ms"] != "900" || got[1]["wait_ms"] != "1300" {
+		t.Errorf("waits = %s and %s ms, want 900 and 1300", got[0]["wait_ms"], got[1]["wait_ms"])
 	}
 }
 
@@ -207,7 +207,7 @@ func TestSpeechThatNeverPlayedRecordsNoStart(t *testing.T) {
 	}
 }
 
-// A listener with no clock gives the ask no endpoint. The start is still
+// A listener with no clock gives the ask no stop time. The start is still
 // when the answer was heard; the wait is left out rather than invented.
 //
 // verifies SPEC §11

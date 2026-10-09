@@ -93,9 +93,9 @@ type Transcript struct {
 	SpeakerID string
 	AudioRef  string
 
-	// Ended is when the endpointer closed the utterance, by the listener's
-	// clock: where the household's wait for an answer starts (SPEC §11).
-	// Zero when the listener has no clock.
+	// Ended is when the person stopped speaking, by the listener's clock:
+	// where the household's wait for an answer starts (SPEC §11). Zero when
+	// the listener has no clock.
 	Ended time.Time
 
 	// Embedding is the utterance's speaker vector, recorded whether or not it

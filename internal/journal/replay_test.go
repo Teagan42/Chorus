@@ -232,7 +232,7 @@ func TestReduceKeepsDiscardedSpeechOutOfWhatWasHeard(t *testing.T) {
 func TestReduceTreatsTheFirstPlayedFrameAsTimingOnly(t *testing.T) {
 	events := []journal.Event{
 		{Seq: 1, Kind: journal.KindUtteranceTranscribed, AudioRef: "blob/1", Fields: map[string]string{"text": "play something by zeppelin"}},
-		{Seq: 2, Kind: journal.KindSpeechStarted, Fields: map[string]string{"call_id": "call_2", "since_endpoint_ms": "1840"}},
+		{Seq: 2, Kind: journal.KindSpeechStarted, Fields: map[string]string{"call_id": "call_2", "wait_ms": "1840"}},
 		{Seq: 3, Kind: journal.KindSpeechSpoken, AudioRef: "blob/2", Fields: map[string]string{"text": "One sec.", "frames_played": "12800"}},
 	}
 	var (

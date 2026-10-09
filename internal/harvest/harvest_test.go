@@ -508,7 +508,7 @@ func TestPairCarriesTheDACConfirmedCutFrames(t *testing.T) {
 // verifies SPEC §9.1, §11
 func TestTheFirstPlayedFrameDoesNotChangeThePair(t *testing.T) {
 	started := func(id, ms string) journal.Record {
-		return record(journal.KindSpeechStarted, "", "call_id", id, "since_endpoint_ms", ms)
+		return record(journal.KindSpeechStarted, "", "call_id", id, "wait_ms", ms)
 	}
 	plain := onePair(t, scan(t, conversation(t, versions(), concat(
 		[]journal.Record{opened("kitchen")}, cutTurn(), correctedTurn(),

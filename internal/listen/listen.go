@@ -79,9 +79,9 @@ type Config struct {
 	// Endpointer defaults to NewEnergy.
 	Endpointer Endpointer
 
-	// Clock stamps when the endpointer closed each utterance, where the wait
-	// for an answer starts (ADR-0035). Nil leaves the ask without an endpoint
-	// time, and its turn records no wait.
+	// Clock stamps when each utterance's speech stopped, where the wait for
+	// an answer starts (ADR-0035). Nil leaves the ask without that time, and
+	// its turn records no wait.
 	Clock journal.Clock
 
 	// STT tunes each utterance's partial cadence and bound.
@@ -322,7 +322,12 @@ func (l *Listener) endLocked() {
 	l.cur = nil
 	l.lead = l.lead[:0]
 	if l.cfg.Clock != nil {
-		u.endpoint = l.cfg.Clock.Now()
+		// The End arrives after the quiet that confirmed it, and the mic
+		// streams in real time, so that quiet is how long ago speech stopped.
+		u.stopped = l.cfg.Clock.Now()
+		if t, ok := l.cfg.Endpointer.(Trailer); ok {
+			u.stopped = u.stopped.Add(-time.Duration(t.Trailing()) * time.Second / bytesPerSecond)
+		}
 	}
 	close(u.ended)
 }
@@ -425,8 +430,8 @@ type utterance struct {
 	ended   chan struct{}
 	aborted chan struct{}
 
-	// endpoint is when the endpointer closed it, set before ended closes.
-	endpoint time.Time
+	// stopped is when its speech stopped, set before ended closes.
+	stopped time.Time
 
 	// Touched only by run.
 	bargedIn   bool
@@ -575,7 +580,7 @@ func (l *Listener) complete(u *utterance) {
 	}
 	err = sess.Heard(l.ctx, session.Transcript{
 		Text: res.Text, SpeakerID: out.PersonID, AudioRef: ref, Embedding: out.Embedding,
-		Ended: u.endpoint,
+		Ended: u.stopped,
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		l.warn("hear utterance", err)

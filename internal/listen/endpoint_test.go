@@ -112,3 +112,22 @@ func TestRMSIsAFractionOfFullScale(t *testing.T) {
 		t.Errorf("RMS(odd length) = %v, want 1", got)
 	}
 }
+
+// "turn off the kitchen lights" and then quiet: the End lands only after the
+// quiet that confirmed it, and that quiet is part of the household's wait,
+// so the endpointer says how much of it there was (ADR-0035).
+//
+// verifies SPEC §11
+func TestEnergyEndpointerSaysHowMuchQuietItWaitedThrough(t *testing.T) {
+	ep := &listen.Energy{Threshold: 0.1, Silence: 3 * chunkBytes}
+	ep.Feed(voice(8000, chunkBytes))
+	ep.Feed(quiet(chunkBytes))
+	ep.Feed(quiet(chunkBytes))
+	if got := ep.Feed(quiet(2 * chunkBytes)); got != listen.End {
+		t.Fatalf("quiet past the bound = %v, want End", got)
+	}
+	if got := ep.Trailing(); got != 4*chunkBytes {
+		t.Errorf("Trailing = %d bytes, want the %d of quiet before the End", got, 4*chunkBytes)
+	}
+	var _ listen.Trailer = ep
+}

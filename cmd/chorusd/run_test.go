@@ -377,10 +377,11 @@ func TestTheNativeAPIIsHeldAndRedialed(t *testing.T) {
 	}
 }
 
-// The whole stack measures the wait: the listener stamps the endpoint with the
-// daemon's clock, and the satellite's first PLAYED report past the answer's
-// start journals it (ADR-0035). The clock is fixed, so the wait reads zero;
-// a daemon that left the listener without a clock would record none.
+// The whole stack measures the wait: the listener stamps when speech stopped
+// with the daemon's clock, and the satellite's first PLAYED report past the
+// answer's start journals it (ADR-0035). The clock is fixed, so the wait is
+// exactly the default endpointer's 800 ms of quiet; a daemon that left the
+// listener without a clock would record none.
 //
 // verifies SPEC §11
 func TestTheFirstPlayedFrameIsJournalledWithItsWait(t *testing.T) {
@@ -400,7 +401,7 @@ func TestTheFirstPlayedFrameIsJournalledWithItsWait(t *testing.T) {
 	dev.AwaitTTS(t, 2*len(answer))
 	dev.PlayAll(t)
 	start := r.store.awaitKind(t, journal.KindSpeechStarted, 1)
-	if start.Fields["call_id"] != "call_1" || start.Fields["since_endpoint_ms"] != "0" {
+	if start.Fields["call_id"] != "call_1" || start.Fields["wait_ms"] != "800" {
 		t.Errorf("speech_started = %v, want call_1 with the wait measured", start.Fields)
 	}
 	spoken := r.store.awaitKind(t, journal.KindSpeechSpoken, 1)

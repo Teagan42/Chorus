@@ -69,7 +69,7 @@ func logRowOf(e journal.Event, start journal.Event) logRow {
 		row.Text = "wake rejected: " + f["reason"]
 	case journal.KindSpeechStarted:
 		row.Text, row.Note = "first audio", "call "+f["call_id"]
-		if ms, err := strconv.Atoi(f["since_endpoint_ms"]); err == nil {
+		if ms, err := strconv.Atoi(f["wait_ms"]); err == nil {
 			row.Text = fmt.Sprintf("first audio %.2f s after the ask", float64(ms)/1000)
 		}
 	case journal.KindSpeechSpoken:

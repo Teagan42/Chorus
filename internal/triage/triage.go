@@ -28,7 +28,7 @@ const (
 )
 
 // SlowAfter is SPEC §11's first-audio target. A turn whose first frame came
-// later than this after the endpoint is slow (ADR-0035).
+// later than this after the person stopped speaking is slow (ADR-0035).
 const SlowAfter = 700 * time.Millisecond
 
 // A repeat is the same person asking substantially the same thing again
@@ -169,8 +169,8 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 				raiseIn(c.turn, e, KindFailure, c.tool+" "+o)
 			}
 		case journal.KindSpeechStarted:
-			// No wait recorded means no endpoint to measure from, not a fast turn.
-			ms, err := strconv.ParseInt(e.Fields["since_endpoint_ms"], 10, 64)
+			// No wait recorded means no stop to measure from, not a fast turn.
+			ms, err := strconv.ParseInt(e.Fields["wait_ms"], 10, 64)
 			if wait := time.Duration(ms) * time.Millisecond; err == nil && wait > SlowAfter {
 				raise(e, KindSlow, fmt.Sprintf("first audio %.1f s after the ask · target %.1f s", wait.Seconds(), SlowAfter.Seconds()))
 			}
