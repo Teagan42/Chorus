@@ -14,7 +14,9 @@
 // <dir>/incomplete/*.wav (16 kHz s16le mono, from outside the repo per
 // CONTRIBUTING §7), every take is judged and then streamed in real time
 // through listen.Semantic, and the quiet each one waited through is printed:
-// that is the number the endpointer exists to shrink (ADR-0036).
+// that is the number the endpointer exists to shrink (ADR-0036). With
+// -stt-url naming a speaches endpoint as well, every take is judged again with
+// listen.Dangling reading its words, as the daemon does (ADR-0041).
 package smartturn_test
 
 import (
@@ -33,11 +35,13 @@ import (
 	"github.com/teaganglenn/chorus/internal/bridge"
 	"github.com/teaganglenn/chorus/internal/listen"
 	"github.com/teaganglenn/chorus/internal/provider/smartturn"
+	"github.com/teaganglenn/chorus/internal/provider/speaches"
 )
 
 var (
 	endpoint = flag.String("smartturn-url", "", "Smart Turn sidecar base URL; skips when empty")
 	wavs     = flag.String("smartturn-wavs", "", "directory of complete/*.wav and incomplete/*.wav; skips when empty")
+	sttURL   = flag.String("stt-url", "", "speaches base URL, to judge the corpus with its words too; skips when empty")
 )
 
 // judgeBudget is generous on purpose: the first call after boot may still be
@@ -153,22 +157,7 @@ func readTakes(t *testing.T, dir string) []take {
 // verifies SPEC §4.5, §11
 func TestARealCorpusEndsTurnsSoonerThanTheSilence(t *testing.T) {
 	c := client(t)
-	if *wavs == "" {
-		t.Skip("no -smartturn-wavs")
-	}
-	takes := readTakes(t, *wavs)
-	var kinds [2]int
-	for _, tk := range takes {
-		if tk.complete {
-			kinds[1]++
-		} else {
-			kinds[0]++
-		}
-	}
-	// Asked for a corpus and given none is a mistake, not a skip.
-	if kinds[0] == 0 || kinds[1] == 0 {
-		t.Fatalf("%s: %d complete and %d incomplete takes; want both. `task smartturn:corpus` renders them", *wavs, kinds[1], kinds[0])
-	}
+	takes := corpus(t)
 	var sum [2]float64
 	var n [2]int
 	right := 0
@@ -197,10 +186,10 @@ func TestARealCorpusEndsTurnsSoonerThanTheSilence(t *testing.T) {
 
 // stream feeds a take and then quiet through a Semantic endpointer at 32 ms a
 // chunk, the satellite's pace, and returns the quiet its End waited through.
-func stream(t *testing.T, c *smartturn.Client, pcm []byte) time.Duration {
+func stream(t *testing.T, j listen.Judge, pcm []byte) time.Duration {
 	t.Helper()
 	const chunk = 1024
-	ep := listen.NewSemantic(c)
+	ep := listen.NewSemantic(j)
 	tick := time.NewTicker(32 * time.Millisecond)
 	defer tick.Stop()
 	quiet := make([]byte, chunk)
@@ -217,6 +206,102 @@ func stream(t *testing.T, c *smartturn.Client, pcm []byte) time.Duration {
 	}
 	t.Fatalf("no End within the hold")
 	return 0
+}
+
+// corpus is the -smartturn-wavs takes, both kinds of them.
+func corpus(t *testing.T) []take {
+	t.Helper()
+	if *wavs == "" {
+		t.Skip("no -smartturn-wavs")
+	}
+	takes := readTakes(t, *wavs)
+	var kinds [2]int
+	for _, tk := range takes {
+		if tk.complete {
+			kinds[1]++
+		} else {
+			kinds[0]++
+		}
+	}
+	// Asked for a corpus and given none is a mistake, not a skip.
+	if kinds[0] == 0 || kinds[1] == 0 {
+		t.Fatalf("%s: %d complete and %d incomplete takes; want both. `task smartturn:corpus` renders them", *wavs, kinds[1], kinds[0])
+	}
+	return takes
+}
+
+// Smart Turn calls a short command trailing off on a preposition finished
+// (ADR-0036). Judged with its words, every take is printed beside Smart
+// Turn's own verdict and what the decode cost, then streamed as the daemon
+// streams it. The words may only hold a turn: a finished take they call cut
+// off is a word list that is wrong.
+//
+// verifies SPEC §4.5, §11
+func TestARealCorpusJudgedWithItsWordsHoldsCutOffCommands(t *testing.T) {
+	c := client(t)
+	takes := corpus(t)
+	if *sttURL == "" {
+		t.Skip("no -stt-url")
+	}
+	words, err := speaches.New(speaches.Config{BaseURL: *sttURL})
+	if err != nil {
+		t.Fatalf("transcriber: %v", err)
+	}
+	both := listen.Dangling{Judge: c, Words: words}
+
+	var alone, withWords [2]int // right verdicts, unfinished then finished
+	var n [2]int
+	for _, tk := range takes {
+		ctx, cancel := context.WithTimeout(context.Background(), judgeBudget)
+		start := time.Now()
+		v, err := c.Judge(ctx, tk.pcm)
+		judged := time.Since(start)
+		if err != nil {
+			cancel()
+			t.Fatalf("judge %s: %v", tk.name, err)
+		}
+		start = time.Now()
+		heard, err := words.Transcribe(ctx, tk.pcm)
+		decoded := time.Since(start)
+		if err != nil {
+			cancel()
+			t.Fatalf("transcribe %s: %v", tk.name, err)
+		}
+		start = time.Now()
+		done, err := both.Complete(ctx, tk.pcm)
+		took := time.Since(start)
+		cancel()
+		if err != nil {
+			t.Fatalf("judge %s with its words: %v", tk.name, err)
+		}
+		i := 0
+		if tk.complete {
+			i = 1
+		}
+		n[i]++
+		if v.Complete == tk.complete {
+			alone[i]++
+		}
+		if done == tk.complete {
+			withWords[i]++
+		}
+		t.Logf("%-34s %-44q smart turn %-5v (%v) words %-5v (%v) both %-5v in %v",
+			tk.name, heard.Text, v.Complete, judged.Round(time.Millisecond),
+			!listen.Dangles(heard.Text), decoded.Round(time.Millisecond), done, took.Round(time.Millisecond))
+		if tk.complete && listen.Dangles(heard.Text) {
+			t.Errorf("%s: the finished %q was called cut off", tk.name, heard.Text)
+		}
+	}
+	t.Logf("Smart Turn alone: finished %d of %d, cut off %d of %d", alone[1], n[1], alone[0], n[0])
+	t.Logf("with the words:   finished %d of %d, cut off %d of %d", withWords[1], n[1], withWords[0], n[0])
+	if withWords[0] < alone[0] {
+		t.Errorf("the words let %d cut-off takes end that Smart Turn held", alone[0]-withWords[0])
+	}
+
+	for _, tk := range takes {
+		waited := stream(t, both, tk.pcm)
+		t.Logf("%-34s ended %4d ms after the last loud chunk with its words", tk.name, waited.Milliseconds())
+	}
 }
 
 // readWAV returns the data chunk of a canonical PCM WAV in the device's format.
