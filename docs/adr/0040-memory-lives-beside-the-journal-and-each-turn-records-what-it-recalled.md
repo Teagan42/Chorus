@@ -61,8 +61,9 @@ turn that went on without it would be answering over a log in trouble.
 **What is recalled.** The speaker's own memories and everyone's shared ones,
 newest first, at most `memory.RecallLimit` (20). A guest recalls nothing.
 Ollama puts them in the system message after who the model is speaking with.
-Each line starts with the id `forget` takes. A memory somebody else shared
-says whose it is.
+Each line starts with the id `forget` takes, then the fact quoted as it was
+said. A memory somebody else shared says whose it is. A re-run of a turn
+(SPEC §9.2) is asked with the memories that turn recorded.
 
 ## Alternatives rejected
 
@@ -83,6 +84,12 @@ says whose it is.
   guest is told Teagan's memories and can remember as Teagan.
 - **The review UI does not show recalled memories yet.** The pair and the
   export carry them; the inspector does not.
+- **A memory is a person's words in the system message.** Quoting keeps a
+  newline from forging a line of its own, and the heading calls the facts
+  facts, not instructions. A model can still obey one. What a household
+  member could inject this way, they could say to it directly. A shared
+  memory reaches the others too, and a call that matters is held for their
+  yes (ADR-0038).
 - **No relevance ranking yet.** Recall gives everything up to the limit,
   newest first. A household past twenty memories a person loses its oldest
   from the prompt until recall ranks by relevance.
