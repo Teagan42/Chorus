@@ -21,12 +21,12 @@ Requires Go 1.27+, `uv` for Python sidecars. `task` and `cue` install via `task 
 
 ## 1. TDD
 
-Three tiers, separated because two of them cannot run everywhere, plus the
-review UI's browser tests, which need only a browser.
+Five tiers, separated because four of them cannot run everywhere.
 
 | Task | Needs | Runs |
 |---|---|---|
 | `task test` | nothing | every push, every commit, pre-commit hook |
+| `task test:db` | Postgres (`task db:up`) | every push, its own CI job |
 | `task test:e2e` | Chrome or Chromium | every push, its own CI job |
 | `task test:models` | GPU sidecars | self-hosted runner |
 | `task test:hardware` | a real satellite | self-hosted runner, manual |
@@ -37,22 +37,42 @@ that reaches the network is a bug in the test.
 ### The fake satellite is the primary test asset
 
 Concurrency and interrupt timing are where this project's bugs live, and they
-cannot be tested repeatably against hardware. `internal/esphome/fakedevice`
-speaks the real protocol in-process — real Noise handshake, real framing — so
-the whole stack runs under test with synthetic audio.
+cannot be tested repeatably against hardware. `internal/bridge/bridgetest`
+is an in-process satellite that speaks the real `chorus_bridge` framing, so the
+whole host stack runs under test with synthetic audio. Its playback advances
+only when the test says so: the truncation point is what most of these tests
+are about, and a fake on a timer would make it a question about scheduling.
+The native API side is tested the same way, over `net.Pipe` with the real
+Noise handshake.
 
 **Virtual clock, always.** Barge-in correctness is a question about
 milliseconds; `time.Sleep` in a test makes the suite slow *and* flaky. Inject a
 clock. Code that reads `time.Now()` directly is not testable and will be
 rejected.
 
-```go norun
-// verifies SPEC §4.4
-func TestBargeInKeepsArrivedToolResults(t *testing.T) {
-    clk := clock.NewFake()
-    // ...
-}
+```go
+import (
+	"time"
+
+	"github.com/teaganglenn/chorus/internal/journal"
+)
+
+// Seven forty-two on a weekday morning, for as long as the test runs.
+var breakfast = journal.FixedClock(time.Date(2026, 10, 8, 7, 42, 0, 0, time.UTC))
 ```
+
+`journal.Clock` is the seam; tests that need time to move write a small
+clock beside them that advances only when told to.
+
+### Fixtures read like a household
+
+A fixture is a person in a room asking for something real: `teagan` in the
+kitchen asking about the weather, `alice` interrupting from the office, the
+`ha_call_service` and `media_search` tools the registry declares. A voice
+pipeline's bugs live in real shapes (a cut mid-word, a speaker flip, a tool
+result landing after the barge-in), and `foo`/`bar` placeholders prove nothing
+about them. Every change ships unit, integration, and end-to-end coverage at
+the tier that can see it.
 
 ### Hardware tests
 
@@ -201,25 +221,43 @@ git config core.hooksPath .githooks
 ## 5. Project layout
 
 ```
-cmd/                    binaries (probe, orchestrator, reviewui)
+cmd/
+  chorusd/              the orchestrator daemon
+  reviewui/             the review UI (docs/reviewui)
+  harvest/              barge-in DPO candidates as JSONL
+  probe/                connect to a satellite and dump what it exposes
 internal/
   esphome/              native API client, Noise transport
-    fakedevice/         in-process satellite for tests
   pb/                   generated ESPHome bindings (do not edit)
-  session/              actor/supervisor model (SPEC §4)
+  bridge/               the chorus_bridge audio link (SPEC §3.2)
+    bridgetest/         in-process satellite for tests
+  satellite/            renders speech onto a device; the DAC's truncation point
+  listen/               the Listening child: mic stream to utterances (SPEC §4)
+  session/              actor/supervisor model, barge-in gate (SPEC §4)
+  stt/                  utterance stream and partials over a batch STT endpoint
+  identity/             voiceprints and speaker matching (SPEC §5)
   journal/              append-only event log, replay (SPEC §8)
-  registry/             tool registry and policy (SPEC §6)
-  provider/             STT/LLM/TTS/speaker-ID interfaces (SPEC §10)
-  config/               inventory and settings
+  blob/                 the audio a journal event refers to
+  registry/             generated tool registry and policy (SPEC §6)
+  hass/                 Home Assistant tools
+  provider/             model clients: ollama, kokoro, speaches, speakerid (SPEC §10)
+  harvest/              barge-ins as preference candidates (SPEC §9.1)
+  triage/               signals worth a reviewer's time, derived on read
+  rerun/                edit-and-replay (SPEC §9.2)
+  curation/             reviewer verdicts, beside the journal (ADR-0034)
+  reviewui/             the review UI's component kit and audio handler
+  config/               satellite inventory
+  msgid/                ESPHome wire ids, derived from the proto descriptors
   tools/                build-time tooling (schemagen, spectrace, atomic, docexec)
 schema/                 CUE source of truth
   json/                 generated JSON Schema (do not edit)
-sidecars/               Python model services (uv workspace)
+sidecars/               Python model services (uv workspace): speakerid
 esphome/                chorus_bridge external component + YAML packages
 docs/
   SPEC.md               normative spec
   adr/                  architecture decision records
   reference/            generated reference docs (do not edit)
+  reviewui/             review UI guide and screenshots
 proto/esphome/          vendored ESPHome protos
 ```
 
