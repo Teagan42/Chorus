@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/listen"
 	"github.com/teagan42/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/stt"
 )
 
 // refusingEngine is Ollama with nothing listening on its port.
@@ -156,4 +158,37 @@ func TestTheKitchenSaysItLostItsVoiceWhenKokoroDiesMidAnswer(t *testing.T) {
 			t.Errorf("seq %d %s %v reads as Alan interrupting", e.Seq, e.Kind, e.Fields)
 		}
 	}
+}
+
+// downSTT is the speaches sidecar with nothing listening on its port.
+type downSTT struct{}
+
+func (downSTT) Transcribe(context.Context, []byte) (stt.Result, error) {
+	return stt.Result{}, errors.New(`speaches: Post "http://10.0.0.22:8000/v1/audio/transcriptions": connect: connection refused`)
+}
+
+// Alan wakes the kitchen with the speech-to-text sidecar down. Nothing could
+// decode his words, so nothing confirmed the wake: the kitchen's own log
+// rejects it as transcription_failed, with his audio, and no session opens
+// to answer something nobody heard (SPEC §9.3).
+//
+// verifies SPEC §9.3
+func TestAWakeNothingCouldTranscribeIsRejectedOnTheKitchensLog(t *testing.T) {
+	r := newRig(t, inventory(), func(d *deps) { d.stt = downSTT{} })
+	dev := r.join(t, kitchenIP)
+
+	dev.SendWake(t, "hey_eddie")
+	r.utter(t, dev, r.line("turn on the porch light", alan))
+
+	rej := r.store.awaitKind(t, journal.KindWakeRejected, 1)
+	if rej.ConversationID != listen.DeviceConversation("kitchen") || rej.Fields["reason"] != "transcription_failed" {
+		t.Errorf("wake_rejected = %v in %s, want transcription_failed on the kitchen's log", rej.Fields, rej.ConversationID)
+	}
+	if _, ok := r.blobs.Bytes(rej.AudioRef); !ok {
+		t.Errorf("the rejected wake's audio %q is not stored", rej.AudioRef)
+	}
+	if n := len(r.store.ofKind(journal.KindSessionOpened)); n != 0 {
+		t.Errorf("%d sessions opened on a wake nothing heard", n)
+	}
+	r.logs.await(t, "finish utterance")
 }

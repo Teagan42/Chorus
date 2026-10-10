@@ -484,7 +484,10 @@ With nobody enrolled, or no speaker ID, stage three passes every voice. Only
 on confirmation does the session become perceptible to the user. Rejections
 are logged with audio and auto-labeled as hard negatives, so the retraining
 corpus fills itself with precisely the negatives the model lacks — no manual
-labeling, no retraining needed to get immediate relief.
+labeling, no retraining needed to get immediate relief. A first utterance STT
+could not decode at all is rejected too, as `transcription_failed`: nothing
+confirmed the wake, but nothing judged the audio either, so it is no hard
+negative.
 
 The one exception is a wake that failed only the speaker check: that is likely
 the wake word from a guest, so it is held until a reviewer confirms it

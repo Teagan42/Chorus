@@ -209,6 +209,8 @@ type fakeSTT struct {
 	calls [][]byte
 	// held reports a decode that is parked, with the context it is parked on.
 	held chan context.Context
+	// down fails every decode, as a sidecar that is not running does.
+	down error
 }
 
 func newSTT() *fakeSTT {
@@ -217,9 +219,12 @@ func newSTT() *fakeSTT {
 
 func (f *fakeSTT) Transcribe(ctx context.Context, pcm []byte) (stt.Result, error) {
 	f.mu.Lock()
-	text, hold := f.by[peak(pcm)], f.hold
+	text, hold, down := f.by[peak(pcm)], f.hold, f.down
 	f.calls = append(f.calls, pcm)
 	f.mu.Unlock()
+	if down != nil {
+		return stt.Result{}, down
+	}
 	if hold != nil {
 		f.held <- ctx
 		select {

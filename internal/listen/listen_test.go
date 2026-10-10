@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -132,6 +133,33 @@ func TestAWakeFollowedBySilenceExpires(t *testing.T) {
 	r.settled(t)
 	if r.l.Session() != nil {
 		t.Error("speech after the window closed opened a session")
+	}
+}
+
+// The speech-to-text sidecar is down when Alan wakes the kitchen. Nothing
+// decoded his first words, so nothing confirmed the wake: it is rejected
+// with its audio, as transcription_failed rather than a cough, and no
+// session opens.
+//
+// verifies SPEC §9.3
+func TestAWakeWhoseWordsCouldNotBeDecodedIsRejected(t *testing.T) {
+	r := newRig(t, silent())
+	r.stt.mu.Lock()
+	r.stt.down = errors.New("speaches: connection refused")
+	r.stt.mu.Unlock()
+
+	r.dev.SendWake(t, "hey_eddie")
+	r.utter(t, r.line("turn off the kitchen lights", alan), 4*chunkBytes)
+
+	rej := r.awaitKind(t, listen.DeviceConversation("kitchen"), journal.KindWakeRejected, 1)
+	if rej.Fields["reason"] != "transcription_failed" {
+		t.Errorf("reason = %q, want transcription_failed", rej.Fields["reason"])
+	}
+	if _, ok := r.blobs.Bytes(rej.AudioRef); !ok {
+		t.Errorf("the rejected wake's audio %q is not stored", rej.AudioRef)
+	}
+	if r.l.Session() != nil {
+		t.Error("a wake nothing decoded opened a session")
 	}
 }
 

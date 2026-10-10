@@ -701,6 +701,12 @@ func (l *Listener) complete(u *utterance) {
 	res, err := u.stt.Finish(l.ctx)
 	if err != nil {
 		l.warn("finish utterance", err)
+		// Nothing decoded the words, so nothing confirmed the wake. A link
+		// that closed mid-decode is no verdict on it at all.
+		if u.first && l.ctx.Err() == nil {
+			pcm, _ := u.snapshot()
+			l.rejectWake(pcm, u.seconds(), "transcription_failed")
+		}
 		return
 	}
 	pcm, _ := u.snapshot()
