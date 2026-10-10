@@ -521,17 +521,21 @@ parts:
       - {pad: "8", name: GND, type: power_in}
 
   SK6812MINI-E:
-    symbol: LED:SK6812MINI-E
-    footprint: LED_SMD:LED_SK6812MINI-E_3.2x2.8mm_P1.5mm_ReverseMount
+    symbol: chorus-sat:SK6812MINI-E
+    footprint: chorus-sat:SK6812MINI-E_DatasheetPads
     datasheet: https://www.lcsc.com/datasheet/C5149201.pdf
-    pinout: KiCad LED:SK6812MINI-E with its own footprint
+    pinout: >-
+      OPSCO SK6812MINI-E rev 02 p4, the datasheet LCSC links for C5149201.
+      KiCad's LED:SK6812MINI-E numbers the same pads 1 VSS, 2 DIN, 3 VDD,
+      4 DOUT, and KiCad 9 ships no footprint for it, so the board carries
+      its own numbered as the datasheet is
     mpn: SK6812MINI-E
     lcsc: C5149201
     pins:
-      - {pad: "1", name: VSS, type: power_in}
-      - {pad: "2", name: DIN, type: input}
-      - {pad: "3", name: VDD, type: power_in}
-      - {pad: "4", name: DOUT, type: output}
+      - {pad: "1", name: VDD, type: power_in}
+      - {pad: "2", name: DOUT, type: output}
+      - {pad: "3", name: VSS, type: power_in}
+      - {pad: "4", name: DIN, type: input}
 
   LED_RED_0603:
     symbol: Device:LED

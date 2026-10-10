@@ -391,7 +391,8 @@ The path to an order:
    `hardware/chorus-sat/chorus-sat.pretty`, which the board's `fp-lib-table`
    makes the `chorus-sat` library: the XU316's QFN-60, the TAS2780's
    RYA0030A, the CMM-4030DT and the AG9912-MTB. The LPJG0926HENL is the Home
-   Assistant Yellow's. `go test ./internal/board` checks each one's pads
+   Assistant Yellow's; the SK6812MINI-E's is KiCad's, renumbered to its
+   datasheet, since KiCad 9 ships none. `go test ./internal/board` checks each one's pads
    against `parts.yaml` and lists those still to draw.
 3. Lay out per the next section. Changes to parts or nets go in the YAML and
    come back through *Update PCB from netlist*.
@@ -495,14 +496,13 @@ What rev A still cannot settle without a datasheet or a bench:
 - **The PoE module**: the AG9912-MTB had no JLCPCB stock at capture, and it
   wants at least 100 mA of load to keep the switch's maintain-power signature.
   An idle board draws about that at 12 V; measure it at bring-up.
-- **Three datasheets still unread.** The TAS2780's pins and modes are taken
+- **Two datasheets still unread.** The TAS2780's pins and modes are taken
   from the Satellite1 schematic and its driver, the CMM-4030DT's pads from two
   KiCad footprints that agree, and neither vendor's document was reachable.
-  The SK6812MINI-E's datasheet numbers its pads differently from KiCad
-  (1 VDD, 2 DOUT, 3 GND, 4 DIN against KiCad's 1 VSS, 2 DIN, 3 VDD, 4 DOUT);
-  the netlist follows KiCad's symbol and footprint, which agree with each
-  other, but whether KiCad's reverse-mount footprint matches the part seen
-  from the lens side wants a check against the 3D model before ordering.
+- **The SK6812MINI-E's pad positions.** The board's footprint numbers pads as
+  the datasheet does and places them as the mirror of its top view, reading
+  that view as the lens side, which its drawn lens says it is; KiCad's own
+  footprint agrees. Solder one to a scrap board before the ring is laid out.
 
 Settled since the first draft, from the sources below: the firmware licence,
 the XU316 port map, the mic part and geometry, the MCLK direction (the
