@@ -29,7 +29,7 @@ conversation, and its trace data is too thin to learn from.
 │  event journal (source of truth)                      │
 └───┬────────────┬───────────┬───────────┬──────────────┘
     │            │           │           │
-   STT          LLM         TTS      speaker-ID     (Python sidecars, gRPC)
+   STT          LLM         TTS      speaker-ID     (model sidecars, HTTP)
  Parakeet   Qwen3/vLLM    Kokoro      ECAPA
     │
 ┌───┴──────────────────┐   ┌─────────────────────┐
@@ -485,9 +485,8 @@ privacy story holds. Not needed today.
 
 ## 10. Model stack
 
-Local-first, cloud escape hatch per provider. Each behind a streaming
-gRPC/HTTP contract, every provider declaring capabilities (streaming? tool
-calls? interruption?).
+Local-first, cloud escape hatch per provider. Each behind an HTTP contract,
+every provider declaring capabilities (streaming? tool calls? interruption?).
 
 | Role | Choice | Rationale |
 |---|---|---|
