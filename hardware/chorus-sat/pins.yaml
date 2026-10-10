@@ -1,0 +1,163 @@
+# Every ESP32-S3 pin the Chorus satellite board uses, rev A.
+#
+# This is the source of truth for the schematic's net names and for the
+# board's ESPHome config. `go test ./internal/board` checks it against what
+# the module allows (no PSRAM pins, strapping pins justified, nothing doubled)
+# and checks that every pin facing the XMOS is where esphome/satellite1.yaml
+# already drives it, so the Satellite1's XMOS firmware and FutureProofHomes'
+# ESPHome components run here unmodified. docs/hardware/README.md explains why.
+#
+#   gpio        the ESP32-S3 GPIO number
+#   net         the schematic net name; KiCad labels use it verbatim
+#   dir         in | out | io, from the ESP32's side
+#   peer        what is on the other end
+#   satellite1  path into esphome/satellite1.yaml where the same GPIO is set
+#   strap       why a strapping pin is safe here; required on 0, 3 and 46
+
+board: chorus-sat
+revision: A
+module: ESP32-S3-WROOM-1-N16R8
+
+pins:
+  # ---------------------------------------------------- XMOS XU316, as Satellite1
+  - gpio: 7
+    net: I2S_LRCLK
+    dir: in
+    peer: XU316 word clock; the XMOS is the I2S master for the whole board
+    satellite1: i2s_audio[0].i2s_lrclk_pin
+  - gpio: 8
+    net: I2S_BCLK
+    dir: in
+    peer: XU316 bit clock, also clocking the amplifier's TDM port
+    satellite1: i2s_audio[0].i2s_bclk_pin
+  - gpio: 16
+    net: I2S_MCLK
+    dir: io
+    peer: XU316 master clock; direction as the Satellite1 reference schematic has it
+    satellite1: i2s_audio[0].i2s_mclk_pin
+  - gpio: 9
+    net: I2S_DOUT
+    dir: out
+    peer: XU316 playback input, which is also its echo reference
+    satellite1: speaker[0].i2s_dout_pin
+  - gpio: 15
+    net: I2S_DIN
+    dir: in
+    peer: XU316 output; slot 0 the echo-cancelled mix, slot 1 a raw mic
+    satellite1: microphone[0].i2s_din_pin
+  - gpio: 4
+    net: XMOS_RST_N
+    dir: out
+    peer: XU316 reset; the ESP32 owns when the XMOS starts
+    satellite1: satellite1.xmos_rst_pin
+  - gpio: 10
+    net: XMOS_SPI_CS_N
+    dir: out
+    peer: XU316 control and firmware-flash SPI
+    satellite1: satellite1.cs_pin
+  - gpio: 12
+    net: XMOS_SPI_SCLK
+    dir: out
+    peer: XU316 control and firmware-flash SPI
+    satellite1: spi[0].clk_pin
+  - gpio: 11
+    net: XMOS_SPI_MOSI
+    dir: out
+    peer: XU316 control and firmware-flash SPI
+    satellite1: spi[0].mosi_pin
+  - gpio: 13
+    net: XMOS_SPI_MISO
+    dir: in
+    peer: XU316 control and firmware-flash SPI
+    satellite1: spi[0].miso_pin
+
+  # ------------------------------------------------- control bus and USB-C power
+  - gpio: 5
+    net: I2C_SDA
+    dir: io
+    peer: TAS2780 amplifier (0x3F) and FUSB302B USB-PD controller
+    satellite1: i2c[0].sda
+  - gpio: 6
+    net: I2C_SCL
+    dir: out
+    peer: TAS2780 amplifier (0x3F) and FUSB302B USB-PD controller
+    satellite1: i2c[0].scl
+  - gpio: 1
+    net: PD_INT_N
+    dir: in
+    peer: FUSB302B interrupt, so a USB-C contract is seen as it lands
+    satellite1: fusb302b.irq_pin
+
+  - gpio: 19
+    net: USB_DN
+    dir: io
+    peer: USB-C receptacle D-; native USB is the flashing and log path
+  - gpio: 20
+    net: USB_DP
+    dir: io
+    peer: USB-C receptacle D+; native USB is the flashing and log path
+
+  # --------------------------------------------------------- new on this board
+  - gpio: 17
+    net: AMP_SENSE
+    dir: in
+    peer: TAS2780 SDOUT, the speaker's sensed current and voltage, on the shared clocks
+  - gpio: 18
+    net: PWR_SRC
+    dir: in
+    peer: TPS2121 status; high while PoE powers the board, which sets the amplifier's mode
+  - gpio: 2
+    net: MUTE_SENSE
+    dir: in
+    peer: hardware mute switch, read only; the switch itself cuts the mics
+  - gpio: 14
+    net: LED_DATA
+    dir: out
+    peer: 74AHCT1G125 level shifter into the SK6812 ring
+  - gpio: 38
+    net: ETH_CS_N
+    dir: out
+    peer: W5500 chip select, on its own SPI host so the XMOS bus never waits
+  - gpio: 39
+    net: ETH_SCLK
+    dir: out
+    peer: W5500
+  - gpio: 40
+    net: ETH_MOSI
+    dir: out
+    peer: W5500
+  - gpio: 41
+    net: ETH_MISO
+    dir: in
+    peer: W5500
+  - gpio: 42
+    net: ETH_INT_N
+    dir: in
+    peer: W5500 interrupt
+  - gpio: 21
+    net: ETH_RST_N
+    dir: out
+    peer: W5500 reset
+  - gpio: 43
+    net: RADAR_TX
+    dir: out
+    peer: mmWave header, to the HLK-LD2450's RX
+  - gpio: 44
+    net: RADAR_RX
+    dir: in
+    peer: mmWave header, from the HLK-LD2450's TX
+  - gpio: 0
+    net: BTN_ACTION
+    dir: in
+    peer: action button to ground, with a 10k pull-up
+    strap: >-
+      BOOT. Pulled up, so the module boots from flash; held at power-on it
+      enters download mode, which is the recovery path when OTA is broken.
+  - gpio: 47
+    net: BTN_VOL_UP
+    dir: in
+    peer: volume-up button to ground
+  - gpio: 48
+    net: BTN_VOL_DOWN
+    dir: in
+    peer: volume-down button to ground
