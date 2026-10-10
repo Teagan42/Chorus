@@ -124,6 +124,14 @@ audio is its own row, saying how long the person waited.
 
 ![Conversation, first audio](conversation-first-audio.png)
 
+A model that was down, broke or went quiet past its deadline is a `model
+failed` row, and a voice that failed mid-answer is a `voice failed` row.
+Each says what the provider reported and which canned line apologised for
+it. A truncation names what cut it, so the forecast Kokoro dropped reads as
+the voice failing, not as someone talking over it (ADR-0051).
+
+![Conversation, the model and the voice failing](conversation-provider-failure.png)
+
 The log also shows what the model was told and what the house vouched for.
 A `memory_recalled` row lists each memory the turn was told, whose it is
 when someone shared it, and the earlier conversations it was told of. A
