@@ -34,7 +34,15 @@ carries its templates and htmx, so it needs only the variables below.
 | `OLLAMA_URL`, `OLLAMA_MODEL` | no | What Replay re-runs turns against. Unset, Replay shows the recorded turns and says it has nothing to ask. |
 
 These are the same variables `chorusd` reads, so the `.env` copied from
-`.env.example` already serves both. `/` redirects to Curate.
+`.env.example` already serves both. `/` opens [Browse](#browse).
+
+There is no login: like `chorusd`, the review UI trusts the household's
+network (SPEC §1). What it refuses is a write another site's page sends from
+the reviewer's browser. A POST whose `Sec-Fetch-Site` is anything but
+`same-origin`, or, from a browser too old to send that, whose `Origin` names
+another host, is a 403 (Go's `http.CrossOriginProtection`). A request with
+neither header, such as `curl`, is not a browser's and lands. A proxy in front
+of the UI must pass the `Host` header through.
 
 ## The hosted demo
 
@@ -90,6 +98,14 @@ Chrome, so a URL the shell fails to re-point is a 404 the test fails on.
 The header runs left to right in the order a reviewer usually works, and
 badges the number of harvested pairs nobody has judged yet.
 
+Every screen but a conversation's own reads the whole household. A log no
+reducer can read, such as a recall written cut off mid-memory, is left out
+rather than failing the screen: Browse, Triage, Review, Replay, Curate and
+Export each name the logs they skipped above what they could read, and the
+server log says why.
+
+![Browse, with one log it could not read](browse-skipped-log.png)
+
 | Screen | Route | Answers |
 |---|---|---|
 | [Browse](#browse) | `/conversations` | What happened today, on which satellite, to whom? |
@@ -113,12 +129,14 @@ opened no conversation and so live in the satellite's own `device:` log. The
 shaded band behind a lane is when its mmWave radar saw someone in the room,
 from the same log (ADR-0050). A gap inside an evening is the native API
 dropping, not the room emptying. A satellite with no radar, such as a Voice
-PE, has no band.
+PE, has no band. Ticks and bands carry hidden text with their times, and a
+block says what flagged it, so the day reads to a screen reader too.
 
 ![Conversation](conversation.png)
 
 `/conversations/{id}` is one conversation's journal, event by event, with the
-audio each event refers to. Every row carries a `#seq-N` anchor, which is how
+audio each event refers to, each player named for the event and whose it is.
+Every row carries a `#seq-N` anchor, which is how
 Triage links straight to the event that raised a signal. Each answer's first
 audio is its own row, saying how long the person waited.
 
@@ -287,6 +305,10 @@ calls on both sides, a replay's chosen side calls what the re-run would, and
 a *wrong tool / args* note carries none and says `meta.speech_only`
 (ADR-0054).
 
+A row that cannot be written partway through the download aborts it, so the
+browser reports a failed download rather than saving a short file that looks
+whole. The server log names the row.
+
 ## The UI kit
 
 `internal/reviewui/ui` is the component kit the screens are built from:
@@ -303,7 +325,8 @@ ui/static/css/components/<name>.css   styles, built on tokens.css
 `ui/demo` builds the design mock's data as view models; the kit's own tests
 render every component from it. `internal/reviewui/audio` frames raw journal
 PCM as WAV on the way out, because a browser cannot play the device format
-and the store stays raw.
+and the store stays raw. Its `from` and `to` bound the clip in device frames;
+one past the longest blob it serves is a 400.
 
 ## Tests
 
