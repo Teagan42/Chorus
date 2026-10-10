@@ -1,565 +1,301 @@
-# The Chorus satellite board
+# The Chorus main board
 
-A satellite PCB designed around what Chorus asks of a device, rather than
-around what Home Assistant's Assist asks of one. This is rev A: a design with a
-machine-checked pin map, not a fabricated board. Nothing here has been on a
-bench yet, and [what is still open](#open-questions) says exactly which claims
-wait on one.
+A Chorus satellite is a FutureProofHomes Satellite1 kit, bought as is: their
+HAT, with the XMOS XU316, the four mics, the amplifier and the USB-C power,
+on their Core, with the ESP32-S3. Chorus designs one board of its own, the
+**main board**. It sits under the HAT on the HAT's 80-pin expansion
+connector, J7, and adds the one thing SPEC §3.3.2 measured that firmware
+cannot fix: a cable. It carries a W5500 for Ethernet, 802.3af PoE onto the
+HAT's VBUS, and a speaker connector in the base.
 
-The decision and its alternatives are [ADR-0047](../adr/0047-the-satellite-board-keeps-the-reference-voice-frontend-and-adds-a-wire.md).
+This is rev A of the main board: a machine-checked design, not a fabricated
+board. One footprint pad assignment is inferred rather than read, and
+[what is still open](#open-questions) says which, and what settles it.
+
+The decision and what it replaced are
+[ADR-0055](../adr/0055-the-satellite-is-a-bought-satellite1-kit-and-chorus-draws-only-the-board-under-it.md).
 The pin map, which the schematic's net labels and the board's ESPHome config
-both come from, is [`hardware/chorus-sat/pins.yaml`](../../hardware/chorus-sat/pins.yaml);
-[`internal/board`](../../internal/board/board.go) checks it on every
-`task test`.
+both come from, is [`hardware/chorus-main/pins.yaml`](../../hardware/chorus-main/pins.yaml).
+The kit's connector, pad by pad, is
+[`satellite1-hat.yaml`](../../hardware/chorus-main/satellite1-hat.yaml) beside
+it. [`internal/board`](../../internal/board/expansion.go) holds one to the
+other on every `task test`.
 
-## What Chorus asks of the hardware
+## What the kit does, and what the main board adds
 
-Every choice below traces to one of these. A part that serves none of them is
-not on the board.
-
-| Chorus property | What the board must do | How rev A does it |
+| Chorus property | Who does it | How |
 |---|---|---|
-| The mic never stops, even during playback (SPEC §3.1) | Cancel the satellite's own voice in hardware, against a reference that is sample-exact with what plays | XMOS XU316 runs AEC; playback passes through it, so its reference is the signal itself |
-| Barge-in truncates at the byte actually played (SPEC §3.2.1, ADR-0033) | One clock from the amplifier back to the ESP32's frame counter, and a fixed, measurable delay after it | The XU316 masters every audio clock; the amplifier's sense output returns to the ESP32 on `AMP_SENSE` |
-| Per-utterance speaker embeddings; the conversation follows the person (SPEC §4.5, §5) | A voiceprint enrolled at one satellite matches at every other, so every satellite hears the same way | Same XU316, mic part, cross and XMOS firmware as the Satellite1: an acoustic peer, not a new frontend |
-| Knows who said what, and the barge-in gate rejects the TV (SPEC §4.3, §5) | Tell where in the room a voice is | Eight mics on a 64 mm circle; the XU316 sends them raw with its playback reference, and the host estimates direction ([ADR-0053](../adr/0053-direction-of-arrival-is-estimated-on-the-host-from-the-raw-array-and-the-reference.md)) |
-| Duplex needs airtime, not bandwidth (SPEC §3.3.2) | A path that does not share 2.4 GHz with the household | W5500 Ethernet with 802.3af PoE; Wi-Fi stays as the other build |
-| Hardware mute is authoritative (CONTRIBUTING §7) | A switch firmware cannot override, and a state the device can still report | The switch cuts mic power and clock directly; the ESP32 only reads `MUTE_SENSE` |
-| Not a media player (SPEC §1) | An amplifier sized for speech, not music | TAS2780 on a 12 V rail from PoE: full power without a 20 V USB-PD contract |
-| A bad flash is recoverable without a teardown | Flashing and logs on a cable, a forced download mode | Native USB-C to the ESP32, `BTN_ACTION` on the BOOT strap |
+| The mic never stops, even during playback (SPEC §3.1) | The kit | The XU316 runs AEC against its own playback path, as SPEC §3.3.2 measured on this very hardware |
+| Per-utterance speaker embeddings follow the person (SPEC §5) | The kit | Every satellite is the same Satellite1 frontend, so a voiceprint enrolled at one matches at the next |
+| Duplex needs airtime, not bandwidth (SPEC §3.3.2) | The main board | W5500 Ethernet, on its own SPI bus, so a frame in flight never waits on the XMOS |
+| One cable to a ceiling or wall satellite | The main board | 802.3af PoE into a Silvertel AG9912-MTB, 12 V onto the HAT's VBUS through a Schottky |
+| Hardware mute is authoritative (CONTRIBUTING §7) | The kit | The HAT's mute switch |
+| A bad flash is recoverable without a teardown | The kit | The Core's USB-C and BOOT button; the main board leaves both alone |
 
 ## Block diagram
 
 ```mermaid
 flowchart LR
-    subgraph power["Power"]
-        poe["RJ45 + PoE<br/>AG9912-MTB, 12 V"]
-        usb["USB-C<br/>FUSB302B"]
-        mux["TPS2121<br/>power mux"]
-        bucks["5V0 / 3V3 / 1V8 / 0V9<br/>rails"]
-        poe --> mux
-        usb --> mux
-        mux -->|VSYS| bucks
+    subgraph kit["Satellite1 kit (FutureProofHomes, bought)"]
+        subgraph core["Core"]
+            esp["ESP32-S3-WROOM-1-N16R8<br/>chorus_bridge, micro_wake_word"]
+        end
+        subgraph hat["HAT rev 6.1"]
+            xmos["XMOS XU316<br/>AEC / NS / AGC"]
+            mics["4 PDM mics"]
+            amp["TAS2780"]
+            pd["USB-C PD<br/>SS32 onto VBUS"]
+            buck["5 V rail"]
+            mics --> xmos
+            xmos --> amp
+            pd --> buck
+        end
+        esp <-->|"I2S, SPI2, I2C<br/>header J3"| xmos
     end
 
-    subgraph voice["Voice frontend"]
-        mics["8 x PDM MEMS mics<br/>64 mm circle"]
-        xmos["XMOS XU316<br/>AEC / NS / AGC<br/>I2S master"]
-        flash["QSPI flash<br/>XMOS firmware"]
-        mics -->|PDM| xmos
-        flash --- xmos
+    j7{{"J7, 80 pins<br/>FX23L-80P / -80S"}}
+
+    subgraph main["Chorus main board"]
+        w5500["W5500<br/>SPI3"]
+        mag["RJ45 magjack<br/>PoE taps"]
+        poe["Bridges, TVS,<br/>AG9912-MTB 12 V"]
+        d2["SS32"]
+        ldo["SPX3819 3V3"]
+        spk["speaker<br/>JST PH"]
+        w5500 --- mag
+        mag --> poe --> d2
     end
 
-    subgraph host["ESP32-S3-WROOM-1-N16R8"]
-        mww["micro_wake_word"]
-        bridge["chorus_bridge"]
-    end
-
-    amp["TAS2780<br/>class-D + I/V sense"]
-    flash -.->|"mux: flash while<br/>XMOS in reset"| host
-    spk(("speaker<br/>4 ohm"))
-    eth["W5500<br/>Ethernet"]
-    ui["SK6812 ring, buttons,<br/>mute switch, radar header"]
-
-    xmos -->|"I2S up: two processed channels"| host
-    host -->|"I2S down: playback,<br/>the echo reference"| xmos
-    host -->|"SPI via muxes,<br/>XMOS_RST"| xmos
-    xmos -->|I2S/TDM| amp
-    amp --> spk
-    amp -->|"AMP_SENSE: sensed I/V"| host
-    host -->|SPI3| eth
-    eth -->|"6055 bridge,<br/>6053 API"| lan[("orchestrator")]
-    host --- ui
-    mux -->|"VSYS = PVDD"| amp
+    esp <-->|"GPIO 2, 3, 14, 38, 39, 41<br/>through J3 and J7"| j7
+    j7 <--> w5500
+    poe -->|"POE_SENSE, GPIO42"| j7
+    d2 -->|"VBUS"| j7
+    j7 -->|"5V0"| ldo --> w5500
+    amp -->|"SPK_P / SPK_N"| j7 --> spk
+    j7 --> pd
+    mag -->|"6055 bridge,<br/>6053 API"| lan[("orchestrator")]
 ```
 
-Two buses carry everything that matters. The I2S bus, mastered by the XU316,
-carries the mics up and the voice down; the amplifier hangs off the same
-clocks. The Ethernet chip gets the ESP32's other SPI host, so a slow network
-transaction never sits on the bus the XMOS needs to answer before any audio
-flows (SPEC §3.3.2).
+The kit's own wiring is untouched. The ESP32's pins reach J7 through the
+HAT's J3 socket and the Core's 2x20 header; the main board uses only pads the
+kit leaves free.
 
-## Component choices
+## The expansion connector
 
-Each of these is a default picked where the ask forked. The alternatives that
-lost are in [ADR-0047](../adr/0047-the-satellite-board-keeps-the-reference-voice-frontend-and-adds-a-wire.md).
+[`satellite1-hat.yaml`](../../hardware/chorus-main/satellite1-hat.yaml) is J7
+as FutureProofHomes drew it: every one of its 86 pads, the HAT's own label,
+what the kit puts there, and for the ESP32's pins the GPIO behind it and where
+[`esphome/satellite1.yaml`](../../esphome/satellite1.yaml) sets it. It is read
+from the HAT rev 6.1 schematic, the Core rev 4.1 and 5.1 headers, which agree
+pin for pin, and the shoe, FutureProofHomes' prototype board for the same
+spot. `internal/board` checks the main board's receptacle against it:
 
-### ESP32-S3-WROOM-1-N16R8
+- the receptacle has exactly the plug's pads;
+- a pad the HAT leaves unconnected stays unconnected;
+- every one of the kit's fifteen ground pads is on `GND`;
+- a pad the kit uses is either unconnected here or on the kit's net, under
+  the kit's name for it;
+- a free GPIO pad is unconnected or carries the `pins.yaml` net for that
+  GPIO;
+- a net named like one of the kit's must reach it, so `CORE_3V3` on this
+  board cannot be anything but the Core's 3V3.
 
-The SoC both reference satellites use, with the same 16 MB flash and 8 MB
-octal PSRAM. That is the point: `chorus_bridge`, `micro_wake_word`, the
-duplex I2S driver and FutureProofHomes' `satellite1`, `tas2780` and `fusb302b`
-components all run on it today in [`esphome/satellite1.yaml`](../../esphome/satellite1.yaml).
-Porting the firmware is a pin change, and the pin map makes most of it no
-change at all: every XMOS-facing pin sits where Satellite1 has it, and a test
-fails the build if one moves.
+A test also proves no `pins.yaml` GPIO is one the running config sets, and
+that every GPIO the config sets which reaches J7 is marked as the kit's.
 
-Octal PSRAM costs GPIO33–37 and GPIO45, which picks the flash supply voltage,
-carries nothing; `internal/board` refuses all of them. The native USB pins
-(19, 20) carry `USB_DN` and `USB_DP` to the USB-C receptacle for flashing and
-logs, and the check refuses any other net there.
+Eight of J7's pads carry a GPIO nothing on the kit uses: 2, 3, 14, 18, 38,
+39, 41 and 42. The main board takes seven:
 
-### XMOS XU316, with Satellite1's XMOS firmware
-
-The XU316 (`XU316-1024-QF60B`, 3.3 V I/O) runs FutureProofHomes' XMOS
-firmware unmodified and hands the ESP32 two channels at 48 kHz, each 16 kHz
-sample repeated three times. **Both are processed**: slot 0 is AEC, interference
-cancelling, noise suppression and AGC; slot 1 is the same without AGC
-(`src/main.c`, `app_conf.h` in Satellite1-XMOS). Neither is a raw mic
-([SPEC §3.2](../SPEC.md#32-component-contract)). A raw channel needs an XMOS
-firmware change, which its licence permits as a derivative; the Voice PE's
-firmware has a control message for it that a derivative could copy.
-
-The firmware is under the XMOS Public Licence v1. Its only device condition
-is that it runs on XMOS silicon, which a genuine XU316 meets; distributing
-the board would mean keeping XMOS's notices and publishing any modified
-firmware's source. The Satellite1 schematic this frontend is drawn from is
-CERN-OHL-S-2.0, published as PDF only: the frontend is redrawn from it, and a
-board shared or sold beyond this household publishes its full source under
-the same licence. The board's name stays Chorus's own, never Satellite1's or
-FutureProofHomes'.
-
-Keeping the Satellite1's frontend matters more than any spec sheet. Speaker
-identification compares each utterance against centroids enrolled once
-(SPEC §5); a satellite with a different frontend hears the same person
-differently and makes the conversation that follows them across rooms less
-sure who they are. A household mixing these boards with Satellite1s and Voice
-PEs keeps one acoustic tier, which SPEC §3.3 records as the current state.
-
-Its rails are 0.9 V core (0.855–0.945 V), 3.3 V I/O on the QF60B, and 1.8 V
-for the `VDDIOB18` pins; the PLL's 0.9 V is filtered off the core rail.
-`RST_N` pulls up to 1.8 V on the Satellite1, so reset and JTAG sit on the 1.8 V
-domain.
-
-Two parts of the Satellite1's XMOS sheet are not optional, and rev A's first
-draft missed both:
-
-- **Reset is active high from the ESP32.** GPIO4 drives the gate of an N-FET
-  (FDV301N) that pulls `RST_N` low, and the `satellite1` component writes 1
-  then 0 to reset. Wired straight to `RST_N`, the XMOS never leaves reset. The
-  net is `XMOS_RST`.
-- **The ESP32's SPI reaches the XMOS through two 2:1 muxes** switched by
-  `XMOS_RST`. While the XMOS runs, the ESP32 talks to its SPI slave; while
-  it is held in reset, the ESP32 reaches its QSPI flash directly, which is how
-  `memory_flasher` writes the XMOS firmware. Without them the XMOS cannot be
-  flashed from the ESP32.
-
-The XU316's connections, from the firmware's `SATELLITE1.xn` and
-`platform_init.c`, which agree with the rev 6.1 schematic:
-
-| XU316 pin | Signal | Other end |
-|---|---|---|
-| X1D10 | I2S BCLK, 3.072 MHz, XU316 master | `I2S_BCLK`, TAS2780 SBCLK |
-| X1D01 | I2S LRCLK, 48 kHz | `I2S_LRCLK`, TAS2780 FSYNC |
-| X1D11 | MCLK, 24.576 MHz from the App PLL | `I2S_MCLK` through an unfitted 0 Ω |
-| X1D34 | I2S out: the two processed channels | `I2S_DIN` |
-| X1D13 | I2S in: playback, also the echo reference | `I2S_DOUT` |
-| X1D00 | I2S out: playback passthrough | TAS2780 SDIN |
-| X1D22 | PDM clock, 3.072 MHz, 100 Ω series | all eight mics, through the mute gate |
-| X1D16, X1D17 | PDM data 1, data 2 | MK3 + MK4, MK1 + MK2 |
-| X1D18, X1D19 | PDM data 3, data 4; test points on the Satellite1 | MK5 + MK6, MK7 + MK8 |
-| X0D01, X0D10, X0D04–07 | QSPI boot flash CS, CLK, D0–3 | W25Q64JVSSIQ, 3.3 V, and the muxes |
-| X0D00, X0D35, X0D36, X0D39 | SPI slave CS, CLK, MISO, MOSI, mode 3 | the muxes, then `XMOS_SPI_*` |
-| X0D32 | IRQ input | TAS2780 IRQZ |
-| `RST_N` | reset, 10 kΩ to 1.8 V | the N-FET on `XMOS_RST` |
-
-The sheet also carries a 24 MHz crystal and a TC2030 JTAG footprint. The
-Satellite1 drives its LED ring from both the XMOS (X1D09) and ESP32 GPIO21,
-and sends the passthrough to ESP32 GPIO40; rev A uses those GPIOs for the
-W5500 and copies neither net.
-
-### Microphones: eight PDM MEMS on a circle, for direction of arrival
-
-Eight CUI CMM-4030DT-261280-TR PDM mics, two per data line, evenly spaced on
-a circle about 64.2 mm across, all on the top side. Four of them are the
-Satellite1's cross, at the positions its rev 6.1 STEP model gives, so the
-stock XMOS firmware hears exactly what it hears there. The other four sit
-between them, on the two PDM data lines the Satellite1 leaves as test points.
-
-| Mic | Position (mm, y down) | SEL | Data line | Port bit |
+| Net | GPIO | J7 pad | HAT label | Why there |
 |---|---|---|---|---|
-| MK1 | (0, −32.08) | GND | data 2 | X1D17 |
-| MK2 | (+32.08, 0) | VDD | data 2 | X1D17 |
-| MK3 | (0, +32.08) | GND | data 1 | X1D16 |
-| MK4 | (−32.08, 0) | VDD | data 1 | X1D16 |
-| MK5 | (+22.68, −22.68) | GND | data 3 | X1D18 |
-| MK6 | (+22.68, +22.68) | VDD | data 3 | X1D18 |
-| MK7 | (−22.68, +22.68) | GND | data 4 | X1D19 |
-| MK8 | (−22.68, −22.68) | VDD | data 4 | X1D19 |
+| `ETH_RST_N` | 2 | 13 | GPIO02 | the shoe's W5500 reset |
+| `ETH_INT_N` | 38 | 33 | GPIO13 | the shoe's W5500 interrupt |
+| `ETH_CS_N` | 3 | 37 | GPIO03 | the shoe's W5500 select; a strap read only with an eFuse no Satellite1 burns, pulled up regardless |
+| `POE_SENSE` | 42 | 36 | GPIO42 | the shoe's AT_DETECT |
+| `ETH_SCLK` | 39 | 22 | GPIO04 | free |
+| `ETH_MOSI` | 41 | 16 | GPIO16 | free |
+| `ETH_MISO` | 14 | 31 | Reserved_2 | free |
 
-MK1–MK4 keep the Satellite1's SEL straps exactly, so the firmware's mapping
-(`MIC_COUNT=2`, slots 4 and 5, an opposite pair) still picks the same
-physical mics. All eight share the one PDM clock and the mute gate.
+The HAT's labels are its own names for the pads, not the GPIO behind them:
+"GPIO16" is GPIO41, "GPIO13" is GPIO38. The kit file keeps both.
 
-**Why eight, not the Satellite1's four.** Direction of arrival answers "where
-in the room is this voice", which helps the barge-in gate (SPEC §4.3) tell a
-person from the TV and helps attribution when a second person chimes in
-(SPEC §5). Its resolution is set by spacing. A pair resolves direction
-without ambiguity up to `c / 2d`: the cross's adjacent mics, 45.4 mm apart,
-alias above about 3.8 kHz, well inside speech. The circle's adjacent mics are
-24.6 mm apart and alias above about 7 kHz, close to the 8 kHz top of a
-16 kHz pipeline, while opposite mics keep the 64.2 mm aperture for low
-frequencies. Eight mics cost a few dollars and no new parts; four more
-footprints later would mean a new board.
+The shoe puts its W5500 on the XMOS's SPI bus. This board does not. The XU316
+has to answer over that bus before any audio flows (SPEC §3.3.2), so a
+network transaction never shares it: the XMOS keeps SPI2, as the running
+config sets, and the W5500 gets SPI3 on its own pins.
 
-**Where direction is estimated: on the host ([ADR-0053](../adr/0053-direction-of-arrival-is-estimated-on-the-host-from-the-raw-array-and-the-reference.md)).** The barge-in gate
-needs direction while the satellite is talking, which is when every mic hears
-the speaker loudest. The XU316's echo canceller handles at most two mics, and
-those two already take about 275 KB and 96 MIPS of a 512 KB tile. It cannot
-clean eight. The host can: it gets the eight raw mics and the XU316's own
-16 kHz copy of the playback, both on one sample clock, and cancels or masks
-the echo before it estimates.
+GPIO18 stays free for whatever comes next.
 
-None of this needs a new wire. The I2S link to the ESP32 already carries 192
-bits per 16 kHz sample period, two-thirds of it repeated samples. Repacked at
-16 bits per channel, the same link holds:
+## The receptacle
 
-- the two processed channels;
-- the eight mics;
-- the reference.
+The HAT's plug is a Hirose FX23L-80P-0.5SV8 (LCSC C3649601); the main board
+carries its mate, the FX23L-80S-0.5SV(20), as the shoe does. KiCad has no
+footprint for it, so
+[`chorus-main.pretty`](../../hardware/chorus-main/chorus-main.pretty/README.md)
+draws one from the shoe's 3D model: 80 tails at 0.5 mm in two rows 9.7 mm
+apart, two fixing tabs, and four plated holes for the power contacts.
 
-That fills 176 bits. What changes is the firmware on both chips:
+Which pad is which comes from FutureProofHomes' own boards:
 
-- **XU316:** a derivative of the Satellite1 firmware, which its licence
-  permits.
-  - It decimates eight mics instead of two: `MIC_COUNT=8`, all eight mapped.
-    The PDM receiver gets its own thread, because the interrupt mode the
-    stock build uses cannot carry eight.
-  - It runs at 800 MHz, which the -C32 grade allows.
-  - The pipeline's channel count is decoupled from the mic count, so AEC and
-    IC still see two.
-  - The I2S output is repacked with a sync tag, as sln_voice's FFVA example
-    does at six channels.
-- **ESP32:** `chorus_bridge` unpacks the frame.
-  - Processed channel 0 goes to `micro_wake_word` and the uplink, as today.
-  - The mics, processed channel 0 and the reference go out as `array` frames when the host asks for
-    them (about 3.1 Mbit/s in all). That is easy over Ethernet; the Wi-Fi
-    build never asks.
+- the shoe's silkscreen marks pin 1 at the +x end of the row nearer the
+  board's centre;
+- that row is the one routed out in full, as pads 1-40 are;
+- the protoboard labels its breakouts "1" and "41", both at the +x end, one
+  above each row.
 
-An XVF3800, which does four-mic beamforming and DoA out of the box, stays the
-alternative if the XU316 cannot carry it: it is a different frontend, so
-voiceprints would need re-enrolling (ADR-0047).
+The four power contacts are not settled that way. The two at −x sit in the
+shoe's ground pour, so they are drawn as the grounds, MH1 and MH3. Which of
+the +x pair is the HAT's 5 V (MH2) and which VBUS (MH4) is a guess, and a swap
+puts PoE's 12 V onto the HAT's 5 V rail. `parts.yaml` marks the part
+`unverified`, every `task gen:hardware` prints it, and the board is not
+ordered until one of these settles it:
 
-Positions of MK1–MK4 are not a free choice: the stock pipeline is tuned to
-that geometry, so rev A copies it and adds to it rather than moving it.
+- Hirose's or a vendor's footprint for FX23L-80S-0.5SV, compared pad by pad;
+- a meter on a HAT powered from a 20 V USB-PD charger. The two power
+  contacts at the pin-1 end of the HAT's plug should read about 20 V (VBUS)
+  and 5 V; the two at the far end should be ground.
 
-### TAS2780 amplifier, on a 12 V rail
-
-The Satellite1's amplifier, with a driver Chorus already builds against. Two
-properties earn it the slot here:
-
-- **PVDD 3–24 V.** On PoE the board makes 12 V directly, which is
-  comfortably inside the amplifier's full-power mode (the Satellite1 config
-  takes that mode at 9 V or more). On a plain 5 V USB-C supply it runs its
-  low-power mode, as the Satellite1 does below a 9 V contract.
-- **I/V sense on SDOUT.** The amplifier reports the current and voltage it
-  actually drives into the speaker. Routed to the ESP32 (`AMP_SENSE`, on its
-  second I2S peripheral and the same clocks), it is the ground truth for the
-  truncation point. See below. This is new: the Satellite1 leaves SDOUT
-  unconnected, its echo reference is the ESP32's digital playback inside the
-  XMOS, and the `tas2780` driver does not configure the sense slots.
-
-A voice satellite is not a media player (SPEC §1), so the speaker is a 40–50 mm
-full-range 4 Ω driver in a sealed chamber, chosen for intelligibility at
-conversational level, not bass.
-
-### Ethernet: W5500 and 802.3af PoE
-
-SPEC §3.3.2 measured the limit that firmware cannot fix: uplink and downlink
-share one 2.4 GHz radio, short audio frames spend airtime on headers, and on
-a congested evening plain ICMP loses 8.3% of packets while duplex audio runs,
-at a strong −49 dBm. A cable removes the question. The W5500 is ESPHome's supported
-SPI Ethernet chip on the S3, and 512 kbps of duplex PCM is nothing to it.
-
-The PoE side is a Silvertel AG9912-MTB: 802.3af in, 12 V and 12 W out at 70 °C
-(9 W at 85 °C). One cable powers and connects a ceiling or wall satellite.
-
-ESPHome cannot run `ethernet:` and `wifi:` in one firmware, so this is one
-board and two builds: the Ethernet build for PoE installs, the Wi-Fi build for
-a satellite on a shelf by a USB-C charger. The W5500 is simply idle in the
-second.
-
-### Power
+## Power
 
 ```mermaid
 flowchart LR
-    poe["PoE 37-57 V"] --> ag["AG9912-MTB<br/>isolated, 12 V"]
-    usb["USB-C VBUS<br/>5-20 V"] --> pd["FUSB302B<br/>sink, asks 12 V"]
-    ag --> mux["TPS2121<br/>PoE first"]
-    pd --> mux
-    mux -->|"VSYS 5-20 V"| pvdd["TAS2780 PVDD"]
-    mux --> b33["TPS62933 buck<br/>3V3, 3 A"]
-    mux --> b50["5 V buck, 100% duty<br/>5V0, 2 A"]
-    b50 --> leds["SK6812 ring,<br/>radar header"]
-    b33 --> esp["ESP32-S3, W5500,<br/>mics, XU316 I/O"]
-    b33 --> b09["TLV62569 buck<br/>0V9 XU316 core"]
-    b33 --> l18["TLV75518 LDO<br/>1V8 XU316, TAS2780 VDD"]
-    mux -.->|"ST = PWR_SRC"| esp
+    poe["PoE 37-57 V<br/>on the magjack's taps"] --> br["MB6S x2, SMAJ58A"]
+    br --> ag["AG9912-MTB<br/>isolated, 12 V, 12 W"]
+    ag --> d2["SS32"]
+    ag -->|"100k / 33k"| sense["POE_SENSE<br/>about 3.0 V"]
+    usb["USB-C on the HAT<br/>5-20 V, PD"] --> hd["the HAT's SS32"]
+    d2 --> vbus(("VBUS"))
+    hd --> vbus
+    vbus --> hat["the HAT's buck,<br/>amplifier PVDD"]
+    hat --> v5(("5V0"))
+    v5 --> ldo["SPX3819 3V3"] --> w["W5500"]
 ```
 
-The Satellite1 runs the amplifier's PVDD straight from USB VBUS; VSYS does
-the same job here, from whichever input is live.
+The HAT already diode-ORs its USB-C onto VBUS; the main board adds the
+second diode, as the shoe does. A 20 V PD charger outvotes PoE's 12 V, and
+neither back-feeds the other. The W5500 gets its own 3V3 from the HAT's 5 V,
+so it never loads the Core's regulator.
 
-The TPS2121 prefers PoE and reports which input won on `PWR_SRC`, which
-replaces the Satellite1's "wait for the PD contract, then pick an amplifier
-mode" with a pin read. USB-C still negotiates through the FUSB302B, on the
-pins the Satellite1 uses, so the existing `fusb302b` component works when the
-board runs from a charger.
+`POE_SENSE` exists for the amplifier. The running config picks the TAS2780's
+full-power mode only after a USB-PD contract of 9 V or more; on PoE there is
+no contract, so it stays in its low-power mode while VBUS sits at 12 V. The
+main board's firmware reads GPIO42 instead, and 12 V is inside full power.
 
-Rough budget on PoE, from datasheet typicals and to be measured at bring-up:
-
-| Load | Rail | Estimate |
-|---|---|---|
-| ESP32-S3, radio off in the Ethernet build | 3V3 | 0.3 W |
-| W5500 at 100 Mbit | 3V3 | 0.45 W |
-| XU316 running the voice pipeline | 0V9 / 1V8 / 3V3 | 0.5 W |
-| 12 x SK6812, capped at 25% in firmware | 5V0 | 0.9 W |
-| TAS2780, speech peaks into 4 Ω | VSYS | 3–5 W |
-| HLK-LD2450 radar, when fitted | 5V0 | 0.6 W |
-| Conversion losses | | 1 W |
-| **Total** | | **7–9 W of 12 W** |
-
-### Mute, LEDs, buttons, presence
-
-- **Mute** is a slide switch, not a button with firmware behind it. It opens
-  the mics' load switch (TPS22917), as the Satellite1's latch cuts `VDD_MIC`,
-  and also gates the PDM clock with a single AND gate, which the Satellite1
-  does not, lights a red LED straight off the switch net, and is read
-  by the ESP32 on `MUTE_SENSE` so the device can send `0x05 mute` with the
-  hardware bit set. No GPIO can unmute it.
-- **LED ring**: 12 SK6812-mini on the 5V0 rail, driven from `LED_DATA`
-  through a 74AHCT1G125 so 3.3 V logic meets the LEDs' 5 V input threshold.
-  From a 5 V USB-C supply the 5V0 buck runs in dropout and the ring sees a
-  little under 5 V, inside the SK6812's range. The ring is how a person sees Chorus
-  speaking *and* working at once.
-- **Buttons**: action on GPIO0 (also the BOOT strap; held at power-on it
-  enters download mode), volume up and down.
-- **Presence**: a 4-pin header for an HLK-LD2450 on `RADAR_TX`/`RADAR_RX`.
-  The Satellite1's radar turned out useful for presence-gated sessions, and
-  it is a cheap input to deciding which satellite a moving person is at.
-
-## The truncation point, in hardware
-
-The playback position Chorus journals is `frames / sample_rate` from the
-speaker's `add_audio_output_callback`: frames the ESP32's I2S peripheral
-clocked out (SPEC §3.2.1). On this board those frames go to the XU316, which
-passes them to the amplifier after a fixed pipeline delay. The position is
-exact in frames and early by a constant.
-
-Rev A makes that constant a measurement instead of a datasheet line:
-
-1. Every audio clock on the board comes from the XU316. The ESP32 counts
-   frames of the same clock the amplifier plays, so the counter cannot drift
-   from the speaker over a long answer.
-2. `AMP_SENSE` carries the TAS2780's sensed speaker current back to the ESP32
-   on those same clocks. Cross-correlating it with the PCM that went out gives
-   the board's real end-to-end delay, per board, in samples. Nothing upstream
-   does this, so it is new work in the `tas2780` driver and in firmware.
-3. A test point on `AMP_SENSE`, `I2S_DOUT` and `I2S_LRCLK` lets a logic
-   analyser confirm the same number without firmware.
-
-What firmware does with it is a later decision with its own ADR: a calibrated
-offset in the `played` report, or a third uplink channel so the host can
-verify truncation itself. The board only has to make either possible.
+The AG9912-MTB delivers 12 W at 70 °C. The kit's draw on PoE is not yet
+measured; [Open questions](#open-questions) has it.
 
 ## Schematic architecture
 
-The schematic is data: [`parts.yaml`](../../hardware/chorus-sat/parts.yaml)
-lists every part with each pad's name and electrical type, and one file per
-sheet under [`sheets/`](../../hardware/chorus-sat/sheets/) places parts and
-names nets. Net labels are global across sheets, and the ESP32's are the `net`
-names in [`pins.yaml`](../../hardware/chorus-sat/pins.yaml); a net not in the
-map does not touch the ESP32. `internal/board` checks it the way KiCad's ERC
-would (every pad on a net or marked unconnected, no net with one end, one
-driver per net, every rail supplied, every module pad where the pin map says)
-and `task gen:hardware` writes the KiCad netlist and the JLCPCB BOM from it.
-There is no KiCad in CI, and YAML diffs read in review where a `.kicad_sch`
-does not.
+The schematic is data. [`parts.yaml`](../../hardware/chorus-main/parts.yaml)
+lists every part with each pad's name and electrical type. One file per
+sheet under [`sheets/`](../../hardware/chorus-main/sheets/) places parts and
+names nets. Net labels are global across sheets, and the ESP32's are the
+`net` names in `pins.yaml`. `internal/board` checks it as KiCad's ERC would:
+
+- every pad is on a net or marked unconnected;
+- no net has one end;
+- one driver per net;
+- every rail is supplied;
+- every receptacle pad is what the kit says.
+
+`task gen:hardware` then writes the KiCad netlist and the JLCPCB BOM.
 
 | Sheet | Contents | Nets out |
 |---|---|---|
-| `power_in` | Bridges on the magjack's PoE taps, SMAJ58A, AG9912-MTB, USB-C receptacle with ESD and SMAJ24A, FUSB302B, TPS2121 | `VSYS`, `PWR_SRC`, `I2C_*`, `USB_D*` |
-| `regulators` | TPS62933 3V3 and 5V0 bucks, TLV62569 0V9, two TLV75518 for 1V8 and the amplifier's 1V8A | `3V3`, `5V0`, `0V9`, `1V8`, `1V8A` |
-| `mcu` | ESP32-S3-WROOM-1-N16R8, EN RC and reset button, action and volume buttons | every net in the pin map |
-| `voice_dsp` | XU316-1024-QF60B, 24 MHz crystal, W25Q64JVSSIQ QSPI flash, the two BL1530 SPI muxes, the FDV301N reset inverter, unfitted 0 Ω on MCLK, PLL ferrite, decoupling, unfitted TC2030 JTAG | `I2S_*`, `XMOS_*`, `PDM_CLK_X`, `PDM_DATA_*`, `AMP_SDIN`, `I2C_*` |
-| `mics` | Eight CMM-4030DT PDM mics with the SEL straps above, TPS22917 load switch, PDM clock gate, mute switch and its LED | `MUTE_SENSE`, `MIC_MUTED`, `PDM_*` |
-| `amp` | TAS2780, filterless as on the Satellite1, PVDD bulk, sense taps at the speaker connector | `AMP_SENSE`, `AMP_SDIN`, `I2S_*`, `I2C_*` |
-| `ethernet` | W5500 after WIZnet's reference, 25 MHz crystal, the LPJG0926HENL magjack | `ETH_*`, `POE_VC*` |
-| `ui` | SK6812 ring, 74AHCT1G125, radar header, unfitted test points | `LED_DIN`, `RADAR_*` |
+| `connector` | The FX23L-80S receptacle, J1, and the speaker connector | `GND`, `5V0`, `VBUS`, `SPK_*`, `ETH_*`, `POE_SENSE` |
+| `ethernet` | W5500 after WIZnet's W5500-EVB-Pico-PoE, 25 MHz crystal, the LPJG0926HENL magjack | `ETH_*`, `POE_VC*` |
+| `power` | PoE bridges and TVS, AG9912-MTB, the SS32 onto VBUS, the `POE_SENSE` divider, the SPX3819 3V3 | `VBUS`, `3V3`, `POE_SENSE` |
 
-`I2C_IRQ` is one open-drain line shared by the FUSB302B, the TAS2780 and the
-XU316's X0D32, as on the Satellite1; it replaces the earlier `PD_INT_N`.
+The ethernet sheet and most parts are rev A's, unchanged; rev A itself, the
+all-in-one board of ADR-0047, is retired and stays in git history.
 
 ### Ordering from JLCPCB
 
-Every part carries its LCSC number, or for jellybean resistors and capacitors a
-per-value number, or a `hand:` line saying why JLCPCB will not place it (the
-pin header, the TC2030 pads and test points). `bom.csv` is in the columns
-JLCPCB's assembly upload reads (Comment, Designator, Footprint, LCSC Part #),
-and unfitted parts (`dnp: true`) stay on the netlist for layout but off it. A
-value with an empty number is one JLCPCB matches by value and footprint at
-upload.
+Every part carries its LCSC number, or a per-value number for resistors and
+capacitors. The exception is the receptacle, whose `hand:` line says why it
+is soldered after assembly. `bom.csv` is in the columns JLCPCB's assembly
+upload reads.
 
-The path to an order:
-
-1. Download the KiCad project: the `chorus-sat-kicad` artifact of the latest
+1. Download the KiCad project: the `chorus-main-kicad` artifact of the latest
    [Hardware workflow](https://github.com/Teagan42/Chorus/actions/workflows/hardware.yml)
    run on `main`, or build it with `task hardware:kicad` (Docker) into
    `dist/hardware/`. KiCad 9.0.5 itself built it from the generated
-   `chorus-sat.net` and reloaded it to check every pad's net against the
-   netlist, so there is nothing to import by hand:
-   - every footprint is placed on the board, from KiCad's library or
-     `chorus-sat.pretty`, which ships in the zip with its `fp-lib-table`;
-   - parts are grouped by sheet beside an empty page, the LED ring already on
-     B.Cu;
+   `chorus-main.net` and checked every pad's net against the netlist:
+   - the outline is the shoe's: an 88 mm circle with a flat, and four M3
+     holes on the Raspberry Pi HAT's 58 x 49 mm pattern;
+   - the receptacle is placed and locked where the HAT's plug comes down,
+     10 mm above the centre;
+   - every other footprint waits beside the outline, grouped by sheet, the
+     tall ones already on B.Cu;
    - the project holds four copper layers and design rules inside JLCPCB's
-     standard multilayer process.
-2. Open `chorus-sat.kicad_pro` in KiCad 9.0.5 or later, or import the zip
-   into EasyEDA Pro (*File → Import → KiCad*). EasyEDA's own documentation
-   names KiCad 5 formats only, so whether it reads a KiCad 9 board is
-   untested; KiCad is the path that is known to work. The board has no
-   outline and no tracks yet.
-3. Lay out per the next section. Until layout starts, a change to parts or
-   nets is a fresh download. After that it goes in the YAML and comes back
-   into the laid-out board through KiCad's *Update PCB from netlist* on the
-   regenerated `chorus-sat.net`, which keeps placement because each
-   footprint carries its part's path.
-4. Plot Gerbers and drill files, and the position file (the CPL), from
-   Pcbnew.
-5. Upload Gerbers, `bom.csv` and the CPL to JLCPCB as a four-layer board with
-   assembly, and check each rotation in its preview.
-
-Stock to check before layout, not after:
-
-| Part | LCSC | Risk |
-|---|---|---|
-| AG9912-MTB | C20939164 | none in stock at capture; may need hand placement or a different PoE module |
-| CMM-4030DT | C37002688 | 25 in stock, eight per board |
-| XU316-1024-QF60B-C32 | C7397517 | 12 in stock |
-| BL1530TQFN | C313543 | stock unknown |
-
-| Sheet | Contents | Nets out |
-|---|---|---|
-| `power_in` | RJ45 magjack with PoE centre taps, input bridges, AG9912-MTB, USB-C receptacle, FUSB302B, TPS2121, TVS on both inputs | `VSYS`, `PWR_SRC`, `I2C_IRQ`, `I2C_*` |
-| `regulators` | TPS62933 3V3, 5V0 buck, TLV62569 0V9, TLV75518 1V8, PLL filter for the XU316 | `3V3`, `5V0`, `1V8`, `0V9`, `0V9_PLL` |
-| `mcu` | ESP32-S3-WROOM-1-N16R8, USB D+/D− to the receptacle, EN RC and reset button, action and volume buttons | every net in the pin map |
-| `voice_dsp` | XU316-1024-QF60B, 24 MHz crystal, W25Q64JVSSIQ QSPI flash, the two 2:1 SPI muxes, the FDV301N reset inverter, unfitted 0 Ω on MCLK, decoupling per the XMOS datasheet, TC2030 JTAG | `I2S_*`, `XMOS_*`, `PDM_CLK`, `PDM_DATA_*`, `AMP_TDM_*` |
-| `mics` | Eight CMM-4030DT PDM mics with the SEL straps above, TPS22917 load switch, PDM clock gate, mute switch and its LED | `MUTE_SENSE`, `PDM_*` |
-| `amp` | TAS2780, PVDD bulk and decoupling, output ferrites and caps, speaker connector, sense taps at the connector | `AMP_SENSE`, `AMP_TDM_*`, `I2C_*` |
-| `ethernet` | W5500, 25 MHz crystal, magjack data pairs (shared footprint with `power_in`) | `ETH_*` |
-| `ui` | SK6812 ring, 74AHCT1G125, radar header, test points | `LED_DATA`, `RADAR_*` |
+     standard process.
+2. Open `chorus-main.kicad_pro` in KiCad 9.0.5 or later, or import the zip
+   into EasyEDA Pro.
+3. Lay out per the next section. A later change goes in the YAML, then
+   comes back into the laid-out board through *Update PCB from netlist* on
+   the regenerated `chorus-main.net`.
+4. Settle the receptacle's power contacts (above), plot Gerbers, drill and
+   position files, and upload them with `bom.csv`.
 
 ## Layout
 
-- **Four layers**: signal, solid ground, power, signal. The ground plane is
-  unbroken under the I2S, PDM and Wi-Fi antenna areas.
-- **Round, about 90 mm**, mics and LEDs on the top face, speaker firing from
-  the bottom into its own sealed chamber. Mic-to-speaker distance and the
-  gasket between them do more for AEC than any firmware setting.
-- **Mic ports** gasketed to the enclosure: MK1–MK4 at the Satellite1's
-  positions, MK5–MK8 between them. DoA reads arrival-time differences of
-  tens of microseconds, so what matters is where each port is, not PDM trace
-  length: place the footprints by coordinate and keep each port's gasket
-  path the same depth.
-- **Class-D output** kept short and away from the mics and the PDM lines;
-  ferrites and caps per the TAS2780 EMI guidance, sense taps after them and
-  at the speaker connector so the sense measures what the speaker receives.
-- **I2S and PDM**: series resistors at each source, routed over ground, no
-  layer change where avoidable.
-- **The ESP32 antenna** at the board edge with Espressif's keep-out, even in
-  the Ethernet build, so the Wi-Fi build is the same board.
-- **PoE isolation**: the clearance and creepage the AG9912 datasheet
-  specifies between the cable side and everything else.
+- **The top side stays low.** The Core hangs from the HAT's underside into
+  the gap above this board. Only the receptacle and low SMD parts go on top,
+  as on the shoe. The magjack, the PoE module, its electrolytic and the
+  speaker connector are on the back.
+- **The magjack at the flat edge**, where the shoe puts its RJ45.
+- **PoE isolation**: the clearance and creepage the AG9912 datasheet asks
+  for between the cable side (magjack taps, bridges, the module's input) and
+  everything else, with no ground pour under it.
+- **Every J7 ground** stitched to the ground plane at the receptacle; they
+  are the return for the HAT's audio and for the W5500's SPI.
 
 ## From here to a built board
 
-1. **Redraw the frontend, do not redesign it.** `Satellite1-Hardware` has
-   schematic PDFs and STEP models, no KiCad source, so the XU316 sheet
-   (reset inverter and SPI muxes included), QSPI flash and mic positions are
-   redrawn from `hat/rev6.1hatSCH.pdf` and `hat/rev6.1hat3D.step`, with the
-   port map above.
-2. **Capture the schematic.** Done: the sheets above, checked in CI against
-   `pins.yaml` and each other by `TestTheRevASchematicChecksClean`.
-3. **Read the three datasheets nobody could reach** (below), then check the
-   stock above. The regulators, power mux, load switch, PD controller and PoE
-   module are already checked against TI's, onsemi's and Silvertel's.
-4. **Lay out, then order a small batch** (five boards) of four-layer with
-   assembly, as [Ordering from JLCPCB](#ordering-from-jlcpcb) describes.
-5. **Bring up in order**, each step with the check that proves it:
-   - rails, with no modules powered past them;
-   - ESP32 alone, flashed over USB-C;
-   - the XU316 answers over SPI (the Satellite1 config's status log);
-   - I2S clocks present; mic frames arrive while idle;
-   - the amplifier plays, and `AMP_SENSE` shows the speaker current;
-   - Ethernet up, then `task test:hardware` over the cable, compared with the
-     Wi-Fi numbers in SPEC §3.3.2;
-   - the end-to-end delay from `AMP_SENSE`, recorded per board.
-6. **Firmware**: `esphome/chorus-sat.yaml` is `satellite1.yaml` with an
-   `ethernet:` block in place of `wifi:`, a `PWR_SRC` read in place of the PD
-   contract logic, `i2s_mclk_pin` dropped (an I2S secondary needs no MCLK, and
-   ESP-IDF would drive the pin as an output), and the LED ring, buttons and
-   mute sensor added.
+1. **Settle the power contacts**, as [The receptacle](#the-receptacle) says.
+2. **Measure the gap** between a mated HAT and the shoe's outline, and the
+   Core's lowest part, on one of the household's kits.
+3. **Lay out and order** five boards, four-layer, with assembly.
+4. **Bring up in order**:
+   - PoE alone, no kit: 12 V on the module's output, about 3.0 V on
+     `POE_SENSE`;
+   - the kit on USB-C with the main board fitted: nothing changes for the
+     running config, which proves the pads are free;
+   - Ethernet up, then `task test:hardware` over the cable, against the Wi-Fi
+     numbers in SPEC §3.3.2;
+   - PoE only: the kit boots on VBUS at 12 V, and the amplifier plays.
+5. **Firmware**: an ESPHome config for the main board is `satellite1.yaml`
+   with an `ethernet:` block for the W5500 on the pins above, in place of
+   `wifi:`, and `POE_SENSE` read beside the PD contract. ESPHome builds one
+   or the other, so the Wi-Fi build stays the config for a kit without a main
+   board.
 
 ## Open questions
 
-What rev A still cannot settle without a datasheet or a bench:
-
-- **Eight mics on tile 1.** The PDM receiver's second thread and about
-  25 KB more RAM have to fit beside the I2S master and AEC. No Satellite1
-  build report states the free RAM per tile. Build with `DEBUG_PRINT_ENABLE=1`
-  and read it before writing the derivative.
-- **The W5500's sustained TCP rate** with the array on: about 3.1 Mbit/s up
-  while TTS comes down.
-- **Which opposite pair the firmware hears**, MK2/MK4 or MK1/MK3. It depends
-  on which clock edge the CMM-4030DT gives each SEL setting; the datasheet or
-  a tap test on a board settles it. The straps are copied either way.
-- **Where the array sits on the board outline** relative to the speaker
-  axis, which MK5–MK8 inherit, and where each mic's acoustic port sits in its package: the STEP
-  model gives positions, not the outline.
-- **Two I2S peripherals on shared clock pads.** `AMP_SENSE` assumes the
-  ESP32's second I2S peripheral can take the same BCLK and LRCLK pads as the
-  first through the GPIO matrix. Expected to work; prove it at bring-up.
-- **The TAS2780 sense slots**: which TDM slots carry I and V, configured by a
-  driver change nobody has written yet.
-- **Muted PDM lines.** With the mics' clock gated their data lines float;
-  pull-downs plus the XMOS pipeline's DC blocking should settle to silence,
-  and the bridge's mute frame tells the host either way.
-- **The PoE module**: the AG9912-MTB had no JLCPCB stock at capture, and it
-  wants at least 100 mA of load to keep the switch's maintain-power signature.
-  An idle board draws about that at 12 V; measure it at bring-up.
-- **Two datasheets still unread.** The TAS2780's modes are taken from the
-  Satellite1 schematic and its driver, and neither TI's nor CUI's document was
-  reachable; the vendors' own symbols agree with both pad tables.
-- **The SK6812MINI-E's pad positions.** The board's footprint numbers pads as
-  the datasheet does and places them as the mirror of its top view, reading
-  that view as the lens side, which its drawn lens says it is; KiCad's own
-  footprint agrees. Solder one to a scrap board before the ring is laid out.
-- **The TAS2780's corner pins.** Its footprint comes from an open board that
-  uses the part, and its 26 side pads match Ultra Librarian's to 0.02 mm; pins
-  1, 9, 16 and 24 are drawn L-shaped there and rectangular in Ultra
-  Librarian's. Check them against TI's RYA0030A land pattern before ordering.
-- **The LED windows' edge clearance.** The reverse-mount LEDs' pads sit
-  0.247 mm from their cutouts, under the 0.3 mm copper-to-edge rule the
-  generated project sets, so KiCad's DRC flags them. JLCPCB's routed-cutout
-  tolerance decides whether that is an order-time question or a footprint
-  change.
-
-Settled since the first draft, from the sources below: the firmware licence,
-the XU316 port map, the mic part and geometry, the MCLK direction (the
-XU316 drives it), the 1.8 V reset and JTAG domain (XU316 datasheet, p33), and the magjack
-(the LPJG0926HENL, with its PoE taps). The Voice PE fallback is gone: its firmware has the same
-licence and its ESP32 interface would move pins for no gain.
+- **The receptacle's power contacts.** Which of the +x pair is 5 V and which
+  VBUS; see [The receptacle](#the-receptacle).
+- **The receptacle's LCSC number.** None is confirmed, so it is hand-soldered
+  until one is.
+- **Stack height and the Core's clearance.** The shoe's outline and holes are
+  taken as the kit's; the gap above the main board is not yet measured.
+- **J7 on the household's HATs.** Rev 6.1 draws it; whether every kit as sold
+  has it fitted is to be checked on the bench.
+- **The kit's draw on PoE.** The amplifier's speech peaks, the LED ring and
+  the radar against the AG9912's 12 W, and its maintain-power signature at
+  idle.
+- **The W5500 on SPI3 in ESPHome.** The running config takes SPI2 for the
+  XMOS explicitly; that the `ethernet:` component lands on the other host is
+  expected, and proved at bring-up.
 
 ## Sources
 
 Read directly at these commits:
 
-- [FutureProofHomes/Satellite1-XMOS](https://github.com/FutureProofHomes/Satellite1-XMOS/tree/bb411c71b153e6c973d65f70a935a48351bae62a):
-  `LICENSE.md`, `bsp_config/SATELLITE1/`, `platform/`, `src/main.c`.
 - [FutureProofHomes/Satellite1-Hardware](https://github.com/FutureProofHomes/Satellite1-Hardware/tree/2eb08ffaed8d9852d19b8acc86728d1af93d1c24):
-  `LICENSE`, `hat/rev6.1hatSCH.pdf`, `hat/rev6.1hat3D.step`.
+  `hat/rev6.1hatSCH.pdf` p2 (J7), `core/rev4.1coreSCH.pdf` and
+  `core/rev5.1coreSCH.pdf` (the 2x20 header), `shoe/rev1shoeSCH.pdf`,
+  `shoe/rev1shoe3D.step` and its renders, `shim/rev1shim3Dtop.jpg`.
 - [FutureProofHomes/Satellite1-ESPHome](https://github.com/FutureProofHomes/Satellite1-ESPHome/tree/46511ed57dae00f623bfc78aaac66c6619bc9d3b):
-  `esphome/components/satellite1/satellite1.cpp`, `config/common/core_board.yaml`.
-- [xmos/lib_sw_pll](https://github.com/xmos/lib_sw_pll/tree/7c50b750) for the
-  App PLL's output pin, and ESP-IDF v5.5.1 `esp_driver_i2s` for what a
-  secondary does with an MCLK pin.
+  `config/common/core_board.yaml` for the GPIOs the kit drives.
+- WIZnet's W5500-EVB-Pico-PoE schematic at `e3f0b08d`, for the ethernet
+  sheet, as rev A.
