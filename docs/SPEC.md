@@ -256,8 +256,10 @@ Two consequences:
 - Speech deltas stream to TTS as emitted.
 
 `speak` is a declared tool so it is schema-addressable, but holds no privileged
-position. Inline `content` from models whose template emits `content` +
-`tool_calls` together is treated as an implicit `speak`.
+position. Inline `content` is not speech: beside a tool call it is never
+spoken, and with no thinking field it is taken for reasoning. A turn that
+called nothing, ended on its own, and kept its reasoning in the thinking field
+has its content spoken once it ends, as an implicit `speak` (ADR-0046).
 
 ### 4.2 Speech channel
 
@@ -491,7 +493,7 @@ every provider declaring capabilities (streaming? tool calls? interruption?).
 | Role | Choice | Rationale |
 |---|---|---|
 | STT | Parakeet TDT 0.6B v2 | Streaming, far faster than Whisper large at better accuracy. English-only; swap to faster-whisper if multilingual is needed. |
-| LLM | Qwen3 32B (or 30B-A3B) on **vLLM** | Template emits `content` + `tool_calls` together; vLLM streams tool-call parsing. Both are hard requirements of §4.1. Ollama/llama.cpp are weaker at exactly this seam. |
+| LLM | Qwen3 32B (or 30B-A3B) on **vLLM** | vLLM streams tool-call parsing, a hard requirement of §4.1. Ollama/llama.cpp are weaker at exactly this seam. |
 | TTS | Kokoro-82M | Sentence-level streaming, sub-200 ms first chunk. Orpheus if more expression is wanted. Piper as degraded fallback. |
 | Speaker ID | ECAPA-TDNN / TitaNet-L | Embeddings + cosine. |
 | Endpointing | Smart Turn v2 | Purpose-built; avoids prompting the big model. |

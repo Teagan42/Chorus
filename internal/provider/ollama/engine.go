@@ -64,9 +64,9 @@ type Config struct {
 
 	KeepAlive string
 
-	// SpeakInlineContent treats message content as an implicit speak, which
-	// SPEC §4.1 describes for templates that emit content beside tool_calls.
-	// Off unless a model is known to qualify -- see decoder.
+	// SpeakInlineContent streams message content as an implicit speak, beside
+	// tool_calls too, which ADR-0046 declined. Off unless a model is known to
+	// qualify -- see decoder.
 	SpeakInlineContent bool
 
 	// Location is the household's time zone: what "it is 8 AM" and

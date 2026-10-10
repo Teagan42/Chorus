@@ -81,8 +81,8 @@ type speakArgs struct {
 // separate lines, so reordering means buffering to end of turn, which defeats
 // the streaming dispatch this package exists to provide (SPEC §4.1).
 type decoder struct {
-	// speakInlineContent treats message.content as an implicit speak, which
-	// SPEC §4.1 requires for templates that emit content beside tool_calls.
+	// speakInlineContent streams message.content as an implicit speak, beside
+	// tool_calls too, which ADR-0046 declined in favour of answer below.
 	//
 	// Off unless a model is known to qualify, because the clause's condition is
 	// a property of the template and most local models fail it: with
