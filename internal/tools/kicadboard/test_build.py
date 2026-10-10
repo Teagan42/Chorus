@@ -70,6 +70,21 @@ class BuildChorusMainTest(unittest.TestCase):
         self.assertEqual(nets["37"], "ETH_CS_N")
         self.assertEqual(nets["24"], "", "the XMOS select stays the HAT's")
 
+    def test_the_power_contacts_sit_where_the_meter_found_them(self):
+        # On a household HAT both grounds are on the header's row, pads 1-40,
+        # one at each end; 5 V is beside pad 41 and VBUS beside pad 80.
+        pads = {p.GetNumber(): p for p in self.fps["J1"].Pads()}
+
+        def near(contact):
+            at = pads[contact].GetPosition()
+            return min(
+                (n for n in pads if n.isdigit()),
+                key=lambda n: (pads[n].GetPosition() - at).EuclideanNorm(),
+            )
+
+        self.assertEqual(sorted((pads[c].GetNetname(), near(c)) for c in ("MH1", "MH2", "MH3", "MH4")),
+                         [("5V0", "41"), ("GND", "1"), ("GND", "40"), ("VBUS", "80")])
+
     def test_the_outline_is_the_kits_with_its_four_mounting_holes(self):
         edges = [d for d in self.board.GetDrawings() if d.GetLayer() == pcbnew.Edge_Cuts]
         holes = [d for d in edges if d.GetShape() == pcbnew.SHAPE_T_CIRCLE]
@@ -91,7 +106,7 @@ class BuildChorusMainTest(unittest.TestCase):
         u60 = self.fps["U60"]
         self.assertEqual(u60.GetFieldText("LCSC"), "C32843")
         self.assertFalse(u60.GetFieldByName("LCSC").IsVisible())
-        self.assertIn("MH1-MH4", self.fps["J1"].GetFieldText("Unverified"))
+        self.assertFalse(self.fps["J1"].HasField("Unverified"), "the power contacts were measured")
 
     def test_the_project_carries_four_layers_and_fab_rules(self):
         self.assertEqual(self.board.GetCopperLayerCount(), 4)

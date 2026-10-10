@@ -22,8 +22,9 @@ In KiCad's coordinates (mm, y down, from the part's centre):
 |---|---|
 | 1-40 | y = +4.95, from x = +9.75 (pad 1) to −9.75 (pad 40), 0.5 mm pitch; 0.3 × 1.6 mm |
 | 41-80 | y = −4.95, from x = +9.75 (pad 41) to −9.75 (pad 80) |
-| MH1, MH3 | x = −12.25, y = +4.675 and −4.675; 1.2 mm plated holes, 1.8 mm lands |
-| MH2, MH4 | x = +12.25, y = +4.675 and −4.675 |
+| MH1, MH3 | y = +4.675, x = +12.25 and −12.25: both ground, on the pads 1-40 row; 1.2 mm plated holes, 1.8 mm lands |
+| MH2 | x = +12.25, y = −4.675, beside pad 41: the HAT's 5 V |
+| MH4 | x = −12.25, y = −4.675, beside pad 80: the HAT's VBUS |
 | MP1, MP2 | x = +17.65 and −17.65, y = 0; 1.9 × 3.0 mm fixing tabs |
 
 It was first drawn from FutureProofHomes' shoe rev 1 3D model, then checked
@@ -47,26 +48,21 @@ the Satellite1 protoboard's breakout labels, "1" and "41", both at the +x
 end, one beside each row. The HAT's own J7 has its pin-1 dot at the same
 end. LCSC lists the part as C2911203.
 
-**The power contacts are not settled.** Hirose's model has no nets, and
-FutureProofHomes' MH1-MH4 are their own names. The −x pair sits in the
-shoe's ground pour, so it is drawn as MH1 and MH3, the HAT's grounds; MH2
-(5 V) is beside pad 1 and MH4 (VBUS) beside pad 41. Hirose's drawing numbers
-its power contacts the other way, No. 1 beside pad 1, and if
-FutureProofHomes followed it the grounds are at the pin-1 end. Drawn that
-way round, this board would short PoE and the HAT's VBUS to ground. So
-`parts.yaml` marks the part `unverified` until a meter settles it.
+**The power contacts were measured, not read.** Hirose's model has no nets,
+and FutureProofHomes' MH1-MH4 are their own names. Neither of the readings
+their boards and Hirose's drawing suggested was right: both put the grounds
+at one end. On 2026-10-10 Teagan put a meter on one of the household's HATs,
+unpowered, face down with its USB-C ports toward them and J7's pin-1 dot at
+the right, by the QR code:
 
-Turn an unpowered HAT face down (Core off, nothing plugged in), USB-C ports
-toward you. J7's pin-1 dot is at its right end, by the QR code. The four
-power contacts are J7's through-hole pins, two at each end of the plug. Set
-the meter to continuity, and touch each one against:
+- the two power contacts on the header's side, one at each end, beep to
+  ground. That row is the plug's pads 1-40, so here MH1 and MH3 are the
+  two holes on the +y row;
+- of the two on the USB side, the one at the QR-code end beeps to the
+  header's 5 V pin: MH2, beside pad 41;
+- the other, at the speaker-connector end, is VBUS: MH4, beside pad 80.
 
-- a ground (a USB-C port's shell): the two at one end beep. This board
-  expects the left end, by the speaker connector;
-- the header's 5V pin, marked on the silkscreen: one of the other two beeps.
-  This board expects the one at the right end on the header's side.
-
-The fourth is VBUS. Any other answer is a footprint change before ordering.
+A HAT revision that moves them is a new kit file and a new measurement.
 
 The vendors' STEP models are not committed; download them beside the
 footprints to see the board in 3D.

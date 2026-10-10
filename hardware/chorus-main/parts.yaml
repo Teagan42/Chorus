@@ -34,18 +34,11 @@ parts:
     footprint: chorus-main:Hirose_FX23L-80S-0.5SV
     pinout: >-
       [S1] p2 J7, the plug it mates, pad for pad; MH1-MH4 are the four power
-      contacts and MP1, MP2 the fixing tabs. Where each pad sits on the
+      contacts and MP1, MP2 the fixing tabs. Where each power contact sits
+      was measured on a household HAT; where each pad sits on the
       footprint: chorus-main.pretty/README.md
     mpn: FX23L-80S-0.5SV(20)
     lcsc: C2911203
-    unverified: >-
-      which end of the plug is ground. The signal pads and all four holes
-      match Hirose's own 3D model of this part, but nothing Hirose publishes
-      says which net a power contact carries. MH1-MH4 are FutureProofHomes'
-      names, placed here from their shoe's ground pour; numbered as Hirose
-      numbers its power contacts, the grounds would be at the other end, and
-      this board would short PoE and the HAT's VBUS to ground. A continuity
-      test on an unpowered HAT settles it: chorus-main.pretty/README.md
     pins:
       - {pad: "1", name: "1", type: passive}
       - {pad: "2", name: "2", type: passive}
