@@ -116,6 +116,10 @@ type Satellite struct {
 	// starting closes on the first report past base: the newest utterance's
 	// first frame reached the ear (ADR-0035). Nil once closed.
 	starting chan struct{}
+
+	// hungUp closes once the link is no longer read: no report can arrive.
+	hungUp chan struct{}
+	hangup sync.Once
 }
 
 // New validates the wiring and applies defaults.
@@ -138,7 +142,13 @@ func New(cfg Config) (*Satellite, error) {
 	if cfg.Settle == 0 {
 		cfg.Settle = DefaultSettle
 	}
-	return &Satellite{cfg: cfg, notify: make(chan struct{})}, nil
+	return &Satellite{cfg: cfg, notify: make(chan struct{}), hungUp: make(chan struct{})}, nil
+}
+
+// Hangup says the link is no longer read, so a stream closing now stops
+// waiting for a report and takes the position it has.
+func (s *Satellite) Hangup() {
+	s.hangup.Do(func() { close(s.hungUp) })
 }
 
 // OnPlayed records the DAC's cumulative position and which stop, if any, the
@@ -545,8 +555,9 @@ func (s *stream) playedFrames() uint64 {
 // is sent, and the first change to arrive would then be a round trip stale
 // (ADR-0033).
 //
-// Bounded and allowed to expire: the context is already cancelled, so nothing
-// else will unblock this, and a link that fails under the stop never answers.
+// Bounded and allowed to expire: the context is already cancelled, and a link
+// that fails under the stop never answers. A link nobody reads any more cannot
+// either, so a hangup ends the wait too.
 // A timeout falls back to the position already known: never worse than not
 // waiting.
 func (s *stream) settle(tag uint8) {
@@ -559,6 +570,8 @@ func (s *stream) settle(tag uint8) {
 		select {
 		case <-next:
 		case <-deadline:
+			return
+		case <-s.sat.hungUp:
 			return
 		}
 	}
@@ -584,6 +597,8 @@ func (s *stream) awaitDrain() {
 			// to have heard, so this falls through to the truncated report.
 			return
 		case <-s.ctx.Done():
+			return
+		case <-s.sat.hungUp:
 			return
 		}
 	}

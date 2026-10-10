@@ -379,6 +379,41 @@ func TestCancelClosesEveryLinkAndReturns(t *testing.T) {
 	}
 }
 
+// The daemon is stopped for an upgrade while the kitchen is still reading
+// Alan the weekend forecast. The stop that silences it goes out, but nothing
+// reads the link any more, so its answer cannot arrive: run returns without
+// waiting for it, on timers that would never end that wait, and the forecast
+// is journalled as cut where the kitchen last said it was (SPEC §4, §4.4).
+//
+// verifies SPEC §4, §4.4
+func TestStoppingMidAnswerDoesNotWaitForAReplyNobodyReads(t *testing.T) {
+	forecast := "Sunny on Saturday, with rain moving in on Sunday afternoon."
+	r := newRig(t, inventory(), func(d *deps) {
+		d.engine = &scriptEngine{acts: []session.Action{
+			session.SpeechDelta{CallID: "call_w1", Text: forecast, Last: true},
+			session.TurnEnd{FinishReason: "stop", Completion: "{}"},
+		}}
+	})
+	dev := r.join(t, kitchenIP)
+	dev.SendWake(t, "hey_eddie")
+	r.utter(t, dev, r.line("what's the weather this weekend", alan))
+	dev.AwaitTTS(t, 2*len(forecast))
+	heard := dev.Play(t, 24)
+	r.store.awaitKind(t, journal.KindSpeechStarted, 1)
+	// Whatever the kitchen says from here is still on the air at shutdown.
+	dev.HoldUplink(t)
+
+	r.cancel()
+	if err := r.exit(t); err != nil {
+		t.Errorf("run returned %v on cancel, want nil", err)
+	}
+	gone(t, dev, "kitchen")
+	cut := r.store.awaitKind(t, journal.KindSpeechTruncated, 1)
+	if cut.Fields["call_id"] != "call_w1" || cut.Fields["frames_played"] != strconv.FormatUint(heard, 10) {
+		t.Errorf("speech_truncated = %v, want call_w1 cut at frame %d", cut.Fields, heard)
+	}
+}
+
 // A guest wakes the house: nobody enrolled is the fresh install, and the
 // session opens with no speaker (SPEC §5). The shared stack treats the two
 // satellites alike.

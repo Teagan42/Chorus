@@ -360,9 +360,9 @@ func (d *daemon) handshake(ctx context.Context, conn net.Conn) (*bridge.Link, er
 // its own and serves until the link drops. The Speaker is per device, which
 // is why the supervisor is too; the Conversations are shared (ADR-0022).
 //
-// Teardown order: Serve returns, the link's context ends, the listener
-// closes the session as device_lost and finishes its goroutines, then the
-// link is closed by the caller (ADR-0030).
+// Teardown order: Serve returns, the link's context ends, the speaker stops
+// waiting on reports, the listener closes the session as device_lost and
+// finishes its goroutines, then the link is closed by the caller (ADR-0030).
 func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge.Link, log *slog.Logger) error {
 	linkCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -397,6 +397,9 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 
 	err = link.Serve(linkCtx, handlers{speaker, lst})
 	cancel()
+	// Nothing reads the link now, so speech cut on the way out takes the
+	// position it has rather than waiting for a report.
+	speaker.Hangup()
 	<-lst.Done()
 	if errors.Is(err, context.Canceled) {
 		return nil

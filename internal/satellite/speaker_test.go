@@ -765,6 +765,61 @@ func TestADeviceThatGoesQuietAfterTheStopStillReportsACut(t *testing.T) {
 	}
 }
 
+// The daemon shuts down while the kitchen is reading the weekend forecast:
+// the stop goes out, then the link is no longer read, so the device's answer
+// can never arrive. The cut is the position already known, at once, rather
+// than after a settle deadline nothing is left to wait for.
+//
+// verifies SPEC §4.4
+func TestAStopOnALinkNobodyReadsDoesNotWaitForItsAnswer(t *testing.T) {
+	r := newRig(t, func(c *satellite.Config) { c.Settle = rigSettle })
+	st, cancel := r.open(t, "call-w1")
+
+	if err := st.Write("Sunny on Saturday, rain on Sunday."); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len("Sunny on Saturday, rain on Sunday.")*framesPerByte*2)
+	const heard = 5 * framesPerByte
+	r.play(t, heard)
+
+	r.dev.HoldUplink(t)
+	cancel()
+	done := closeAsync(st)
+	r.dev.AwaitStop(t, 1)
+	r.sat.Hangup()
+
+	pb := await(t, done)
+	if pb.Frames != heard || !pb.Truncated {
+		t.Errorf("Frames = %d, Truncated = %v, want %d, true", pb.Frames, pb.Truncated, heard)
+	}
+}
+
+// The office satellite drops off the network as it finishes saying the
+// garage is shut. Nothing will confirm the tail now, so the utterance is
+// reported unconfirmed at once rather than after the drain deadline.
+//
+// verifies SPEC §4.4
+func TestALinkGoneBeforeTheDrainIsConfirmedIsUnconfirmedAtOnce(t *testing.T) {
+	r := newRig(t)
+	st, _ := r.open(t, "call-g1")
+
+	if err := st.Write("The garage door is shut."); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r.dev.AwaitTTS(t, len("The garage door is shut.")*framesPerByte*2)
+	const heard = 6 * framesPerByte
+	r.play(t, heard)
+
+	done := closeAsync(st)
+	r.dev.AwaitFinish(t, 1)
+	r.sat.Hangup()
+
+	pb := await(t, done)
+	if pb.Frames != heard || !pb.Truncated {
+		t.Errorf("Frames = %d, Truncated = %v, want %d, true", pb.Frames, pb.Truncated, heard)
+	}
+}
+
 // verifies SPEC §4.2
 func TestADeltaCutBeforeSynthesisIsStillUnspokenText(t *testing.T) {
 	r := newRig(t)
