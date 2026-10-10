@@ -529,3 +529,34 @@ func TestTheFirstPlayedFrameDoesNotChangeThePair(t *testing.T) {
 		t.Errorf("starts changed the pair\n got: %+v\nwant: %+v", got, plain)
 	}
 }
+
+// The oven goes off in the kitchen while Alice waits on a search, and is said
+// ahead of the answer she then cuts off. The oven's words were nobody's
+// choice, so the rejected side is the answer alone, and the oven's speak
+// call is not among the turn's calls (ADR-0045).
+//
+// verifies SPEC §9.1
+func TestAnAnnouncementInTheMiddleOfACutTurnIsNoPartOfThePair(t *testing.T) {
+	oven := []journal.Record{
+		record(journal.KindAnnouncementMade, "", "text", "The oven timer is done.", "call_id", "an_0a7e", "source", "timer", "timer_id", "t_0a7e11c3"),
+		record(journal.KindToolCalled, "", "tool", "speak", "call_id", "an_0a7e", "args_json", `{"text":"The oven timer is done.","mode":"queue"}`),
+		record(journal.KindSpeechSpoken, "blob://tts/an_0a7e", "text", "The oven timer is done.", "frames_played", "24000", "call_id", "an_0a7e"),
+		record(journal.KindToolResult, "", "call_id", "an_0a7e", "outcome", "ok"),
+	}
+	cut := cutTurn()
+	store := conversation(t, versions(), concat(
+		[]journal.Record{opened("kitchen")}, cut[:2], oven, cut[2:], correctedTurn(), []journal.Record{closed("model_ended")},
+	))
+	p := onePair(t, scan(t, store))
+	if p.Rejected != "I found three" {
+		t.Errorf("rejected = %q, want the answer without the oven", p.Rejected)
+	}
+	for _, c := range p.Calls {
+		if c.ID == "an_0a7e" {
+			t.Errorf("the oven's speak call is in the pair: %+v", p.Calls)
+		}
+	}
+	if len(p.Audio.Rejected) != 1 || p.Audio.Rejected[0] != "blob://tts/s1" {
+		t.Errorf("rejected audio = %v", p.Audio.Rejected)
+	}
+}

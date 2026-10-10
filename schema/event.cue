@@ -42,6 +42,7 @@ events: {
 			{name: "speaker_id", type: "string", description: "Identified person, empty when unknown."},
 			{name: "wake_confidence", type: "number", description: "Stage-two confirmation score."},
 			{name: "resumed", type: "boolean", description: "Joined an existing conversation rather than starting one."},
+			{name: "announced", type: "boolean", description: "Opened with no wake word, to say an announcement: a timer going off, or something asked to be said in this room (SPEC §4)."},
 		]
 	}
 	wake_rejected: {
@@ -186,10 +187,61 @@ events: {
 	}
 	session_closed: {
 		name:        "session_closed", actor: "session"
-		description: "Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5)."
+		description: "Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). An announcement nobody was asked to answer closes as announced once it has been said."
 		fields: [
-			{name: "reason", type: "string", description: "Why it ended.", required: true, enum: ["model_ended", "silence_timeout", "device_lost", "migrated", "error"]},
+			{name: "reason", type: "string", description: "Why it ended.", required: true, enum: ["model_ended", "silence_timeout", "device_lost", "migrated", "announced", "error"]},
 			{name: "satellite", type: "string", description: "Device whose stream ended. Pairs the close with its open.", required: true},
+		]
+	}
+	announcement_made: {
+		name:        "announcement_made", actor: "session"
+		description: "Something was said that nobody in this conversation asked for: a timer going off, or someone in another room asking for it to be said here. Recorded in the conversation it was said in, ahead of the speak call that says it (SPEC §4)."
+		fields: [
+			{name: "text", type: "string", description: "What was to be said.", required: true},
+			{name: "call_id", type: "string", description: "The speak call that says it.", required: true},
+			{name: "source", type: "string", description: "Why it was said.", required: true, enum: ["timer", "request"]},
+			{name: "timer_id", type: "string", description: "The timer that went off. Empty for a request."},
+			{name: "requested_by", type: "string", description: "Who asked for it to be said, or who set the timer. Empty for a guest."},
+			{name: "from_satellite", type: "string", description: "Where it was asked for, or where the timer was set."},
+			{name: "from_conversation", type: "string", description: "The conversation that asked for it, or that set the timer."},
+			{name: "start_conversation", type: "boolean", description: "Whoever is in the room may answer with no wake word."},
+		]
+	}
+
+	// Timers belong to the house, not the conversation that set them: they
+	// outlive its session, and the daemon (ADR-0045).
+	timer_started: {
+		name:        "timer_started", actor: "tool"
+		description: "A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0045)."
+		fields: [
+			{name: "timer_id", type: "string", description: "What timer_cancel takes, e.g. t_3f9c2a10.", required: true},
+			{name: "seconds", type: "integer", description: "How long it was set for.", required: true},
+			{name: "fires_at", type: "string", description: "When it goes off, RFC 3339 in UTC.", required: true},
+			{name: "satellite", type: "string", description: "Where it was set, which is where it goes off.", required: true},
+			{name: "label", type: "string", description: "What it is for, e.g. oven. Empty when unnamed."},
+			{name: "announcement", type: "string", description: "What the model asked to be said when it goes off. Empty says it from the label."},
+			{name: "person", type: "string", description: "Who set it. Empty for a guest."},
+			{name: "conversation_id", type: "string", description: "The conversation that set it.", required: true},
+			{name: "call_id", type: "string", description: "The timer_start call that set it.", required: true},
+		]
+	}
+	timer_cancelled: {
+		name:        "timer_cancelled", actor: "tool"
+		description: "A running timer was cancelled before it went off."
+		fields: [
+			{name: "timer_id", type: "string", description: "The timer cancelled.", required: true},
+			{name: "conversation_id", type: "string", description: "The conversation that cancelled it.", required: true},
+			{name: "call_id", type: "string", description: "The timer_cancel call that cancelled it.", required: true},
+		]
+	}
+	timer_finished: {
+		name:        "timer_finished", actor: "session"
+		description: "A timer went off, and whether anybody was told. A timer nobody heard is a failure the household felt, so it is recorded as one (SPEC §7)."
+		fields: [
+			{name: "timer_id", type: "string", description: "The timer that went off.", required: true},
+			{name: "outcome", type: "string", description: "announced: said on its satellite. unannounced: its satellite was not connected, or would not say it. missed: it came due while the daemon was down, too long ago to be worth saying.", required: true, enum: ["announced", "unannounced", "missed"]},
+			{name: "conversation_id", type: "string", description: "The conversation it was announced in. Empty unless announced."},
+			{name: "error", type: "string", description: "Why it was not announced. Empty when it was."},
 		]
 	}
 }

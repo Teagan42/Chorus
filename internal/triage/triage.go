@@ -106,6 +106,8 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 		cur   turnContext
 		calls = map[string]pending{}
 		last  *ask
+		// timers are the house log's, by id: what each was set to say.
+		timers = map[string]turnContext{}
 	)
 	raiseIn := func(turn turnContext, e journal.Event, k Kind, detail string) {
 		out = append(out, Signal{
@@ -177,6 +179,17 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 		case journal.KindModelCompleted:
 			if e.Fields["finish_reason"] == "error" {
 				raise(e, KindFailure, "model finished with error")
+			}
+		case journal.KindTimerStarted:
+			said := e.Fields["announcement"]
+			if said == "" {
+				said = strings.TrimSpace(e.Fields["label"] + " timer")
+			}
+			timers[e.Fields["timer_id"]] = turnContext{utterance: said, speaker: e.Fields["person"], satellite: e.Fields["satellite"]}
+		case journal.KindTimerFinished:
+			// A timer nobody heard go off is a failure the household felt.
+			if o := e.Fields["outcome"]; o != "announced" {
+				raiseIn(timers[e.Fields["timer_id"]], e, KindFailure, "timer "+e.Fields["timer_id"]+" "+o+": "+e.Fields["error"])
 			}
 		case journal.KindSessionClosed:
 			if r := e.Fields["reason"]; r == "error" || r == "device_lost" {

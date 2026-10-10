@@ -6,6 +6,7 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 
 | Event | Actor | Audio | Training signal | Description |
 |---|---|---|---|---|
+| `announcement_made` | session |  |  | Something was said that nobody in this conversation asked for: a timer going off, or someone in another room asking for it to be said here. Recorded in the conversation it was said in, ahead of the speak call that says it (SPEC §4). |
 | `barge_in_detected` | listening | yes |  | Interruption passed the detection gate. Timing is milliseconds into TTS playback, not wall clock, so replay reproduces the cut. |
 | `barge_in_rejected` | listening | yes |  | Candidate interruption failed the detection gate. Tuning corpus for SPEC §4.3. |
 | `confirmation_given` | session |  |  | A held call came back with its nonce after the person answered, and ran. What they said is the utterance the nonce was redeemed after (SPEC §6). |
@@ -13,16 +14,36 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | `conversation_summarized` | session |  |  | The conversation ended and the model summarized it for the identified people in it, to be told in their later conversations. Recorded in full, as a completion is, because replay cannot regenerate it (SPEC §5, §8). |
 | `memory_recalled` | session |  |  | What the model is told it remembers, from this turn on: the speaker's own memories and what others shared, and their recent conversations, chosen by relevance when there are more than fit. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5). |
 | `model_completed` | thinking |  |  | Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8). |
-| `session_closed` | session |  |  | Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). |
+| `session_closed` | session |  |  | Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). An announcement nobody was asked to answer closes as announced once it has been said. |
 | `session_opened` | session |  |  | Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5). |
 | `speech_discarded` | speaking |  | yes | Speech generated but never played, because a barge-in emptied the queue first. Distinct from truncation: nothing was heard. |
 | `speech_spoken` | speaking | yes |  | Audio the user actually heard, bounded by DAC-reported playback position. |
 | `speech_started` | speaking |  |  | The DAC played the first frame of a turn's speech. Recorded once per turn, when the device reports it, so its wall clock is when the household first heard the answer (SPEC §11). |
 | `speech_truncated` | speaking | yes | yes | Barge-in cut speech short. Carries the exact split between heard and unheard text. |
+| `timer_cancelled` | tool |  |  | A running timer was cancelled before it went off. |
+| `timer_finished` | session |  |  | A timer went off, and whether anybody was told. A timer nobody heard is a failure the household felt, so it is recorded as one (SPEC §7). |
+| `timer_started` | tool |  |  | A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0045). |
 | `tool_called` | thinking |  |  | Model dispatched a tool; emitted when its JSON closed, not at end of message. |
 | `tool_result` | tool |  |  | Tool completed, failed, or timed out. Failures are results the model reasons about (SPEC §7). |
 | `utterance_transcribed` | listening | yes |  | Final STT result for one utterance. |
 | `wake_rejected` | device | yes | yes | Stage-one activation failed server-side confirmation. Hard negative for wake-word retraining. |
+
+## `announcement_made`
+
+Something was said that nobody in this conversation asked for: a timer going off, or someone in another room asking for it to be said here. Recorded in the conversation it was said in, ahead of the speak call that says it (SPEC §4).
+
+Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | yes | What was to be said. |
+| `call_id` | string | yes | The speak call that says it. |
+| `source` | string | yes | Why it was said. One of: `timer`, `request`. |
+| `timer_id` | string |  | The timer that went off. Empty for a request. |
+| `requested_by` | string |  | Who asked for it to be said, or who set the timer. Empty for a guest. |
+| `from_satellite` | string |  | Where it was asked for, or where the timer was set. |
+| `from_conversation` | string |  | The conversation that asked for it, or that set the timer. |
+| `start_conversation` | boolean |  | Whoever is in the room may answer with no wake word. |
 
 ## `barge_in_detected`
 
@@ -106,13 +127,13 @@ Actor: `thinking`. `has_audio`: no. `training_signal`: no. `speculative`: no. `r
 
 ## `session_closed`
 
-Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5).
+Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). An announcement nobody was asked to answer closes as announced once it has been said.
 
 Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `reason` | string | yes | Why it ended. One of: `model_ended`, `silence_timeout`, `device_lost`, `migrated`, `error`. |
+| `reason` | string | yes | Why it ended. One of: `model_ended`, `silence_timeout`, `device_lost`, `migrated`, `announced`, `error`. |
 | `satellite` | string | yes | Device whose stream ended. Pairs the close with its open. |
 
 ## `session_opened`
@@ -127,6 +148,7 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 | `speaker_id` | string |  | Identified person, empty when unknown. |
 | `wake_confidence` | number |  | Stage-two confirmation score. |
 | `resumed` | boolean |  | Joined an existing conversation rather than starting one. |
+| `announced` | boolean |  | Opened with no wake word, to say an announcement: a timer going off, or something asked to be said in this room (SPEC §4). |
 
 ## `speech_discarded`
 
@@ -174,6 +196,49 @@ Actor: `speaking`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. 
 | `unspoken_text` | string | yes | Generated but never played. |
 | `frames_played` | integer | yes | DAC frame count at cut. |
 | `call_id` | string |  | The speak call that was cut. Empty in logs from before it was recorded. |
+
+## `timer_cancelled`
+
+A running timer was cancelled before it went off.
+
+Actor: `tool`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `timer_id` | string | yes | The timer cancelled. |
+| `conversation_id` | string | yes | The conversation that cancelled it. |
+| `call_id` | string | yes | The timer_cancel call that cancelled it. |
+
+## `timer_finished`
+
+A timer went off, and whether anybody was told. A timer nobody heard is a failure the household felt, so it is recorded as one (SPEC §7).
+
+Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `timer_id` | string | yes | The timer that went off. |
+| `outcome` | string | yes | announced: said on its satellite. unannounced: its satellite was not connected, or would not say it. missed: it came due while the daemon was down, too long ago to be worth saying. One of: `announced`, `unannounced`, `missed`. |
+| `conversation_id` | string |  | The conversation it was announced in. Empty unless announced. |
+| `error` | string |  | Why it was not announced. Empty when it was. |
+
+## `timer_started`
+
+A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0045).
+
+Actor: `tool`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `timer_id` | string | yes | What timer_cancel takes, e.g. t_3f9c2a10. |
+| `seconds` | integer | yes | How long it was set for. |
+| `fires_at` | string | yes | When it goes off, RFC 3339 in UTC. |
+| `satellite` | string | yes | Where it was set, which is where it goes off. |
+| `label` | string |  | What it is for, e.g. oven. Empty when unnamed. |
+| `announcement` | string |  | What the model asked to be said when it goes off. Empty says it from the label. |
+| `person` | string |  | Who set it. Empty for a guest. |
+| `conversation_id` | string | yes | The conversation that set it. |
+| `call_id` | string | yes | The timer_start call that set it. |
 
 ## `tool_called`
 

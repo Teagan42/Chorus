@@ -272,6 +272,8 @@ internal/
   blob/                 the audio a journal event refers to
   registry/             generated tool registry and policy (SPEC §6)
   hass/                 Home Assistant tools
+  timer/                the household's timers, and the tools that set them (ADR-0045)
+  announce/             the announce tool: speech on other satellites (ADR-0045)
   provider/             model clients: ollama, kokoro, speaches, speakerid, smartturn (SPEC §10)
   harvest/              barge-ins as preference candidates (SPEC §9.1)
   triage/               signals worth a reviewer's time, derived on read

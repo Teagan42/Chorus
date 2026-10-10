@@ -262,7 +262,7 @@ func TestAPersonScopedCallKnowsWhoMadeIt(t *testing.T) {
 	s := r.open(t, "teagan")
 	wait(t, heard(s, "remember that I take oat milk"))
 
-	want := session.Caller{Person: "teagan", ConversationID: s.ConversationID(), CallID: "call_r1"}
+	want := session.Caller{Person: "teagan", ConversationID: s.ConversationID(), CallID: "call_r1", Satellite: "kitchen"}
 	if got := <-callers; got != want {
 		t.Errorf("caller = %+v, want %+v", got, want)
 	}

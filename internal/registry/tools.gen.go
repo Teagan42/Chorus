@@ -70,6 +70,26 @@ type ConfirmRule struct {
 
 // Specs is every declared tool, keyed by name.
 var Specs = map[string]ToolSpec{
+	"announce": {
+		Name:             "announce",
+		Description:      "Say something out loud on other satellites with nobody waking them, e.g. Dinner is ready. Name a room, or leave it out to say it in every room but this one. Set start_conversation to listen there for an answer afterwards with no wake word.",
+		ModelDescription: "Say something out loud on other satellites with nobody waking them, e.g. Dinner is ready. Name a room, or leave it out to say it in every room but this one. Set start_conversation to listen there for an answer afterwards with no wake word.",
+		Params: []ParamSpec{
+			{Name: "text", Type: "string", Description: "What to say, as it should be heard, e.g. Dinner is ready, come down.", Required: true},
+			{Name: "room", Type: "string", Description: "Where to say it: a room or satellite name, e.g. kitchen. Leave it out for every room but this one.", Required: false},
+			{Name: "start_conversation", Type: "boolean", Description: "Listen for an answer afterwards, as if the person there had said the wake word.", Required: false},
+		},
+		ModelParams: []ParamSpec{
+			{Name: "text", Type: "string", Description: "What to say, as it should be heard, e.g. Dinner is ready, come down.", Required: true},
+			{Name: "room", Type: "string", Description: "Where to say it: a room or satellite name, e.g. kitchen. Leave it out for every room but this one.", Required: false},
+			{Name: "start_conversation", Type: "boolean", Description: "Listen for an answer afterwards, as if the person there had said the wake word.", Required: false},
+		},
+		OnInterrupt:          "detach",
+		Scope:                "household",
+		Timeout:              10000 * time.Millisecond,
+		RequiresConfirmation: false,
+		Slow:                 false,
+	},
 	"end_session": {
 		Name:                 "end_session",
 		Description:          "Close the conversation. Call when the task is complete rather than waiting for silence.",
@@ -216,6 +236,52 @@ var Specs = map[string]ToolSpec{
 			{Name: "mode", Type: "string", Description: "queue appends after current speech; preempt cancels it; interject ducks and cuts in.", Required: false, Enum: []string{"queue", "preempt", "interject"}},
 		},
 		OnInterrupt:          "cancel",
+		Scope:                "household",
+		Timeout:              10000 * time.Millisecond,
+		RequiresConfirmation: false,
+		Slow:                 false,
+	},
+	"timer_cancel": {
+		Name:             "timer_cancel",
+		Description:      "Cancel a running timer before it ends. Name it by the id timer_start or timer_list gave; call timer_list first when you do not know it.",
+		ModelDescription: "Cancel a running timer before it ends. Name it by the id timer_start or timer_list gave; call timer_list first when you do not know it.",
+		Params: []ParamSpec{
+			{Name: "timer_id", Type: "string", Description: "The id of the timer to cancel, e.g. t_3f9c2a10.", Required: true},
+		},
+		ModelParams: []ParamSpec{
+			{Name: "timer_id", Type: "string", Description: "The id of the timer to cancel, e.g. t_3f9c2a10.", Required: true},
+		},
+		OnInterrupt:          "detach",
+		Scope:                "household",
+		Timeout:              10000 * time.Millisecond,
+		RequiresConfirmation: false,
+		Slow:                 false,
+	},
+	"timer_list": {
+		Name:                 "timer_list",
+		Description:          "List the household's running timers: each one's id, label, the satellite it was set on, and the seconds left.",
+		ModelDescription:     "List the household's running timers: each one's id, label, the satellite it was set on, and the seconds left.",
+		OnInterrupt:          "cancel",
+		Scope:                "household",
+		Timeout:              10000 * time.Millisecond,
+		RequiresConfirmation: false,
+		Slow:                 false,
+	},
+	"timer_start": {
+		Name:             "timer_start",
+		Description:      "Start a countdown timer on this satellite. When it ends, the announcement is said out loud here, whether or not anyone is talking to you then. Returns the timer's id.",
+		ModelDescription: "Start a countdown timer on this satellite. When it ends, the announcement is said out loud here, whether or not anyone is talking to you then. Returns the timer's id.",
+		Params: []ParamSpec{
+			{Name: "seconds", Type: "integer", Description: "How long, in seconds, e.g. 720 for twelve minutes.", Required: true},
+			{Name: "label", Type: "string", Description: "What it is for, in a word or two, e.g. oven.", Required: false},
+			{Name: "announcement", Type: "string", Description: "What to say when it ends, as one short sentence, e.g. The oven timer is done.", Required: false},
+		},
+		ModelParams: []ParamSpec{
+			{Name: "seconds", Type: "integer", Description: "How long, in seconds, e.g. 720 for twelve minutes.", Required: true},
+			{Name: "label", Type: "string", Description: "What it is for, in a word or two, e.g. oven.", Required: false},
+			{Name: "announcement", Type: "string", Description: "What to say when it ends, as one short sentence, e.g. The oven timer is done.", Required: false},
+		},
+		OnInterrupt:          "detach",
 		Scope:                "household",
 		Timeout:              10000 * time.Millisecond,
 		RequiresConfirmation: false,

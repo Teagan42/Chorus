@@ -92,7 +92,7 @@ func (s *server) replays(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows []row
 	for _, id := range ids {
-		if err != nil || strings.HasPrefix(id, devicePrefix) {
+		if err != nil || strings.HasPrefix(id, devicePrefix) || id == houseLog {
 			continue
 		}
 		var events []journal.Event

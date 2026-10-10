@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/teaganglenn/chorus/internal/announce"
 	"github.com/teaganglenn/chorus/internal/blob"
 	"github.com/teaganglenn/chorus/internal/bridge"
 	"github.com/teaganglenn/chorus/internal/config"
@@ -18,6 +19,7 @@ import (
 	"github.com/teaganglenn/chorus/internal/memory"
 	"github.com/teaganglenn/chorus/internal/satellite"
 	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teaganglenn/chorus/internal/timer"
 )
 
 // helloTimeout bounds the opening handshake, so a connection from something
@@ -84,6 +86,12 @@ type daemon struct {
 	convs    *session.Conversations
 	gate     session.Gate
 	memories session.Memories
+
+	// links is each connected satellite's Listening child, by name: where
+	// an announcement for that satellite is said (ADR-0045).
+	linksMu sync.Mutex
+	links   map[string]*listen.Listener
+
 	// wg also counts the summaries still being written, which outlive the
 	// link whose conversation ended: run returns only once they are kept.
 	wg sync.WaitGroup
@@ -109,15 +117,16 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 		journal: journal.New(d.Store, d.Clock, d.versions),
 		convs:   session.NewConversations(d.Clock, session.MigrationWindow),
 		gate:    d.bargeInGate(),
+		links:   map[string]*listen.Listener{},
+	}
+	// The executors join whatever else is wired, Home Assistant's included.
+	tools := maps.Clone(d.tools)
+	if tools == nil {
+		tools = map[string]session.Tool{}
 	}
 	if d.Memories != nil {
-		// The executors join whatever else is wired, Home Assistant's included.
-		tools := maps.Clone(d.tools)
-		if tools == nil {
-			tools = map[string]session.Tool{}
-		}
 		maps.Copy(tools, memory.Tools(d.Memories, d.Clock))
-		dm.tools, dm.memories = tools, memory.Recaller(d.Memories, memory.RecallConfig{
+		dm.memories = memory.Recaller(d.Memories, memory.RecallConfig{
 			Embedder: d.embedder,
 			Failed: func(person string, err error) {
 				d.Log.Warn("recall: ranking failed, so the turn is told the newest", "person", person, "err", err)
@@ -127,6 +136,19 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 		// Nowhere to keep a summary, so none is written.
 		dm.summarizer = nil
 	}
+	// Timers live in the journal, so a household always has them: armed
+	// from the house log before the first satellite connects (ADR-0045).
+	timers, err := timer.Start(ctx, timer.Config{
+		Journal: dm.journal, Store: d.Store, Clock: d.Clock, Timers: d.Timers,
+		Announcer: dm, Log: d.Log,
+	})
+	if err != nil {
+		return err
+	}
+	defer timers.Wait()
+	maps.Copy(tools, timer.Tools(timers))
+	tools["announce"] = announce.Tool(dm, inv.Satellites)
+	dm.tools = tools
 	if d.Native != nil {
 		for i := range inv.Satellites {
 			sat := &inv.Satellites[i]
@@ -230,7 +252,6 @@ func (d *daemon) serve(ctx context.Context, conn net.Conn) {
 		log.Warn("audio link handshake failed", "err", err)
 		return
 	}
-	log.Info("satellite connected", "mic_channels", link.Hello().MicChannels)
 	defer func() { _ = link.Close() }()
 
 	if err := d.attach(ctx, sat, link, log); err != nil {
@@ -309,6 +330,10 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	if err != nil {
 		return err
 	}
+	d.link(sat.Name, lst)
+	defer d.unlink(sat.Name, lst)
+	// Logged once the link can take an announcement, not at the hello.
+	log.Info("satellite connected", "mic_channels", link.Hello().MicChannels)
 
 	err = link.Serve(linkCtx, handlers{speaker, lst})
 	cancel()
@@ -317,6 +342,39 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 		return nil
 	}
 	return err
+}
+
+// link makes lst where the satellite's announcements are said. A device
+// that reconnects replaces the link it left behind.
+func (d *daemon) link(name string, lst *listen.Listener) {
+	d.linksMu.Lock()
+	defer d.linksMu.Unlock()
+	d.links[name] = lst
+}
+
+// unlink forgets lst, unless a newer link has already replaced it.
+func (d *daemon) unlink(name string, lst *listen.Listener) {
+	d.linksMu.Lock()
+	defer d.linksMu.Unlock()
+	if d.links[name] == lst {
+		delete(d.links, name)
+	}
+}
+
+// Announce says a on the named satellite, through its Listening child, so
+// it joins whatever session is open there (announce.Announcer).
+func (d *daemon) Announce(ctx context.Context, satellite string, a session.Announcement) (string, error) {
+	d.linksMu.Lock()
+	lst := d.links[satellite]
+	d.linksMu.Unlock()
+	if lst == nil {
+		return "", announce.ErrNotConnected
+	}
+	conv, err := lst.Announce(ctx, a)
+	if errors.Is(err, listen.ErrLinkClosed) {
+		return "", announce.ErrNotConnected
+	}
+	return conv, err
 }
 
 // handlers fans one link's frames out to both children: the satellite

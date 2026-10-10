@@ -27,6 +27,7 @@
     {"ref": "tts/timer-howlong", "who": "assistant", "say": "Sure, how long?", "seconds": 1},
     {"ref": "mic/timer-twelve", "who": "alan", "say": "set a timer for twelve minutes", "seconds": 1.6},
     {"ref": "tts/timer-started", "who": "assistant", "say": "Twelve minute oven timer started.", "seconds": 1.5},
+    {"ref": "tts/oven-done", "who": "assistant", "say": "The oven timer is done.", "seconds": 1.5},
 
     {"ref": "mic/jazz-dim", "who": "alice", "say": "dim the living room lights", "seconds": 1.4},
     {"ref": "tts/jazz-dimmed", "who": "assistant", "say": "Dimmed to thirty percent.", "seconds": 1.5},

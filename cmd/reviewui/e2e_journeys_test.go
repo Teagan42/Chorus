@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/teaganglenn/chorus/internal/journal"
 	"github.com/teaganglenn/chorus/internal/provider/ollama"
+	"github.com/teaganglenn/chorus/internal/reviewui/household"
 	sess "github.com/teaganglenn/chorus/internal/session"
 )
 
@@ -591,10 +593,11 @@ func TestE2EJourneyBrowseFollowsThePersonAndWalksTheDays(t *testing.T) {
 	if fmt.Sprint(lanes) != "[kitchen living_room office]" {
 		t.Errorf("lanes = %v, want kitchen, living_room, office", lanes)
 	}
-	// Sessions: weather, zeppelin and timer in the kitchen; zeppelin's second
-	// half and jazz in the living room; garage and the list in the office.
-	if n := p.count(".day-lanes__session"); n != 7 {
-		t.Errorf("%d sessions on the lanes, want 7", n)
+	// Sessions: weather, zeppelin, the timer and its going off in the
+	// kitchen; zeppelin's second half and jazz in the living room; garage and
+	// the list in the office.
+	if n := p.count(".day-lanes__session"); n != 8 {
+		t.Errorf("%d sessions on the lanes, want 8", n)
 	}
 	// Flagged: every session that raised a signal. Zeppelin's living-room
 	// half and the shopping list raised none.
@@ -605,7 +608,7 @@ func TestE2EJourneyBrowseFollowsThePersonAndWalksTheDays(t *testing.T) {
 		t.Errorf("%d rejected wakes, want the dishwasher and the podcast", n)
 	}
 	p.waitText(".day-lanes", "moved rooms · same conversation")
-	p.waitText(".band:not(.row) .cap", "6 conversations")
+	p.waitText(".band:not(.row) .cap", "7 conversations")
 	p.waitText("#conversations", "alice · kitchen → living_room")
 	if strings.Contains(p.text("#conversations"), "lock the front door") {
 		t.Error("yesterday's conversation is listed today")
@@ -652,6 +655,45 @@ func TestE2EJourneyBrowseFollowsThePersonAndWalksTheDays(t *testing.T) {
 	// A week earlier: nothing happened.
 	p.visit("/conversations?day=2025-10-02")
 	p.waitText("body", "No conversations this day.")
+}
+
+// Twelve minutes after Alan set it, the oven timer goes off in an empty
+// kitchen. Browse lists it as an announcement nobody woke, its log says why
+// it was said and plays it, and the conversation that set it shows the timer
+// being set, from the house log, beside the call that set it.
+//
+// verifies SPEC §4, §9.2
+func TestE2EJourneyTheOvenTimerGoesOffInTheKitchen(t *testing.T) {
+	s, _ := newHouseholdServer(t)
+	p := open(t, s)
+
+	p.visit("/conversations")
+	oven := fmt.Sprintf(`#conversations a[href="%s"]`, conversationHref(convOven))
+	for _, want := range []string{"announcement", "The oven timer is done.", "no wake word", "for alan · kitchen", "12:22"} {
+		p.waitText(oven, want)
+	}
+	p.shot("journey-oven-browse")
+
+	p.follow(oven)
+	p.waitText(".page-head", "for alan · kitchen")
+	p.waitText("#seq-1", "opened on kitchen to announce")
+	p.waitText("#seq-1", "no wake word")
+	p.waitText("#seq-2", "The oven timer is done.")
+	p.waitText("#seq-2", "timer "+household.OvenTimer+" went off")
+	p.waitText("#house-2", "went off: announced")
+	p.waitText("#seq-6", "closed: announced")
+	closeTo(t, "the oven going off", p.durations("#seq-4"), []float64{1.5})
+	p.shot("journey-oven-goes-off")
+
+	p.visit(conversationHref(convTimer))
+	p.waitText("#house-1", "set the oven timer for 12m0s on kitchen")
+	p.waitText("#house-1", "goes off 2025-10-09T12:22:07.1Z")
+	var order []string
+	p.eval(`[...document.querySelectorAll("section[aria-label=Journal] > div")].map(e => e.id)`, &order)
+	if i := slices.Index(order, "house-1"); i < 1 || order[i-1] != "seq-8" {
+		t.Errorf("rows = %v, want the timer set just after the call that set it, seq-8", order)
+	}
+	p.shot("journey-oven-timer-set")
 }
 
 // failsOn answers like the scripted engine until it reaches one utterance,

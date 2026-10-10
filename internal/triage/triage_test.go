@@ -442,3 +442,27 @@ func TestAStartWithNoWaitIsNotJudged(t *testing.T) {
 		t.Errorf("a start with no wait raised %+v", sigs)
 	}
 }
+
+// The oven went off while the kitchen satellite was unplugged, and nobody
+// heard it: a failure the household felt, raised on the house log with the
+// words the timer would have said.
+//
+// verifies SPEC §7, §9.1
+func TestATimerNobodyHeardIsAFailure(t *testing.T) {
+	sigs := scan(t,
+		record(journal.KindTimerStarted, "", "timer_id", "t_0a7e11c3", "seconds", "720", "fires_at", "2026-10-08T18:52:00Z",
+			"satellite", "kitchen", "label", "oven", "announcement", "The oven timer is done.", "person", "alan",
+			"conversation_id", "conv-1840-kitchen", "call_id", "call_t1"),
+		record(journal.KindTimerStarted, "", "timer_id", "t_5b9d2e40", "seconds", "540", "fires_at", "2026-10-08T18:50:30Z",
+			"satellite", "kitchen", "label", "pasta", "person", "teagan", "conversation_id", "conv-1841-kitchen", "call_id", "call_t2"),
+		record(journal.KindTimerFinished, "", "timer_id", "t_5b9d2e40", "outcome", "announced", "conversation_id", "conv-1850-kitchen"),
+		record(journal.KindTimerFinished, "", "timer_id", "t_0a7e11c3", "outcome", "unannounced", "error", "kitchen: not connected"),
+	)
+	s := one(t, sigs)
+	if s.Kind != triage.KindFailure || s.Detail != "timer t_0a7e11c3 unannounced: kitchen: not connected" {
+		t.Errorf("signal = %+v", s)
+	}
+	if s.Utterance != "The oven timer is done." || s.Speaker != "alan" || s.Satellite != "kitchen" {
+		t.Errorf("context = %q / %q / %q", s.Utterance, s.Speaker, s.Satellite)
+	}
+}

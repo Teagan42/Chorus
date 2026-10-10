@@ -102,6 +102,9 @@ func transcript(dialogue []journal.Entry, people []string) string {
 				continue
 			}
 			b.WriteString("\nthe assistant said " + strconv.Quote(e.Text))
+			if a := e.Announces; a != nil {
+				b.WriteString(", unasked, " + because(a))
+			}
 			if e.Cut {
 				b.WriteString(", and was cut off there")
 			}
@@ -119,6 +122,17 @@ func transcript(dialogue []journal.Entry, people []string) string {
 		}
 	}
 	return b.String()
+}
+
+// because is why an announcement was said, in the summary's words.
+func because(a *journal.Announcement) string {
+	if a.Source == "timer" {
+		return "as a timer went off"
+	}
+	if a.RequestedBy != "" && a.FromSatellite != "" {
+		return "as " + a.RequestedBy + " asked from the " + a.FromSatellite
+	}
+	return "as someone asked from another room"
 }
 
 // now tells the model when this turn was heard, in the household's zone.

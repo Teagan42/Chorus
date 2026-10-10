@@ -51,6 +51,7 @@ satellite. What exists today:
 | endpointing — `listen.Semantic` over `internal/provider/smartturn` and `sidecars/smartturn` (Smart Turn v3.2 on ONNX) | ends a turn ~340 ms after the last word on CPU; right on 76 of 88 synthetic household takes, not yet measured on recorded speech |
 | `internal/hass` — the one real tool (SPEC §14 item 5) | verified against Home Assistant 2026.10; unlocking a door or disarming the alarm waits for a yes |
 | `internal/listen` — the Listening child: mic stream to utterances, barge-in candidates, attribution | under test |
+| `internal/timer`, `internal/announce` — timers that go off where they were set, and announcements to other rooms, answerable with no wake word | under test; timers survive a restart |
 | `internal/harvest`, `cmd/harvest` — barge-ins as DPO candidates | under test |
 | `cmd/reviewui` — Browse, Triage, Review, Replay, Curate and Export over the journal ([guide](docs/reviewui/README.md), [demo](https://teagan42.github.io/Chorus/demo/)) | under test, in a headless Chrome too |
 | `internal/triage` — barge-ins, failures, repeated asks, slow answers and speaker flips, derived on read | under test |

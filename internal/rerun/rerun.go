@@ -114,6 +114,9 @@ func Turns(events []journal.Event) ([]Turn, error) {
 		}
 		t := &out[len(out)-1]
 		switch e.Kind {
+		case journal.KindAnnouncementMade:
+			// Said for a timer or another room, not by the turn's model.
+			later[f["call_id"]] = true
 		case journal.KindMemoryRecalled:
 			if !asked {
 				t.Memories, t.Summaries = state.Recalled, state.RecalledSummaries

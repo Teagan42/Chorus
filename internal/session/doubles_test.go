@@ -122,6 +122,9 @@ type fakeSpeaker struct {
 	// cut is how many bytes of a held utterance were played before the cut.
 	cut int
 
+	// broken is a TTS that refuses every stream.
+	broken bool
+
 	mu      sync.Mutex
 	opened  []string
 	written chan string
@@ -136,6 +139,9 @@ func (f *fakeSpeaker) Open(ctx context.Context, callID string) (session.Stream, 
 	f.mu.Lock()
 	f.opened = append(f.opened, callID)
 	f.mu.Unlock()
+	if f.broken {
+		return nil, errors.New("kokoro: connection refused")
+	}
 	return &fakeStream{sp: f, ctx: ctx, callID: callID}, nil
 }
 

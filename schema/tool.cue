@@ -123,6 +123,48 @@ tools: {
 		]
 	}
 
+	// Timers belong to the house: anyone may set one, and it goes off on the
+	// satellite it was set on, conversation or no (ADR-0045). Setting and
+	// cancelling are done the moment they are called, so a barge-in keeps
+	// the result rather than leaving the model unsure what the house did.
+	timer_start: {
+		name:         "timer_start"
+		description:  "Start a countdown timer on this satellite. When it ends, the announcement is said out loud here, whether or not anyone is talking to you then. Returns the timer's id."
+		on_interrupt: "detach"
+		params: [
+			{name: "seconds", type: "integer", description: "How long, in seconds, e.g. 720 for twelve minutes.", required: true},
+			{name: "label", type: "string", description: "What it is for, in a word or two, e.g. oven."},
+			{name: "announcement", type: "string", description: "What to say when it ends, as one short sentence, e.g. The oven timer is done."},
+		]
+	}
+
+	timer_cancel: {
+		name:         "timer_cancel"
+		description:  "Cancel a running timer before it ends. Name it by the id timer_start or timer_list gave; call timer_list first when you do not know it."
+		on_interrupt: "detach"
+		params: [
+			{name: "timer_id", type: "string", description: "The id of the timer to cancel, e.g. t_3f9c2a10.", required: true},
+		]
+	}
+
+	timer_list: {
+		name:        "timer_list"
+		description: "List the household's running timers: each one's id, label, the satellite it was set on, and the seconds left."
+	}
+
+	// An announcement is a session with no wake word (SPEC §4): said on
+	// another satellite, and, with start_conversation, answerable there.
+	announce: {
+		name:         "announce"
+		description:  "Say something out loud on other satellites with nobody waking them, e.g. Dinner is ready. Name a room, or leave it out to say it in every room but this one. Set start_conversation to listen there for an answer afterwards with no wake word."
+		on_interrupt: "detach"
+		params: [
+			{name: "text", type: "string", description: "What to say, as it should be heard, e.g. Dinner is ready, come down.", required: true},
+			{name: "room", type: "string", description: "Where to say it: a room or satellite name, e.g. kitchen. Leave it out for every room but this one."},
+			{name: "start_conversation", type: "boolean", description: "Listen for an answer afterwards, as if the person there had said the wake word."},
+		]
+	}
+
 	media_search: {
 		name:         "media_search"
 		description:  "Search the media library."

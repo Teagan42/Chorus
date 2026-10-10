@@ -231,13 +231,25 @@ type walker struct {
 	// memories had not changed recorded none, and was told these.
 	recalled  []journal.Memory
 	summaries []journal.Summary
+
+	// announced are the speak calls that said an announcement. Nobody's
+	// turn chose those words, so they are no side of a pair (ADR-0045).
+	announced map[string]bool
 }
 
 func (w *walker) fold(e journal.Event) error {
 	if e.Speculative {
 		return nil
 	}
+	if w.announced[e.Fields["call_id"]] && e.Kind != journal.KindAnnouncementMade {
+		return nil
+	}
 	switch e.Kind {
+	case journal.KindAnnouncementMade:
+		if w.announced == nil {
+			w.announced = map[string]bool{}
+		}
+		w.announced[e.Fields["call_id"]] = true
 	case journal.KindUtteranceTranscribed:
 		w.closeTurn(&e)
 		w.cur = &turn{
@@ -328,11 +340,13 @@ func (w *walker) fold(e journal.Event) error {
 			w.cur.completed = true
 		}
 	case journal.KindSessionOpened, journal.KindBargeInRejected, journal.KindWakeRejected, journal.KindSpeechStarted,
-		journal.KindConfirmationRequested, journal.KindConfirmationGiven, journal.KindConversationSummarized:
+		journal.KindConfirmationRequested, journal.KindConfirmationGiven, journal.KindConversationSummarized,
+		journal.KindTimerStarted, journal.KindTimerCancelled, journal.KindTimerFinished:
 		// A resumed open continues the same log; rejections tune the gate; a
 		// start is when speech was heard, and the pair is what (ADR-0035). A
 		// held call's outcome is its tool_result; the nonce is the audit's. A
-		// summary is the conversation's, written after its last turn.
+		// summary is the conversation's, written after its last turn. Timers
+		// are the house log's, which holds no turns.
 	default:
 		return fmt.Errorf("unhandled event kind %q", e.Kind)
 	}

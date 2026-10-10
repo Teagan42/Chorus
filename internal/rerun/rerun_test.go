@@ -375,3 +375,25 @@ func TestATakeIsTheTurnsFirstAsk(t *testing.T) {
 		t.Errorf("finish = %q, want the first ask's", porch.Recorded.Finish)
 	}
 }
+
+// The oven timer goes off in the middle of Teagan's turn. A re-run of the
+// turn is compared on what the model said, and the oven was not the model.
+//
+// verifies SPEC §9.2
+func TestAnAnnouncementIsNotPartOfTheTurnItInterrupts(t *testing.T) {
+	recs := garageRecords()
+	oven := []journal.Record{
+		record(journal.KindAnnouncementMade, "text", "The oven timer is done.", "call_id", "an_0a7e", "source", "timer", "timer_id", "t_0a7e11c3"),
+		record(journal.KindToolCalled, "tool", "speak", "call_id", "an_0a7e", "args_json", `{"text":"The oven timer is done.","mode":"queue"}`),
+		record(journal.KindSpeechSpoken, "text", "The oven timer is done.", "frames_played", "24000", "call_id", "an_0a7e"),
+	}
+	ts := turns(t, logOf(t, append(append(append([]journal.Record{}, recs[:3]...), oven...), recs[3:]...)))
+	for _, s := range ts[0].Recorded.Speech {
+		if s.Text == "The oven timer is done." {
+			t.Errorf("speech = %+v: the oven is in the model's take", ts[0].Recorded.Speech)
+		}
+	}
+	if len(ts[0].Recorded.Speech) != 2 {
+		t.Errorf("speech = %+v, want the turn's own two", ts[0].Recorded.Speech)
+	}
+}

@@ -6,6 +6,7 @@ See [SPEC §6](../SPEC.md). Policy is enforced by the orchestrator from these sa
 
 | Tool | Interrupt | Scope | Timeout | Confirm | Latency |
 |---|---|---|---|---|---|
+| `announce` | detach | household | 10000ms | no | fast |
 | `end_session` | cancel | household | 10000ms | no | fast |
 | `forget` | cancel | person | 10000ms | no | fast |
 | `ha_call_service` | detach | household | 10000ms | **some calls** | fast |
@@ -14,6 +15,19 @@ See [SPEC §6](../SPEC.md). Policy is enforced by the orchestrator from these sa
 | `media_search` | detach | household | 20000ms | no | slow |
 | `remember` | cancel | person | 10000ms | no | fast |
 | `speak` | cancel | household | 10000ms | no | fast |
+| `timer_cancel` | detach | household | 10000ms | no | fast |
+| `timer_list` | cancel | household | 10000ms | no | fast |
+| `timer_start` | detach | household | 10000ms | no | fast |
+
+## `announce`
+
+Say something out loud on other satellites with nobody waking them, e.g. Dinner is ready. Name a room, or leave it out to say it in every room but this one. Set start_conversation to listen there for an answer afterwards with no wake word.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | yes | What to say, as it should be heard, e.g. Dinner is ready, come down. |
+| `room` | string |  | Where to say it: a room or satellite name, e.g. kitchen. Leave it out for every room but this one. |
+| `start_conversation` | boolean |  | Listen for an answer afterwards, as if the person there had said the wake word. |
 
 ## `end_session`
 
@@ -100,4 +114,28 @@ Say something to the user. Runs concurrently with other tools; the model chooses
 |---|---|---|---|
 | `text` | string | yes | What to say. |
 | `mode` | string |  | queue appends after current speech; preempt cancels it; interject ducks and cuts in. One of: `queue`, `preempt`, `interject`. |
+
+## `timer_cancel`
+
+Cancel a running timer before it ends. Name it by the id timer_start or timer_list gave; call timer_list first when you do not know it.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `timer_id` | string | yes | The id of the timer to cancel, e.g. t_3f9c2a10. |
+
+## `timer_list`
+
+List the household's running timers: each one's id, label, the satellite it was set on, and the seconds left.
+
+No parameters.
+
+## `timer_start`
+
+Start a countdown timer on this satellite. When it ends, the announcement is said out loud here, whether or not anyone is talking to you then. Returns the timer's id.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `seconds` | integer | yes | How long, in seconds, e.g. 720 for twelve minutes. |
+| `label` | string |  | What it is for, in a word or two, e.g. oven. |
+| `announcement` | string |  | What to say when it ends, as one short sentence, e.g. The oven timer is done. |
 
