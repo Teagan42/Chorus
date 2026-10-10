@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/reviewui/ui"
 	"github.com/teagan42/chorus/internal/triage"
@@ -23,12 +25,16 @@ type logRow struct {
 	Text    string
 	Unheard string // generated, never heard; struck through
 	Note    string
+	Lines   []string // what a recall told the model, one memory or conversation a line
 	Audio   string
 
 	// Signal tags the event Triage raised on; SignalWhy says why, in the
 	// text column where a sentence fits.
 	Signal    *ui.SigTag
 	SignalWhy string
+
+	// Annotation is the turn's labels, under the utterance that opens it.
+	Annotation *turnAnnotation
 }
 
 var kindTones = map[journal.Kind]ui.Tone{
@@ -39,11 +45,46 @@ var kindTones = map[journal.Kind]ui.Tone{
 	journal.KindToolCalled: ui.ToneHome, journal.KindToolResult: ui.ToneHome, journal.KindModelCompleted: ui.ToneMuted,
 	journal.KindAnnouncementMade: ui.ToneVoice,
 	journal.KindTimerStarted:     ui.ToneHome, journal.KindTimerCancelled: ui.ToneHome, journal.KindTimerFinished: ui.ToneHome,
+	journal.KindMemoryRecalled: ui.ToneConv, journal.KindConversationSummarized: ui.ToneConv,
+	journal.KindConfirmationRequested: ui.ToneHome, journal.KindConfirmationGiven: ui.ToneHome,
+}
+
+// logContext is what a row needs from the events before it: the call a
+// confirmation names, and what the person last said.
+type logContext struct {
+	calls map[string]journal.Event
+	heard journal.Event
+	loc   *time.Location
+}
+
+func (lc *logContext) see(e journal.Event) {
+	switch e.Kind {
+	case journal.KindToolCalled:
+		if lc.calls == nil {
+			lc.calls = map[string]journal.Event{}
+		}
+		lc.calls[e.Fields["call_id"]] = e
+	case journal.KindUtteranceTranscribed:
+		lc.heard = e
+	}
+}
+
+// call is how a confirmation row names the call it held or let run.
+func (lc *logContext) call(id string) (tool, args string) {
+	if lc == nil {
+		return "call " + id, ""
+	}
+	c, ok := lc.calls[id]
+	if !ok {
+		return "call " + id, ""
+	}
+	return c.Fields["tool"], c.Fields["args_json"]
 }
 
 // logRowOf says what one event means in a line, with its audio when the
-// event has some. A truncation plays only what the DAC reached.
-func logRowOf(e journal.Event, start journal.Event) logRow {
+// event has some. A truncation plays only what the DAC reached. lc, nil for
+// the house log, holds what came before.
+func logRowOf(e journal.Event, start journal.Event, lc *logContext) logRow {
 	f := e.Fields
 	row := logRow{
 		Anchor: fmt.Sprintf("seq-%d", e.Seq), Seq: e.Seq, Ref: fmt.Sprintf("#%d", e.Seq),
@@ -109,8 +150,90 @@ func logRowOf(e journal.Event, start journal.Event) logRow {
 		if f["error"] != "" {
 			row.Note += " · " + f["error"]
 		}
+	case journal.KindMemoryRecalled:
+		loc := time.UTC
+		if lc != nil && lc.loc != nil {
+			loc = lc.loc
+		}
+		row.Who = f["person"]
+		row.Text, row.Lines, row.Note = recalled(f, loc)
+	case journal.KindConversationSummarized:
+		row.Text, row.Note = f["summary"], "kept for "+people(f["people_json"])
+		if f["summary"] == "" {
+			row.Text = "no summary"
+		}
+		if f["error"] != "" {
+			row.Note += " · " + f["error"]
+		}
+	case journal.KindConfirmationRequested:
+		tool, args := lc.call(f["call_id"])
+		row.Text, row.Note = "held "+tool+" for the person's yes", args
+		row.Lines = []string{"nonce " + f["nonce"] + " · " + f["call_id"]}
+		if f["refused"] != "" {
+			row.Lines = append(row.Lines, "refused "+f["presented"]+": "+f["refused"])
+		}
+	case journal.KindConfirmationGiven:
+		tool, args := lc.call(f["call_id"])
+		row.Text, row.Note = tool+" ran on a yes", args
+		row.Lines = []string{"nonce " + f["nonce"] + " · " + f["call_id"]}
+		if lc != nil && lc.heard.Seq != 0 {
+			h := lc.heard.Fields
+			row.Lines = append(row.Lines, fmt.Sprintf("redeemed after #%d, %s: “%s”", lc.heard.Seq, h["speaker_id"], h["text"]))
+		}
 	}
 	return row
+}
+
+// recalled says what a turn was told it remembers, and how it was chosen.
+func recalled(f map[string]string, loc *time.Location) (text string, lines []string, note string) {
+	var ms []journal.Memory
+	var ss []journal.Summary
+	// An unreadable list shows as told nothing; the raw field is still in the log.
+	_ = json.Unmarshal([]byte(f["memories_json"]), &ms)
+	if raw := f["summaries_json"]; raw != "" {
+		_ = json.Unmarshal([]byte(raw), &ss)
+	}
+	text = "told " + counted(len(ms), "memory", "memories") + " and " + counted(len(ss), "earlier conversation", "earlier conversations")
+	if len(ms) == 0 && len(ss) == 0 {
+		text = "told nothing is remembered"
+	}
+	if f["ranked_by"] != "" {
+		note = "chosen by relevance · " + f["ranked_by"]
+	}
+	return text, memoryLines(f["person"], ms, ss, loc), note
+}
+
+// memoryLines is a line per memory, then per earlier conversation, as a
+// reviewer reads what the model was told about person.
+func memoryLines(person string, ms []journal.Memory, ss []journal.Summary, loc *time.Location) []string {
+	var lines []string
+	for _, m := range ms {
+		line := m.Fact
+		if m.Person != person {
+			line += " · " + m.Person + "'s, shared"
+		}
+		lines = append(lines, line)
+	}
+	for _, sum := range ss {
+		lines = append(lines, sum.At.In(loc).Format("Mon 2 Jan 15:04")+" · "+sum.Text)
+	}
+	return lines
+}
+
+func counted(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
+}
+
+// people is a JSON array of person ids as a list a sentence can hold.
+func people(raw string) string {
+	var ids []string
+	if json.Unmarshal([]byte(raw), &ids) != nil || len(ids) == 0 {
+		return "nobody"
+	}
+	return strings.Join(ids, ", ")
 }
 
 // announcedBecause says why an announcement was made, in a note.
@@ -160,7 +283,7 @@ func timersOf(r *http.Request, store journal.Store, id string) ([]journal.Event,
 // houseRowOf is a house log event among a conversation's own, anchored
 // apart from them.
 func houseRowOf(e journal.Event, start journal.Event) logRow {
-	row := logRowOf(e, start)
+	row := logRowOf(e, start, nil)
 	row.Anchor, row.Ref = fmt.Sprintf("house-%d", e.Seq), fmt.Sprintf("house #%d", e.Seq)
 	return row
 }
@@ -173,6 +296,7 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 		sigs  []triage.Signal
 		pairs []pair
 		house []journal.Event
+		annos map[uint64]curation.Annotation
 	)
 	if err == nil && len(events) > 0 {
 		sigs, err = triage.Scan(r.Context(), s.journal, id)
@@ -182,6 +306,9 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 	}
 	if err == nil && len(events) > 0 {
 		pairs, err = s.pairs(r.Context())
+	}
+	if err == nil && len(events) > 0 {
+		annos, err = s.decisions.Annotations(r.Context(), id)
 	}
 	s.mu.Unlock()
 	if err != nil {
@@ -199,12 +326,22 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 	}
 	c := summarize(id, events, sigs)
 	rows := make([]logRow, 0, len(events)+len(house))
+	lc := logContext{loc: s.now().Location()}
 	for _, e := range events {
 		for len(house) > 0 && !house[0].At.After(e.At) {
 			rows = append(rows, houseRowOf(house[0], events[0]))
 			house = house[1:]
 		}
-		row := logRowOf(e, events[0])
+		row := logRowOf(e, events[0], &lc)
+		lc.see(e)
+		if e.Kind == journal.KindUtteranceTranscribed {
+			a, ok := annos[e.Seq]
+			if !ok {
+				a = curation.Annotation{ConversationID: id, Seq: e.Seq}
+			}
+			v := annotationView(id, e.Seq, a)
+			row.Annotation = &v
+		}
 		if sig, ok := bySeq[e.Seq]; ok {
 			tag := signalTags[sig.Kind]
 			row.Signal, row.SignalWhy = &tag, sig.Detail

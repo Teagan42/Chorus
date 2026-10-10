@@ -1,7 +1,7 @@
 // Package household is one made-up household's Thursday, 9 October 2025, as
 // chorusd would have journaled it: three people, three satellites, every
-// signal Triage knows, a timer going off, and one conversation from the night
-// before. The review UI's browser tests walk a reviewer through this day, and
+// signal Triage knows, a timer going off, a door that waits for a yes, and
+// one conversation from the night before. The review UI's browser tests walk a reviewer through this day, and
 // the hosted demo serves it, so both show the same household.
 //
 // The audio is synthetic: voice.json says who says what and for how long,
@@ -27,9 +27,27 @@ const (
 	ConvTimer    = "conv-1210-kitchen"     // Alan asks for the oven timer twice: repeated
 	ConvOven     = "conv-1222-kitchen"     // the oven timer goes off: an announcement
 	ConvJazz     = "conv-1840-living_room" // Alice dims, Alan asks for jazz and cuts it: flip, unattributed barge-in
+	ConvDoor     = "conv-1858-kitchen"     // the front door waits for Teagan's yes: recall, nonce, summary
 	ConvList     = "conv-2104-office"      // nothing wrong at all
 	ConvLock     = "conv-2230-kitchen"     // the night before
 )
+
+// DoorNonce is what the held unlock was handed to ask with.
+const DoorNonce = "cf_4c1e9a07"
+
+// BookClub is what Teagan's turn was told it remembers when book club came.
+func BookClub() []journal.Memory {
+	return []journal.Memory{
+		{ID: "m_3b8f0a21", Person: "teagan", Fact: "Book club meets here on Thursdays at seven.", Shareable: true},
+		{ID: "m_c41d9e07", Person: "alice", Fact: "Leave the porch light on when guests are coming.", Shareable: true},
+	}
+}
+
+// LastNight is the conversation Teagan's turn was told of: the door locked
+// the night before, as its summary said.
+func LastNight() []journal.Summary {
+	return []journal.Summary{{ConversationID: ConvLock, At: Day().Add(at(-2, 30, 8.1)), Text: "Teagan locked the front door for the night."}}
+}
 
 // OvenTimer is the timer Alan set for the oven.
 const OvenTimer = "t_0a7e11c3"
@@ -76,6 +94,8 @@ func at(h, m int, s float64) time.Duration {
 }
 
 const speakArgs = `{"mode":"queue","streamed":true}`
+
+const doorArgs = `{"domain":"lock","service":"unlock","entity_id":"lock.front_door"}`
 
 // Logs is every conversation's log, keyed by conversation id.
 func Logs() map[string][]Line {
@@ -216,6 +236,31 @@ func Logs() map[string][]Line {
 			{at(-2, 30, 2.9), rec(journal.KindToolResult, "", "call_id", "s1", "outcome", "ok")},
 			{at(-2, 30, 3.0), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
 			{at(-2, 30, 8), rec(journal.KindSessionClosed, "", "reason", "model_ended", "satellite", "kitchen")},
+			{at(-2, 30, 8.1), rec(journal.KindConversationSummarized, "", "people_json", `["teagan"]`, "summary", LastNight()[0].Text)},
+		},
+		// Book club arrives. Unlocking waits for a yes the log can vouch for
+		// (ADR-0038), and the summary is written after the close (ADR-0043).
+		ConvDoor: {
+			{at(18, 58, 0), rec(journal.KindSessionOpened, "", "satellite", "kitchen", "speaker_id", "teagan", "resumed", "false")},
+			{at(18, 58, 0.3), rec(journal.KindUtteranceTranscribed, "blob://mic/door-ask", "text", "unlock the front door", "speaker_id", "teagan")},
+			{at(18, 58, 0.4), rec(journal.KindMemoryRecalled, "", "person", "teagan", "memories_json", journal.EncodeMemories(BookClub()), "summaries_json", journal.EncodeSummaries(LastNight()))},
+			{at(18, 58, 1.1), rec(journal.KindToolCalled, "", "tool", "ha_call_service", "call_id", "c1", "args_json", doorArgs)},
+			{at(18, 58, 1.1), rec(journal.KindConfirmationRequested, "", "call_id", "c1", "nonce", DoorNonce)},
+			{at(18, 58, 1.1), rec(journal.KindToolResult, "", "call_id", "c1", "outcome", "confirmation_required", "result_json", `{"confirmation_required":true,"nonce":"`+DoorNonce+`","note":"Ask the person, then call again with this nonce as confirmation once they agree."}`)},
+			{at(18, 58, 1.6), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s1", "args_json", speakArgs)},
+			{at(18, 58, 3.0), rec(journal.KindSpeechSpoken, "blob://tts/door-confirm", "text", "Unlock the front door?", "frames_played", "22400")},
+			{at(18, 58, 3.1), rec(journal.KindToolResult, "", "call_id", "s1", "outcome", "ok")},
+			{at(18, 58, 3.2), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
+			{at(18, 58, 4.0), rec(journal.KindUtteranceTranscribed, "blob://mic/door-yes", "text", "yes", "speaker_id", "teagan")},
+			{at(18, 58, 4.6), rec(journal.KindToolCalled, "", "tool", "ha_call_service", "call_id", "c2", "args_json", `{"domain":"lock","service":"unlock","entity_id":"lock.front_door","confirmation":"`+DoorNonce+`"}`)},
+			{at(18, 58, 4.6), rec(journal.KindConfirmationGiven, "", "call_id", "c2", "nonce", DoorNonce)},
+			{at(18, 58, 5.2), rec(journal.KindToolResult, "", "call_id", "c2", "outcome", "ok")},
+			{at(18, 58, 5.4), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s2", "args_json", speakArgs)},
+			{at(18, 58, 8.0), rec(journal.KindSpeechSpoken, "blob://tts/door-unlocked", "text", "Front door unlocked. Book club starts at seven.", "frames_played", "41600")},
+			{at(18, 58, 8.1), rec(journal.KindToolResult, "", "call_id", "s2", "outcome", "ok")},
+			{at(18, 58, 8.2), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
+			{at(18, 58, 14), rec(journal.KindSessionClosed, "", "reason", "model_ended", "satellite", "kitchen")},
+			{at(18, 58, 15.3), rec(journal.KindConversationSummarized, "", "people_json", `["teagan"]`, "summary", "Teagan let book club in: the front door was unlocked after a yes.")},
 		},
 		// Wakes the second stage threw out: the dishwasher, and a podcast.
 		// The kitchen and the living room have the mmWave radar; the office's

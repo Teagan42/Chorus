@@ -48,6 +48,12 @@ type meta struct {
 	// belong in the prompt's context beside Recalled.
 	RecalledConversations []journal.Summary `json:"recalled_conversations,omitempty"`
 	HeardAt               string            `json:"heard_at,omitempty"`
+
+	// Labels, ChosenVersions and ChosenCalls are an annotation's or a
+	// replay's, absent on a barge-in.
+	Labels         []string  `json:"labels,omitempty"`
+	ChosenVersions *versions `json:"chosen_versions,omitempty"`
+	ChosenCalls    []call    `json:"chosen_calls,omitempty"`
 }
 
 // versions mirrors journal.Versions field for field, so the struct conversion
@@ -113,6 +119,14 @@ func toRow(p Pair) (row, error) {
 	}
 	if p.Curated {
 		r.Chosen = []Message{{Role: "assistant", Content: p.Chosen}}
+	}
+	if p.ChosenVersions != (journal.Versions{}) {
+		v := versions(p.ChosenVersions)
+		r.Meta.ChosenVersions = &v
+	}
+	r.Meta.Labels = p.Labels
+	if len(p.ChosenCalls) > 0 {
+		r.Meta.ChosenCalls = calls(p.ChosenCalls)
 	}
 	return r, nil
 }

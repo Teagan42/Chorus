@@ -221,10 +221,17 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	pairs, err := s.pairs(r.Context())
+	all, err := s.pairs(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	// Review walks the cuts: a reviewer's own pairs have no barge-in to hear.
+	var pairs []pair
+	for _, p := range all {
+		if p.H.Source == harvest.SourceBargeIn {
+			pairs = append(pairs, p)
+		}
 	}
 	sel, ok := selectPair(pairs, r.URL.Query().Get("pair"), "all")
 	if !ok {
@@ -259,7 +266,7 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 
 	s.render(w, "page-review", map[string]any{
 		"Doc":    s.doc("Review · " + sel.ID),
-		"Header": ui.NewAppHeader(ui.StepReview, unreviewedCount(pairs), "chorus · journal"),
+		"Header": ui.NewAppHeader(ui.StepReview, unreviewedCount(all), "chorus · journal"),
 		"Head": ui.PageHead{
 			Eyebrow: "03 · Review", Trace: true,
 			Title:    sel.promptTitle(),
@@ -270,8 +277,17 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 		"Timeline":  reviewTimeline(sel.H, l),
 		"Inspector": reviewInspector(sel.H, l),
 		"Clips":     clips(sel.H),
+		"Told":      memoryLines(sel.speaker(), sel.H.Recalled, sel.H.RecalledSummaries, s.now().Location()),
 		"Pair":      s.pairView(sel, ui.PairModeView, ""),
 	})
+}
+
+// speaker is who asked what the rejected turn answered.
+func (p pair) speaker() string {
+	if n := len(p.H.Prompt); n > 0 {
+		return p.H.Prompt[n-1].Name
+	}
+	return p.H.HeardSpeaker
 }
 
 // promptTitle is the utterance the rejected turn answered: the page's name.

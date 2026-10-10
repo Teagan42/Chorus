@@ -136,7 +136,7 @@ def test_a_clone_speaks_only_the_people_it_has_a_voice_for(tmp_path, script):
     written = voice.generate(cloned, clone.CloneSpeaker(generate, decimate), tmp_path, set(refs))
 
     teagan = [c for c in script["clips"] if c.get("who") == "teagan"]
-    assert len(written) == len(teagan) == 6
+    assert len(written) == len(teagan) == 8
     assert set(heard) == {str(ref.resolve())}
 
 

@@ -15,6 +15,7 @@ import (
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/rerun"
 	"github.com/teagan42/chorus/internal/reviewui/audio"
 	"github.com/teagan42/chorus/internal/reviewui/ui"
 )
@@ -72,9 +73,12 @@ func (s *server) routes() *http.ServeMux {
 	mux.HandleFunc("GET "+ui.Routes[ui.StepTriage], s.triage)
 	mux.HandleFunc("GET "+ui.Routes[ui.StepBrowse], s.browse)
 	mux.HandleFunc("GET "+ui.Routes[ui.StepBrowse]+"/{id}", s.conversation)
+	mux.HandleFunc("POST "+ui.Routes[ui.StepBrowse]+"/{id}/turns/{seq}/labels/{label}", s.annotate)
+	mux.HandleFunc("POST "+ui.Routes[ui.StepBrowse]+"/{id}/turns/{seq}/note", s.annotate)
 	mux.HandleFunc("GET "+ui.Routes[ui.StepReplay], s.replays)
 	mux.HandleFunc("GET "+ui.Routes[ui.StepReplay]+"/{id}", s.replayPage)
 	mux.HandleFunc("POST "+ui.Routes[ui.StepReplay]+"/{id}", s.replayRun)
+	mux.HandleFunc("POST "+ui.Routes[ui.StepReplay]+"/{id}/turns/{seq}/promote", s.promote)
 	mux.Handle("GET /audio", audio.Handler(s.blobs))
 	mux.HandleFunc("GET "+ui.Routes[ui.StepExport], s.export)
 	mux.HandleFunc("GET /export/dpo.jsonl", s.exportJSONL)
@@ -90,9 +94,10 @@ type pair struct {
 	ui.Pair
 }
 
-// pairs harvests every conversation, newest activity first, and overlays the
-// stored verdicts. The page reads the log each time: the journal is the
-// source of truth and candidates are derived, never copied (SPEC §8).
+// pairs harvests every conversation, newest activity first, adds the pairs
+// reviewers cut from labelled and re-run turns, and overlays the stored
+// verdicts. The page reads the log each time: the journal is the source of
+// truth and candidates are derived, never copied (SPEC §8).
 func (s *server) pairs(ctx context.Context) ([]pair, error) {
 	convs, err := s.journal.Conversations(ctx)
 	if err != nil {
@@ -100,20 +105,116 @@ func (s *server) pairs(ctx context.Context) ([]pair, error) {
 	}
 	var out []pair
 	for _, conv := range convs {
-		harvested, err := harvest.Harvest(ctx, s.journal, conv)
+		res, err := harvest.Scan(ctx, s.journal, conv)
 		if err != nil {
 			return nil, fmt.Errorf("harvest %s: %w", conv, err)
+		}
+		reviewed, err := s.reviewersPairs(ctx, conv, res.Turns)
+		if err != nil {
+			return nil, err
 		}
 		verdicts, err := s.decisions.ForConversation(ctx, conv)
 		if err != nil {
 			return nil, err
 		}
-		for _, h := range harvested {
+		for _, h := range append(res.Pairs, reviewed...) {
 			d, decided := verdicts[h.ID]
 			out = append(out, pair{conversationID: conv, H: h, Pair: toUIPair(h, d, decided)})
 		}
 	}
 	return out, nil
+}
+
+// reviewersPairs cuts a pair from each turn a reviewer labelled with a fault
+// and what it should have done, and from each turn whose re-run they
+// promoted (SPEC §9.2). Neither is harvested: a person made them.
+func (s *server) reviewersPairs(ctx context.Context, conv string, turns []harvest.Turn) ([]harvest.Pair, error) {
+	annos, err := s.decisions.Annotations(ctx, conv)
+	if err != nil {
+		return nil, err
+	}
+	promos, err := s.decisions.Promotions(ctx, conv)
+	if err != nil {
+		return nil, err
+	}
+	asked, err := s.firstAsks(ctx, conv, len(promos) > 0)
+	if err != nil {
+		return nil, err
+	}
+	var out []harvest.Pair
+	for _, t := range turns {
+		if a := annos[t.Seq]; a.Faulted() {
+			h := t.Pair(conv, harvest.SourceAnnotation, a.ShouldHave)
+			h.Heard = labelled(a)
+			for _, l := range a.Labels {
+				h.Labels = append(h.Labels, string(l))
+			}
+			out = append(out, h)
+		}
+		if p, ok := promos[t.Seq]; ok {
+			h := t.Pair(conv, harvest.SourceReplay, p.Speech)
+			if r, ok := asked[t.Seq]; ok {
+				rejectFirstAsk(&h, r)
+			}
+			h.Heard = "re-run under " + p.Versions.Model + " · " + p.Versions.Prompt
+			h.ChosenVersions = p.Versions
+			for _, c := range p.Calls {
+				h.ChosenCalls = append(h.ChosenCalls, journal.Call{Tool: c.Tool, Args: c.Args})
+			}
+			// Both sides must name their configuration to train.
+			h.Attributed = h.Attributed && p.Versions.Model != "" && p.Versions.Prompt != "" && p.Versions.ToolSchema != ""
+			out = append(out, h)
+		}
+	}
+	return out, nil
+}
+
+// firstAsks indexes the conversation's turns as Replay compares them, read
+// only when a promotion needs them.
+func (s *server) firstAsks(ctx context.Context, conv string, need bool) (map[uint64]rerun.Turn, error) {
+	if !need {
+		return nil, nil
+	}
+	events, err := s.journal.Events(ctx, conv)
+	if err != nil {
+		return nil, err
+	}
+	turns, err := rerun.Turns(events)
+	if err != nil {
+		return nil, fmt.Errorf("replay %s: %w", conv, err)
+	}
+	out := make(map[uint64]rerun.Turn, len(turns))
+	for _, t := range turns {
+		out[t.Seq] = t
+	}
+	return out, nil
+}
+
+// rejectFirstAsk makes a replay pair's rejected side the turn's first ask,
+// the take the reviewer compared, not what follow-up asks added to it.
+func rejectFirstAsk(h *harvest.Pair, t rerun.Turn) {
+	var heard, unheard []string
+	cut := false
+	for _, sp := range t.Recorded.Speech {
+		if sp.Text != "" {
+			heard = append(heard, sp.Text)
+		}
+		if sp.Unheard != "" {
+			// Only a truncation's tail continues the heard text verbatim.
+			cut = cut || len(unheard) == 0 && sp.Text != ""
+			unheard = append(unheard, sp.Unheard)
+		}
+	}
+	h.Rejected, h.RejectedUnheard = strings.Join(heard, " "), strings.Join(unheard, " ")
+	if !cut && h.Rejected != "" && h.RejectedUnheard != "" {
+		h.RejectedUnheard = " " + h.RejectedUnheard
+	}
+	h.Calls = nil
+	for _, c := range t.Recorded.Calls {
+		h.Calls = append(h.Calls, journal.Call{Tool: c.Tool, Args: c.Args})
+	}
+	h.Versions = t.Versions
+	h.Attributed = t.Recorded.Finish != "" && t.Versions.Model != "" && t.Versions.Prompt != "" && t.Versions.ToolSchema != ""
 }
 
 // toUIPair maps a harvested candidate into the kit's pair. Chosen starts as
@@ -130,6 +231,10 @@ func toUIPair(h harvest.Pair, d curation.Decision, decided bool) ui.Pair {
 		Heard:           h.Heard,
 		AsSaid:          h.AsSaid,
 		Chosen:          h.AsSaid,
+	}
+	if h.Source != harvest.SourceBargeIn {
+		// A reviewer's pair already has the chosen side they wrote or promoted.
+		p.Chosen = h.Chosen
 	}
 	if decided {
 		p.Status = ui.PairStatus(d.Status)
@@ -268,6 +373,15 @@ func pairCap(p pair) string {
 
 func (s *server) pairView(p pair, mode ui.PairMode, draft string) ui.PairActions {
 	pa := ui.NewPairActions(p.Pair, mode, draft, "/pairs/"+p.ID, pairCap(p), nil)
+	// A reviewer's pair says what made it where a barge-in names its prompt.
+	switch {
+	case p.Source == ui.SourceAnnotation && p.Chosen == p.H.Chosen:
+		pa.Provenance = "authored by the reviewer · " + p.Heard
+	case p.Source == ui.SourceReplay && p.Chosen == p.H.Chosen:
+		pa.Provenance = "replay output · " + p.Heard
+	case p.Source != ui.SourceBargeIn:
+		pa.Provenance = "edited by you · " + p.Heard
+	}
 	return pa.WithDoneLinks(pairHref(p.ID, "all"), nil)
 }
 

@@ -43,7 +43,7 @@ func TestPgStoreConformance(t *testing.T) {
 	// The suite's cases share pair ids, so each gets an empty table rather
 	// than a namespaced store - the store under test must be the real one.
 	runStoreConformance(t, func(t *testing.T) curation.Store {
-		if _, err := pool.Exec(context.Background(), `TRUNCATE curation_decisions`); err != nil {
+		if _, err := pool.Exec(context.Background(), `TRUNCATE curation_decisions, curation_annotations, curation_promotions`); err != nil {
 			t.Fatalf("truncate: %v", err)
 		}
 		return curation.NewPgStore(pool)
@@ -67,5 +67,17 @@ func TestPgStoreRefusesAStatusTheFlowNeverProduces(t *testing.T) {
 		VALUES ('conv-raw/1', 'conv-raw', 'unreviewed', '', false, '', now())`)
 	if err == nil {
 		t.Error("the database accepted status \"unreviewed\"")
+	}
+}
+
+// verifies SPEC §9.2
+func TestPgStoreRefusesALabelOutsideTheVocabulary(t *testing.T) {
+	pool := openPg(t)
+	// Past the Go check, the CHECK constraint holds the vocabulary.
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO curation_annotations
+		VALUES ('conv-0853-kitchen', 2, ARRAY['rude'], '', now())`)
+	if err == nil {
+		t.Error("the database accepted label \"rude\"")
 	}
 }

@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/ollama"
 	"github.com/teagan42/chorus/internal/rerun"
@@ -50,6 +54,7 @@ type replayable struct {
 	events int
 	replay error
 	unread int
+	promos map[uint64]curation.Promotion
 }
 
 // readReplayable reads one conversation under the lock and lets it go: the
@@ -71,6 +76,9 @@ func (s *server) readReplayable(ctx context.Context, id string) (replayable, err
 	}
 	rp.start = events[0].At
 	if rp.turns, err = rerun.Turns(events); err != nil {
+		return replayable{}, err
+	}
+	if rp.promos, err = s.decisions.Promotions(ctx, id); err != nil {
 		return replayable{}, err
 	}
 	// The reducer is what keeps the log honest (SPEC §8): if it cannot read
@@ -145,9 +153,31 @@ type replayRow struct {
 	Seq      uint64
 	Speaker  string
 	Text     string
+	Told     []string // what the turn was told it remembers, which a re-run is told too
 	Recorded rerun.Take
 	Replayed *rerun.Take
 	Tag      ui.SigTag
+	Promote  promoteCell
+}
+
+// promoteCell offers a changed take as the chosen side of a replay pair, or
+// says one already was (SPEC §9.2).
+type promoteCell struct {
+	Seq      uint64
+	Button   *ui.Button
+	Promoted string // what the promoted take ran under
+	Href     string // the pair in Curate
+}
+
+func replayPairID(conv string, seq uint64) string {
+	return fmt.Sprintf("%s/%d/%s", conv, seq, harvest.SourceReplay)
+}
+
+func promotedCell(conv string, seq uint64, p curation.Promotion) promoteCell {
+	return promoteCell{
+		Seq: seq, Promoted: p.Versions.Model + " · " + p.Versions.Prompt,
+		Href: pairHref(replayPairID(conv, seq), "all"),
+	}
 }
 
 // replayResult is the swappable half of the page: recorded turns before a
@@ -159,13 +189,19 @@ type replayResult struct {
 	Rows  []replayRow
 }
 
-func recordedRows(turns []rerun.Turn) []replayRow {
-	rows := make([]replayRow, 0, len(turns))
-	for _, t := range turns {
-		rows = append(rows, replayRow{
+func (s *server) recordedRows(rp replayable) []replayRow {
+	rows := make([]replayRow, 0, len(rp.turns))
+	for _, t := range rp.turns {
+		row := replayRow{
 			Anchor: fmt.Sprintf("turn-%d", t.Seq), Seq: t.Seq, Speaker: t.Speaker, Text: t.Text,
+			Told:     memoryLines(t.Speaker, t.Memories, t.Summaries, s.now().Location()),
 			Recorded: t.Recorded, Tag: ui.SigTag{Text: "recorded", Tone: ui.ToneMuted},
-		})
+			Promote: promoteCell{Seq: t.Seq},
+		}
+		if p, ok := rp.promos[t.Seq]; ok {
+			row.Promote = promotedCell(rp.id, t.Seq, p)
+		}
+		rows = append(rows, row)
 	}
 	return rows
 }
@@ -225,7 +261,7 @@ func (s *server) replayPage(w http.ResponseWriter, r *http.Request) {
 			Label: "Re-run every turn", Type: "submit", Primary: true, Disabled: s.engineFor == nil,
 		},
 		"Action": replayHref(rp.id),
-		"Result": replayResult{Rows: recordedRows(rp.turns)},
+		"Result": replayResult{Rows: s.recordedRows(rp)},
 	})
 }
 
@@ -253,7 +289,7 @@ func (s *server) replayRun(w http.ResponseWriter, r *http.Request) {
 	if model == "" || strings.TrimSpace(prompt) == "" {
 		s.render(w, "replay-result", replayResult{
 			Alert: &ui.Alert{Title: "Nothing to run.", Body: "A re-run needs a model and a system prompt.", Tone: ui.ToneConv},
-			Rows:  recordedRows(rp.turns),
+			Rows:  s.recordedRows(rp),
 		})
 		return
 	}
@@ -261,15 +297,16 @@ func (s *server) replayRun(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.render(w, "replay-result", replayResult{
 			Alert: &ui.Alert{Title: "Cannot build the engine.", Body: err.Error(), Tone: ui.ToneConv},
-			Rows:  recordedRows(rp.turns),
+			Rows:  s.recordedRows(rp),
 		})
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), runTimeout)
 	defer cancel()
-	res := replayResult{Rows: recordedRows(rp.turns)}
+	res := replayResult{Rows: s.recordedRows(rp)}
 	speech, calls, ran := 0, 0, 0
+	promote := replayHref(rp.id) + "/turns/"
 	for i, t := range rp.turns {
 		take, err := rerun.Run(ctx, eng, rp.id, t)
 		if err != nil {
@@ -295,6 +332,9 @@ func (s *server) replayRun(w http.ResponseWriter, r *http.Request) {
 		default:
 			row.Tag = ui.SigTag{Text: "same", Tone: ui.ToneMuted}
 		}
+		if (c.Speech || c.Calls) && strings.TrimSpace(take.Said()) != "" {
+			row.Promote.Button = promoteButton(promote, t.Seq, take)
+		}
 		if c.Speech {
 			speech++
 		}
@@ -312,6 +352,88 @@ func (s *server) replayRun(w http.ResponseWriter, r *http.Request) {
 		res.Diff = &ui.CodeDiff{Label: "Prompt diff", Lines: d}
 	}
 	s.render(w, "replay-result", res)
+}
+
+// promoteButton posts the take back with the model and prompt that made it,
+// so the stored pair says where its chosen side came from.
+func promoteButton(base string, seq uint64, take rerun.Take) *ui.Button {
+	calls := make([]curation.Call, 0, len(take.Calls))
+	for _, c := range take.Calls {
+		calls = append(calls, curation.Call{Tool: c.Tool, Args: c.Args})
+	}
+	cj, _ := json.Marshal(calls) // two strings a call cannot fail to encode
+	vals, _ := json.Marshal(map[string]string{"speech": take.Said(), "calls": string(cj)})
+	cell := fmt.Sprintf("#promote-%d", seq)
+	return &ui.Button{Label: "Promote", Hx: ui.Hx{
+		Post: base + strconv.FormatUint(seq, 10) + "/promote", Target: cell, Swap: "outerHTML",
+		Include: "#replay-model, #replay-prompt", Vals: string(vals),
+	}}
+}
+
+// promote handles POST /replays/{id}/turns/{seq}/promote: the re-run's take
+// becomes the chosen side of a pair whose rejected side is what the turn
+// recorded, accepted, since the reviewer just judged it (SPEC §9.2).
+func (s *server) promote(w http.ResponseWriter, r *http.Request) {
+	if s.engineFor == nil {
+		http.Error(w, "no model configured: set OLLAMA_URL and OLLAMA_MODEL", http.StatusServiceUnavailable)
+		return
+	}
+	seq, err := strconv.ParseUint(r.PathValue("seq"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	f := r.PostForm
+	speech, model, prompt := strings.TrimSpace(f.Get("speech")), strings.TrimSpace(f.Get("model")), f.Get("prompt")
+	var calls []curation.Call
+	if raw := f.Get("calls"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &calls); err != nil {
+			http.Error(w, "calls: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	if speech == "" || model == "" || strings.TrimSpace(prompt) == "" {
+		http.Error(w, "a promotion needs what the re-run said, its model and its prompt", http.StatusBadRequest)
+		return
+	}
+	rp, err := s.readReplayable(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !slices.ContainsFunc(rp.turns, func(t rerun.Turn) bool { return t.Seq == seq }) {
+		http.NotFound(w, r)
+		return
+	}
+	// The versions are the server's to say, from the model and prompt sent.
+	_, v, err := s.engineFor(model, prompt)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	p := curation.Promotion{
+		ConversationID: rp.id, Seq: seq, Speech: speech, Calls: calls,
+		Versions: v, SystemPrompt: prompt, PromotedAt: s.now(),
+	}
+	s.mu.Lock()
+	err = s.decisions.PutPromotion(r.Context(), p)
+	if err == nil {
+		err = s.decisions.Put(r.Context(), curation.Decision{
+			PairID: replayPairID(rp.id, seq), ConversationID: rp.id,
+			Status: curation.StatusAccepted, Chosen: speech, Prev: "unreviewed", DecidedAt: s.now(),
+		})
+	}
+	s.mu.Unlock()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	s.render(w, "replay-promote", promotedCell(rp.id, seq, p))
 }
 
 func when(ok bool, t ui.Tone) ui.Tone {

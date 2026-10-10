@@ -37,6 +37,11 @@
     {"ref": "mic/jazz-quieter", "who": "alan", "say": "something quieter", "seconds": 0.9},
     {"ref": "tts/jazz-quiet", "who": "assistant", "say": "Playing Quiet Jazz Piano.", "seconds": 1.5},
 
+    {"ref": "mic/door-ask", "who": "teagan", "say": "unlock the front door", "seconds": 1.1},
+    {"ref": "tts/door-confirm", "who": "assistant", "say": "Unlock the front door?", "seconds": 1.4},
+    {"ref": "mic/door-yes", "who": "teagan", "say": "yes", "seconds": 0.5},
+    {"ref": "tts/door-unlocked", "who": "assistant", "say": "Front door unlocked. Book club starts at seven.", "seconds": 2.6},
+
     {"ref": "mic/list-oatmilk", "who": "teagan", "say": "add oat milk to the shopping list", "seconds": 1.6},
     {"ref": "tts/list-added", "who": "assistant", "say": "Added oat milk.", "seconds": 1},
 

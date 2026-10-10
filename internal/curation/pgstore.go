@@ -3,6 +3,7 @@ package curation
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -102,6 +103,141 @@ func (p *PgStore) ForConversation(ctx context.Context, conversationID string) (m
 	out := make(map[string]Decision, len(ds))
 	for _, d := range ds {
 		out[d.PairID] = d
+	}
+	return out, nil
+}
+
+// PutAnnotation upserts the turn's annotation, or deletes an empty one.
+func (p *PgStore) PutAnnotation(ctx context.Context, a Annotation) error {
+	if err := a.validate(); err != nil {
+		return err
+	}
+	if a.Empty() {
+		if _, err := p.db.Exec(ctx,
+			`DELETE FROM curation_annotations WHERE conversation_id = $1 AND turn_seq = $2`,
+			a.ConversationID, int64(a.Seq)); err != nil {
+			return fmt.Errorf("delete annotation %s/%d: %w", a.ConversationID, a.Seq, err)
+		}
+		return nil
+	}
+	labels := make([]string, len(a.Labels))
+	for i, l := range a.Labels {
+		labels[i] = string(l)
+	}
+	_, err := p.db.Exec(ctx, `
+		INSERT INTO curation_annotations (conversation_id, turn_seq, labels, should_have, annotated_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (conversation_id, turn_seq) DO UPDATE SET
+			labels       = excluded.labels,
+			should_have  = excluded.should_have,
+			annotated_at = excluded.annotated_at`,
+		a.ConversationID, int64(a.Seq), labels, a.ShouldHave, a.AnnotatedAt)
+	if err != nil {
+		return fmt.Errorf("put annotation %s/%d: %w", a.ConversationID, a.Seq, err)
+	}
+	return nil
+}
+
+// Annotations returns the conversation's annotations keyed by turn seq.
+func (p *PgStore) Annotations(ctx context.Context, conversationID string) (map[uint64]Annotation, error) {
+	rows, err := p.db.Query(ctx, `
+		SELECT conversation_id, turn_seq, labels, should_have, annotated_at
+		FROM curation_annotations WHERE conversation_id = $1`, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("annotations for %s: %w", conversationID, err)
+	}
+	as, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Annotation, error) {
+		var (
+			a      Annotation
+			seq    int64
+			labels []string
+		)
+		err := row.Scan(&a.ConversationID, &seq, &labels, &a.ShouldHave, &a.AnnotatedAt)
+		a.Seq, a.AnnotatedAt = uint64(seq), a.AnnotatedAt.UTC()
+		for _, l := range labels {
+			a.Labels = append(a.Labels, Label(l))
+		}
+		return a, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("annotations for %s: %w", conversationID, err)
+	}
+	out := make(map[uint64]Annotation, len(as))
+	for _, a := range as {
+		out[a.Seq] = a
+	}
+	return out, nil
+}
+
+// PutPromotion upserts the turn's promoted take.
+func (p *PgStore) PutPromotion(ctx context.Context, pr Promotion) error {
+	if err := pr.validate(); err != nil {
+		return err
+	}
+	calls := pr.Calls
+	if calls == nil {
+		calls = []Call{}
+	}
+	callsJSON, err := json.Marshal(calls)
+	if err != nil {
+		return fmt.Errorf("put promotion %s/%d: %w", pr.ConversationID, pr.Seq, err)
+	}
+	_, err = p.db.Exec(ctx, `
+		INSERT INTO curation_promotions (
+			conversation_id, turn_seq, speech, calls_json, model, prompt_version, tool_schema,
+			system_prompt, promoted_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (conversation_id, turn_seq) DO UPDATE SET
+			speech         = excluded.speech,
+			calls_json     = excluded.calls_json,
+			model          = excluded.model,
+			prompt_version = excluded.prompt_version,
+			tool_schema    = excluded.tool_schema,
+			system_prompt  = excluded.system_prompt,
+			promoted_at    = excluded.promoted_at`,
+		pr.ConversationID, int64(pr.Seq), pr.Speech, callsJSON,
+		pr.Versions.Model, pr.Versions.Prompt, pr.Versions.ToolSchema, pr.SystemPrompt, pr.PromotedAt)
+	if err != nil {
+		return fmt.Errorf("put promotion %s/%d: %w", pr.ConversationID, pr.Seq, err)
+	}
+	return nil
+}
+
+// Promotions returns the conversation's promoted takes keyed by turn seq.
+func (p *PgStore) Promotions(ctx context.Context, conversationID string) (map[uint64]Promotion, error) {
+	rows, err := p.db.Query(ctx, `
+		SELECT conversation_id, turn_seq, speech, calls_json, model, prompt_version, tool_schema,
+			system_prompt, promoted_at
+		FROM curation_promotions WHERE conversation_id = $1`, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("promotions for %s: %w", conversationID, err)
+	}
+	ps, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Promotion, error) {
+		var (
+			pr    Promotion
+			seq   int64
+			calls []byte
+		)
+		if err := row.Scan(&pr.ConversationID, &seq, &pr.Speech, &calls,
+			&pr.Versions.Model, &pr.Versions.Prompt, &pr.Versions.ToolSchema,
+			&pr.SystemPrompt, &pr.PromotedAt); err != nil {
+			return pr, err
+		}
+		pr.Seq, pr.PromotedAt = uint64(seq), pr.PromotedAt.UTC()
+		if err := json.Unmarshal(calls, &pr.Calls); err != nil {
+			return pr, fmt.Errorf("calls_json: %w", err)
+		}
+		if len(pr.Calls) == 0 {
+			pr.Calls = nil
+		}
+		return pr, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("promotions for %s: %w", conversationID, err)
+	}
+	out := make(map[uint64]Promotion, len(ps))
+	for _, pr := range ps {
+		out[pr.Seq] = pr
 	}
 	return out, nil
 }
