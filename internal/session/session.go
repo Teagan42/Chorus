@@ -886,9 +886,13 @@ func (s *Session) BargeIn(_ context.Context, c Candidate) (bool, error) {
 			Fields: map[string]string{"stage": stage},
 		})
 	}
+	fields := map[string]string{"tts_position_ms": strconv.Itoa(c.PositionMS)}
+	if s.sup.cfg.Gate.SpeakerIDUnavailable {
+		// Nothing judged the voice, so it passed no speaker check (ADR-0031).
+		fields["speaker_stage_skipped"] = "true"
+	}
 	if err := s.record(journal.Record{
-		Kind: journal.KindBargeInDetected, AudioRef: c.AudioRef,
-		Fields: map[string]string{"tts_position_ms": strconv.Itoa(c.PositionMS)},
+		Kind: journal.KindBargeInDetected, AudioRef: c.AudioRef, Fields: fields,
 	}); err != nil {
 		return false, err
 	}

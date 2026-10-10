@@ -372,6 +372,43 @@ func TestBargeInWithoutSpeakerIdentificationGatesOnEnergyAndWords(t *testing.T) 
 	}
 }
 
+// A detection the speaker stage never judged says so, so the tuning corpus
+// can tell it from one a household voice passed (ADR-0031).
+//
+// verifies SPEC §4.3
+func TestADetectionRecordsWhetherTheSpeakerStageRan(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		skipped bool
+		want    string
+	}{
+		{"identification on", false, ""},
+		{"identification off", true, "true"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			steps := []step{
+				{act: session.SpeechDelta{CallID: "s1", Text: line, Last: true}},
+				{act: session.TurnEnd{FinishReason: "stop", Completion: "{}"}},
+			}
+			r := newRigWith(t, steps, nil, nil, func(cfg *session.Config) { cfg.Gate.SpeakerIDUnavailable = c.skipped })
+			r.speaker.hold = true
+
+			s := r.open(t, "alice")
+			errc := heard(s, "find zeppelin")
+			r.speaker.wrote(t)
+			if ok, err := s.BargeIn(t.Context(), interruption(420)); err != nil || !ok {
+				t.Fatalf("barge-in: ok=%v err=%v", ok, err)
+			}
+			wait(t, errc)
+
+			detected := r.eventOf(t, s.ConversationID(), journal.KindBargeInDetected)
+			if got := detected.Fields["speaker_stage_skipped"]; got != c.want {
+				t.Errorf("speaker_stage_skipped = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 // rejection is a candidate the gate must refuse, and the stage that does.
 type rejection struct {
 	name  string
