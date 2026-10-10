@@ -75,10 +75,12 @@ no managed outbound-link helper. Native API retained for control only.
 
 - Two `MicrophoneSource` consumers on one `Microphone`: channel 0 and
   channel 1, each with its own ring buffer. This is what stock does. Both are
-  the XMOS's processed outputs, not a bare mic: channel 0 is AEC, interference
-  cancelling, noise suppression and AGC on both devices; channel 1 is
-  AEC+IC+NS on the Satellite1's firmware and AEC alone by default on the Voice
-  PE's, which can switch it to the unprocessed mic over its control interface.
+  the XMOS's outputs, and by default neither is a bare mic: channel 0 is AEC,
+  interference cancelling, noise suppression and AGC on both devices; channel
+  1 is AEC+IC+NS on the Satellite1's firmware and AEC alone by default on the
+  Voice PE's. The Voice PE can switch channel 1 to the unprocessed mic over its
+  control interface, so what channel 1 carries is the firmware's setting, not
+  something the host can assume.
 - Callbacks fire on the **mic's FreeRTOS task, not `loop()`**. Signature
   `void(const std::vector<uint8_t> &)`. Not an ISR, so blocking is legal, but
   sockets / API / `App` must not be touched there.
