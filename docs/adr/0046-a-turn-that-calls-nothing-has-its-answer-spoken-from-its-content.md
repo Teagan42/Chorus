@@ -34,8 +34,11 @@ var spoken = session.SpeechDelta{Text: "The garage door code is 4512.", Mode: se
 
 Then the content is spoken once the turn ends, as one queued utterance with
 no call id. The session records it as an implicit speak, as it does inline
-content (ADR-0003). A first line that names the speak tool is the call the
-model meant to make, and is not said aloud.
+content (ADR-0003). The speak tool's name leading the content is the call
+the model meant to make, and is not said aloud: `speak` on a line of its
+own, `speak:` before the words, or `speak "…"` on one line, whose quotes are
+dropped too. Content that only starts with the word, like "Speaker volume
+in the kitchen is at forty percent.", is said whole.
 
 **Reasoning in content is still never spoken.** With `think: false` there
 is no thinking field, so the content is the reasoning and stays unheard,
@@ -63,7 +66,13 @@ content is never heard, since it now can be.
   turn that is nothing but the answer, that is the same moment.
 - **A model with thinking off that answers in content is still unheard.**
   Its content cannot be told apart from reasoning.
-- **Measured once.** The three answers above are from one models-tier run
+- **Measured twice.** The three answers above are from one models-tier run
   on the household's Ollama. The fixtures `answered_in_content.ndjson` and
   `day_in_content.ndjson` are rebuilt from that run's output, in the
-  shape Ollama streams.
+  shape Ollama streams. The rerun with this decoder, ten times over each
+  of those questions and the remembered-memory ones, failed once. Asked "how do I take my coffee", qwen3:14b read it as how to
+  brew it and wrote `speak "Would you like instructions on how to brew your
+  coffee, or are you looking for something else?"`, which was said with
+  the tool's name and quotes. That shape is now stripped
+  (`question_in_content.ndjson`). The misreading is the model's, and is
+  left to it.
