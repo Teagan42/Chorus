@@ -1,0 +1,104 @@
+sheet: connector
+title: The Satellite1 HAT's expansion connector, and the speaker
+parts:
+  J1:
+    part: FX23L-80S-0.5SV
+    note: >-
+      mates the HAT's J7; centred 10 mm above the HAT's centre, pad 1 toward
+      +x, as FutureProofHomes' shoe places it
+  J2: {part: JST_PH_2P_VERTICAL, note: "speaker, for a driver in the base; the HAT's own speaker connector is the other choice"}
+nets:
+  # The kit's ground pads, every one: the connector is the only return path
+  # for the HAT's audio and the W5500's SPI.
+  GND:
+    - J1.6
+    - J1.9
+    - J1.14
+    - J1.20
+    - J1.25
+    - J1.30
+    - J1.34
+    - J1.39
+    - J1.46
+    - J1.49
+    - J1.52
+    - J1.54
+    - J1.59
+    - J1.MH1
+    - J1.MH3
+  5V0: [J1.MH2]
+  VBUS: [J1.MH4]
+
+  # The HAT's amplifier output, both pads of each side.
+  SPK_P: [J1.63, J1.64, J2.1]
+  SPK_N: [J1.65, J1.66, J2.2]
+
+  # The ESP32's pins this board takes; pins.yaml says which and why.
+  ETH_RST_N: [J1.13]
+  ETH_MOSI: [J1.16]
+  ETH_SCLK: [J1.22]
+  ETH_MISO: [J1.31]
+  ETH_INT_N: [J1.33]
+  POE_SENSE: [J1.36]
+  ETH_CS_N: [J1.37]
+nc:
+  # Everything else the kit puts on J7 is the HAT's and the Core's business,
+  # and the pads the HAT leaves unconnected stay that way here.
+  - J1.1
+  - J1.2
+  - J1.3
+  - J1.4
+  - J1.5
+  - J1.7
+  - J1.8
+  - J1.10
+  - J1.11
+  - J1.12
+  - J1.15
+  - J1.17
+  - J1.18
+  - J1.19
+  - J1.21
+  - J1.23
+  - J1.24
+  - J1.26
+  - J1.27
+  - J1.28
+  - J1.29
+  - J1.32
+  - J1.35
+  - J1.38
+  - J1.40
+  - J1.41
+  - J1.42
+  - J1.43
+  - J1.44
+  - J1.45
+  - J1.47
+  - J1.48
+  - J1.50
+  - J1.51
+  - J1.53
+  - J1.55
+  - J1.56
+  - J1.57
+  - J1.58
+  - J1.60
+  - J1.61
+  - J1.62
+  - J1.67
+  - J1.68
+  - J1.69
+  - J1.70
+  - J1.71
+  - J1.72
+  - J1.73
+  - J1.74
+  - J1.75
+  - J1.76
+  - J1.77
+  - J1.78
+  - J1.79
+  - J1.80
+  - J1.MP1
+  - J1.MP2

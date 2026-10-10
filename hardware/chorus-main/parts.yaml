@@ -1,0 +1,391 @@
+# Every part the chorus-main sheets may place, with every pad on its
+# footprint. `go test ./internal/board` refuses a sheet that wires a pin not
+# listed here, leaves a pad off every net, or places a part JLCPCB cannot
+# source without saying so. docs/hardware/README.md explains the choices.
+#
+#   symbol      KiCad lib:symbol, for the drawn schematic
+#   footprint   KiCad lib:footprint; chorus-main:* are drawn or vendored for
+#               this board, in chorus-main.pretty
+#   pinout      where the pad table was read; "inferred" where nothing states it
+#   mpn         the manufacturer's part number
+#   lcsc        JLCPCB's catalogue number
+#   values      for parts bought by value: each value the board uses, with its
+#               number, or "" for JLCPCB to match from its basic library
+#   hand        why JLCPCB cannot place it, when it cannot
+#   side        back for a part mounted on B.Cu
+#   unverified  what about the part is not yet confirmed; the board is not
+#               ordered while any part says so
+#
+# Most parts are rev A's (hardware/chorus-sat, retired; see ADR-0055), so
+# their pad tables were read then. Sources named below: [S1] FutureProofHomes
+# Satellite1 HAT rev 6.1 schematic at 2eb08ffa; [SHOE] their mini speaker
+# shoe rev 1, schematic and 3D model at 2eb08ffa; [PROTO] their Satellite1
+# protoboard rev 1 render at 2eb08ffa; [WIZ] WIZnet W5500-EVB-Pico-PoE
+# schematic at e3f0b08d; [AG] Silvertel Ag9900M datasheet v3.4.
+#
+# Parts on the back are the tall ones. The Core hangs from the HAT's
+# underside into the gap above this board, so its top side carries only low
+# parts and the receptacle, as FutureProofHomes' shoe does.
+
+parts:
+  # ------------------------------------------------------------- the kit
+  FX23L-80S-0.5SV:
+    symbol: chorus-main:FX23L-80S-0.5SV
+    footprint: chorus-main:Hirose_FX23L-80S-0.5SV
+    pinout: >-
+      [S1] p2 J7, the plug it mates, pad for pad; MH1-MH4 are the four power
+      contacts and MP1, MP2 the fixing tabs. Where each pad sits on the
+      footprint: chorus-main.pretty/README.md
+    mpn: FX23L-80S-0.5SV(20)
+    hand: >-
+      no LCSC number for this receptacle has been confirmed; until one is,
+      it is bought from Hirose's distributors and soldered after assembly
+    unverified: >-
+      which power contact is which. The signal pads are read from
+      FutureProofHomes' shoe and protoboard; MH1-MH4 are inferred from the
+      shoe's copper, and a 5 V and VBUS swap puts PoE's 12 V on the HAT's
+      5 V rail. Confirm against Hirose's or a vendor's footprint, or by
+      measuring a powered HAT's plug, before ordering
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+      - {pad: "3", name: "3", type: passive}
+      - {pad: "4", name: "4", type: passive}
+      - {pad: "5", name: "5", type: passive}
+      - {pad: "6", name: "6", type: passive}
+      - {pad: "7", name: "7", type: passive}
+      - {pad: "8", name: "8", type: passive}
+      - {pad: "9", name: "9", type: passive}
+      - {pad: "10", name: "10", type: passive}
+      - {pad: "11", name: "11", type: passive}
+      - {pad: "12", name: "12", type: passive}
+      - {pad: "13", name: "13", type: passive}
+      - {pad: "14", name: "14", type: passive}
+      - {pad: "15", name: "15", type: passive}
+      - {pad: "16", name: "16", type: passive}
+      - {pad: "17", name: "17", type: passive}
+      - {pad: "18", name: "18", type: passive}
+      - {pad: "19", name: "19", type: passive}
+      - {pad: "20", name: "20", type: passive}
+      - {pad: "21", name: "21", type: passive}
+      - {pad: "22", name: "22", type: passive}
+      - {pad: "23", name: "23", type: passive}
+      - {pad: "24", name: "24", type: passive}
+      - {pad: "25", name: "25", type: passive}
+      - {pad: "26", name: "26", type: passive}
+      - {pad: "27", name: "27", type: passive}
+      - {pad: "28", name: "28", type: passive}
+      - {pad: "29", name: "29", type: passive}
+      - {pad: "30", name: "30", type: passive}
+      - {pad: "31", name: "31", type: passive}
+      - {pad: "32", name: "32", type: passive}
+      - {pad: "33", name: "33", type: passive}
+      - {pad: "34", name: "34", type: passive}
+      - {pad: "35", name: "35", type: passive}
+      - {pad: "36", name: "36", type: passive}
+      - {pad: "37", name: "37", type: passive}
+      - {pad: "38", name: "38", type: passive}
+      - {pad: "39", name: "39", type: passive}
+      - {pad: "40", name: "40", type: passive}
+      - {pad: "41", name: "41", type: passive}
+      - {pad: "42", name: "42", type: passive}
+      - {pad: "43", name: "43", type: passive}
+      - {pad: "44", name: "44", type: passive}
+      - {pad: "45", name: "45", type: passive}
+      - {pad: "46", name: "46", type: passive}
+      - {pad: "47", name: "47", type: passive}
+      - {pad: "48", name: "48", type: passive}
+      - {pad: "49", name: "49", type: passive}
+      - {pad: "50", name: "50", type: passive}
+      - {pad: "51", name: "51", type: passive}
+      - {pad: "52", name: "52", type: passive}
+      - {pad: "53", name: "53", type: passive}
+      - {pad: "54", name: "54", type: passive}
+      - {pad: "55", name: "55", type: passive}
+      - {pad: "56", name: "56", type: passive}
+      - {pad: "57", name: "57", type: passive}
+      - {pad: "58", name: "58", type: passive}
+      - {pad: "59", name: "59", type: passive}
+      - {pad: "60", name: "60", type: passive}
+      - {pad: "61", name: "61", type: passive}
+      - {pad: "62", name: "62", type: passive}
+      - {pad: "63", name: "63", type: passive}
+      - {pad: "64", name: "64", type: passive}
+      - {pad: "65", name: "65", type: passive}
+      - {pad: "66", name: "66", type: passive}
+      - {pad: "67", name: "67", type: passive}
+      - {pad: "68", name: "68", type: passive}
+      - {pad: "69", name: "69", type: passive}
+      - {pad: "70", name: "70", type: passive}
+      - {pad: "71", name: "71", type: passive}
+      - {pad: "72", name: "72", type: passive}
+      - {pad: "73", name: "73", type: passive}
+      - {pad: "74", name: "74", type: passive}
+      - {pad: "75", name: "75", type: passive}
+      - {pad: "76", name: "76", type: passive}
+      - {pad: "77", name: "77", type: passive}
+      - {pad: "78", name: "78", type: passive}
+      - {pad: "79", name: "79", type: passive}
+      - {pad: "80", name: "80", type: passive}
+      - {pad: MH1, name: MH1, type: passive}
+      - {pad: MH2, name: MH2, type: passive}
+      - {pad: MH3, name: MH3, type: passive}
+      - {pad: MH4, name: MH4, type: passive}
+      - {pad: MP1, name: MP1, type: passive}
+      - {pad: MP2, name: MP2, type: passive}
+
+  # ------------------------------------------------------------ ethernet
+  W5500:
+    symbol: Interface_Ethernet:W5500
+    footprint: Package_QFP:LQFP-48_7x7mm_P0.5mm
+    datasheet: https://docs.wiznet.io/img/products/w5500/W5500_ds_v110e.pdf
+    pinout: KiCad Interface_Ethernet:W5500, as [WIZ] p1
+    mpn: W5500
+    lcsc: C32843
+    pins:
+      - {pad: "1", name: TXN, type: output}
+      - {pad: "2", name: TXP, type: output}
+      - {pad: "3", name: AGND, type: power_in}
+      - {pad: "4", name: AVDD, type: power_in}
+      - {pad: "5", name: RXN, type: input}
+      - {pad: "6", name: RXP, type: input}
+      - {pad: "7", name: DNC, type: no_connect}
+      - {pad: "8", name: AVDD, type: power_in}
+      - {pad: "9", name: AGND, type: power_in}
+      - {pad: "10", name: EXRES1, type: passive}
+      - {pad: "11", name: AVDD, type: power_in}
+      - {pad: "12", name: NC, type: no_connect}
+      - {pad: "13", name: NC, type: no_connect}
+      - {pad: "14", name: AGND, type: power_in}
+      - {pad: "15", name: AVDD, type: power_in}
+      - {pad: "16", name: AGND, type: power_in}
+      - {pad: "17", name: AVDD, type: power_in}
+      - {pad: "18", name: VBG, type: output}
+      - {pad: "19", name: AGND, type: power_in}
+      - {pad: "20", name: TOCAP, type: passive}
+      - {pad: "21", name: AVDD, type: power_in}
+      - {pad: "22", name: 1V2O, type: passive}
+      - {pad: "23", name: RSVD, type: input}
+      - {pad: "24", name: SPDLED, type: output}
+      - {pad: "25", name: LINKLED, type: output}
+      - {pad: "26", name: DUPLED, type: output}
+      - {pad: "27", name: ACTLED, type: output}
+      - {pad: "28", name: VDD, type: power_in}
+      - {pad: "29", name: GND, type: power_in}
+      - {pad: "30", name: XI, type: input}
+      - {pad: "31", name: XO, type: output}
+      - {pad: "32", name: SCS_N, type: input}
+      - {pad: "33", name: SCLK, type: input}
+      - {pad: "34", name: MISO, type: tri_state}
+      - {pad: "35", name: MOSI, type: input}
+      - {pad: "36", name: INT_N, type: open_collector}
+      - {pad: "37", name: RST_N, type: input}
+      - {pad: "38", name: RSVD, type: input}
+      - {pad: "39", name: RSVD, type: input}
+      - {pad: "40", name: RSVD, type: input}
+      - {pad: "41", name: RSVD, type: input}
+      - {pad: "42", name: RSVD, type: input}
+      - {pad: "43", name: PMODE2, type: input}
+      - {pad: "44", name: PMODE1, type: input}
+      - {pad: "45", name: PMODE0, type: input}
+      - {pad: "46", name: NC, type: no_connect}
+      - {pad: "47", name: NC, type: no_connect}
+      - {pad: "48", name: AGND, type: power_in}
+
+  LPJG0926HENL:
+    symbol: chorus-main:LPJG0926HENL
+    footprint: chorus-main:LINK-PP_LPJG0926HENL
+    pinout: >-
+      NabuCasa yellow Yellow.kicad_sym at c3d51b80 and OLIMEX's footprint at
+      ad6e0bc4; which TD pair the W5500's TX and RX take is inferred
+    mpn: LPJG0926HENL
+    lcsc: C22457393
+    side: back
+    pins:
+      - {pad: "1", name: TD1_P, type: passive}
+      - {pad: "2", name: TD1_N, type: passive}
+      - {pad: "3", name: TD2_P, type: passive}
+      - {pad: "4", name: CT1, type: passive}
+      - {pad: "5", name: CT2, type: passive}
+      - {pad: "6", name: TD2_N, type: passive}
+      - {pad: "7", name: TD3_P, type: passive}
+      - {pad: "8", name: TD3_N, type: passive}
+      - {pad: "9", name: TD4_P, type: passive}
+      - {pad: "10", name: TD4_N, type: passive}
+      - {pad: "11", name: VC1, type: passive}
+      - {pad: "12", name: VC2, type: passive}
+      - {pad: "13", name: VC3, type: passive}
+      - {pad: "14", name: VC4, type: passive}
+      - {pad: "15", name: LED1_A, type: passive}
+      - {pad: "16", name: LED1_K, type: passive}
+      - {pad: "17", name: LED2_A, type: passive}
+      - {pad: "18", name: LED2_K, type: passive}
+      - {pad: SH, name: SHIELD, type: passive}
+
+  XTAL_25M_3225:
+    symbol: Device:Crystal_GND24
+    footprint: Crystal:Crystal_SMD_3225-4Pin_3.2x2.5mm
+    pinout: 4-pad 3225 crystal; 1 and 3 the crystal, 2 and 4 its case
+    mpn: XL2EL89CRI-111YLC-25M
+    lcsc: C19078191
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: GND, type: passive}
+      - {pad: "3", name: "3", type: passive}
+      - {pad: "4", name: GND, type: passive}
+
+  # ---------------------------------------------------------------- power
+  AG9912-MTB:
+    symbol: chorus-main:AG9912-MTB
+    footprint: chorus-main:Silvertel_Ag9912-MTB
+    datasheet: https://silvertel.com/images/datasheets/Ag9900M-datasheet-ultra-miniature-isolated-Power-over-Ethernet-POE-module.pdf
+    pinout: "[AG] pp3-9; output is isolated, so -VDC is the board's ground"
+    mpn: AG9912-MTB
+    lcsc: C20939164
+    side: back
+    pins:
+      - {pad: "1", name: VDC_P, type: power_out}
+      - {pad: "2", name: VDC_N, type: power_in}
+      - {pad: "3", name: ADJ, type: passive}
+      - {pad: "4", name: VIN_P, type: power_in}
+      - {pad: "5", name: VIN_N, type: power_in}
+
+  MB6S:
+    symbol: Diode_Bridge:MB6S
+    footprint: Package_TO_SOT_SMD:TO-269AA
+    pinout: KiCad Diode_Bridge:MB2S, which MB6S extends; 1 and 2 AC, 3 +, 4 -
+    mpn: MB6S
+    lcsc: C7528221
+    pins:
+      - {pad: "1", name: AC1, type: passive}
+      - {pad: "2", name: AC2, type: passive}
+      - {pad: "3", name: P, type: passive}
+      - {pad: "4", name: "N", type: passive}
+
+  SMAJ58A:
+    symbol: Diode:SMAJ58A
+    footprint: Diode_SMD:D_SMA
+    pinout: SMA, cathode band on pad 1
+    mpn: SMAJ58A
+    lcsc: C19077554
+    pins:
+      - {pad: "1", name: K, type: passive}
+      - {pad: "2", name: A, type: passive}
+
+  SS32:
+    symbol: Device:D_Schottky
+    footprint: Diode_SMD:D_SMA
+    pinout: SMA, cathode band on pad 1; as [SHOE] puts it between the PoE module and VBUS
+    mpn: SS32
+    lcsc: C34897
+    pins:
+      - {pad: "1", name: K, type: passive}
+      - {pad: "2", name: A, type: passive}
+
+  SPX3819M5-L-3-3:
+    symbol: Regulator_Linear:SPX3819M5-L-3-3
+    footprint: Package_TO_SOT_SMD:SOT-23-5
+    datasheet: https://www.maxlinear.com/ds/spx3819.pdf
+    pinout: KiCad Regulator_Linear:SPX3819M5-L-3-3, as MaxLinear's SOT-23-5; [SHOE]'s 3V3 regulator
+    mpn: SPX3819M5-L-3-3/TR
+    lcsc: C20617301
+    pins:
+      - {pad: "1", name: IN, type: power_in}
+      - {pad: "2", name: GND, type: power_in}
+      - {pad: "3", name: EN, type: input}
+      - {pad: "4", name: BP, type: passive}
+      - {pad: "5", name: OUT, type: power_out}
+
+  # ----------------------------------------------------------- the speaker
+  JST_PH_2P_VERTICAL:
+    symbol: Connector_Generic:Conn_01x02
+    footprint: Connector_JST:JST_PH_B2B-PH-K_1x02_P2.00mm_Vertical
+    pinout: JST PH 2.0 mm, vertical; BX-PH2.0-2PZZ is pin for pin a B2B-PH-K-S
+    mpn: BX-PH2.0-2PZZ
+    lcsc: C18077744
+    side: back
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  # ---------------------------------------------------- passives
+  FB_600R_0603:
+    symbol: Device:FerriteBead_Small
+    footprint: Inductor_SMD:L_0603_1608Metric
+    pinout: two-terminal
+    mpn: GZ1608D601TF
+    lcsc: C1002
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  R_0402:
+    symbol: Device:R
+    footprint: Resistor_SMD:R_0402_1005Metric
+    pinout: two-terminal
+    values:
+      49R9: ""
+      330R: C25104
+      10k: C25744
+      12k4: ""
+      33k: C25779
+      100k: C25741
+      1M: C26083
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  C_0402:
+    symbol: Device:C
+    footprint: Capacitor_SMD:C_0402_1005Metric
+    pinout: two-terminal
+    values:
+      18pF: ""
+      6n8: ""
+      10nF: C15195
+      100nF: C1525
+      1uF: C52923
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  C_0603:
+    symbol: Device:C
+    footprint: Capacitor_SMD:C_0603_1608Metric
+    pinout: two-terminal
+    values:
+      4u7: ""
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  C_0805:
+    symbol: Device:C
+    footprint: Capacitor_SMD:C_0805_2012Metric
+    pinout: two-terminal
+    values:
+      10uF 25V: C15850
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  C_1206_2KV:
+    symbol: Device:C
+    footprint: Capacitor_SMD:C_1206_3216Metric
+    pinout: two-terminal
+    mpn: CL31B102KJHNNNE
+    lcsc: C16196254
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  CP_100u_25V:
+    symbol: Device:C_Polarized
+    footprint: Capacitor_SMD:CP_Elec_6.3x5.4
+    pinout: polarised, + on pad 1
+    mpn: RVT1E101M0605
+    lcsc: C22383797
+    side: back
+    pins:
+      - {pad: "1", name: P, type: passive}
+      - {pad: "2", name: "N", type: passive}

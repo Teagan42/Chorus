@@ -1,0 +1,74 @@
+# Every ESP32-S3 pin the Chorus main board uses, rev A.
+#
+# The ESP32 is on FutureProofHomes' Core, not on this board: these pins reach
+# the main board through the Satellite1 HAT's 80-pin expansion connector,
+# whose every pad satellite1-hat.yaml records. `go test ./internal/board`
+# checks this map against what the module allows, checks that each pin is on
+# a pad the kit leaves free and that the pad really carries that GPIO, and
+# checks that esphome/satellite1.yaml drives none of them.
+# docs/hardware/README.md explains why the board is split this way.
+#
+#   gpio   the ESP32-S3 GPIO number, on the Core
+#   pad    the expansion connector pad it arrives on
+#   net    the schematic net name; KiCad labels use it verbatim
+#   dir    in | out | io, from the ESP32's side
+#   peer   what is on the other end, on this board
+#   strap  why a strapping pin is safe here; required on 0, 3 and 46
+
+board: chorus-main
+revision: A
+module: ESP32-S3-WROOM-1-N16R8
+expansion: satellite1-hat.yaml
+
+pins:
+  # ------------------------------------------- W5500, where FutureProofHomes' shoe has it
+  # Reset, interrupt and select sit on the pads their prototype shoe uses,
+  # so a shoe and this board are wired alike where they overlap.
+  - gpio: 2
+    pad: "13"
+    net: ETH_RST_N
+    dir: out
+    peer: W5500 RST_N, pulled up on this board
+  - gpio: 38
+    pad: "33"
+    net: ETH_INT_N
+    dir: in
+    peer: W5500 INT_N, open drain, pulled up on this board
+  - gpio: 3
+    pad: "37"
+    net: ETH_CS_N
+    dir: out
+    peer: W5500 SCS_N, pulled up so the W5500 is deselected until the ESP32 boots
+    strap: >-
+      JTAG signal source. Read only when the STRAP_JTAG_SEL eFuse is burned,
+      which no Satellite1 has; the pull-up holds it at its default anyway.
+
+  # The shoe shares the XMOS SPI bus. This board does not: the W5500 gets its
+  # own clock and data on pins the kit leaves free, so a frame in flight never
+  # waits on an XMOS transaction, and the ESP32 runs it on SPI3 while the XMOS
+  # keeps SPI2.
+  - gpio: 39
+    pad: "22"
+    net: ETH_SCLK
+    dir: out
+    peer: W5500 SCLK
+  - gpio: 41
+    pad: "16"
+    net: ETH_MOSI
+    dir: out
+    peer: W5500 MOSI
+  - gpio: 14
+    pad: "31"
+    net: ETH_MISO
+    dir: in
+    peer: W5500 MISO
+
+  # ------------------------------------------------------------------ power
+  - gpio: 42
+    pad: "36"
+    net: POE_SENSE
+    dir: in
+    peer: >-
+      the PoE module's 12 V through a 100k/33k divider, about 3.0 V when PoE
+      is up; the shoe's AT_DETECT pad. The firmware reads it to know VBUS is
+      PoE with no PD contract, so the amplifier stays in its low-power mode

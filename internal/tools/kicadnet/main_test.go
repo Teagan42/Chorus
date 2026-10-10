@@ -9,14 +9,14 @@ import (
 	"testing"
 )
 
-const repoBoard = "../../../hardware/chorus-sat"
+const repoBoard = "../../../hardware/chorus-main"
 
 // copyBoard copies the checked-in board's data, not its outputs, so a test
 // can break it without touching the tree.
 func copyBoard(t *testing.T) string {
 	t.Helper()
 	dst := t.TempDir()
-	for _, rel := range []string{"pins.yaml", "parts.yaml"} {
+	for _, rel := range []string{"pins.yaml", "parts.yaml", "satellite1-hat.yaml"} {
 		copyFile(t, filepath.Join(repoBoard, rel), filepath.Join(dst, rel))
 	}
 	sheets, err := filepath.Glob(filepath.Join(repoBoard, "sheets", "*.yaml"))
@@ -55,10 +55,15 @@ func TestTheCommittedOutputsAreWhatTheCommandWrites(t *testing.T) {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	dir := copyBoard(t)
-	if out, err := exec.Command(bin, dir).CombinedOutput(); err != nil {
+	out, err := exec.Command(bin, dir).CombinedOutput()
+	if err != nil {
 		t.Fatalf("kicadnet %s: %v\n%s", dir, err, out)
 	}
-	for _, name := range []string{"chorus-sat.net", "bom.csv"} {
+	// The receptacle's power contacts are inferred; every run says so.
+	if !strings.Contains(string(out), "FX23L-80S-0.5SV") || !strings.Contains(string(out), "do not order") {
+		t.Errorf("kicadnet did not warn about the unverified receptacle:\n%s", out)
+	}
+	for _, name := range []string{"chorus-main.net", "bom.csv"} {
 		got, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
@@ -73,20 +78,24 @@ func TestTheCommittedOutputsAreWhatTheCommandWrites(t *testing.T) {
 	}
 }
 
-// Someone moves the LED ring to GPIO15 on the sheet and not in pins.yaml.
-// The command must refuse, name the pad, and leave no netlist behind to
-// upload by mistake.
+// Someone moves the W5500's select onto the XMOS's select pad. The ESP32
+// would deselect the XU316 every Ethernet frame; the command must refuse,
+// name the pad, and leave no netlist behind to upload by mistake.
 func TestABoardThatFailsItsChecksGetsNoNetlist(t *testing.T) {
 	dir := copyBoard(t)
-	ui := filepath.Join(dir, "sheets", "mcu.yaml")
-	b, err := os.ReadFile(ui)
+	sheet := filepath.Join(dir, "sheets", "connector.yaml")
+	b, err := os.ReadFile(sheet)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(b, []byte("U1.IO14")) {
-		t.Fatal("mcu sheet no longer wires U1.IO14; update this test")
+	for _, want := range []string{"ETH_CS_N: [J1.37]", "  - J1.24\n"} {
+		if !bytes.Contains(b, []byte(want)) {
+			t.Fatalf("connector sheet no longer has %q; update this test", want)
+		}
 	}
-	if err := os.WriteFile(ui, bytes.Replace(b, []byte("U1.IO14"), []byte("U1.IO15"), 1), 0o644); err != nil {
+	b = bytes.Replace(b, []byte("ETH_CS_N: [J1.37]"), []byte("ETH_CS_N: [J1.24]"), 1)
+	b = bytes.Replace(b, []byte("  - J1.24\n"), []byte("  - J1.37\n"), 1)
+	if err := os.WriteFile(sheet, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out := t.TempDir()
@@ -94,8 +103,10 @@ func TestABoardThatFailsItsChecksGetsNoNetlist(t *testing.T) {
 	if code := run([]string{"-out", out, dir}, &stderr); code != 1 {
 		t.Fatalf("exit %d, want 1; stderr:\n%s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "LED_DATA") || !strings.Contains(stderr.String(), "no netlist was written") {
-		t.Errorf("stderr does not say why:\n%s", stderr.String())
+	for _, want := range []string{"J1.24", "XMOS_SPI_CS_N", "no netlist was written"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr does not name %q:\n%s", want, stderr.String())
+		}
 	}
 	if entries, _ := os.ReadDir(out); len(entries) != 0 {
 		t.Errorf("wrote %d files for a board that failed its checks", len(entries))
@@ -104,7 +115,7 @@ func TestABoardThatFailsItsChecksGetsNoNetlist(t *testing.T) {
 
 func TestAMissingBoardIsAnError(t *testing.T) {
 	var stderr bytes.Buffer
-	if code := run([]string{filepath.Join(t.TempDir(), "chorus-sat")}, &stderr); code != 1 {
+	if code := run([]string{filepath.Join(t.TempDir(), "chorus-main")}, &stderr); code != 1 {
 		t.Fatalf("exit %d, want 1", code)
 	}
 	if !strings.Contains(stderr.String(), "pins.yaml") {

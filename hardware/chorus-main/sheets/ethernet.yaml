@@ -2,7 +2,7 @@ sheet: ethernet
 title: W5500 Ethernet and the PoE magjack, after WIZnet's W5500-EVB-Pico-PoE
 parts:
   U60: {part: W5500}
-  J60: {part: LPJG0926HENL, note: "RJ45 with magnetics, LEDs and PoE centre taps; its taps go to power_in"}
+  J60: {part: LPJG0926HENL, note: "RJ45 with magnetics, LEDs and PoE centre taps; its taps go to the power sheet"}
   Y60: {part: XTAL_25M_3225}
   C300: {part: C_0402, value: 18pF}
   C301: {part: C_0402, value: 18pF}
@@ -108,7 +108,7 @@ nets:
   ETH_ACT_LED: [U60.ACTLED, R310.1]
   ETH_ACT_LED_K: [R310.2, J60.LED2_K]
 
-  # The PoE taps, to the bridges on power_in.
+  # The PoE taps, to the bridges on the power sheet.
   POE_VC1: [J60.VC1]
   POE_VC2: [J60.VC2]
   POE_VC3: [J60.VC3]

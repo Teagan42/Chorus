@@ -1,0 +1,133 @@
+# The FutureProofHomes Satellite1 kit's expansion connector, as bought.
+#
+# The HAT and the Core are FutureProofHomes' boards, not ours: this file is
+# what they put on the HAT's J7, the 80-pin plug a board underneath mates
+# with. The main board's pins.yaml names this file, and `go test
+# ./internal/board` holds every pad of the main board's receptacle to it.
+# Nothing here is ours to change; a new HAT revision is a new file.
+#
+#   pad         the J7 pad, as the HAT's schematic numbers it
+#   label       the HAT's own name for the pad, verbatim; "" is a pad the HAT
+#               leaves unconnected
+#   net         the name Chorus's sheets use for what the kit puts there
+#   gpio        the Core's ESP32-S3 GPIO behind the pad, through the HAT's
+#               J3 and the Core's 2x20 header
+#   use         what the HAT or Core does with it; "" on a GPIO pad is one
+#               nothing on the kit drives or reads, which a main board may take
+#   satellite1  path into esphome/satellite1.yaml where that GPIO is set
+#
+# Sources, all FutureProofHomes/Satellite1-Hardware at 2eb08ff (CERN-OHL-S):
+#   [HAT]  hat/rev6.1hatSCH.pdf p2, "Expansion Board Connector", J7
+#   [CORE] core/rev4.1coreSCH.pdf and rev5.1coreSCH.pdf, the 2x20 header;
+#          both revisions put the same GPIO on every header pin
+#   [SHOE] shoe/rev1shoeSCH.pdf p4: their prototype board underneath, which
+#          takes pads 13, 33, 36 and 37 for its W5500 and PoE detect
+#   [ESPH] FutureProofHomes/Satellite1-ESPHome at 46511ed: GPIO0 is the
+#          action button and GPIO21 the LED ring
+
+kit: FutureProofHomes Satellite1, HAT rev 6.1 on Core rev 4.1 or 5.1
+connector: J7
+plug: Hirose FX23L-80P-0.5SV8, LCSC C3649601
+mate: FX23L-80S-0.5SV
+
+# Where a board underneath must put things to mate and to bolt up, read from
+# FutureProofHomes' shoe rev 1 3D model, which does both. Millimetres, seen
+# from above, from the centre of the board's round outline, y down as KiCad
+# draws it. The KiCad build draws the outline and holes and places the
+# receptacle here; the rest of the layout is a person's.
+mechanical:
+  outline: {diameter: 88, flat_y: -42}
+  holes:
+    - {x: -29, y: -24.5, diameter: 3.2}
+    - {x: 29, y: -24.5, diameter: 3.2}
+    - {x: -29, y: 24.5, diameter: 3.2}
+    - {x: 29, y: 24.5, diameter: 3.2}
+  mate: {x: 0, y: -10, rotation: 0}
+
+pads:
+  - {pad: "1", label: USB_2_Sel, net: CORE_3V3, use: "the Core's 3V3, header pin 1"}
+  - {pad: "2", label: ""}
+  - {pad: "3", label: I2C_SDA, net: I2C_SDA, gpio: 5, use: "I2C to the HAT's PD controller, DAC and amplifier", satellite1: "i2c[0].sda"}
+  - {pad: "4", label: ""}
+  - {pad: "5", label: I2C_SCL, net: I2C_SCL, gpio: 6, use: "I2C to the HAT's PD controller, DAC and amplifier", satellite1: "i2c[0].scl"}
+  - {pad: "6", label: GND, net: GND, use: ground}
+  - {pad: "7", label: I2S_MCLK, net: I2S_MCLK, gpio: 16, use: "XU316 master clock", satellite1: "i2s_audio[0].i2s_mclk_pin"}
+  - {pad: "8", label: GPIO43, net: RADAR_TX, gpio: 43, use: "UART TX to the mmWave radar header", satellite1: "uart[0].tx_pin"}
+  - {pad: "9", label: GND, net: GND, use: ground}
+  - {pad: "10", label: GPIO44, net: RADAR_RX, gpio: 44, use: "UART RX from the mmWave radar header", satellite1: "uart[0].rx_pin"}
+  - {pad: "11", label: I2C_IRQ, net: I2C_IRQ, gpio: 1, use: "the PD controller's interrupt", satellite1: "fusb302b.irq_pin"}
+  - {pad: "12", label: I2S_BCLK, net: I2S_BCLK, gpio: 8, use: "XU316 bit clock", satellite1: "i2s_audio[0].i2s_bclk_pin"}
+  - {pad: "13", label: GPIO02, gpio: 2}
+  - {pad: "14", label: GND, net: GND, use: ground}
+  - {pad: "15", label: LED_RING, net: LED_RING, gpio: 21, use: "the HAT's LED ring data, driven by FutureProofHomes' firmware"}
+  - {pad: "16", label: GPIO16, gpio: 41}
+  - {pad: "17", label: Reserved_1, net: CORE_3V3, use: "the Core's 3V3, header pin 17"}
+  - {pad: "18", label: I2S_DOUT2, net: I2S_DOUT2, gpio: 40, use: "XU316 output to the HAT's DAC and amplifier; the ESP32 must not drive it"}
+  - {pad: "19", label: SPI_MOSI, net: XMOS_SPI_MOSI, gpio: 11, use: "SPI to the XU316", satellite1: "spi[0].mosi_pin"}
+  - {pad: "20", label: GND, net: GND, use: ground}
+  - {pad: "21", label: SPI_MISO, net: XMOS_SPI_MISO, gpio: 13, use: "SPI from the XU316", satellite1: "spi[0].miso_pin"}
+  - {pad: "22", label: GPIO04, gpio: 39}
+  - {pad: "23", label: SPI_SCLK, net: XMOS_SPI_SCLK, gpio: 12, use: "SPI clock to the XU316", satellite1: "spi[0].clk_pin"}
+  - {pad: "24", label: SPI_CS_N, net: XMOS_SPI_CS_N, gpio: 10, use: "the XU316's SPI select", satellite1: "satellite1.cs_pin"}
+  - {pad: "25", label: GND, net: GND, use: ground}
+  - {pad: "26", label: MCU_BOOT, net: MCU_BOOT, gpio: 0, use: "the action button, and the ESP32's boot strap"}
+  - {pad: "27", label: USB_1_DP, net: USB_DP, gpio: 20, use: "the Core's native USB, the flashing and log path"}
+  - {pad: "28", label: USB_1_DN, net: USB_DN, gpio: 19, use: "the Core's native USB, the flashing and log path"}
+  - {pad: "29", label: XMOS_RST, net: XMOS_RST, gpio: 4, use: "holds the XU316 in reset", satellite1: "satellite1.xmos_rst_pin"}
+  - {pad: "30", label: GND, net: GND, use: ground}
+  - {pad: "31", label: Reserved_2, gpio: 14}
+  - {pad: "32", label: GPIO18, gpio: 18}
+  - {pad: "33", label: GPIO13, gpio: 38}
+  - {pad: "34", label: GND, net: GND, use: ground}
+  - {pad: "35", label: I2S_LRCLK, net: I2S_LRCLK, gpio: 7, use: "XU316 word clock", satellite1: "i2s_audio[0].i2s_lrclk_pin"}
+  - {pad: "36", label: GPIO42, gpio: 42}
+  - {pad: "37", label: GPIO03, gpio: 3}
+  - {pad: "38", label: I2S_DOUT1, net: I2S_DIN, gpio: 15, use: "XU316 processed mics into the ESP32", satellite1: "microphone[0].i2s_din_pin"}
+  - {pad: "39", label: GND, net: GND, use: ground}
+  - {pad: "40", label: I2S_DIN, net: I2S_DOUT, gpio: 9, use: "ESP32 playback into the XU316", satellite1: "speaker[0].i2s_dout_pin"}
+  - {pad: "41", label: ""}
+  - {pad: "42", label: ""}
+  - {pad: "43", label: ""}
+  - {pad: "44", label: USB_2_SHOE_DN, net: USB2_DN, use: "the HAT's second USB-C data pair, for a board underneath"}
+  - {pad: "45", label: USB_2_SHOE_DP, net: USB2_DP, use: "the HAT's second USB-C data pair, for a board underneath"}
+  - {pad: "46", label: GND, net: GND, use: ground}
+  - {pad: "47", label: USB_1_CC1, net: USB_CC1, use: "the HAT's USB-C CC1, read by its PD controller"}
+  - {pad: "48", label: USB_1_CC2, net: USB_CC2, use: "the HAT's USB-C CC2, read by its PD controller"}
+  - {pad: "49", label: GND, net: GND, use: ground}
+  - {pad: "50", label: LineAudioL, net: LINE_L, use: "the HAT's DAC, left"}
+  - {pad: "51", label: LineAudioR, net: LINE_R, use: "the HAT's DAC, right"}
+  - {pad: "52", label: GND, net: GND, use: ground}
+  - {pad: "53", label: JackSwitch, net: JACK_SW, use: "the HAT's headphone jack detect"}
+  - {pad: "54", label: GND, net: GND, use: ground}
+  - {pad: "55", label: ""}
+  - {pad: "56", label: ""}
+  - {pad: "57", label: ""}
+  - {pad: "58", label: ""}
+  - {pad: "59", label: GND, net: GND, use: ground}
+  - {pad: "60", label: ""}
+  - {pad: "61", label: ""}
+  - {pad: "62", label: ""}
+  - {pad: "63", label: SpeakerAudioP, net: SPK_P, use: "the HAT's TAS2780 output, +"}
+  - {pad: "64", label: SpeakerAudioP, net: SPK_P, use: "the HAT's TAS2780 output, +"}
+  - {pad: "65", label: SpeakerAudioN, net: SPK_N, use: "the HAT's TAS2780 output, -"}
+  - {pad: "66", label: SpeakerAudioN, net: SPK_N, use: "the HAT's TAS2780 output, -"}
+  - {pad: "67", label: ""}
+  - {pad: "68", label: ""}
+  - {pad: "69", label: ""}
+  - {pad: "70", label: ""}
+  - {pad: "71", label: ""}
+  - {pad: "72", label: ""}
+  - {pad: "73", label: ""}
+  - {pad: "74", label: ""}
+  - {pad: "75", label: ""}
+  - {pad: "76", label: ""}
+  - {pad: "77", label: ""}
+  - {pad: "78", label: ""}
+  - {pad: "79", label: ""}
+  - {pad: "80", label: ""}
+  - {pad: MH1, label: GND, net: GND, use: "ground, a power contact"}
+  - {pad: MH2, label: +5V, net: 5V0, use: "the HAT's 5 V rail, a power contact"}
+  - {pad: MH3, label: GND, net: GND, use: "ground, a power contact"}
+  - {pad: MH4, label: VBUS, net: VBUS, use: "the HAT's input rail behind its USB-C diode, a power contact; a board underneath may feed it"}
+  - {pad: MP1, label: ""}
+  - {pad: MP2, label: ""}

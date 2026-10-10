@@ -27,10 +27,10 @@ func run(args []string, stderr io.Writer) int {
 	}
 	dirs := fs.Args()
 	if len(dirs) == 0 {
-		dirs = []string{"hardware/chorus-sat"}
+		dirs = []string{"hardware/chorus-main"}
 	}
 	for _, dir := range dirs {
-		if err := generate(dir, *out); err != nil {
+		if err := generate(dir, *out, stderr); err != nil {
 			fmt.Fprintf(stderr, "kicadnet: %v\n", err)
 			return 1
 		}
@@ -38,7 +38,7 @@ func run(args []string, stderr io.Writer) int {
 	return 0
 }
 
-func generate(dir, out string) error {
+func generate(dir, out string, stderr io.Writer) error {
 	s, err := board.LoadSchematic(dir)
 	if err != nil {
 		return err
@@ -62,6 +62,11 @@ func generate(dir, out string) error {
 		if err := os.WriteFile(filepath.Join(out, name), body, 0o644); err != nil {
 			return err
 		}
+	}
+	// Written all the same: the layout can start on a guess. Ordering
+	// cannot, so the guess is said every time the outputs are.
+	for _, u := range s.Unverified() {
+		fmt.Fprintf(stderr, "kicadnet: %s: not yet verified, do not order: %s\n", dir, u)
 	}
 	return nil
 }

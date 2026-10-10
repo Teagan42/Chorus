@@ -49,14 +49,14 @@ jobs:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 -m unittest discover -s internal/tools/kicadboard -v
 
-      - name: Build chorus-sat
-        run: python3 internal/tools/kicadboard/build.py hardware/chorus-sat dist/hardware
+      - name: Build chorus-main
+        run: python3 internal/tools/kicadboard/build.py hardware/chorus-main dist/hardware
 
       # Uploaded as the project folder, not the zip, so the download GitHub
       # makes is itself the archive: the files at its root, as KiCad's
       # Archive Project writes them.
       - uses: actions/upload-artifact@v4
         with:
-          name: chorus-sat-kicad
-          path: dist/hardware/chorus-sat/
+          name: chorus-main-kicad
+          path: dist/hardware/chorus-main/
           if-no-files-found: error

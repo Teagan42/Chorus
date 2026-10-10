@@ -41,8 +41,8 @@ func TestIsGenerated(t *testing.T) {
 		"internal/pb/api.pb.go",
 		"schema/json/tool.json",
 		"docs/reference/events.md",
-		"hardware/chorus-sat/chorus-sat.net",
-		"hardware/chorus-sat/bom.csv",
+		"hardware/chorus-main/chorus-main.net",
+		"hardware/chorus-main/bom.csv",
 	}
 	for _, p := range gen {
 		if !IsGenerated(p) {
@@ -51,7 +51,8 @@ func TestIsGenerated(t *testing.T) {
 	}
 	hand := []string{
 		"internal/session/supervisor.go", "docs/SPEC.md", "schema/tool.cue",
-		"hardware/chorus-sat/pins.yaml", "hardware/chorus-sat/sheets/mics.yaml",
+		"hardware/chorus-main/pins.yaml", "hardware/chorus-main/sheets/ethernet.yaml",
+		"hardware/chorus-main/satellite1-hat.yaml",
 	}
 	for _, p := range hand {
 		if IsGenerated(p) {

@@ -67,7 +67,7 @@ tasks:
   gen:hardware:
     desc: KiCad netlist and JLCPCB BOM from each board's netlist data
     sources: ["hardware/**/*.yaml", "internal/board/*.go", "internal/tools/kicadnet/*.go"]
-    cmds: [go run ./internal/tools/kicadnet hardware/chorus-sat]
+    cmds: [go run ./internal/tools/kicadnet hardware/chorus-main]
 
   # In the KiCad image pinned above: pcbnew's file format and its footprint
   # libraries are what the board is built from, so a moving tag would move it.
@@ -79,7 +79,7 @@ tasks:
       - >-
         docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/src" -w /src
         {{.KICAD_IMAGE}}
-        python3 internal/tools/kicadboard/build.py hardware/chorus-sat dist/hardware
+        python3 internal/tools/kicadboard/build.py hardware/chorus-main dist/hardware
 
   hardware:test:
     desc: The board builder's tests, inside the KiCad image (needs Docker)
