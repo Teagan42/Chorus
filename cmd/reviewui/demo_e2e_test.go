@@ -100,8 +100,8 @@ func TestE2EDemoBootsUnderThePagesPathAndPlaysTheDay(t *testing.T) {
 	p.waitText(".notice", "A made-up household's Thursday, running entirely in your browser.")
 	p.waitText("h2", "Thursday 9 October")
 	p.waitText("#conversations", "alice · kitchen → living_room")
-	if n := p.count(".day-lanes__session"); n != 9 {
-		t.Errorf("%d sessions on the lanes, want 9", n)
+	if n := p.count(".day-lanes__session"); n != 10 {
+		t.Errorf("%d sessions on the lanes, want 10", n)
 	}
 	var title string
 	p.eval(`document.title`, &title)

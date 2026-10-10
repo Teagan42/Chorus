@@ -1,7 +1,8 @@
 // Package household is one made-up household's Thursday, 9 October 2025, as
 // chorusd would have journaled it: three people, three satellites, every
-// signal Triage knows, a timer going off, a door that waits for a yes, and
-// one conversation from the night before. The review UI's browser tests walk a reviewer through this day, and
+// signal Triage knows, a timer going off and one called off, a television the
+// barge-in gate refused, a door that waits for a yes, and one conversation
+// from the night before. The review UI's browser tests walk a reviewer through this day, and
 // the hosted demo serves it, so both show the same household.
 //
 // The audio is synthetic: voice.json says who says what and for how long,
@@ -27,6 +28,7 @@ const (
 	ConvGarage   = "conv-0930-office"      // the garage sensor times out: failure, slow
 	ConvTimer    = "conv-1210-kitchen"     // Alan asks for the oven timer twice: repeated
 	ConvOven     = "conv-1222-kitchen"     // the oven timer goes off: an announcement
+	ConvPasta    = "conv-1748-kitchen"     // Teagan sets a pasta timer, then calls it off
 	ConvJazz     = "conv-1840-living_room" // Alice dims, Alan asks for jazz and cuts it: flip, unattributed barge-in
 	ConvDoor     = "conv-1858-kitchen"     // the front door waits for Teagan's yes: recall, nonce, summary, slow
 	ConvList     = "conv-2104-office"      // nothing wrong at all
@@ -53,11 +55,14 @@ func LastNight() []journal.Summary {
 // OvenTimer is the timer Alan set for the oven.
 const OvenTimer = "t_0a7e11c3"
 
+// PastaTimer is the timer Teagan cancelled before the water boiled.
+const PastaTimer = "t_9d2b4f60"
+
 // The harvested pairs, by the seq of each cut.
 const (
 	PairWeather  = ConvWeather + "/8"
 	PairZeppelin = ConvZeppelin + "/8"
-	PairJazz     = ConvJazz + "/16"
+	PairJazz     = ConvJazz + "/17"
 )
 
 // Day is midnight of the day under review.
@@ -206,6 +211,29 @@ func Logs() map[string][]Line {
 		journal.HouseTimers: {
 			{at(12, 10, 6.55), rec(journal.KindTimerStarted, "", "timer_id", OvenTimer, "seconds", "720", "fires_at", Day().Add(at(12, 22, 6.55)).Format(time.RFC3339Nano), "label", "oven", "satellite", "kitchen", "person", "alan", "conversation_id", ConvTimer, "call_id", "c1")},
 			{at(12, 22, 8.15), rec(journal.KindTimerFinished, "", "timer_id", OvenTimer, "outcome", "announced", "conversation_id", ConvOven)},
+			{at(17, 48, 0.45), rec(journal.KindTimerStarted, "", "timer_id", PastaTimer, "seconds", "600", "fires_at", Day().Add(at(17, 58, 0.45)).Format(time.RFC3339Nano), "label", "pasta", "satellite", "kitchen", "person", "teagan", "conversation_id", ConvPasta, "call_id", "c1")},
+			{at(17, 48, 6.25), rec(journal.KindTimerCancelled, "", "timer_id", PastaTimer, "conversation_id", ConvPasta, "call_id", "c2")},
+		},
+		// Dinner: the water is not boiling yet, so the timer is called off.
+		ConvPasta: {
+			{at(17, 48, 0), rec(journal.KindSessionOpened, "", "satellite", "kitchen", "speaker_id", "teagan", "resumed", "false")},
+			{at(17, 48, 0.3), rec(journal.KindUtteranceTranscribed, "blob://mic/pasta-ask", "text", "set a pasta timer for ten minutes", "speaker_id", "teagan")},
+			{at(17, 48, 0.4), rec(journal.KindToolCalled, "", "tool", "timer_start", "call_id", "c1", "args_json", `{"seconds":600,"label":"pasta"}`)},
+			{at(17, 48, 0.5), rec(journal.KindToolResult, "", "call_id", "c1", "outcome", "ok", "result_json", `{"timer_id":"`+PastaTimer+`","label":"pasta","satellite":"kitchen","seconds_left":600,"says":"The pasta timer is done."}`)},
+			{at(17, 48, 0.55), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s1", "args_json", speakArgs)},
+			{at(17, 48, 0.65), started("s1", 600)},
+			{at(17, 48, 2.45), rec(journal.KindSpeechSpoken, "blob://tts/pasta-started", "text", "Ten minute pasta timer started.", "frames_played", "28800", "call_id", "s1")},
+			{at(17, 48, 2.55), rec(journal.KindToolResult, "", "call_id", "s1", "outcome", "ok")},
+			{at(17, 48, 2.65), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
+			{at(17, 48, 6.1), rec(journal.KindUtteranceTranscribed, "blob://mic/pasta-cancel", "text", "actually cancel it, the water isn't boiling yet", "speaker_id", "teagan")},
+			{at(17, 48, 6.2), rec(journal.KindToolCalled, "", "tool", "timer_cancel", "call_id", "c2", "args_json", `{"timer_id":"`+PastaTimer+`"}`)},
+			{at(17, 48, 6.3), rec(journal.KindToolResult, "", "call_id", "c2", "outcome", "ok", "result_json", `{"cancelled":"`+PastaTimer+`","label":"pasta"}`)},
+			{at(17, 48, 6.35), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s2", "args_json", speakArgs)},
+			{at(17, 48, 6.45), started("s2", 600)},
+			{at(17, 48, 7.75), rec(journal.KindSpeechSpoken, "blob://tts/pasta-cancelled", "text", "Pasta timer cancelled.", "frames_played", "20800", "call_id", "s2")},
+			{at(17, 48, 7.85), rec(journal.KindToolResult, "", "call_id", "s2", "outcome", "ok")},
+			{at(17, 48, 7.95), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
+			{at(17, 48, 13), rec(journal.KindSessionClosed, "", "reason", "model_ended", "satellite", "kitchen")},
 		},
 		ConvJazz: {
 			{at(18, 40, 0), rec(journal.KindSessionOpened, "", "satellite", "living_room", "speaker_id", "alice", "resumed", "false")},
@@ -214,6 +242,8 @@ func Logs() map[string][]Line {
 			{at(18, 40, 0.5), rec(journal.KindToolResult, "", "call_id", "c1", "outcome", "ok")},
 			{at(18, 40, 0.55), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s1", "args_json", speakArgs)},
 			{at(18, 40, 0.65), started("s1", 600)},
+			// The television talks over the answer; the gate knows no such voice.
+			{at(18, 40, 1.4), rec(journal.KindBargeInRejected, "blob://mic/jazz-tv", "stage", "speaker_id")},
 			{at(18, 40, 2.15), rec(journal.KindSpeechSpoken, "blob://tts/jazz-dimmed", "text", "Dimmed to thirty percent.", "frames_played", "24000", "call_id", "s1")},
 			{at(18, 40, 2.25), rec(journal.KindToolResult, "", "call_id", "s1", "outcome", "ok")},
 			{at(18, 40, 2.35), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},

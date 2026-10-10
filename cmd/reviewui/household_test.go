@@ -30,6 +30,7 @@ const (
 	convGarage  = household.ConvGarage
 	convTimer   = household.ConvTimer
 	convOven    = household.ConvOven
+	convPasta   = household.ConvPasta
 	convJazz    = household.ConvJazz
 	convList    = household.ConvList
 	convLock    = household.ConvLock

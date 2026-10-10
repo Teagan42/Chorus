@@ -676,15 +676,15 @@ func TestE2EASatellitesOwnLogPlaysItsRejectedWake(t *testing.T) {
 func TestE2ETriageOpensTheHouseLogAtATimerNobodyHeard(t *testing.T) {
 	p := open(t, newServer(withRiceTimer(t, householdJournal(t)), curation.NewMemStore(), householdBlobs(t), household.ReviewedAt))
 	p.visit("/queue?tab=failure")
-	p.follow(`#queue a[href="/conversations/house:timers#seq-4"]`)
+	p.follow(`#queue a[href="/conversations/house:timers#seq-6"]`)
 	if got := p.path(); got != "/conversations/house:timers" {
 		t.Errorf("landed on %s, want the house log at the rice timer", got)
 	}
-	if id, visible := p.target(); id != "seq-4" || !visible {
-		t.Errorf("target #%s (visible %v), want #seq-4 in view", id, visible)
+	if id, visible := p.target(); id != "seq-6" || !visible {
+		t.Errorf("target #%s (visible %v), want #seq-6 in view", id, visible)
 	}
-	p.waitText("#seq-4", "went off: unannounced")
-	p.waitText("#seq-4", "office: not connected")
+	p.waitText("#seq-6", "went off: unannounced")
+	p.waitText("#seq-6", "office: not connected")
 	p.shot("conversation-house-timers")
 }
 

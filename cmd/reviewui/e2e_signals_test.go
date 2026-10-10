@@ -164,8 +164,8 @@ func TestE2EJourneyAWeakPositiveIsLabelledAnExemplar(t *testing.T) {
 		t.Error("All lists a weak positive among the problems")
 	}
 	p.follow(`#queue-tabs a[href$="tab=weak-positive"]`)
-	if n := p.count("#queue a.list__row"); n != 10 {
-		t.Errorf("the weak positives tab lists %d rows, want 10", n)
+	if n := p.count("#queue a.list__row"); n != 12 {
+		t.Errorf("the weak positives tab lists %d rows, want 12", n)
 	}
 	p.shot("triage-weak-positives")
 

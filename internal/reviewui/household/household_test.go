@@ -291,3 +291,64 @@ func TestTheDayNamesTheEarAndTheVoice(t *testing.T) {
 		}
 	}
 }
+
+// The television talked over the living room's answer to Alice, and the
+// gate refused it at speaker ID: it is no barge-in, and kept to tune the
+// gate on (SPEC §4.3).
+func TestTheTelevisionIsRefusedAtTheSpeakerGate(t *testing.T) {
+	var playing bool
+	var refused []household.Line
+	for _, l := range household.Logs()[household.ConvJazz] {
+		switch l.Rec.Kind {
+		case journal.KindSpeechStarted:
+			playing = true
+		case journal.KindSpeechSpoken, journal.KindSpeechTruncated:
+			playing = false
+		case journal.KindBargeInRejected:
+			if !playing {
+				t.Errorf("a barge-in was refused at %v with nothing playing", l.At)
+			}
+			refused = append(refused, l)
+		}
+	}
+	if len(refused) != 1 || refused[0].Rec.Fields["stage"] != "speaker_id" || refused[0].Rec.AudioRef != "blob://mic/jazz-tv" {
+		t.Fatalf("refused = %+v, want the television at speaker_id", refused)
+	}
+	for _, c := range clips(t) {
+		if c.Ref == "mic/jazz-tv" && c.Who != "tv" {
+			t.Errorf("the refused clip is %s's voice, want the television's", c.Who)
+		}
+	}
+}
+
+// Teagan set a pasta timer and called it off before the water boiled: the
+// house log says it was cancelled, by the call that cancelled it, and it
+// never goes off.
+func TestTheCancelledPastaTimerNeverGoesOff(t *testing.T) {
+	calls := map[string]journal.Record{}
+	for _, l := range household.Logs()[household.ConvPasta] {
+		if l.Rec.Kind == journal.KindToolCalled {
+			calls[l.Rec.Fields["call_id"]] = l.Rec
+		}
+	}
+	var started, cancelled bool
+	for _, l := range household.Logs()[journal.HouseTimers] {
+		f := l.Rec.Fields
+		if f["timer_id"] != household.PastaTimer {
+			continue
+		}
+		switch l.Rec.Kind {
+		case journal.KindTimerStarted:
+			started = calls[f["call_id"]].Fields["tool"] == "timer_start" && f["conversation_id"] == household.ConvPasta
+		case journal.KindTimerCancelled:
+			c := calls[f["call_id"]]
+			cancelled = c.Fields["tool"] == "timer_cancel" && strings.Contains(c.Fields["args_json"], household.PastaTimer) &&
+				f["conversation_id"] == household.ConvPasta
+		case journal.KindTimerFinished:
+			t.Error("the cancelled pasta timer went off")
+		}
+	}
+	if !started || !cancelled {
+		t.Errorf("pasta timer started by its call %v, cancelled by its call %v", started, cancelled)
+	}
+}

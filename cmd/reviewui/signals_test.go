@@ -32,8 +32,8 @@ func TestTheHouseholdsWeakPositivesAreTheTurnsNobodyCorrected(t *testing.T) {
 			}
 		}
 	}
-	if n != 10 {
-		t.Errorf("%d weak positives, want 10", n)
+	if n != 12 {
+		t.Errorf("%d weak positives, want 12", n)
 	}
 }
 
@@ -45,7 +45,7 @@ func TestTriageKeepsTheWeakPositivesInTheirOwnPile(t *testing.T) {
 	s, _ := newHouseholdServer(t)
 	h := get(t, s, "/queue?tab=weak-positive")
 	for _, want := range []string{
-		`href="/queue?tab=weak-positive">Weak positives <span class="tabs__count">10</span>`,
+		`href="/queue?tab=weak-positive">Weak positives <span class="tabs__count">12</span>`,
 		`href="/queue?tab=all">All <span class="tabs__count">8</span>`,
 		"add oat milk to the shopping list",
 		"answered “Added oat milk.” · not cut off, asked again or failed",

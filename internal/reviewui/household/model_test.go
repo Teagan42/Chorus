@@ -68,8 +68,8 @@ func TestModelReproducesEveryRecordedTurnUnderTheDefaultPrompt(t *testing.T) {
 			}
 		}
 	}
-	if turns != 15 || searched != 3 {
-		t.Errorf("%d turns in the day, %d of them searched; want 15 and Zeppelin, jazz and quieter", turns, searched)
+	if turns != 17 || searched != 3 {
+		t.Errorf("%d turns in the day, %d of them searched; want 17 and Zeppelin, jazz and quieter", turns, searched)
 	}
 }
 
