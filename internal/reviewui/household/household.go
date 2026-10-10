@@ -1,8 +1,8 @@
 // Package household is one made-up household's Thursday, 9 October 2025, as
 // chorusd would have journaled it: three people, three satellites, every
-// signal Triage knows, and one conversation from the night before. The
-// review UI's browser tests walk a reviewer through this day, and the hosted
-// demo serves it, so both show the same household.
+// signal Triage knows, a timer going off, and one conversation from the night
+// before. The review UI's browser tests walk a reviewer through this day, and
+// the hosted demo serves it, so both show the same household.
 //
 // The audio is synthetic: voice.json says who says what and for how long,
 // and internal/tools/householdvoice speaks it with Kokoro into audio/.
@@ -25,10 +25,14 @@ const (
 	ConvZeppelin = "conv-0853-kitchen"     // Alice's album, then she walks to the living room
 	ConvGarage   = "conv-0930-office"      // the garage sensor times out: failure
 	ConvTimer    = "conv-1210-kitchen"     // Alan asks for the oven timer twice: repeated
+	ConvOven     = "conv-1222-kitchen"     // the oven timer goes off: an announcement
 	ConvJazz     = "conv-1840-living_room" // Alice dims, Alan asks for jazz and cuts it: flip, unattributed barge-in
 	ConvList     = "conv-2104-office"      // nothing wrong at all
 	ConvLock     = "conv-2230-kitchen"     // the night before
 )
+
+// OvenTimer is the timer Alan set for the oven.
+const OvenTimer = "t_0a7e11c3"
 
 // The harvested pairs, by the seq of each cut.
 const (
@@ -133,13 +137,27 @@ func Logs() map[string][]Line {
 			{at(12, 10, 4.5), rec(journal.KindToolResult, "", "call_id", "s1", "outcome", "ok")},
 			{at(12, 10, 4.6), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
 			{at(12, 10, 6.4), rec(journal.KindUtteranceTranscribed, "blob://mic/timer-twelve", "text", "set a timer for twelve minutes", "speaker_id", "alan")},
-			{at(12, 10, 6.9), rec(journal.KindToolCalled, "", "tool", "ha_call_service", "call_id", "c1", "args_json", `{"domain":"timer","service":"start","entity_id":"timer.oven","data":{"duration":"00:12:00"}}`)},
-			{at(12, 10, 7.2), rec(journal.KindToolResult, "", "call_id", "c1", "outcome", "ok")},
+			{at(12, 10, 6.9), rec(journal.KindToolCalled, "", "tool", "timer_start", "call_id", "c1", "args_json", `{"seconds":720,"label":"oven"}`)},
+			{at(12, 10, 7.2), rec(journal.KindToolResult, "", "call_id", "c1", "outcome", "ok", "result_json", `{"timer_id":"`+OvenTimer+`","label":"oven","satellite":"kitchen","seconds_left":720,"says":"The oven timer is done."}`)},
 			{at(12, 10, 7.4), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s2", "args_json", speakArgs)},
 			{at(12, 10, 9.0), rec(journal.KindSpeechSpoken, "blob://tts/timer-started", "text", "Twelve minute oven timer started.", "frames_played", "24000")},
 			{at(12, 10, 9.1), rec(journal.KindToolResult, "", "call_id", "s2", "outcome", "ok")},
 			{at(12, 10, 9.2), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
 			{at(12, 10, 14), rec(journal.KindSessionClosed, "", "reason", "model_ended", "satellite", "kitchen")},
+		},
+		// Twelve minutes on, with nobody talking to it, the kitchen says so.
+		ConvOven: {
+			{at(12, 22, 7.1), rec(journal.KindSessionOpened, "", "satellite", "kitchen", "announced", "true", "resumed", "false")},
+			{at(12, 22, 7.1), rec(journal.KindAnnouncementMade, "", "text", "The oven timer is done.", "call_id", "an_5c19e2d0", "source", "timer", "timer_id", OvenTimer, "requested_by", "alan", "from_satellite", "kitchen", "from_conversation", ConvTimer, "start_conversation", "false")},
+			{at(12, 22, 7.1), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "an_5c19e2d0", "args_json", `{"text":"The oven timer is done.","mode":"queue"}`)},
+			{at(12, 22, 8.6), rec(journal.KindSpeechSpoken, "blob://tts/oven-done", "text", "The oven timer is done.", "frames_played", "24000")},
+			{at(12, 22, 8.6), rec(journal.KindToolResult, "", "call_id", "an_5c19e2d0", "outcome", "ok")},
+			{at(12, 22, 8.7), rec(journal.KindSessionClosed, "", "reason", "announced", "satellite", "kitchen")},
+		},
+		// Timers belong to the house, not to the conversation that set them.
+		journal.HouseTimers: {
+			{at(12, 10, 7.1), rec(journal.KindTimerStarted, "", "timer_id", OvenTimer, "seconds", "720", "fires_at", Day().Add(at(12, 22, 7.1)).Format(time.RFC3339Nano), "label", "oven", "satellite", "kitchen", "person", "alan", "conversation_id", ConvTimer, "call_id", "c1")},
+			{at(12, 22, 8.7), rec(journal.KindTimerFinished, "", "timer_id", OvenTimer, "outcome", "announced", "conversation_id", ConvOven)},
 		},
 		ConvJazz: {
 			{at(18, 40, 0), rec(journal.KindSessionOpened, "", "satellite", "living_room", "speaker_id", "alice", "resumed", "false")},

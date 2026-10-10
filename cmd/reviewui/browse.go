@@ -17,6 +17,10 @@ import (
 // conversation (listen.DeviceConversation).
 const devicePrefix = "device:"
 
+// houseLog is the household's own log of timers, which belong to no
+// conversation (journal.HouseTimers).
+const houseLog = journal.HouseTimers
+
 // session is one stretch of a conversation on one satellite.
 type session struct {
 	seq       uint64
@@ -36,6 +40,20 @@ type convSummary struct {
 	turns    int
 	sessions []session
 	signals  []triage.Signal
+
+	// announced is a conversation an announcement opened, with no wake word;
+	// forWhom is who asked for it, or set its timer.
+	announced bool
+	forWhom   string
+}
+
+// who is whom the conversation was with: whoever spoke first, or whom an
+// announcement nobody answered was for.
+func (c convSummary) who() string {
+	if c.speaker == "" && c.forWhom != "" {
+		return "for " + c.forWhom
+	}
+	return c.speaker
 }
 
 func summarize(id string, events []journal.Event, sigs []triage.Signal) convSummary {
@@ -54,7 +72,17 @@ func summarize(id string, events []journal.Event, sigs []triage.Signal) convSumm
 			c.turns++
 			if c.first == "" {
 				c.first, c.speaker = e.Fields["text"], e.Fields["speaker_id"]
+			} else if c.speaker == "" {
+				c.speaker = e.Fields["speaker_id"]
 			}
+		case journal.KindAnnouncementMade:
+			// What an announcement opened with is what it said, not an ask.
+			if c.first == "" && c.announced {
+				c.first, c.forWhom = e.Fields["text"], e.Fields["requested_by"]
+			}
+		}
+		if e.Kind == journal.KindSessionOpened && e.Seq == 1 {
+			c.announced = e.Fields["announced"] == "true"
 		}
 	}
 	// A signal belongs to the session its turn ran under, which for a late
@@ -124,6 +152,9 @@ func (s *server) household(r *http.Request) ([]convSummary, map[string][]time.Ti
 		events, err := s.journal.Events(r.Context(), id)
 		if err != nil {
 			return nil, nil, 0, err
+		}
+		if id == houseLog {
+			continue
 		}
 		if sat, ok := strings.CutPrefix(id, devicePrefix); ok {
 			for _, e := range events {
@@ -202,16 +233,22 @@ func (s *server) browse(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		tag := ui.SigTag{Text: "conversation", Tone: ui.ToneConv}
+		if c.announced {
+			tag = ui.SigTag{Text: "announcement", Tone: ui.ToneVoice}
+		}
 		if len(c.signals) > 0 {
 			tag = signalTags[c.signals[0].Kind]
 		}
 		detail := plural(c.turns, "turn")
+		if c.announced && c.turns == 0 {
+			detail = "no wake word"
+		}
 		if n := len(c.signals); n > 0 {
 			detail += " · " + plural(n, "signal")
 		}
 		list.Rows = append(list.Rows, ui.ListRow{
 			Href: conversationHref(c.id), Tag: tag, Title: c.first, Detail: detail,
-			Who:    c.speaker + " · " + strings.Join(rooms, " → "),
+			Who:    c.who() + " · " + strings.Join(rooms, " → "),
 			Figure: c.end.Sub(c.start).Round(time.Second).String(),
 			When:   c.start.In(loc).Format("15:04"),
 		})
