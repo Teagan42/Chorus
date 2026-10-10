@@ -216,6 +216,63 @@ func TestAnUnknownPairOrActionIsRefused(t *testing.T) {
 	}
 }
 
+// A page on another site, open in Teagan's browser, posts to the review box
+// on the household's network. Every write is refused and stores nothing;
+// the same posts from the UI's own pages, or from curl, still land.
+//
+// verifies SPEC §9.2
+func TestAWriteFromAnotherSiteIsRefused(t *testing.T) {
+	s, decisions := householdReplayServer(t)
+	writes := []struct {
+		target string
+		form   url.Values
+	}{
+		{"/pairs/" + url.PathEscape(pairZeppel) + "/accept-anyway", nil},
+		{turnURL(convZeppel, 2, "labels/wrong_tool"), url.Values{"note": {shouldHaveZeppel}}},
+		{turnURL(convZeppel, 2, "note"), url.Values{"note": {shouldHaveZeppel}}},
+		{"/replays/" + convZeppel, url.Values{"model": {"qwen3-32b"}, "prompt": {"Lead with the count."}}},
+		{"/replays/" + convZeppel + "/turns/2/promote", url.Values{"speech": {shouldHaveZeppel}}},
+	}
+	send := func(target string, form url.Values, header ...string) int {
+		r := httptest.NewRequest(http.MethodPost, target, strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for i := 0; i+1 < len(header); i += 2 {
+			r.Header.Set(header[i], header[i+1])
+		}
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, r)
+		return w.Code
+	}
+	for _, wr := range writes {
+		if code := send(wr.target, wr.form, "Sec-Fetch-Site", "cross-site"); code != http.StatusForbidden {
+			t.Errorf("cross-site POST %s = %d, want 403", wr.target, code)
+		}
+		// An older browser sends no Sec-Fetch-Site, but says where it came from.
+		if code := send(wr.target, wr.form, "Origin", "https://recipes.example"); code != http.StatusForbidden {
+			t.Errorf("foreign-origin POST %s = %d, want 403", wr.target, code)
+		}
+	}
+	if ps := mustPairs(t, s); len(ps) == 0 {
+		t.Fatal("the household harvested no pairs")
+	}
+	if d, ok, _ := decisions.Get(context.Background(), pairZeppel); ok {
+		t.Errorf("a refused write stored %+v", d)
+	}
+	if a, _ := decisions.Annotations(context.Background(), convZeppel); len(a) > 0 {
+		t.Errorf("a refused write labelled %+v", a)
+	}
+
+	for _, ok := range [][]string{
+		{"Sec-Fetch-Site", "same-origin"},
+		{"Origin", "http://example.com"}, // httptest's own host
+		nil,                              // curl, or the demo's in-tab server
+	} {
+		if code := send(turnURL(convZeppel, 2, "labels/too_slow"), nil, ok...); code != http.StatusOK {
+			t.Errorf("same-origin POST with %v = %d, want 200", ok, code)
+		}
+	}
+}
+
 // verifies SPEC §9.2
 func TestSwitchingStatusTabsDropsASelectionOutsideTheFilter(t *testing.T) {
 	s, _ := newTestServer(t)

@@ -62,7 +62,10 @@ func newServer(j Journal, d curation.Store, b blob.Store, now func() time.Time) 
 	}
 }
 
-func (s *server) routes() *http.ServeMux {
+// routes serves every screen behind a cross-origin check: the box trusts its
+// network (SPEC §1), so another site's page in the reviewer's browser must
+// not post to it.
+func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.StripPrefix("/static/", ui.Static()))
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +86,7 @@ func (s *server) routes() *http.ServeMux {
 	mux.HandleFunc("GET "+ui.Routes[ui.StepExport], s.export)
 	mux.HandleFunc("GET /export/dpo.jsonl", s.exportJSONL)
 	mux.HandleFunc("POST /pairs/{rest...}", s.pairAction)
-	return mux
+	return http.NewCrossOriginProtection().Handler(mux)
 }
 
 // pair is one harvested candidate with any verdict applied, ready for the
