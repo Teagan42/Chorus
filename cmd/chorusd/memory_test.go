@@ -262,7 +262,29 @@ func (o recordedOllama) RoundTrip(r *http.Request) (*http.Response, error) {
 //
 // verifies SPEC §4.1, §5
 func TestAlanHearsTheGarageCodeTheModelWroteAsContent(t *testing.T) {
-	stream, err := os.ReadFile(filepath.Join("..", "..", "internal", "provider", "ollama", "testdata", "answered_in_content.ndjson"))
+	alanHearsFromContent(t, "answered_in_content.ndjson",
+		memory.Memory{ID: "m_9a7e4512", Person: "alan", Fact: "The garage door code is 4512.", At: epoch.Add(-60 * 24 * time.Hour)},
+		"what's the code for the garage", "The garage door code is 4512.")
+}
+
+// Asked how he takes his coffee, qwen3:14b wrote its reply as one line of
+// content, the words quoted after the tool's name. Alan hears the question
+// it asked back, without "speak" or the quotes.
+//
+// verifies SPEC §4.1, §5
+func TestAlanHearsTheQuestionTheModelWroteAfterTheToolsName(t *testing.T) {
+	alanHearsFromContent(t, "question_in_content.ndjson",
+		memory.Memory{ID: "m_c0ffee01", Person: "alan", Fact: "Alan takes his coffee with oat milk.", At: epoch.Add(-14 * 24 * time.Hour)},
+		"how do I take my coffee",
+		"Would you like instructions on how to brew your coffee, or are you looking for something else?")
+}
+
+// alanHearsFromContent runs the real engine over a stream the household's
+// Ollama sent, with what Alan asked the house to remember, and checks that
+// what he hears in the kitchen, and what the log says was said, is want.
+func alanHearsFromContent(t *testing.T, fixture string, remembered memory.Memory, words, want string) {
+	t.Helper()
+	stream, err := os.ReadFile(filepath.Join("..", "..", "internal", "provider", "ollama", "testdata", fixture))
 	if err != nil {
 		t.Fatalf("read stream: %v", err)
 	}
@@ -274,20 +296,19 @@ func TestAlanHearsTheGarageCodeTheModelWroteAsContent(t *testing.T) {
 		t.Fatalf("engine: %v", err)
 	}
 	memories := memory.NewMemStore()
-	if err := memories.Remember(context.Background(), memory.Memory{
-		ID: "m_9a7e4512", Person: "alan", Fact: "The garage door code is 4512.", At: epoch.Add(-60 * 24 * time.Hour),
-	}); err != nil {
+	if err := memories.Remember(context.Background(), remembered); err != nil {
 		t.Fatalf("remember: %v", err)
 	}
-	r := newRig(t, inventory(), func(d *deps) { d.engine, d.Memories = eng, memories })
+	// An answer longer than the first two slices is paced onto the link by
+	// the clock, which the rig's timers never advance; the wall's do.
+	r := newRig(t, inventory(), func(d *deps) { d.engine, d.Memories, d.Timers = eng, memories, wallTimers{} })
 	dev := r.join(t, kitchenIP)
 	dev.SendWake(t, "hey_eddie")
-	r.utter(t, dev, r.line("what's the code for the garage", alan))
+	r.utter(t, dev, r.line(words, alan))
 
-	const code = "The garage door code is 4512."
-	dev.AwaitTTS(t, 2*len(code))
+	dev.AwaitTTS(t, 2*len(want))
 	dev.PlayAll(t)
-	if spoken := r.store.awaitKind(t, journal.KindSpeechSpoken, 1); spoken.Fields["text"] != code {
-		t.Errorf("speech_spoken = %v, want the code and not the tool's name", spoken.Fields)
+	if spoken := r.store.awaitKind(t, journal.KindSpeechSpoken, 1); spoken.Fields["text"] != want {
+		t.Errorf("speech_spoken = %v, want %q and not the tool's name", spoken.Fields, want)
 	}
 }
