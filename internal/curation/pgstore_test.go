@@ -43,7 +43,7 @@ func TestPgStoreConformance(t *testing.T) {
 	// The suite's cases share pair ids, so each gets an empty table rather
 	// than a namespaced store - the store under test must be the real one.
 	runStoreConformance(t, func(t *testing.T) curation.Store {
-		if _, err := pool.Exec(context.Background(), `TRUNCATE curation_decisions, curation_annotations, curation_promotions, curation_reruns`); err != nil {
+		if _, err := pool.Exec(context.Background(), `TRUNCATE curation_decisions, curation_annotations, curation_promotions, curation_reruns, curation_wake_verdicts`); err != nil {
 			t.Fatalf("truncate: %v", err)
 		}
 		return curation.NewPgStore(pool)
@@ -79,6 +79,18 @@ func TestPgStoreRefusesALabelOutsideTheVocabulary(t *testing.T) {
 		VALUES ('conv-0853-kitchen', 2, ARRAY['rude'], '', now())`)
 	if err == nil {
 		t.Error("the database accepted label \"rude\"")
+	}
+}
+
+// verifies SPEC §9.3
+func TestPgStoreRefusesAWakeVerdictTheCorpusHasNoRuleFor(t *testing.T) {
+	pool := openPg(t)
+	// Past the Go check, the CHECK constraint holds the two verdicts.
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO curation_wake_verdicts
+		VALUES ('device:kitchen', 7, 'was_a_wake', now())`)
+	if err == nil {
+		t.Error("the database accepted wake verdict \"was_a_wake\"")
 	}
 }
 

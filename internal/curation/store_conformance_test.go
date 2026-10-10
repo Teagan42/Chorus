@@ -410,6 +410,97 @@ var rerunConformance = map[string]func(*testing.T, curation.Store){
 	},
 }
 
+// wakeConformance holds every store to the same answers about a reviewer's
+// word on a rejected wake.
+var wakeConformance = map[string]func(*testing.T, curation.Store){
+	"a wake verdict's every field round-trips": func(t *testing.T, s curation.Store) {
+		ctx := context.Background()
+		want := dishwasherVerdict()
+		if err := s.PutWakeVerdict(ctx, want); err != nil {
+			t.Fatalf("put: %v", err)
+		}
+		got, err := s.WakeVerdicts(ctx, want.ConversationID)
+		if err != nil {
+			t.Fatalf("wake verdicts: %v", err)
+		}
+		if !reflect.DeepEqual(got, map[uint64]curation.WakeVerdict{want.Seq: want}) {
+			t.Errorf("wake verdicts = %+v, want only %+v", got, want)
+		}
+	},
+
+	"the last word on a rejected wake wins": func(t *testing.T, s curation.Store) {
+		ctx := context.Background()
+		v := dishwasherVerdict()
+		if err := s.PutWakeVerdict(ctx, v); err != nil {
+			t.Fatalf("put: %v", err)
+		}
+		v.Status, v.JudgedAt = curation.WakeDiscarded, v.JudgedAt.Add(time.Minute)
+		if err := s.PutWakeVerdict(ctx, v); err != nil {
+			t.Fatalf("put again: %v", err)
+		}
+		got, err := s.WakeVerdicts(ctx, v.ConversationID)
+		if err != nil {
+			t.Fatalf("wake verdicts: %v", err)
+		}
+		if got[v.Seq] != v {
+			t.Errorf("wake verdict = %+v, want the second write %+v", got[v.Seq], v)
+		}
+	},
+
+	"a verdict with no status returns the wake to unreviewed": func(t *testing.T, s curation.Store) {
+		ctx := context.Background()
+		v := dishwasherVerdict()
+		if err := s.PutWakeVerdict(ctx, v); err != nil {
+			t.Fatalf("put: %v", err)
+		}
+		v.Status = ""
+		if err := s.PutWakeVerdict(ctx, v); err != nil {
+			t.Fatalf("put unreviewed: %v", err)
+		}
+		got, err := s.WakeVerdicts(ctx, v.ConversationID)
+		if err != nil {
+			t.Fatalf("wake verdicts: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("wake verdicts = %+v, want none", got)
+		}
+	},
+
+	"wake verdicts stay with their satellite's log": func(t *testing.T, s curation.Store) {
+		ctx := context.Background()
+		mine, other := dishwasherVerdict(), dishwasherVerdict()
+		other.ConversationID, other.Seq = "device:office", 1
+		for _, v := range []curation.WakeVerdict{mine, other} {
+			if err := s.PutWakeVerdict(ctx, v); err != nil {
+				t.Fatalf("put: %v", err)
+			}
+		}
+		got, err := s.WakeVerdicts(ctx, mine.ConversationID)
+		if err != nil {
+			t.Fatalf("wake verdicts: %v", err)
+		}
+		if len(got) != 1 || got[mine.Seq] != mine {
+			t.Errorf("wake verdicts = %+v, want only the kitchen's", got)
+		}
+	},
+
+	"a wake verdict outside confirmed and discarded is refused": func(t *testing.T, s curation.Store) {
+		v := dishwasherVerdict()
+		v.Status = "was_a_wake"
+		if err := s.PutWakeVerdict(context.Background(), v); err == nil {
+			t.Error("stored a verdict the corpus has no rule for")
+		}
+	},
+
+	"a wake verdict that names no event is refused": func(t *testing.T, s curation.Store) {
+		v := dishwasherVerdict()
+		v.Seq = 0
+		if err := s.PutWakeVerdict(context.Background(), v); err == nil {
+			t.Error("stored a verdict no rejection can claim")
+		}
+	},
+}
+
 // zeppelinRerun is Alice's morning asked again under the brief prompt: the
 // list turn changes, the follow-up answers as it did.
 func zeppelinRerun() curation.Rerun {
@@ -444,6 +535,16 @@ const mediaSearchOnly = `[
     }
   }
 ]`
+
+// dishwasherVerdict is the reviewer confirming the kitchen's dishwasher wake.
+func dishwasherVerdict() curation.WakeVerdict {
+	return curation.WakeVerdict{
+		ConversationID: "device:kitchen",
+		Seq:            7,
+		Status:         curation.WakeConfirmed,
+		JudgedAt:       time.Date(2025, 10, 9, 22, 51, 3, 500000000, time.UTC),
+	}
+}
 
 // garageCheckPromotion is Teagan's garage question re-run: it checks the
 // contact sensor and says nothing until the sensor answers.
@@ -496,7 +597,7 @@ func decision(pairID string, status curation.Status) curation.Decision {
 
 func runStoreConformance(t *testing.T, open newStore) {
 	t.Helper()
-	for _, suite := range []map[string]func(*testing.T, curation.Store){storeConformance, annotationConformance, promotionConformance, rerunConformance} {
+	for _, suite := range []map[string]func(*testing.T, curation.Store){storeConformance, annotationConformance, promotionConformance, rerunConformance, wakeConformance} {
 		for name, run := range suite {
 			t.Run(name, func(t *testing.T) { run(t, open(t)) })
 		}
