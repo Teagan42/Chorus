@@ -421,6 +421,23 @@ func (c *fakeNative) Close() error {
 	return nil
 }
 
+// sent waits for the daemon's next message to the device, which must be a T.
+func sent[T proto.Message](t *testing.T, c *fakeNative, what string) T {
+	t.Helper()
+	select {
+	case m := <-c.sent:
+		got, ok := m.(T)
+		if !ok {
+			t.Fatalf("waiting for %s, the daemon sent %T", what, m)
+		}
+		return got
+	case <-time.After(patience):
+		t.Fatalf("the daemon never sent %s", what)
+	}
+	var zero T
+	return zero
+}
+
 // ------------------------------------------------------------------ clock
 
 var epoch = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)

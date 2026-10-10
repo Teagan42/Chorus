@@ -4,5 +4,5 @@ satellites:
   - name: satellite1-abcdef
     address: 10.0.0.42:6053
     psk: BASE64_32_BYTE_KEY_HERE
-    room: kitchen
+    room: kitchen # told to the model, so "the lights" means this room's
     profile: satellite1 # satellite1 | voice-pe

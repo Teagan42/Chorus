@@ -56,6 +56,7 @@ decision rather than by clause: facets of one choice share one record.
 | [0045](0045-timers-belong-to-the-house-and-an-announcement-is-a-session-with-no-wake-word.md) | Timers belong to the house, in a log of their own; an announcement is a session with no wake word, answerable with `start_conversation` | §4, §4.2, §7, §8 |
 | [0046](0046-a-turn-that-calls-nothing-has-its-answer-spoken-from-its-content.md) | A turn that calls nothing, with its reasoning in the thinking field, has its content spoken when it ends | §4.1, §5 |
 | [0047](0047-the-satellite-board-keeps-the-reference-voice-frontend-and-adds-a-wire.md) | Proposed: Chorus's own satellite board keeps the Satellite1's ESP32-S3 and XU316 frontend, and adds PoE Ethernet, eight mics for direction of arrival, a speaker-sense return and a hardware mute | §3.2.1, §3.3.2, §4.3, §5 |
+| [0050](0050-the-satellite-says-where-it-is-what-it-heard-and-who-is-in-the-room.md) | Each turn is told the satellite's room, the second mic channel is kept beside the first, and the room's presence is journalled to the device log | §3.3.1, §5, §8, §9.3 |
 | [0048](0048-smart-turn-is-timed-by-the-clock-not-the-audio.md) | Refines 0036: Smart Turn's verdict is timed by the clock, so audio arriving in a burst after a radio stall waits for it, up to the hold | §3.3.2, §4.5 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,

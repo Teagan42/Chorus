@@ -109,7 +109,11 @@ walking from the kitchen to the office shows up as one conversation in two
 lanes. A block takes the colour of its most important signal: a barge-in
 first, since it is the training signal, then a failure, a repeated ask, a
 slow answer, a speaker flip. Ticks mark wakes rejected at stage two (SPEC §9.3), which
-opened no conversation and so live in the satellite's own `device:` log.
+opened no conversation and so live in the satellite's own `device:` log. The
+shaded band behind a lane is when its mmWave radar saw someone in the room,
+from the same log (ADR-0050). A gap inside an evening is the native API
+dropping, not the room emptying. A satellite with no radar, such as a Voice
+PE, has no band.
 
 ![Conversation](conversation.png)
 

@@ -517,8 +517,9 @@ func (r *rig) awaitKind(t *testing.T, convID string, k journal.Kind, n int) jour
 }
 
 // settled waits for the device to have delivered everything the test sent:
-// the next frame it reads proves the earlier ones were dispatched.
+// the next frame it reads proves the earlier ones were dispatched. It rides
+// a channel no device declares, which the listener keeps none of.
 func (r *rig) settled(t *testing.T) {
 	t.Helper()
-	r.dev.SendMic(t, bridge.ChannelSecond, quiet(2))
+	r.dev.SendMic(t, bridge.ChannelSecond+1, quiet(2))
 }

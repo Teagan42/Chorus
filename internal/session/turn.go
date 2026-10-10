@@ -69,6 +69,10 @@ type Input struct {
 	ConversationID string
 	Speaker        string
 
+	// Room is where the satellite this turn was heard on stands, as its
+	// session_opened recorded it. Empty when the inventory names none (SPEC §5).
+	Room string
+
 	// Text is the utterance this turn answers.
 	Text string
 

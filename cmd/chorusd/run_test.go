@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -228,6 +229,62 @@ func TestAKnownSatelliteIsHeard(t *testing.T) {
 	}
 }
 
+// The inventory's room reaches the model: a satellite named for its board
+// stands in the living room, and "dim the lights" heard there is asked with
+// that room, recorded on the session so a replay is asked the same (SPEC §5).
+//
+// verifies SPEC §5
+func TestTheModelIsToldTheRoomTheInventoryNames(t *testing.T) {
+	inv := &config.Config{Satellites: []config.Satellite{
+		{Name: "satellite1-4b2c10", Address: kitchenIP + ":6053", PSK: goodPSK, Room: "living_room", Profile: "satellite1"},
+	}}
+	r := newRig(t, inv)
+	dev := r.join(t, kitchenIP)
+
+	dev.SendWake(t, "hey_eddie")
+	r.utter(t, dev, r.line("dim the lights", alan))
+
+	opened := r.store.awaitKind(t, journal.KindSessionOpened, 1)
+	if opened.Fields["satellite"] != "satellite1-4b2c10" || opened.Fields["room"] != "living_room" {
+		t.Errorf("session_opened = %v, want satellite1-4b2c10 in the living_room", opened.Fields)
+	}
+	await(t, "the turn", func() bool { return len(r.engine.heard()) == 1 })
+	if in := r.engine.heard()[0]; in.Room != "living_room" || in.Text != "dim the lights" {
+		t.Errorf("the model was given %+v, want dim the lights from the living_room", in)
+	}
+}
+
+// The whole stack keeps the satellite's second channel: what the device
+// sends on it lands in the blob store beside the utterance, and the journal
+// says where (SPEC §8).
+//
+// verifies SPEC §8
+func TestTheSecondMicChannelIsJournalledBesideTheFirst(t *testing.T) {
+	r := newRig(t, inventory())
+	dev := r.join(t, kitchenIP)
+	kettle := r.line("put the kettle on", alan)
+	const lighter = 2900
+
+	dev.SendWake(t, "hey_eddie")
+	for range 8 {
+		dev.SendMic(t, bridge.ChannelAEC, voice(kettle, chunkBytes))
+		dev.SendMic(t, bridge.ChannelSecond, voice(lighter, chunkBytes))
+	}
+	for sent := 0; sent < silence; sent += chunkBytes {
+		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+		dev.SendMic(t, bridge.ChannelSecond, quiet(chunkBytes))
+	}
+
+	heard := r.store.awaitKind(t, journal.KindUtteranceTranscribed, 1)
+	second, ok := r.blobs.Bytes(heard.Fields["second_audio_ref"])
+	if !ok {
+		t.Fatalf("second_audio_ref %q is not in the blob store", heard.Fields["second_audio_ref"])
+	}
+	if !bytes.Contains(second, voice(lighter, 8*chunkBytes)) {
+		t.Errorf("the second channel's blob (%d bytes) does not hold what the device sent on it", len(second))
+	}
+}
+
 // The link's lifetime owns the listener: when the device drops, its session
 // closes as device_lost. The conversation does not end with it -- the same
 // person on a fresh link resumes it (SPEC §4.5), which is what the one
@@ -359,15 +416,9 @@ func TestTheNativeAPIIsHeldAndRedialed(t *testing.T) {
 	clk.advance(nativeRetryMin)
 	r.logs.await(t, "satellite1 esphome 2026.7.2")
 
+	sent[*pb.ListEntitiesRequest](t, conn, "the entity list")
 	conn.in <- &pb.PingRequest{}
-	select {
-	case m := <-conn.sent:
-		if _, ok := m.(*pb.PingResponse); !ok {
-			t.Errorf("answered a ping with %T", m)
-		}
-	case <-time.After(patience):
-		t.Fatal("the ping was never answered")
-	}
+	sent[*pb.PingResponse](t, conn, "the ping's answer")
 
 	// The device drops the connection; the daemon arms a retry.
 	_ = conn.Close()

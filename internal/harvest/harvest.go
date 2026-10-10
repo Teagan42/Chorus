@@ -341,12 +341,13 @@ func (w *walker) fold(e journal.Event) error {
 		}
 	case journal.KindSessionOpened, journal.KindBargeInRejected, journal.KindWakeRejected, journal.KindSpeechStarted,
 		journal.KindConfirmationRequested, journal.KindConfirmationGiven, journal.KindConversationSummarized,
-		journal.KindTimerStarted, journal.KindTimerCancelled, journal.KindTimerFinished:
+		journal.KindTimerStarted, journal.KindTimerCancelled, journal.KindTimerFinished,
+		journal.KindPresenceChanged:
 		// A resumed open continues the same log; rejections tune the gate; a
 		// start is when speech was heard, and the pair is what (ADR-0035). A
 		// held call's outcome is its tool_result; the nonce is the audit's. A
 		// summary is the conversation's, written after its last turn. Timers
-		// are the house log's, which holds no turns.
+		// are the house log's and presence a device log's: neither holds turns.
 	default:
 		return fmt.Errorf("unhandled event kind %q", e.Kind)
 	}

@@ -607,6 +607,24 @@ func TestE2EJourneyBrowseFollowsThePersonAndWalksTheDays(t *testing.T) {
 	if n := p.count(".day-lanes__reject"); n != 2 {
 		t.Errorf("%d rejected wakes, want the dishwasher and the podcast", n)
 	}
+	// The radar's day, from the device logs: four kitchen spans, the living
+	// room's evening split where its native API dropped, and nothing from the
+	// office's Voice PE, which has no radar (SPEC §3.3.1).
+	var spans []int
+	p.eval(`[...document.querySelectorAll(".day-lanes__lane")].map(l => l.querySelectorAll(".day-lanes__presence").length)`, &spans)
+	if fmt.Sprint(spans) != "[4 3 0]" {
+		t.Errorf("presence spans per lane = %v, want [4 3 0]", spans)
+	}
+	// Alan left before the oven timer went off at 12:22: nobody heard it.
+	var heardIt bool
+	p.eval(`[...document.querySelectorAll(".day-lanes__lane")][0].querySelectorAll(".day-lanes__presence").values().some(s => {
+		const at = (12 + 22/60) / 24 * 100, left = parseFloat(s.style.left), width = parseFloat(s.style.width);
+		return left <= at && at <= left + width;
+	})`, &heardIt)
+	if heardIt {
+		t.Error("the kitchen is drawn occupied when the oven timer went off")
+	}
+	p.waitText(".day-lanes", "room occupied (mmWave)")
 	p.waitText(".day-lanes", "moved rooms · same conversation")
 	p.waitText(".band:not(.row) .cap", "7 conversations")
 	p.waitText("#conversations", "alice · kitchen → living_room")

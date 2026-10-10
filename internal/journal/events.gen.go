@@ -26,6 +26,8 @@ const (
 	KindMemoryRecalled Kind = "memory_recalled"
 	// Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8).
 	KindModelCompleted Kind = "model_completed"
+	// The satellite's own presence sensor changed: the Satellite1's mmWave radar, read over the native API. Recorded in the device's log, since presence belongs to the room, not to a conversation (ADR-0050).
+	KindPresenceChanged Kind = "presence_changed"
 	// Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). An announcement nobody was asked to answer closes as announced once it has been said.
 	KindSessionClosed Kind = "session_closed"
 	// Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5).
@@ -74,6 +76,7 @@ var Meta = map[Kind]EventMeta{
 	KindConversationSummarized: {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: true, RequiredFields: []string{"people_json"}},
 	KindMemoryRecalled:         {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"person", "memories_json"}},
 	KindModelCompleted:         {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: true, RequiredFields: []string{"completion_json", "finish_reason"}},
+	KindPresenceChanged:        {Actor: "device", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"state"}},
 	KindSessionClosed:          {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"reason", "satellite"}},
 	KindSessionOpened:          {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"satellite"}},
 	KindSpeechDiscarded:        {Actor: "speaking", HasAudio: false, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"unspoken_text", "reason"}},
@@ -99,6 +102,7 @@ var AllKinds = []Kind{
 	KindConversationSummarized,
 	KindMemoryRecalled,
 	KindModelCompleted,
+	KindPresenceChanged,
 	KindSessionClosed,
 	KindSessionOpened,
 	KindSpeechDiscarded,

@@ -5,8 +5,9 @@
 # their satellite1.base.yaml: that package includes voice_assistant, whose
 # half-duplex state machine is the limit this component exists to escape
 # (SPEC §3.1). Everything their base adds beyond audio -- LED ring, timers,
-# media player, mmwave, BLE improv -- is omitted because full duplex is what
-# this config exists to prove.
+# media player, BLE improv -- is omitted because full duplex is what this
+# config exists to prove. The mmWave radar is kept: its "Room Presence" is
+# what the orchestrator journals presence from (ADR-0050).
 #
 # Hardware facts that are not obvious from the pin numbers:
 #   - The XMOS XU316 is the I2S master (`i2s_mode: secondary`). The ESP32 does
@@ -62,7 +63,7 @@ external_components:
   # the release the board vendor builds against, and it is what the device
   # shipped running. Upstream main targets 2026.9 but does not build there.
   - source: github://FutureProofHomes/Satellite1-ESPHome@v0.2.1
-    components: [fusb302b, i2s_audio, memory_flasher, satellite1, tas2780]
+    components: [fusb302b, i2s_audio, memory_flasher, satellite1, satellite1_radar, tas2780]
 
 packages:
   chorus: !include
@@ -106,6 +107,15 @@ i2c:
     scl: GPIO6
     frequency: 400kHz
     scan: true
+
+# The mmWave header. UART0's pins are free: the logger is on USB-Serial-JTAG.
+uart:
+  - id: uart_mmwave
+    tx_pin: GPIO43
+    rx_pin: GPIO44
+    baud_rate: 256000
+    parity: NONE
+    stop_bits: 1
 
 spi:
   - id: spi_0
@@ -274,3 +284,11 @@ microphone:
 # Ducking applies to the other mixer source, not to our own TTS.
 chorus_bridge:
   ducking_speaker: media_source
+
+# The radar on the mmWave header, LD2410 or LD2450, whichever answers. It
+# registers "Room Presence" (device class occupancy) once detected, which
+# the orchestrator reads over the native API. A board with no radar fitted
+# lists no such entity, and the orchestrator journals no presence for it.
+satellite1_radar:
+  id: sat1_radar
+  uart_id: uart_mmwave

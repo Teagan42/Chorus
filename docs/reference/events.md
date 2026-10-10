@@ -14,6 +14,7 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | `conversation_summarized` | session |  |  | The conversation ended and the model summarized it for the identified people in it, to be told in their later conversations. Recorded in full, as a completion is, because replay cannot regenerate it (SPEC §5, §8). |
 | `memory_recalled` | session |  |  | What the model is told it remembers, from this turn on: the speaker's own memories and what others shared, and their recent conversations, chosen by relevance when there are more than fit. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5). |
 | `model_completed` | thinking |  |  | Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8). |
+| `presence_changed` | device |  |  | The satellite's own presence sensor changed: the Satellite1's mmWave radar, read over the native API. Recorded in the device's log, since presence belongs to the room, not to a conversation (ADR-0050). |
 | `session_closed` | session |  |  | Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). An announcement nobody was asked to answer closes as announced once it has been said. |
 | `session_opened` | session |  |  | Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5). |
 | `speech_discarded` | speaking |  | yes | Speech generated but never played, because a barge-in emptied the queue first. Distinct from truncation: nothing was heard. |
@@ -125,6 +126,17 @@ Actor: `thinking`. `has_audio`: no. `training_signal`: no. `speculative`: no. `r
 | `completion_json` | string | yes | Raw completion as returned. |
 | `finish_reason` | string | yes | Why generation stopped. One of: `stop`, `length`, `tool_calls`, `error`. |
 
+## `presence_changed`
+
+The satellite's own presence sensor changed: the Satellite1's mmWave radar, read over the native API. Recorded in the device's log, since presence belongs to the room, not to a conversation (ADR-0050).
+
+Actor: `device`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `state` | string | yes | What the sensor says. unknown is the native API dropping or the sensor having no reading yet: presence was not seen to end, but it can no longer be vouched for. One of: `present`, `absent`, `unknown`. |
+| `sensor` | string |  | The entity it came from, by object id, e.g. room_presence. |
+
 ## `session_closed`
 
 Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). An announcement nobody was asked to answer closes as announced once it has been said.
@@ -149,6 +161,7 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 | `wake_confidence` | number |  | Stage-two confirmation score. |
 | `resumed` | boolean |  | Joined an existing conversation rather than starting one. |
 | `announced` | boolean |  | Opened with no wake word, to say an announcement: a timer going off, or something asked to be said in this room (SPEC §4). |
+| `room` | string |  | Where the device is, as the inventory names it: what the model is told it is speaking from, so "the lights" can mean this room's (SPEC §5). Empty when the inventory names no room. |
 
 ## `speech_discarded`
 
@@ -275,6 +288,7 @@ Actor: `listening`. `has_audio`: yes. `training_signal`: no. `speculative`: no. 
 | `text` | string | yes | Transcript. |
 | `speaker_id` | string |  | Per-utterance speaker match. |
 | `embedding_json` | string |  | The utterance's speaker embedding as a JSON array of numbers, stored whether or not it matched anyone (SPEC §5). Empty when the embedder was unavailable. |
+| `second_audio_ref` | string |  | The same span from the XMOS's second, lighter-processed output (SPEC §8). Empty when the device streams one channel. |
 
 ## `wake_rejected`
 
@@ -285,4 +299,5 @@ Actor: `device`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. `r
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `reason` | string | yes | Which gate rejected it. One of: `no_speech`, `low_confidence`, `unknown_speaker`. |
+| `second_audio_ref` | string |  | The same span from the XMOS's second, lighter-processed output, so retraining can target either stream (SPEC §9.3). Empty when the device streams one channel. |
 

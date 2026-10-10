@@ -200,6 +200,10 @@ func (e *Engine) messages(in session.Input) []message {
 		// (SPEC §5). /api/chat has no per-message name field to put it in.
 		sys += "\n\nYou are speaking with " + in.Speaker + "."
 	}
+	if in.Room != "" {
+		// Location is turn metadata, not identity (SPEC §5): the satellite's, whoever speaks.
+		sys += "\n\nYou are speaking through the satellite in the " + in.Room + ". A request that names no room, such as turning off the lights, means this one."
+	}
 	sys += now(in.Now, e.cfg.Location)
 	sys += remembered(in.Speaker, in.Memories)
 	sys += lately(in.Summaries, e.cfg.Location)

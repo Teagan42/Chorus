@@ -160,7 +160,7 @@ func TestReplayKeepsSpeculativeWorkOutOfCommittedState(t *testing.T) {
 // satellite the person is actually at, with no close reason left over: the
 // conversation never ended, only its device changed (SPEC §4.5).
 //
-// verifies SPEC §4.5, §8
+// verifies SPEC §4.5, §5, §8
 func TestReplayFollowsAConversationToItsNewSatellite(t *testing.T) {
 	store := journal.NewMemStore()
 	j := journal.New(store, journal.FixedClock(time.Unix(0, 0)), versions())
@@ -168,7 +168,7 @@ func TestReplayFollowsAConversationToItsNewSatellite(t *testing.T) {
 
 	for _, r := range []journal.Record{
 		{Kind: journal.KindSessionOpened, Fields: map[string]string{
-			"satellite": "kitchen", "speaker_id": "alice", "resumed": "false",
+			"satellite": "kitchen", "speaker_id": "alice", "resumed": "false", "room": "kitchen",
 		}},
 		{Kind: journal.KindUtteranceTranscribed, AudioRef: "blob/1", Fields: map[string]string{"text": "turn it down"}},
 		{Kind: journal.KindSpeechDiscarded, Fields: map[string]string{
@@ -176,7 +176,7 @@ func TestReplayFollowsAConversationToItsNewSatellite(t *testing.T) {
 		}},
 		{Kind: journal.KindSessionClosed, Fields: map[string]string{"reason": "migrated", "satellite": "kitchen"}},
 		{Kind: journal.KindSessionOpened, Fields: map[string]string{
-			"satellite": "office", "speaker_id": "alice", "resumed": "true",
+			"satellite": "office", "speaker_id": "alice", "resumed": "true", "room": "study",
 		}},
 		{Kind: journal.KindUtteranceTranscribed, AudioRef: "blob/2", Fields: map[string]string{"text": "and the lights"}},
 	} {
@@ -192,6 +192,10 @@ func TestReplayFollowsAConversationToItsNewSatellite(t *testing.T) {
 	if !st.Open || st.Satellite != "office" || st.CloseReason != "" {
 		t.Errorf("state = open %v on %q closed %q, want open on office with no close reason",
 			st.Open, st.Satellite, st.CloseReason)
+	}
+	// "And the lights" means the study's now: the room moved with her (SPEC §5).
+	if st.Room != "study" {
+		t.Errorf("room = %q, want study, where the office satellite stands", st.Room)
 	}
 	// What was cut off on the old device is still the conversation's context,
 	// and still on the unheard side of it (SPEC §4.4).

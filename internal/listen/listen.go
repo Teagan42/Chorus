@@ -129,6 +129,9 @@ type Listener struct {
 	// The mic is not its to hear, but the speaker is: a wake waits for it.
 	announcing *session.Session
 	cur        *utterance
+	// wake2 and lead2 are the same spans of the second channel, kept for
+	// the corpus beside the channel everything is decided on (SPEC §9.3).
+	wake2, lead2 []byte
 	// last is the newest utterance's ticket. Each utterance waits on the one
 	// before it before it is heard, so turns run one at a time, in order.
 	last <-chan struct{}
@@ -217,11 +220,48 @@ func (l *Listener) lost(sess *session.Session) {
 // OnMic is the bridge read loop's call. It appends to the open utterance and
 // asks the endpointer where it ends; everything slow is elsewhere.
 func (l *Listener) OnMic(channel uint8, pcm []byte) error {
-	// Speech recognition and the embedder both want the echo-cancelled
-	// channel; the raw one is not kept here.
-	if channel != bridge.ChannelAEC {
-		return nil
+	switch channel {
+	case bridge.ChannelAEC:
+		return l.onAEC(pcm)
+	case bridge.ChannelSecond:
+		l.onSecond(pcm)
 	}
+	return nil
+}
+
+// onSecond keeps the second channel beside the first, for the corpus only:
+// recognition, the embedder and the endpointer all decide on the first.
+// Spans line up to the chunk, not the sample (ADR-0050).
+func (l *Listener) onSecond(pcm []byte) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed || l.muted {
+		return
+	}
+	if l.cur != nil {
+		l.cur.keepSecond(pcm)
+		return
+	}
+	if !l.woken && !l.confirming && !l.liveLocked() {
+		l.lead2 = l.lead2[:0]
+		return
+	}
+	l.lead2 = tail(append(l.lead2, pcm...), l.cfg.LeadIn)
+	if l.woken && len(l.wake2) < l.cfg.WakeWindow {
+		l.wake2 = append(l.wake2, pcm...)
+	}
+}
+
+// tail is the last n bytes of b, copied once it has outgrown them.
+func tail(b []byte, n int) []byte {
+	if extra := len(b) - n; extra > 0 {
+		return slices.Clone(b[extra:])
+	}
+	return b
+}
+
+// onAEC is the channel everything is decided on.
+func (l *Listener) onAEC(pcm []byte) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.closed || l.muted {
@@ -268,10 +308,7 @@ func (l *Listener) OnMic(channel uint8, pcm []byte) error {
 
 // leadLocked keeps the last LeadIn bytes before speech starts.
 func (l *Listener) leadLocked(pcm []byte) {
-	l.lead = append(l.lead, pcm...)
-	if extra := len(l.lead) - l.cfg.LeadIn; extra > 0 {
-		l.lead = slices.Clone(l.lead[extra:])
-	}
+	l.lead = tail(append(l.lead, pcm...), l.cfg.LeadIn)
 }
 
 // awaitSpeechLocked buffers what follows a wake. The window expiring with no
@@ -285,10 +322,10 @@ func (l *Listener) awaitSpeechLocked(pcm []byte) {
 	if len(l.wake) < l.cfg.WakeWindow {
 		return
 	}
-	audio := l.wake
-	l.wake, l.woken = nil, false
+	audio, second := l.wake, l.wake2
+	l.wake, l.wake2, l.woken = nil, nil, false
 	l.cfg.Endpointer.Reset()
-	l.spawnLocked(func() { l.rejectWake(audio, "no_speech") })
+	l.spawnLocked(func() { l.rejectWake(audio, second, "no_speech") })
 }
 
 // startLocked opens an utterance on the chunk speech began in.
@@ -308,8 +345,10 @@ func (l *Listener) startLocked(pcm []byte) {
 	// The wake is spent on this utterance, whatever becomes of it. A wake that
 	// a mute lands on is lost with it; the user muted the house.
 	l.confirming = l.confirming || u.first
-	l.woken, l.wake = false, nil
+	l.woken, l.wake, l.wake2 = false, nil, nil
 	l.last = u.ticket
+	u.keepSecond(l.lead2)
+	l.lead2 = l.lead2[:0]
 	for _, chunk := range [][]byte{l.lead, pcm} {
 		if len(chunk) == 0 {
 			continue
@@ -337,7 +376,7 @@ func (l *Listener) confirmed() {
 func (l *Listener) endLocked() {
 	u := l.cur
 	l.cur = nil
-	l.lead = l.lead[:0]
+	l.lead, l.lead2 = l.lead[:0], l.lead2[:0]
 	if l.cfg.Clock != nil {
 		// The End arrives after the quiet that confirmed it, and the mic
 		// streams in real time, so that quiet is how long ago speech stopped.
@@ -351,7 +390,7 @@ func (l *Listener) endLocked() {
 
 // abortLocked drops the open utterance without a transcript.
 func (l *Listener) abortLocked() {
-	l.lead = l.lead[:0]
+	l.lead, l.lead2 = l.lead[:0], l.lead2[:0]
 	l.cfg.Endpointer.Reset()
 	if l.cur == nil {
 		return
@@ -402,7 +441,7 @@ func (l *Listener) OnWake(string) error {
 	if l.closed || l.muted || l.confirming || l.cur != nil || l.liveLocked() || l.announcingLocked() != nil {
 		return nil
 	}
-	l.woken, l.wake = true, l.wake[:0]
+	l.woken, l.wake, l.wake2 = true, l.wake[:0], l.wake2[:0]
 	return nil
 }
 
@@ -506,7 +545,7 @@ func (l *Listener) OnMute(m bridge.Mute) error {
 	l.muted = m.Hardware || m.Software
 	if l.muted {
 		l.abortLocked()
-		l.woken, l.wake = false, nil
+		l.woken, l.wake, l.wake2 = false, nil, nil
 	}
 	return nil
 }
@@ -536,9 +575,25 @@ type utterance struct {
 	mu    sync.Mutex
 	pcm   []byte
 	sumsq float64
+	// second is the second channel over the same span, for the corpus.
+	second []byte
 }
 
 func (u *utterance) key() string { return "mic/" + u.id }
+
+// keepSecond appends the second channel's audio.
+func (u *utterance) keepSecond(pcm []byte) {
+	u.mu.Lock()
+	u.second = append(u.second, pcm...)
+	u.mu.Unlock()
+}
+
+// seconds is the second channel so far.
+func (u *utterance) seconds() []byte {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return slices.Clone(u.second)
+}
 
 // write hands a chunk to STT and keeps it for the embedder and the blob.
 // Kept only on success, so the audio matches what was decoded.
@@ -646,15 +701,16 @@ func (l *Listener) complete(u *utterance) {
 		return
 	}
 	pcm, _ := u.snapshot()
+	second := u.seconds()
 	if res.Text == "" {
 		// Silence is not a request; after a wake it is a false accept.
 		if u.first {
-			l.rejectWake(pcm, "no_speech")
+			l.rejectWake(pcm, second, "no_speech")
 		}
 		return
 	}
 	out := l.resolve(pcm)
-	if u.first && !l.confirm(pcm, out) {
+	if u.first && !l.confirm(pcm, second, out) {
 		return
 	}
 	ref, err := l.store(u.key(), pcm)
@@ -662,6 +718,7 @@ func (l *Listener) complete(u *utterance) {
 		l.warn("store utterance audio", err)
 		return
 	}
+	secondRef := l.storeSecond(u.key(), second)
 
 	select {
 	case <-u.prev:
@@ -676,7 +733,7 @@ func (l *Listener) complete(u *utterance) {
 	}
 	err = sess.Heard(l.ctx, session.Transcript{
 		Text: res.Text, SpeakerID: out.PersonID, AudioRef: ref, Embedding: out.Embedding,
-		Ended: u.stopped,
+		Ended: u.stopped, SecondAudioRef: secondRef,
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		l.warn("hear utterance", err)
@@ -693,12 +750,12 @@ func (l *Listener) complete(u *utterance) {
 // rejection it produces is wake_rejected with reason low_confidence, and
 // the score it passes becomes session.Wake.Confidence; until then neither is
 // invented (ADR-0030).
-func (l *Listener) confirm(pcm []byte, out identity.Outcome) bool {
+func (l *Listener) confirm(pcm, second []byte, out identity.Outcome) bool {
 	switch out.Reason {
 	case identity.BelowThreshold, identity.Ambiguous:
 		// Stage three. Nobody enrolled, or no resolver, cannot judge and does
 		// not: the fresh install must answer someone (SPEC §5).
-		l.rejectWake(pcm, "unknown_speaker")
+		l.rejectWake(pcm, second, "unknown_speaker")
 		return false
 	}
 	l.opening.Lock()
@@ -737,17 +794,22 @@ func (l *Listener) confirm(pcm []byte, out identity.Outcome) bool {
 }
 
 // rejectWake journals a failed confirmation to the device's log, with the
-// audio: the hard negative is the point (SPEC §9.3).
-func (l *Listener) rejectWake(pcm []byte, reason string) {
-	ref, err := l.store("wake/"+rand.Text(), pcm)
+// audio of both channels: the hard negative is the point (SPEC §9.3).
+func (l *Listener) rejectWake(pcm, second []byte, reason string) {
+	key := "wake/" + rand.Text()
+	ref, err := l.store(key, pcm)
 	if err != nil {
 		l.warn("store rejected wake audio", err)
 		return
 	}
+	fields := map[string]string{"reason": reason}
+	if ref2 := l.storeSecond(key, second); ref2 != "" {
+		fields["second_audio_ref"] = ref2
+	}
 	// WithoutCancel, as the session records: a link that just dropped still
 	// gets its negative written.
 	_, err = l.cfg.Journal.Append(context.WithoutCancel(l.ctx), DeviceConversation(l.cfg.Satellite), journal.Record{
-		Kind: journal.KindWakeRejected, AudioRef: ref, Fields: map[string]string{"reason": reason},
+		Kind: journal.KindWakeRejected, AudioRef: ref, Fields: fields,
 	})
 	if err != nil {
 		l.warn("journal rejected wake", err)
@@ -783,6 +845,20 @@ func (l *Listener) store(key string, pcm []byte) (string, error) {
 		return "", fmt.Errorf("commit %s: %w", key, err)
 	}
 	return ref, nil
+}
+
+// storeSecond keeps the second channel beside the blob at key, or returns
+// empty: a device streaming one channel has none, and losing it loses no turn.
+func (l *Listener) storeSecond(key string, pcm []byte) string {
+	if len(pcm) == 0 {
+		return ""
+	}
+	ref, err := l.store(key+".ch1", pcm)
+	if err != nil {
+		l.warn("store second channel audio", err)
+		return ""
+	}
+	return ref
 }
 
 func (l *Listener) warn(what string, err error) {

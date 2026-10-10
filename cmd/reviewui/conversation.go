@@ -34,7 +34,7 @@ type logRow struct {
 var kindTones = map[journal.Kind]ui.Tone{
 	journal.KindSessionOpened: ui.ToneConv, journal.KindSessionClosed: ui.ToneConv,
 	journal.KindUtteranceTranscribed: ui.TonePeople, journal.KindBargeInDetected: ui.TonePeople,
-	journal.KindBargeInRejected: ui.ToneMuted, journal.KindWakeRejected: ui.ToneMuted,
+	journal.KindBargeInRejected: ui.ToneMuted, journal.KindWakeRejected: ui.ToneMuted, journal.KindPresenceChanged: ui.ToneMuted,
 	journal.KindSpeechStarted: ui.ToneVoice, journal.KindSpeechSpoken: ui.ToneVoice, journal.KindSpeechTruncated: ui.ToneVoice, journal.KindSpeechDiscarded: ui.ToneVoice,
 	journal.KindToolCalled: ui.ToneHome, journal.KindToolResult: ui.ToneHome, journal.KindModelCompleted: ui.ToneMuted,
 	journal.KindAnnouncementMade: ui.ToneVoice,
@@ -74,6 +74,8 @@ func logRowOf(e journal.Event, start journal.Event) logRow {
 		row.Text = "barge-in rejected at " + f["stage"]
 	case journal.KindWakeRejected:
 		row.Text = "wake rejected: " + f["reason"]
+	case journal.KindPresenceChanged:
+		row.Text, row.Note = "presence: "+f["state"], f["sensor"]
 	case journal.KindSpeechStarted:
 		row.Text, row.Note = "first audio", "call "+f["call_id"]
 		if ms, err := strconv.Atoi(f["wait_ms"]); err == nil {

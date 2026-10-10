@@ -87,6 +87,10 @@ type daemon struct {
 	gate     session.Gate
 	memories session.Memories
 
+	// rooms is where each satellite stands, from the inventory: what every
+	// turn is told, whichever satellite's supervisor opens it (SPEC §5).
+	rooms map[string]string
+
 	// links is each connected satellite's Listening child, by name: where
 	// an announcement for that satellite is said (ADR-0045).
 	linksMu sync.Mutex
@@ -118,6 +122,10 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 		convs:   session.NewConversations(d.Clock, session.MigrationWindow),
 		gate:    d.bargeInGate(),
 		links:   map[string]*listen.Listener{},
+		rooms:   map[string]string{},
+	}
+	for _, sat := range inv.Satellites {
+		dm.rooms[sat.Name] = sat.Room
 	}
 	// The executors join whatever else is wired, Home Assistant's included.
 	tools := maps.Clone(d.tools)
@@ -316,7 +324,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	sup, err := session.New(session.Config{
 		Journal: d.journal, Store: d.Store, Clock: d.Clock, Timers: d.Timers,
 		Engine: d.engine, Speaker: speaker, Conversations: d.convs,
-		Tools: d.tools, Gate: d.gate, Memories: d.memories,
+		Tools: d.tools, Gate: d.gate, Memories: d.memories, Rooms: d.rooms,
 		Summarizer: d.summarizer, Summarizing: &d.wg, Log: log,
 	})
 	if err != nil {

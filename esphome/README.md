@@ -11,7 +11,9 @@ satellite1.example.yaml     a device config that validates standalone
 secrets.example.yaml        template; the real secrets.yaml is gitignored
 ```
 
-Native API stays for control — entities, LED ring, wake-word sensitivity.
+Native API stays for control — entities, LED ring, wake-word sensitivity,
+and the mmWave radar's "Room Presence", which the orchestrator journals as
+the room's presence (ADR-0050).
 Audio rides a raw TCP socket the device dials out on, because the native API
 cannot carry audio without new message ids, which means forking `api.proto`.
 

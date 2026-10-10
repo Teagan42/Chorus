@@ -63,6 +63,12 @@ type Config struct {
 	Gate    Gate
 	Silence time.Duration
 
+	// Rooms is where each satellite stands, by its name, as the inventory
+	// says: recorded when a session opens there, and told to every turn so
+	// "the lights" can mean this room's (SPEC §5). A satellite it does not
+	// name is in no room.
+	Rooms map[string]string
+
 	// Memories recalls what each turn's speaker is remembered by. Nil
 	// remembers nothing, and the model is told nothing (SPEC §5).
 	Memories Memories
@@ -150,6 +156,10 @@ type Transcript struct {
 	// where the household's wait for an answer starts (SPEC §11). Zero when
 	// the listener has no clock.
 	Ended time.Time
+
+	// SecondAudioRef is the same span from the device's second mic channel,
+	// kept for the corpus (SPEC §8). Empty when it streams one channel.
+	SecondAudioRef string
 
 	// Embedding is the utterance's speaker vector, recorded whether or not it
 	// matched anyone so voices can be clustered later (SPEC §5). Nil when the
@@ -247,6 +257,9 @@ func (sup *Supervisor) open(ctx context.Context, w Wake, announced bool) (*Sessi
 	if announced {
 		fields["announced"] = "true"
 	}
+	if room := sup.cfg.Rooms[w.Satellite]; room != "" {
+		fields["room"] = room
+	}
 	if err := s.record(journal.Record{Kind: journal.KindSessionOpened, Fields: fields}); err != nil {
 		sup.cfg.Conversations.release(convID, s)
 		s.cancel()
@@ -297,6 +310,9 @@ func (s *Session) Heard(ctx context.Context, t Transcript) error {
 		}
 		fields["embedding_json"] = string(b)
 	}
+	if t.SecondAudioRef != "" {
+		fields["second_audio_ref"] = t.SecondAudioRef
+	}
 	if err := s.record(journal.Record{
 		Kind: journal.KindUtteranceTranscribed, AudioRef: t.AudioRef, Fields: fields,
 	}); err != nil {
@@ -345,6 +361,7 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 		acted, err := s.ask(turnCtx, Input{
 			ConversationID: s.convID,
 			Speaker:        st.Speaker,
+			Room:           st.Room,
 			Text:           t.Text,
 			Dialogue:       st.Dialogue,
 			Memories:       st.Recalled,
