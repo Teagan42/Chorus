@@ -54,8 +54,8 @@ func TestModelReproducesEveryRecordedTurnUnderTheDefaultPrompt(t *testing.T) {
 			}
 		}
 	}
-	if turns != 13 {
-		t.Errorf("%d turns in the day, want 13", turns)
+	if turns != 15 {
+		t.Errorf("%d turns in the day, want 15", turns)
 	}
 }
 
