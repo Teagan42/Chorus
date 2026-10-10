@@ -88,7 +88,7 @@ events: {
 	}
 	speech_truncated: {
 		name:            "speech_truncated", actor: "speaking"
-		description:     "Speech was cut short, usually by a barge-in; reason says what cut it. Carries the exact split between heard and unheard text."
+		description:     "Speech was cut short, usually by a barge-in; reason says what cut it. Carries the exact split between heard and unheard text. An interjected cut is a pause: the unheard text plays after the interjection, recorded under the same call_id (ADR-0056)."
 		has_audio:       true
 		training_signal: true
 		fields: [
@@ -96,7 +96,7 @@ events: {
 			{name: "unspoken_text", type: "string", description: "Generated but never played.", required: true},
 			{name: "frames_played", type: "integer", description: "DAC frame count at cut.", required: true},
 			{name: "call_id", type: "string", description: "The speak call that was cut. Empty in logs from before it was recorded."},
-			{name: "reason", type: "string", description: "Why it was cut. Only barge_in is the person interrupting; tts_unavailable and playback_unconfirmed are the voice or the device failing, which nobody chose and no preference pair may be cut from (ADR-0051). Empty in logs from before it was recorded.", enum: ["barge_in", "preempted", "session_closed", "migrated", "tts_unavailable", "playback_unconfirmed"]},
+			{name: "reason", type: "string", description: "Why it was cut. Only barge_in is the person interrupting; tts_unavailable and playback_unconfirmed are the voice or the device failing, which nobody chose and no preference pair may be cut from (ADR-0051). interjected is an interject call cutting in, after which the rest resumes (ADR-0056). Empty in logs from before it was recorded.", enum: ["barge_in", "preempted", "interjected", "session_closed", "migrated", "tts_unavailable", "playback_unconfirmed"]},
 		]
 	}
 	speech_discarded: {

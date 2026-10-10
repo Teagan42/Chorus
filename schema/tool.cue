@@ -91,7 +91,7 @@ tools: {
 		latency:     "fast"
 		params: [
 			{name: "text", type: "string", description: "What to say.", required: true},
-			{name: "mode", type: "string", description: "queue appends after current speech; preempt cancels it; interject ducks and cuts in.", enum: ["queue", "preempt", "interject"]},
+			{name: "mode", type: "string", description: "queue appends after current speech; preempt cancels it; interject pauses it, cuts in, then resumes it.", enum: ["queue", "preempt", "interject"]},
 		]
 	}
 
