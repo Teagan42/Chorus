@@ -177,7 +177,7 @@ func TestALabelledTurnBecomesAPairThatExportsWithItsLabels(t *testing.T) {
 	mustPost(t, s, "/pairs/"+annotatedZeppel+"/accept", nil)
 	line := exportRow(t, s, annotatedZeppel)
 	if !strings.Contains(line, `"source":"annotation"`) || !strings.Contains(line, `"labels":["misunderstood_intent","spoke_when_it_shouldnt"]`) ||
-		!strings.Contains(line, `"chosen":[{"role":"assistant","content":"`+shouldHaveZeppel+`"}]`) {
+		!strings.Contains(line, `"chosen":[{"role":"assistant","content":"`+shouldHaveZeppel+`","tool_calls":[{"type":"function","function":{"name":"media_search"`) {
 		t.Errorf("the annotation's row is not what the reviewer said:\n%s", line)
 	}
 }
