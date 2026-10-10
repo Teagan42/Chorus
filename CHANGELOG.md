@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.13.0](https://github.com/Teagan42/Chorus/compare/v0.12.0...v0.13.0) (2026-10-10)
+
+
+### Features
+
+* **householdvoice:** clone named people's voices with Chatterbox ([#54](https://github.com/Teagan42/Chorus/issues/54)) ([19ef9f3](https://github.com/Teagan42/Chorus/commit/19ef9f383d4c87384bd3e2bafe6295d5dac7e48b))
+* recall what's relevant to the question, not just the newest ([#52](https://github.com/Teagan42/Chorus/issues/52)) ([700f009](https://github.com/Teagan42/Chorus/commit/700f009c08f751b8b1cc575d20c645106f6eaa8d))
+* timers that go off where they were set, and announcements answerable with no wake word ([#53](https://github.com/Teagan42/Chorus/issues/53)) ([08df210](https://github.com/Teagan42/Chorus/commit/08df21053cc573618cc1e3a4d8bcf7f7398eece2))
+
+
+### Bug Fixes
+
+* **hardware:** XMOS reset, SPI muxes and MCLK from the Satellite1 sources, and eight mics for DoA ([#58](https://github.com/Teagan42/Chorus/issues/58)) ([b2a02ff](https://github.com/Teagan42/Chorus/commit/b2a02ff71ab3172e8b91b0f8e17a818d675c1067))
+* speak answers the model writes as content, and what else the household models runs found ([#56](https://github.com/Teagan42/Chorus/issues/56)) ([5308b36](https://github.com/Teagan42/Chorus/commit/5308b3671f709a032b195c42eb9f4e83e8cc4312))
+
+
+### Documentation
+
+* **hardware:** a satellite board designed around what Chorus needs ([#57](https://github.com/Teagan42/Chorus/issues/57)) ([8f43c7e](https://github.com/Teagan42/Chorus/commit/8f43c7e0deeca32429e0b614192c9e57b88e9960))
+* **spec:** mic channel 1 is processed audio, not a raw mic ([#59](https://github.com/Teagan42/Chorus/issues/59)) ([fc51c03](https://github.com/Teagan42/Chorus/commit/fc51c03343c07e42ed0148185b35e3049ed30e12))
+
 ## [0.12.0](https://github.com/Teagan42/Chorus/compare/v0.11.0...v0.12.0) (2026-10-10)
 
 
