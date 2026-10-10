@@ -109,6 +109,6 @@ chose it, and never embeds anything.
   first, cold request ran past the one-minute bound this ADR first set. The
   same run asked qwen3:14b for the garage code it was given. In one run of
   five it reasoned that it needed no tool to say what it already knew, and
-  wrote `speak` and the code as plain content, which nobody hears. The
-  prompt now says an answer already known is still a speak call. That
-  clause has not yet been measured.
+  wrote `speak` and the code as plain content, which nobody heard. The
+  prompt now says an answer already known is still a speak call. That was
+  not enough, so ADR-0046 speaks such content when the turn calls nothing.
