@@ -138,6 +138,9 @@ func read(ctx context.Context, store journal.Store, conversationID string) ([]Si
 		last  *ask
 		// timers are the house log's, by id: what each was set to say.
 		timers = map[string]turnContext{}
+		// announced are the speak calls nobody in the conversation asked for
+		// (SPEC §4): their words are not the open turn's answer.
+		announced = map[string]bool{}
 		// turns are how each turn ended, in log order.
 		turns []*outcome
 		ended = map[uint64]*outcome{}
@@ -225,8 +228,10 @@ func read(ctx context.Context, store journal.Store, conversationID string) ([]Si
 			}
 		case journal.KindBargeInDetected:
 			correct(cur.turn)
+		case journal.KindAnnouncementMade:
+			announced[e.Fields["call_id"]] = true
 		case journal.KindSpeechSpoken, journal.KindSpeechTruncated:
-			if o := ended[cur.turn]; o != nil {
+			if o := ended[cur.turn]; o != nil && !announced[e.Fields["call_id"]] {
 				o.said = append(o.said, cmp.Or(e.Fields["text"], e.Fields["spoken_text"]))
 			}
 		case journal.KindModelCompleted:

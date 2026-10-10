@@ -292,6 +292,11 @@ func spoken(text string) journal.Record {
 	return r
 }
 
+// spokenBy is speech that names its speak call, as the session records it.
+func spokenBy(id, text string) journal.Record {
+	return record(journal.KindSpeechSpoken, "blob://tts/"+id, "text", text, "frames_played", "16000", "call_id", id)
+}
+
 // Alan asks for an oven timer, the assistant asks how long instead of
 // setting one, and he says it again with the duration. SPEC §9.1: a
 // repeated request is a failure.
