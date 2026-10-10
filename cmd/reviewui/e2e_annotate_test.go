@@ -86,12 +86,18 @@ func TestE2EJourneyLabelATurnAndCurateWhatItShouldHaveDone(t *testing.T) {
 	}
 	p.click(chip(zeppelinAsk, "misunderstood_intent"))
 	p.pressed(chip(zeppelinAsk, "misunderstood_intent"), true)
+	if p.has("#turn-2-labels a") {
+		t.Error("a label alone made a pair, with no chosen side")
+	}
+	// A label pressed mid-draft keeps the draft.
+	p.typeInto("#turn-2-should-have", shouldHaveZeppel)
 	p.click(chip(zeppelinAsk, "spoke_when_it_shouldnt"))
 	p.pressed(chip(zeppelinAsk, "spoke_when_it_shouldnt"), true)
-	if p.has("#turn-2-labels a") {
-		t.Error("labels alone made a pair, with no chosen side")
+	var draft string
+	p.eval(`document.querySelector("#turn-2-should-have").value`, &draft)
+	if draft != shouldHaveZeppel {
+		t.Errorf("pressing a label left the draft as %q", draft)
 	}
-	p.typeInto("#turn-2-should-have", shouldHaveZeppel)
 	p.click(`#turn-2-labels button[type="submit"]`)
 	p.waitText("#turn-2-labels", "In Curate")
 	p.shot("journey-labels")

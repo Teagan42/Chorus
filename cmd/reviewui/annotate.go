@@ -50,11 +50,12 @@ func annotationPairID(conv string, seq uint64) string {
 
 func annotationView(conv string, seq uint64, a curation.Annotation) turnAnnotation {
 	id := fmt.Sprintf("turn-%d-labels", seq)
+	note := fmt.Sprintf("turn-%d-should-have", seq)
 	v := turnAnnotation{
 		ID: id, Seq: seq, Action: turnPath(conv, seq) + "/note",
 		Labels: ui.ChipGroup{Label: fmt.Sprintf("Turn #%d", seq)},
 		Note: ui.Field{
-			Kind: ui.FieldTextarea, ID: fmt.Sprintf("turn-%d-should-have", seq), Name: "should_have", Rows: 2,
+			Kind: ui.FieldTextarea, ID: note, Name: "should_have", Rows: 2,
 			Label: "What it should have done", Value: a.ShouldHave,
 			Placeholder: "Say it as the reply you wanted; with a label, Curate offers it as the chosen side.",
 		},
@@ -63,7 +64,11 @@ func annotationView(conv string, seq uint64, a curation.Annotation) turnAnnotati
 	for _, l := range curation.Labels {
 		v.Labels.Chips = append(v.Labels.Chips, ui.Chip{
 			Label: labelNames[l], On: a.Has(l),
-			Hx: ui.Hx{Post: turnPath(conv, seq) + "/labels/" + string(l), Target: "#" + id, Swap: "outerHTML"},
+			// The note rides along, so a label never swaps away an unsaved draft.
+			Hx: ui.Hx{
+				Post: turnPath(conv, seq) + "/labels/" + string(l), Target: "#" + id, Swap: "outerHTML",
+				Include: "#" + note,
+			},
 		})
 	}
 	if a.Faulted() {
@@ -138,7 +143,8 @@ func (s *server) annotate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		after = before.Toggle(l)
-	} else {
+	}
+	if _, drafted := r.PostForm["should_have"]; drafted {
 		after.ShouldHave = strings.TrimSpace(r.PostForm.Get("should_have"))
 	}
 	after.AnnotatedAt = s.now()

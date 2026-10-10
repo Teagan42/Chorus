@@ -181,6 +181,28 @@ func TestALabelledTurnBecomesAPairThatExportsWithItsLabels(t *testing.T) {
 	}
 }
 
+// A label pressed while the note is half-written saves the draft with it,
+// rather than swapping it away.
+//
+// verifies SPEC §9.2
+func TestALabelKeepsTheNoteBeingWritten(t *testing.T) {
+	s, decisions := newHouseholdServer(t)
+	body := mustPost(t, s, turnURL(convZeppel, zeppelinAsk, "labels/misunderstood_intent"), url.Values{"should_have": {shouldHaveZeppel}})
+	if !strings.Contains(body, shouldHaveZeppel) || !strings.Contains(body, "In Curate") {
+		t.Errorf("the swapped annotation lost the draft:\n%s", body)
+	}
+	if !strings.Contains(body, `hx-include="#turn-2-should-have"`) {
+		t.Error("a label does not send the note with it")
+	}
+	annos, err := decisions.Annotations(context.Background(), convZeppel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := annos[zeppelinAsk]; a.ShouldHave != shouldHaveZeppel || !a.Faulted() {
+		t.Errorf("stored annotation = %+v", a)
+	}
+}
+
 // A good turn is a positive, not a pair, and a fault with nothing said about
 // what instead has no chosen side to train.
 //
