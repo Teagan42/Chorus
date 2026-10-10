@@ -59,6 +59,7 @@ decision rather than by clause: facets of one choice share one record.
 | [0048](0048-smart-turn-is-timed-by-the-clock-not-the-audio.md) | Refines 0036: Smart Turn's verdict is timed by the clock, so audio arriving in a burst after a radio stall waits for it, up to the hold | §3.3.2, §4.5 |
 | [0049](0049-a-voice-that-matched-nobody-is-a-guest-and-the-voice-the-gate-refused-is-not-a-turn.md) | Refines 0040 and 0004: a voice judged to be nobody is a guest's turn, told nothing; the voice the gate refused while speech played is not a turn | §4.3, §5 |
 | [0050](0050-the-satellite-says-where-it-is-what-it-heard-and-who-is-in-the-room.md) | Each turn is told the satellite's room, the second mic channel is kept beside the first, and the room's presence is journalled to the device log | §3.3.1, §5, §8, §9.3 |
+| [0052](0052-labels-and-promoted-re-runs-live-beside-the-journal-and-make-pairs-on-read.md) | Refines 0034: SPEC §9.2's labels and promoted re-runs live beside the journal; a labelled turn and a promoted take become pairs on read | §8, §9.2 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.

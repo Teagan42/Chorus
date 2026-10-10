@@ -124,6 +124,27 @@ audio is its own row, saying how long the person waited.
 
 ![Conversation, first audio](conversation-first-audio.png)
 
+The log also shows what the model was told and what the house vouched for.
+A `memory_recalled` row lists each memory the turn was told, whose it is
+when someone shared it, and the earlier conversations it was told of. A
+held call's `confirmation_requested` row names the call and its nonce, and
+`confirmation_given` says which utterance the nonce was redeemed after: the
+"did they actually say yes" audit (SPEC §6, ADR-0038). The summary written
+when the conversation closed is its last row. Browse measures a
+conversation to its close, not to the summary.
+
+![The door waits for a yes: recall, nonce and summary](e2e/journey-door-audit.png)
+
+Under each utterance sit SPEC §9.2's labels for the turn it opens:
+*transcript wrong*, *misunderstood intent*, *wrong tool / args*, *should
+have spoken*, *spoke when it shouldn't*, *too slow*, *wrong person*, *good —
+exemplar*, and a free-text "what it should have done". A turn with any fault
+and a note becomes a pair in [Curate](#curate), the recorded take rejected
+and the note chosen, so write the note as the reply you wanted. An exemplar
+is a positive, not a pair (ADR-0052).
+
+![Labelling a turn](e2e/journey-labels.png)
+
 A timer going off, or someone asking for something to be said in another
 room, opens a session with no wake word (ADR-0045). Browse lists it as an
 *announcement*, named by what it said and whom it was for. Its log says why
@@ -162,7 +183,7 @@ stopped speaking as `wait_ms`.
 
 ![Review](review.png)
 
-One harvested barge-in at a time (`?pair=` picks one), laid out on a single
+One harvested barge-in at a time (`?pair=` picks one; a reviewer's own pairs have no cut to hear, so Review skips them), laid out on a single
 time axis: the assistant's turn with its unheard tail hatched, the mic track
 with the interruption and the correction, the answering turn, and the cut.
 The cut is the device's own report of the frame its DAC stopped on
@@ -171,7 +192,9 @@ rejected clip plays only up to it. Offsets come from clip lengths and the
 recorded barge-in position rather than wall clocks.
 
 The pair flow from [Curate](#curate) sits beside the timeline, so a reviewer
-can judge the pair where they heard it.
+can judge the pair where they heard it. What the cut turn was told it
+remembers is listed under the inspector: a cut is judged against what the
+model knew.
 
 ![Review, nothing to review](review-empty.png)
 
@@ -189,7 +212,16 @@ The result sets each turn's recorded speech and tool calls beside the
 re-run's and says what changed. It is safe to point at the live model: a
 turn is the system prompt plus one transcript, tool results never feed back
 in, and so a re-run compares the calls the model *would* make without
-executing any of them. A whole re-run is bounded at three minutes.
+executing any of them. A whole re-run is bounded at three minutes. Each
+turn also lists what it was told it remembers, which the re-run is told too.
+
+A turn whose re-run changed can be promoted. The re-run's take becomes the
+chosen side of a pair whose rejected side is what the turn recorded, and it
+lands in Curate accepted, since promoting is the verdict. The take, the
+calls it would make, the versions it ran under and the edited prompt itself
+are stored, because the journal never held them (ADR-0052).
+
+![Replay, a re-run promoted](e2e/journey-replay-promoted.png)
 
 ![Replay without a model](replay-no-model.png)
 
@@ -208,8 +240,17 @@ ADR-0026). Accepting it unchanged is the one mistake the flow exists to
 block, so the reviewer meets a guard rather than an empty editor. Accepting
 anyway is allowed and marks the pair unfixed, which Export holds back.
 
+Pairs come from three places, named on each row: `barge-in`, harvested from
+the log; `annotation`, a turn labelled with a fault and what it should have
+done; and `replay`, a promoted re-run. A reviewer's pair shows what made it
+under its chosen side. Changing an annotation's note asks for a new
+verdict, since the old one judged a different chosen side.
+
+![Curate, a labelled turn's pair](e2e/journey-curate-annotation.png)
+
 Verdicts are rows in the curation table, revisable where the journal is
-append-only; unreviewed is the absence of a row (ADR-0034).
+append-only; unreviewed is the absence of a row (ADR-0034). Labels and
+promoted takes are rows beside them (ADR-0052).
 
 ### Export
 
@@ -222,7 +263,10 @@ holds back (unreviewed, still being edited, discarded, unfixed, unattributed)
 and previews the first rows exactly as `/export/dpo.jsonl` writes them
 (`harvest.Export`). This is the only curated export: `task harvest` writes
 the same shape but raw, every candidate with `meta.curated=false` and no
-chosen side, which a DPO loader cannot train on.
+chosen side, which a DPO loader cannot train on. An annotation's row carries
+its labels in `meta.labels`; a replay's carries the re-run's configuration
+and calls in `meta.chosen_versions` and `meta.chosen_calls`, and is
+attributed only when both sides are.
 
 ## The UI kit
 
@@ -274,7 +318,10 @@ reviewer through a whole day, start to finish:
 - Review walks every cut in turn;
 - every Triage signal opens where it happened;
 - Browse follows a person across satellites and walks back through the days;
-- the oven timer goes off in an empty kitchen, and is shown set where it was.
+- the oven timer goes off in an empty kitchen, and is shown set where it was;
+- the front door waits for Teagan's yes, and the log shows the whole audit;
+- a turn is labelled, its note becomes a pair, and the pair ships with its labels;
+- a re-run is promoted, lands accepted, and ships saying which prompt wrote it.
 
 ![Journey: Browse today](e2e/journey-browse-today.png)
 ![Journey: editing the chosen side](e2e/journey-review-editing.png)
