@@ -9,7 +9,8 @@ import (
 	"github.com/teagan42/chorus/internal/triage"
 )
 
-// positives runs WeakPositives over a log written the way scanTimed writes it.
+// positives is ScanAll's weak positives over a log written the way scanTimed
+// writes it.
 func positives(t *testing.T, recs ...timed) []triage.Signal {
 	t.Helper()
 	store := journal.NewMemStore()
@@ -22,11 +23,11 @@ func positives(t *testing.T, recs ...timed) []triage.Signal {
 			t.Fatalf("append %s: %v", r.rec.Kind, err)
 		}
 	}
-	sigs, err := triage.WeakPositives(context.Background(), store, "conv-1")
+	_, pos, err := triage.ScanAll(context.Background(), store, "conv-1")
 	if err != nil {
 		t.Fatalf("weak positives: %v", err)
 	}
-	return sigs
+	return pos
 }
 
 // Teagan adds oat milk and walks off: nobody cut it off, asked again or saw

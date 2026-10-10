@@ -40,6 +40,11 @@ func (s *server) negatives(ctx context.Context, u *unread) ([]negative, error) {
 	if err != nil {
 		return nil, err
 	}
+	return s.negativesOf(ctx, convs, u)
+}
+
+// negativesOf is negatives over a listing the caller already holds.
+func (s *server) negativesOf(ctx context.Context, convs []string, u *unread) ([]negative, error) {
 	var out []negative
 	for _, conv := range convs {
 		if !strings.HasPrefix(conv, devicePrefix) {

@@ -43,6 +43,26 @@ func (s *server) curated(r *http.Request, u *unread) ([]pair, []harvest.Pair, er
 	return pairs, dataset(pairs), nil
 }
 
+// corpora reads the pairs and the rejected wakes under one lock and one
+// listing of the journal: the Export page walks the log once, not twice.
+func (s *server) corpora(r *http.Request, u *unread) ([]pair, []negative, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	convs, err := s.journal.Conversations(r.Context())
+	if err != nil {
+		return nil, nil, err
+	}
+	pairs, err := s.pairsOf(r.Context(), convs, u)
+	if err != nil {
+		return nil, nil, err
+	}
+	wakes, err := s.negativesOf(r.Context(), convs, u)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pairs, wakes, nil
+}
+
 // exportJSONL serves the dataset in harvest.Export's conversational shape.
 func (s *server) exportJSONL(w http.ResponseWriter, r *http.Request) {
 	_, rows, err := s.curated(r, nil)
@@ -114,19 +134,12 @@ func preview(rows []harvest.Pair) (string, error) {
 
 func (s *server) export(w http.ResponseWriter, r *http.Request) {
 	var u unread
-	pairs, rows, err := s.curated(r, &u)
+	pairs, wakes, err := s.corpora(r, &u)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.mu.Lock()
-	wakes, err := s.negatives(r.Context(), &u)
-	s.mu.Unlock()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	text, err := preview(rows)
+	text, err := preview(dataset(pairs))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

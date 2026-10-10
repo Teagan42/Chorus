@@ -28,7 +28,7 @@ const (
 	KindSlow        Kind = "slow"
 
 	// KindWeakPositive is a completed turn nobody corrected (SPEC §9.1).
-	// WeakPositives raises it, never Scan: it is no problem to look into.
+	// ScanAll returns it apart from the problems: it is none to look into.
 	KindWeakPositive Kind = "weak-positive"
 )
 
@@ -81,17 +81,17 @@ type turnContext struct {
 	session, turn                 uint64
 }
 
-// Scan returns the conversation's signals in log order.
+// Scan returns the conversation's problems in log order.
 func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Signal, error) {
-	sigs, _, err := read(ctx, store, conversationID)
+	sigs, _, err := ScanAll(ctx, store, conversationID)
 	return sigs, err
 }
 
-// WeakPositives returns the conversation's completed turns that nobody cut
-// off, asked again or saw fail, in log order, each at its completion.
-func WeakPositives(ctx context.Context, store journal.Store, conversationID string) ([]Signal, error) {
-	_, pos, err := read(ctx, store, conversationID)
-	return pos, err
+// ScanAll returns the conversation's problems, and apart from them its weak
+// positives: the completed turns nobody cut off, asked again or saw fail,
+// each at its completion. Both in log order, from one read of the log.
+func ScanAll(ctx context.Context, store journal.Store, conversationID string) (problems, positives []Signal, err error) {
+	return read(ctx, store, conversationID)
 }
 
 // outcome is how one turn ended, for telling a weak positive.

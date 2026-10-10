@@ -141,6 +141,11 @@ func (s *server) pairs(ctx context.Context, u *unread) ([]pair, error) {
 	if err != nil {
 		return nil, err
 	}
+	return s.pairsOf(ctx, convs, u)
+}
+
+// pairsOf is pairs over a listing the caller already holds.
+func (s *server) pairsOf(ctx context.Context, convs []string, u *unread) ([]pair, error) {
 	var out []pair
 	for _, conv := range convs {
 		d, err := s.logs.of(ctx, s.journal, conv)

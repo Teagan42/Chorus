@@ -320,17 +320,13 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	events, err := s.journal.Events(r.Context(), id)
 	var (
-		sigs  []triage.Signal
-		pairs []pair
-		house []journal.Event
-		annos map[uint64]curation.Annotation
+		sigs, positives []triage.Signal
+		pairs           []pair
+		house           []journal.Event
+		annos           map[uint64]curation.Annotation
 	)
 	if err == nil && len(events) > 0 {
-		sigs, err = triage.Scan(r.Context(), s.journal, id)
-	}
-	var positives []triage.Signal
-	if err == nil && len(events) > 0 {
-		positives, err = triage.WeakPositives(r.Context(), s.journal, id)
+		sigs, positives, err = triage.ScanAll(r.Context(), s.journal, id)
 	}
 	if err == nil && len(events) > 0 && id != houseLog {
 		house, err = timersOf(r, s.journal, id)
