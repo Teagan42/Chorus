@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.15.0](https://github.com/Teagan42/Chorus/compare/v0.14.0...v0.15.0) (2026-10-10)
+
+
+### Features
+
+* **hardware:** a main board under the Satellite1 HAT replaces rev A ([#74](https://github.com/Teagan42/Chorus/issues/74)) ([1ce720f](https://github.com/Teagan42/Chorus/commit/1ce720f4859a037437f4d20580cc7389739978a1))
+* interject pauses and resumes speech, and sessions drive the LED ring ([#78](https://github.com/Teagan42/Chorus/issues/78)) ([0d33150](https://github.com/Teagan42/Chorus/commit/0d33150ffc71c571353897a5099c55fc94122a97))
+* main-board ESPHome config, and four-mic DoA on the satellite (ADR-0061) ([#83](https://github.com/Teagan42/Chorus/issues/83)) ([4275bd5](https://github.com/Teagan42/Chorus/commit/4275bd54ecea1f8c7ab4c802f480a2f40a225b7e))
+* **reviewui:** edit the tool schema on Replay, and keep every re-run ([#81](https://github.com/Teagan42/Chorus/issues/81)) ([340413d](https://github.com/Teagan42/Chorus/commit/340413da3408ba141ab11356b9c9c4126f6268f1))
+* **reviewui:** rejected wakes, weak positives and repeats as review signals ([#82](https://github.com/Teagan42/Chorus/issues/82)) ([057d514](https://github.com/Teagan42/Chorus/commit/057d5149aecf4370cb0ec055a3468fa0510d9392))
+
+
+### Bug Fixes
+
+* **chorusd:** timeouts, closes, wakes, barge-in audio and tool policy ([#79](https://github.com/Teagan42/Chorus/issues/79)) ([6d1b8df](https://github.com/Teagan42/Chorus/commit/6d1b8dfce9c8a95b1ba4df646e82e974b1614f12))
+* **hardware:** J7 receptacle checked against Hirose, power contacts measured ([#76](https://github.com/Teagan42/Chorus/issues/76)) ([aad15d0](https://github.com/Teagan42/Chorus/commit/aad15d0135b46b6b506a07b7c98dfc1dea2e4e0a))
+* **reviewui:** harden the review UI against bad input, bad logs and other sites ([#77](https://github.com/Teagan42/Chorus/issues/77)) ([71a9432](https://github.com/Teagan42/Chorus/commit/71a9432c9f03e0bcd909f222744ad0ed40443a2e))
+
+
+### Documentation
+
+* make eleven stale claims say what the code does ([#80](https://github.com/Teagan42/Chorus/issues/80)) ([721589e](https://github.com/Teagan42/Chorus/commit/721589e212144f576010e8964a02d939a072e3eb))
+
 ## [0.14.0](https://github.com/Teagan42/Chorus/compare/v0.13.0...v0.14.0) (2026-10-10)
 
 
