@@ -129,31 +129,36 @@ GPIO18 stays free for whatever comes next.
 ## The receptacle
 
 The HAT's plug is a Hirose FX23L-80P-0.5SV8 (LCSC C3649601); the main board
-carries its mate, the FX23L-80S-0.5SV(20), as the shoe does. KiCad has no
-footprint for it, so
+carries its mate, the FX23L-80S-0.5SV(20) (LCSC C2911203), as the shoe does.
+KiCad has no footprint for it, so
 [`chorus-main.pretty`](../../hardware/chorus-main/chorus-main.pretty/README.md)
-draws one from the shoe's 3D model: 80 tails at 0.5 mm in two rows 9.7 mm
-apart, two fixing tabs, and four plated holes for the power contacts.
+draws one: 80 tails at 0.5 mm in two rows, two fixing tabs, and four plated
+holes for the power contacts. It was measured from the shoe's 3D model, and
+Hirose's own model of the part agrees with it tail for tail and hole for
+hole.
 
-Which pad is which comes from FutureProofHomes' own boards:
+Which pad is which comes from Hirose's footprint and FutureProofHomes' own
+boards, and they agree:
 
 - the shoe's silkscreen marks pin 1 at the +x end of the row nearer the
-  board's centre;
+  board's centre, and the HAT's J7 marks it at the same end;
 - that row is the one routed out in full, as pads 1-40 are;
 - the protoboard labels its breakouts "1" and "41", both at the +x end, one
-  above each row.
+  above each row;
+- SnapEDA's footprint for the part, from Hirose's download page, has the
+  same pad order, turned 180°.
 
-The four power contacts are not settled that way. The two at −x sit in the
-shoe's ground pour, so they are drawn as the grounds, MH1 and MH3. Which of
-the +x pair is the HAT's 5 V (MH2) and which VBUS (MH4) is a guess, and a swap
-puts PoE's 12 V onto the HAT's 5 V rail. `parts.yaml` marks the part
+The four power contacts are not settled. Nothing from Hirose names their
+nets, and the two possible readings put the grounds at opposite ends. The
+two at −x sit in the shoe's ground pour, so they are drawn as the grounds,
+MH1 and MH3, with 5 V (MH2) and VBUS (MH4) at the pin-1 end. Hirose's drawing
+numbers power contact No. 1 beside pad 1, and if FutureProofHomes numbered
+theirs that way the grounds are at the pin-1 end instead. This board would
+then short PoE and the HAT's VBUS to ground. `parts.yaml` marks the part
 `unverified`, every `task gen:hardware` prints it, and the board is not
-ordered until one of these settles it:
-
-- Hirose's or a vendor's footprint for FX23L-80S-0.5SV, compared pad by pad;
-- a meter on a HAT powered from a 20 V USB-PD charger. The two power
-  contacts at the pin-1 end of the HAT's plug should read about 20 V (VBUS)
-  and 5 V; the two at the far end should be ground.
+ordered until a continuity test on an unpowered HAT settles it. The
+[footprint notes](../../hardware/chorus-main/chorus-main.pretty/README.md#the-fx23l-80s-05sv-receptacle)
+say where to touch the probes.
 
 ## Power
 
@@ -212,8 +217,7 @@ all-in-one board of ADR-0047, is retired and stays in git history.
 ### Ordering from JLCPCB
 
 Every part carries its LCSC number, or a per-value number for resistors and
-capacitors. The exception is the receptacle, whose `hand:` line says why it
-is soldered after assembly. `bom.csv` is in the columns JLCPCB's assembly
+capacitors. `bom.csv` is in the columns JLCPCB's assembly
 upload reads.
 
 1. Download the KiCad project: the `chorus-main-kicad` artifact of the latest
@@ -272,10 +276,8 @@ upload reads.
 
 ## Open questions
 
-- **The receptacle's power contacts.** Which of the +x pair is 5 V and which
-  VBUS; see [The receptacle](#the-receptacle).
-- **The receptacle's LCSC number.** None is confirmed, so it is hand-soldered
-  until one is.
+- **The receptacle's power contacts.** Which end of the HAT's plug is ground,
+  and which of the other two is 5 V; see [The receptacle](#the-receptacle).
 - **Stack height and the Core's clearance.** The shoe's outline and holes are
   taken as the kit's; the gap above the main board is not yet measured.
 - **J7 on the household's HATs.** Rev 6.1 draws it; whether every kit as sold
