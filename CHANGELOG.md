@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.14.0](https://github.com/Teagan42/Chorus/compare/v0.13.0...v0.14.0) (2026-10-10)
+
+
+### Features
+
+* **hardware:** build the satellite's KiCad project in CI, ready to open ([#72](https://github.com/Teagan42/Chorus/issues/72)) ([a4a9ed8](https://github.com/Teagan42/Chorus/commit/a4a9ed8c112a4ee5a577e2c552bd434d76709e9e))
+* **hardware:** chorus-sat schematic, KiCad netlist and JLCPCB BOM ([#63](https://github.com/Teagan42/Chorus/issues/63)) ([4280e7b](https://github.com/Teagan42/Chorus/commit/4280e7bb18a82db658610874ffdcc0d61e824f58))
+* **hardware:** license the SnapEDA footprints, download the TAS2780's ([#69](https://github.com/Teagan42/Chorus/issues/69)) ([3ec290d](https://github.com/Teagan42/Chorus/commit/3ec290d43cd33ad5e262397bebf82e8ffbb04e29))
+* **reviewui:** SPEC §9.2 labels, promote verdict, and no more blank rows ([#67](https://github.com/Teagan42/Chorus/issues/67)) ([0f66145](https://github.com/Teagan42/Chorus/commit/0f66145991498c896b1f4d3b8593dc6a317a813e))
+* the satellite's room, both mic channels, and mmWave presence ([#66](https://github.com/Teagan42/Chorus/issues/66)) ([d8f9add](https://github.com/Teagan42/Chorus/commit/d8f9add4df7ca934a2ab6ca02a58d3a2e6d932bf))
+* tool calls in DPO pair text, and promote re-runs that only call ([#71](https://github.com/Teagan42/Chorus/issues/71)) ([5bcf5ea](https://github.com/Teagan42/Chorus/commit/5bcf5eaeed017021f1c58a8c040ec34a9341cabb))
+
+
+### Bug Fixes
+
+* a guest is a guest, and the TV the gate refused is not a turn ([#65](https://github.com/Teagan42/Chorus/issues/65)) ([9986d83](https://github.com/Teagan42/Chorus/commit/9986d83cd7ac7a68e02ec7b6f2d3263f5d6e0ea5))
+* chorusd e2e flakes, and a shutdown that waits for a reply nobody reads ([#73](https://github.com/Teagan42/Chorus/issues/73)) ([c801a44](https://github.com/Teagan42/Chorus/commit/c801a44100075ef3ddede114cffc525096453651))
+* **listen:** time Smart Turn's verdict by the clock, not the audio ([#64](https://github.com/Teagan42/Chorus/issues/64)) ([82f1223](https://github.com/Teagan42/Chorus/commit/82f1223a69ba6e0295596a09476d5a39ab824e91))
+* **session:** say a failed model or voice aloud, and bound the model ([#68](https://github.com/Teagan42/Chorus/issues/68)) ([2849e36](https://github.com/Teagan42/Chorus/commit/2849e360942a325ab4bb452dd53413072deec5cc))
+* two test-suite flakes the race detector and parallel load found ([#62](https://github.com/Teagan42/Chorus/issues/62)) ([6b0f900](https://github.com/Teagan42/Chorus/commit/6b0f90036a2854cc2a8411f2ebeb1bf0f6fa3e82))
+
+
+### Documentation
+
+* direction of arrival is estimated on the host (ADR-0053) ([#70](https://github.com/Teagan42/Chorus/issues/70)) ([6133466](https://github.com/Teagan42/Chorus/commit/61334669f06f151ecca27e40fd71fb53731ad863))
+
+
+### Refactoring
+
+* rename the Go module to github.com/teagan42/chorus ([#60](https://github.com/Teagan42/Chorus/issues/60)) ([aca496c](https://github.com/Teagan42/Chorus/commit/aca496c56c7fe2809ad8c4b7dd406afc6faa72af))
+
 ## [0.13.0](https://github.com/Teagan42/Chorus/compare/v0.12.0...v0.13.0) (2026-10-10)
 
 
