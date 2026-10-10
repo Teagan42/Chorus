@@ -43,6 +43,7 @@ events: {
 			{name: "wake_confidence", type: "number", description: "Stage-two confirmation score."},
 			{name: "resumed", type: "boolean", description: "Joined an existing conversation rather than starting one."},
 			{name: "announced", type: "boolean", description: "Opened with no wake word, to say an announcement: a timer going off, or something asked to be said in this room (SPEC §4)."},
+			{name: "room", type: "string", description: "Where the device is, as the inventory names it: what the model is told it is speaking from, so \"the lights\" can mean this room's (SPEC §5). Empty when the inventory names no room."},
 		]
 	}
 	wake_rejected: {
@@ -52,6 +53,7 @@ events: {
 		training_signal: true
 		fields: [
 			{name: "reason", type: "string", description: "Which gate rejected it.", required: true, enum: ["no_speech", "low_confidence", "unknown_speaker"]},
+			{name: "second_audio_ref", type: "string", description: "The same span from the XMOS's second, lighter-processed output, so retraining can target either stream (SPEC §9.3). Empty when the device streams one channel."},
 		]
 	}
 	utterance_transcribed: {
@@ -62,6 +64,7 @@ events: {
 			{name: "text", type: "string", description: "Transcript.", required: true},
 			{name: "speaker_id", type: "string", description: "Per-utterance speaker match."},
 			{name: "embedding_json", type: "string", description: "The utterance's speaker embedding as a JSON array of numbers, stored whether or not it matched anyone (SPEC §5). Empty when the embedder was unavailable."},
+			{name: "second_audio_ref", type: "string", description: "The same span from the XMOS's second, lighter-processed output (SPEC §8). Empty when the device streams one channel."},
 		]
 	}
 	speech_started: {
@@ -167,6 +170,14 @@ events: {
 		fields: [
 			{name: "completion_json", type: "string", description: "Raw completion as returned.", required: true},
 			{name: "finish_reason", type: "string", description: "Why generation stopped.", required: true, enum: ["stop", "length", "tool_calls", "error"]},
+		]
+	}
+	presence_changed: {
+		name:        "presence_changed", actor: "device"
+		description: "The satellite's own presence sensor changed: the Satellite1's mmWave radar, read over the native API. Recorded in the device's log, since presence belongs to the room, not to a conversation (ADR-0050)."
+		fields: [
+			{name: "state", type: "string", description: "What the sensor says. unknown is the native API dropping or the sensor having no reading yet: presence was not seen to end, but it can no longer be vouched for.", required: true, enum: ["present", "absent", "unknown"]},
+			{name: "sensor", type: "string", description: "The entity it came from, by object id, e.g. room_presence."},
 		]
 	}
 	barge_in_detected: {
