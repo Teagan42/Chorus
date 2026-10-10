@@ -1,0 +1,59 @@
+# Builds each board's KiCad 9 project from its generated netlist, inside KiCad
+# itself, and keeps the zip a person opens in KiCad or imports into EasyEDA
+# Pro. The gate in ci.yml checks the YAML and the netlist without KiCad; this
+# is the half that needs it: KiCad loads every footprint, and the board it
+# saves is held to the netlist pad by pad before anything is uploaded.
+name: Hardware
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "hardware/**"
+      - "internal/board/**"
+      - "internal/tools/kicadnet/**"
+      - "internal/tools/kicadboard/**"
+      - ".github/workflows/hardware.yml"
+  pull_request:
+    paths:
+      - "hardware/**"
+      - "internal/board/**"
+      - "internal/tools/kicadnet/**"
+      - "internal/tools/kicadboard/**"
+      - ".github/workflows/hardware.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hardware-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kicad:
+    name: KiCad project (build, check, zip)
+    runs-on: ubuntu-latest
+    container:
+      # The same digest as KICAD_IMAGE in Taskfile.yml. Root, so the image's
+      # kicad user is not left unable to write the runner's workspace.
+      image: kicad/kicad:9.0.5@sha256:699f65fd2e4670bbdbe6846586768207f9f1528edd526c0e0502fda7c7f9bfad
+      options: --user root
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Test the builder
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -s internal/tools/kicadboard -v
+
+      - name: Build chorus-sat
+        run: python3 internal/tools/kicadboard/build.py hardware/chorus-sat dist/hardware
+
+      # Uploaded as the project folder, not the zip, so the download GitHub
+      # makes is itself the archive: the files at its root, as KiCad's
+      # Archive Project writes them.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chorus-sat-kicad
+          path: dist/hardware/chorus-sat/
+          if-no-files-found: error
