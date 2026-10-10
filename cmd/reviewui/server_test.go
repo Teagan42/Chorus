@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -270,6 +271,23 @@ func TestAWriteFromAnotherSiteIsRefused(t *testing.T) {
 		if code := send(turnURL(convZeppel, 2, "labels/too_slow"), nil, ok...); code != http.StatusOK {
 			t.Errorf("same-origin POST with %v = %d, want 200", ok, code)
 		}
+	}
+}
+
+// A template that fails halfway is a 500 with the error, not the half page
+// it had written with the error pasted under it.
+//
+// verifies SPEC §9.2
+func TestAPageThatFailsToRenderSendsOnlyTheError(t *testing.T) {
+	s, _ := newTestServer(t)
+	template.Must(s.tpl.New("page-half").Parse(`{{template "doc-start" .Doc}}<h1>Curate</h1>{{.Pair.Chosen.Text}}`))
+	w := httptest.NewRecorder()
+	s.render(w, "page-half", map[string]any{"Doc": s.doc("Curate"), "Pair": map[string]string{"Chosen": "Playing Led Zeppelin one."}})
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+	if b := w.Body.String(); strings.Contains(b, "<h1>Curate</h1>") || !strings.Contains(b, "page-half") {
+		t.Errorf("body = %q, want only the error naming the template", b)
 	}
 }
 

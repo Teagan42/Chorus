@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"fmt"
@@ -502,8 +503,13 @@ func (s *server) doc(title string) ui.Doc {
 	return ui.Doc{Title: title, Static: "/static", Notice: s.notice}
 }
 
+// render writes the page only once it has rendered whole, so a failing
+// template is a 500 rather than a 200 cut off mid-page.
 func (s *server) render(w http.ResponseWriter, name string, data any) {
-	if err := s.tpl.ExecuteTemplate(w, name, data); err != nil {
+	var b bytes.Buffer
+	if err := s.tpl.ExecuteTemplate(&b, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	_, _ = b.WriteTo(w)
 }
