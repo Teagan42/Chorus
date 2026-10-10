@@ -34,6 +34,7 @@ type Tool struct {
 	RequiresConfirmation bool    `json:"requires_confirmation"`
 	Latency              string  `json:"latency"`
 	UnknownSpeaker       string  `json:"unknown_speaker,omitempty"`
+	Deferred             bool    `json:"deferred"`
 
 	ConfirmWhen []ConfirmRule `json:"confirm_when,omitempty"`
 }
@@ -157,6 +158,10 @@ func LLMToolSchemas(tools map[string]Tool) []map[string]any {
 	out := make([]map[string]any, 0, len(tools))
 	for _, key := range sortedKeys(tools) {
 		t := tools[key]
+		if t.Deferred {
+			// Nothing runs it yet, so the model is not shown it (SPEC §14).
+			continue
+		}
 		props := map[string]any{}
 		var required []string
 		for _, p := range offered(t) {
@@ -311,6 +316,10 @@ type ToolSpec struct {
 	Slow                 bool
 	UnknownSpeaker       string
 
+	// Deferred is declared for its policy and docs, but nothing runs it
+	// yet, so the model is not offered it (SPEC §14).
+	Deferred bool
+
 	// ConfirmWhen holds the calls whose arguments match any entry for the
 	// person's yes, when the tool as a whole needs none (ADR-0038).
 	ConfirmWhen []ConfirmRule
@@ -341,6 +350,9 @@ type ConfirmRule struct {
 		b.WriteString(fmt.Sprintf("\t\tSlow: %t,\n", t.Latency == "slow"))
 		if t.UnknownSpeaker != "" {
 			b.WriteString(fmt.Sprintf("\t\tUnknownSpeaker: %q,\n", t.UnknownSpeaker))
+		}
+		if t.Deferred {
+			b.WriteString("\t\tDeferred: true,\n")
 		}
 		b.WriteString(renderConfirmWhen(t.ConfirmWhen))
 		b.WriteString("\t},\n")
@@ -465,6 +477,9 @@ func renderToolDocs(tools map[string]Tool) string {
 		b.WriteString(fmt.Sprintf("## `%s`\n\n%s\n\n", t.Name, t.Description))
 		if t.UnknownSpeaker != "" {
 			b.WriteString(fmt.Sprintf("Unknown speaker: `%s`.\n\n", t.UnknownSpeaker))
+		}
+		if t.Deferred {
+			b.WriteString("Deferred: not offered to the model, since nothing runs it yet (SPEC §14).\n\n")
 		}
 		b.WriteString(renderConfirmDocs(t.ConfirmWhen))
 		b.WriteString(renderParamTable("Parameter", offered(t), "No parameters."))
