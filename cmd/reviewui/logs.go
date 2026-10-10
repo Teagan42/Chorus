@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
@@ -25,6 +26,8 @@ type logs struct {
 // changed once made: requests share it.
 type derived struct {
 	seq uint64
+	// start is when the log's first event was recorded; zero for an empty log.
+	start time.Time
 
 	scan    harvest.Result
 	scanErr error
@@ -76,7 +79,7 @@ func (l *logs) of(ctx context.Context, store journal.Store, id string) (*derived
 func derive(ctx context.Context, id string, events []journal.Event) *derived {
 	d := &derived{}
 	if len(events) > 0 {
-		d.seq = events[len(events)-1].Seq
+		d.seq, d.start = events[len(events)-1].Seq, events[0].At
 	}
 	read := frozen{id: id, events: events}
 	d.scan, d.scanErr = harvest.Scan(ctx, read, id)

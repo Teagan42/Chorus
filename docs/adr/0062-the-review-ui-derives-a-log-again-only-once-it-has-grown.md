@@ -11,8 +11,9 @@ history however little of it had changed. A household's journal only
 grows, and most of it is days old.
 
 Now `cmd/reviewui` keeps what each log derives (its harvest, its signals
-and weak positives, Browse's summary of it, a satellite's wakes, presence
-and wake negatives) beside the seq it was read to. Each request lists the
+and weak positives, Browse's summary of it, the turns Replay lists, a
+satellite's wakes, presence and wake negatives) beside the seq it was read
+to. Each request lists the
 logs, asks the store for each one's last seq, and reads and derives again
 only the logs whose last seq moved. The log is append-only (SPEC §8): a log
 that has not grown is the same events, and every derivation is a fold over

@@ -45,7 +45,7 @@ func newCountingServer(t *testing.T) (*server, *countingJournal, *journal.MemSto
 }
 
 // The screens that read the whole household.
-var householdScreens = []string{"/conversations", "/queue", "/review", "/curate/pairs", "/export"}
+var householdScreens = []string{"/conversations", "/queue", "/review", "/curate/pairs", "/export", "/replays"}
 
 // Browse reads each log once, and the screens after it read none of them
 // again: none has grown, so what they derive is what Browse derived.
@@ -174,5 +174,41 @@ func TestScreensReadWhileTheLogGrows(t *testing.T) {
 	}
 	if h := get(t, s, "/curate/pairs"); !strings.Contains(h, id) {
 		t.Errorf("Curate does not list %s once the writes stopped", id)
+	}
+}
+
+// Replay's list goes back to the store only for the log that grew since
+// Browse read the day: Teagan's resumed shopping list, which it then lists
+// with the turns she added.
+//
+// verifies SPEC §8, §9.2
+func TestTheReplayListReadsOnlyTheLogThatGrew(t *testing.T) {
+	s, c, store := newCountingServer(t)
+	get(t, s, "/conversations")
+	before := c.snapshot()
+	get(t, s, "/replays")
+	if after := c.snapshot(); !maps.Equal(before, after) {
+		t.Errorf("Replay read unchanged logs again: %v, then %v", before, after)
+	}
+
+	resumeList(t, store)
+	h := get(t, s, "/replays")
+	after := c.snapshot()
+	for log, n := range after {
+		want := before[log]
+		if log == convList {
+			want++
+		}
+		if n != want {
+			t.Errorf("%s read %d times after the append, want %d", log, n-before[log], want-before[log])
+		}
+	}
+	href := `href="` + replayHref(convList) + `"`
+	at := strings.Index(h, href)
+	if at < 0 {
+		t.Fatalf("Replay does not list %s", convList)
+	}
+	if row, _, _ := strings.Cut(h[at:], "</a>"); !strings.Contains(row, "3 turns") {
+		t.Errorf("the shopping list's row = %s, want its 3 turns", row)
 	}
 }

@@ -110,8 +110,8 @@ badges the number of harvested pairs nobody has judged yet.
 Every screen but a conversation's own reads the whole household. Each
 request asks the journal how far every log has got and reads again only
 the logs that grew since the last one: the journal is append-only, so what
-a log derives (its pairs, signals and summary) is kept by the seq it was
-read to, and an append is on the next request (ADR-0062). A log no
+a log derives (its pairs, signals, summary and turns) is kept by the seq it
+was read to, and an append is on the next request (ADR-0062). A log no
 reducer can read, such as a recall written cut off mid-memory, is left out
 rather than failing the screen: Browse, Triage, Review, Replay, Curate and
 Export each name the logs they skipped above what they could read, and the
