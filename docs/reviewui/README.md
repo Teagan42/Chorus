@@ -216,8 +216,8 @@ executing any of them. A whole re-run is bounded at three minutes. Each
 turn also lists what it was told it remembers, which the re-run is told too.
 
 A turn whose re-run changed can be promoted. The re-run's take becomes the
-chosen side of a pair whose rejected side is what the turn recorded, and it
-lands in Curate accepted, since promoting is the verdict. The take, the
+chosen side of a pair whose rejected side is what the turn recorded on its
+first ask, the take Replay set beside it, and it lands in Curate accepted, since promoting is the verdict. The take, the
 calls it would make, the versions it ran under and the edited prompt itself
 are stored, because the journal never held them (ADR-0052).
 

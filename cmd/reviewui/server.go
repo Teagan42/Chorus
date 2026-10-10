@@ -15,6 +15,7 @@ import (
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/rerun"
 	"github.com/teagan42/chorus/internal/reviewui/audio"
 	"github.com/teagan42/chorus/internal/reviewui/ui"
 )
@@ -136,6 +137,10 @@ func (s *server) reviewersPairs(ctx context.Context, conv string, turns []harves
 	if err != nil {
 		return nil, err
 	}
+	asked, err := s.firstAsks(ctx, conv, len(promos) > 0)
+	if err != nil {
+		return nil, err
+	}
 	var out []harvest.Pair
 	for _, t := range turns {
 		if a := annos[t.Seq]; a.Faulted() {
@@ -148,6 +153,9 @@ func (s *server) reviewersPairs(ctx context.Context, conv string, turns []harves
 		}
 		if p, ok := promos[t.Seq]; ok {
 			h := t.Pair(conv, harvest.SourceReplay, p.Speech)
+			if r, ok := asked[t.Seq]; ok {
+				rejectFirstAsk(&h, r)
+			}
 			h.Heard = "re-run under " + p.Versions.Model + " · " + p.Versions.Prompt
 			h.ChosenVersions = p.Versions
 			for _, c := range p.Calls {
@@ -159,6 +167,54 @@ func (s *server) reviewersPairs(ctx context.Context, conv string, turns []harves
 		}
 	}
 	return out, nil
+}
+
+// firstAsks indexes the conversation's turns as Replay compares them, read
+// only when a promotion needs them.
+func (s *server) firstAsks(ctx context.Context, conv string, need bool) (map[uint64]rerun.Turn, error) {
+	if !need {
+		return nil, nil
+	}
+	events, err := s.journal.Events(ctx, conv)
+	if err != nil {
+		return nil, err
+	}
+	turns, err := rerun.Turns(events)
+	if err != nil {
+		return nil, fmt.Errorf("replay %s: %w", conv, err)
+	}
+	out := make(map[uint64]rerun.Turn, len(turns))
+	for _, t := range turns {
+		out[t.Seq] = t
+	}
+	return out, nil
+}
+
+// rejectFirstAsk makes a replay pair's rejected side the turn's first ask,
+// the take the reviewer compared, not what follow-up asks added to it.
+func rejectFirstAsk(h *harvest.Pair, t rerun.Turn) {
+	var heard, unheard []string
+	cut := false
+	for _, sp := range t.Recorded.Speech {
+		if sp.Text != "" {
+			heard = append(heard, sp.Text)
+		}
+		if sp.Unheard != "" {
+			// Only a truncation's tail continues the heard text verbatim.
+			cut = cut || len(unheard) == 0 && sp.Text != ""
+			unheard = append(unheard, sp.Unheard)
+		}
+	}
+	h.Rejected, h.RejectedUnheard = strings.Join(heard, " "), strings.Join(unheard, " ")
+	if !cut && h.Rejected != "" && h.RejectedUnheard != "" {
+		h.RejectedUnheard = " " + h.RejectedUnheard
+	}
+	h.Calls = nil
+	for _, c := range t.Recorded.Calls {
+		h.Calls = append(h.Calls, journal.Call{Tool: c.Tool, Args: c.Args})
+	}
+	h.Versions = t.Versions
+	h.Attributed = t.Recorded.Finish != "" && t.Versions.Model != "" && t.Versions.Prompt != "" && t.Versions.ToolSchema != ""
 }
 
 // toUIPair maps a harvested candidate into the kit's pair. Chosen starts as

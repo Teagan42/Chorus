@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -324,6 +325,81 @@ func TestPromotingAReRunMakesAnAcceptedReplayPair(t *testing.T) {
 	}
 	if h := get(t, s, "/replays/"+convZeppel); !strings.Contains(h, "promoted · qwen3-32b@1 · sys@edited") {
 		t.Error("Replay forgets the promotion on the next visit")
+	}
+}
+
+// convGarageCheck is Teagan asking about the garage from the office: the
+// first ask checks the sensor, the follow-up answers with what it said.
+const convGarageCheck = "conv-1930-office"
+
+func withGarageCheck(t *testing.T, store *journal.MemStore) uint64 {
+	t.Helper()
+	clk := &stepClock{}
+	j := journal.New(store, clk, household.Versions())
+	start := household.Day().Add(19*time.Hour + 30*time.Minute)
+	var ask uint64
+	for _, r := range []struct {
+		sec    float64
+		kind   journal.Kind
+		audio  string
+		fields []string
+	}{
+		{0, journal.KindSessionOpened, "", []string{"satellite", "office", "speaker_id", "teagan", "resumed", "false"}},
+		{0.3, journal.KindUtteranceTranscribed, "blob://mic/garage-check", []string{"text", "did I leave the garage open", "speaker_id", "teagan"}},
+		{0.9, journal.KindToolCalled, "", []string{"tool", "speak", "call_id", "s1", "args_json", `{"mode":"queue","streamed":true}`}},
+		{1.0, journal.KindToolCalled, "", []string{"tool", "ha_get_state", "call_id", "c1", "args_json", `{"entity_id":"cover.garage_door"}`}},
+		{1.1, journal.KindModelCompleted, "", []string{"completion_json", "{}", "finish_reason", "tool_calls"}},
+		{1.6, journal.KindToolResult, "", []string{"call_id", "c1", "outcome", "ok", "result_json", `{"state":"closed"}`}},
+		{2.0, journal.KindSpeechSpoken, "blob://tts/garage-checking", []string{"text", "Checking the garage.", "frames_played", "16000", "call_id", "s1"}},
+		{2.1, journal.KindToolResult, "", []string{"call_id", "s1", "outcome", "ok"}},
+		{2.4, journal.KindToolCalled, "", []string{"tool", "speak", "call_id", "s2", "args_json", `{"mode":"queue","streamed":true}`}},
+		{4.2, journal.KindSpeechSpoken, "blob://tts/garage-closed", []string{"text", "No, the garage door is closed.", "frames_played", "28800", "call_id", "s2"}},
+		{4.3, journal.KindToolResult, "", []string{"call_id", "s2", "outcome", "ok"}},
+		{4.4, journal.KindModelCompleted, "", []string{"completion_json", "{}", "finish_reason", "stop"}},
+		{9, journal.KindSessionClosed, "", []string{"reason", "model_ended", "satellite", "office"}},
+	} {
+		clk.now = start.Add(time.Duration(r.sec * float64(time.Second)))
+		rec := journal.Record{Kind: r.kind, AudioRef: r.audio, Fields: map[string]string{}}
+		for i := 0; i+1 < len(r.fields); i += 2 {
+			rec.Fields[r.fields[i]] = r.fields[i+1]
+		}
+		e, err := j.Append(context.Background(), convGarageCheck, rec)
+		if err != nil {
+			t.Fatalf("append %s: %v", r.kind, err)
+		}
+		if r.kind == journal.KindUtteranceTranscribed {
+			ask = e.Seq
+		}
+	}
+	return ask
+}
+
+// A promoted re-run is weighed against the take Replay showed beside it: the
+// turn's first ask, not what the follow-up said once the sensor answered.
+//
+// verifies SPEC §9.2
+func TestAReplayPairRejectsTheFirstAskReplayCompared(t *testing.T) {
+	store := householdJournal(t)
+	ask := withGarageCheck(t, store)
+	decisions := curation.NewMemStore()
+	s := newServer(store, decisions, householdBlobs(t), household.ReviewedAt)
+	edited := journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@edited", ToolSchema: "tools@7"}
+	if err := decisions.PutPromotion(context.Background(), curation.Promotion{
+		ConversationID: convGarageCheck, Seq: ask, Speech: "One second, checking the garage door.",
+		Calls:    []curation.Call{{Tool: "ha_get_state", Args: `{"entity_id":"cover.garage_door"}`}},
+		Versions: edited, SystemPrompt: ollama.DefaultPrompt + briefPrompt, PromotedAt: household.ReviewedAt(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p, ok := find(mustPairs(t, s), fmt.Sprintf("%s/%d/replay", convGarageCheck, ask))
+	if !ok {
+		t.Fatal("the promotion made no pair")
+	}
+	if p.H.Rejected != "Checking the garage." || p.H.RejectedUnheard != "" {
+		t.Errorf("rejected = %q + %q, want only the first ask's speech", p.H.Rejected, p.H.RejectedUnheard)
+	}
+	if len(p.H.Calls) != 1 || p.H.Calls[0].Tool != "ha_get_state" || !p.H.Attributed || p.H.Versions != household.Versions() {
+		t.Errorf("rejected side = calls %v, versions %+v, attributed %v", p.H.Calls, p.H.Versions, p.H.Attributed)
 	}
 }
 

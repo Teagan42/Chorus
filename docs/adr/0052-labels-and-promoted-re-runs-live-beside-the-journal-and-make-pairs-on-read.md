@@ -30,7 +30,10 @@ pair's verdict: the reviewer judged a chosen side that no longer exists.
 take, so `curation_promotions` keeps its speech, the calls it would make,
 the versions it ran under and the edited system prompt itself. The pair
 (source `replay`) is still cut from the turn on read; only its chosen side
-comes from the table. The versions are the server's, recomputed from the
+comes from the table. Its rejected side is the turn's first ask, as
+`rerun.Turns` reads it, since that is the take the reviewer compared; what
+follow-up asks said after tool results came back is not. A take must say
+something: pair text is speech on both sides, and calls ride as metadata. The versions are the server's, recomputed from the
 model and prompt the page sends back, not the page's word. Promoting is the
 verdict, so the pair lands accepted, and undo in Curate returns it to
 unreviewed.
