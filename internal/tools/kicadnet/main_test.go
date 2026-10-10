@@ -59,9 +59,10 @@ func TestTheCommittedOutputsAreWhatTheCommandWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("kicadnet %s: %v\n%s", dir, err, out)
 	}
-	// The receptacle's power contacts are inferred; every run says so.
-	if !strings.Contains(string(out), "FX23L-80S-0.5SV") || !strings.Contains(string(out), "do not order") {
-		t.Errorf("kicadnet did not warn about the unverified receptacle:\n%s", out)
+	// Every part is confirmed, the receptacle's power contacts by a meter on
+	// a household HAT, so nothing tells anyone not to order.
+	if strings.Contains(string(out), "do not order") {
+		t.Errorf("kicadnet warned about a board with nothing unverified:\n%s", out)
 	}
 	for _, name := range []string{"chorus-main.net", "bom.csv"} {
 		got, err := os.ReadFile(filepath.Join(dir, name))
@@ -75,6 +76,39 @@ func TestTheCommittedOutputsAreWhatTheCommandWrites(t *testing.T) {
 		if !bytes.Equal(got, want) {
 			t.Errorf("%s is stale; run task gen:hardware and commit it in a chore(gen) commit", name)
 		}
+	}
+}
+
+// JLCPCB shows the PoE module out of stock, so someone marks it unverified
+// until a restock is confirmed. The netlist and BOM are still written, for
+// layout to start, but every run says the board is not to be ordered and
+// which part holds it up.
+func TestAnUnverifiedPartIsSaidOnEveryRun(t *testing.T) {
+	dir := copyBoard(t)
+	parts := filepath.Join(dir, "parts.yaml")
+	b, err := os.ReadFile(parts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const ag9912 = "    lcsc: C20939164\n"
+	if !bytes.Contains(b, []byte(ag9912)) {
+		t.Fatalf("parts.yaml no longer has %q; update this test", ag9912)
+	}
+	b = bytes.Replace(b, []byte(ag9912), []byte(ag9912+"    unverified: JLCPCB lists none in stock\n"), 1)
+	if err := os.WriteFile(parts, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	var stderr bytes.Buffer
+	if code := run([]string{"-out", out, dir}, &stderr); code != 0 {
+		t.Fatalf("exit %d, want 0; stderr:\n%s", code, stderr.String())
+	}
+	want := "not yet verified, do not order: AG9912-MTB: JLCPCB lists none in stock"
+	if !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr does not say %q:\n%s", want, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(out, "bom.csv")); err != nil {
+		t.Errorf("no BOM written for a board that only waits on a part: %v", err)
 	}
 }
 

@@ -44,13 +44,13 @@ still holds with four mics instead of eight. Its link budget shrinks, and its
 spatial aliasing begins at about 3.8 kHz instead of 7 kHz. That is the
 alternative ADR-0047 rejected, now the only one the kit allows.
 
-The receptacle's footprint is drawn here. Its signal pads come from
-FutureProofHomes' shoe and protoboard: the pin-1 mark, which row is routed,
-and the protoboard's "1" and "41". Its four power contacts are inferred, and
-`parts.yaml` marks the part `unverified`. Each `task gen:hardware` says so
-until a vendor footprint, or a meter on a powered HAT, settles which contact is
-VBUS and which is 5 V. The status stays proposed until a main board under a kit
-passes `task test:hardware` over its cable.
+The receptacle's footprint is drawn here, from FutureProofHomes' shoe, and
+Hirose's own model of the part agrees with it pad for pad. Its four power
+contacts carry no nets in anything Hirose publishes, and both readings of
+FutureProofHomes' boards placed them wrongly, so they were measured with a
+meter on one of the household's HATs: both grounds on the header's row, 5 V
+and VBUS on the other. The status stays proposed until a main board under a
+kit passes `task test:hardware` over its cable.
 
 ## Alternatives rejected
 

@@ -129,31 +129,38 @@ GPIO18 stays free for whatever comes next.
 ## The receptacle
 
 The HAT's plug is a Hirose FX23L-80P-0.5SV8 (LCSC C3649601); the main board
-carries its mate, the FX23L-80S-0.5SV(20), as the shoe does. KiCad has no
-footprint for it, so
+carries its mate, the FX23L-80S-0.5SV(20) (LCSC C2911203), as the shoe does.
+KiCad has no footprint for it, so
 [`chorus-main.pretty`](../../hardware/chorus-main/chorus-main.pretty/README.md)
-draws one from the shoe's 3D model: 80 tails at 0.5 mm in two rows 9.7 mm
-apart, two fixing tabs, and four plated holes for the power contacts.
+draws one: 80 tails at 0.5 mm in two rows, two fixing tabs, and four plated
+holes for the power contacts. It was measured from the shoe's 3D model, and
+Hirose's own model of the part agrees with it tail for tail and hole for
+hole.
 
-Which pad is which comes from FutureProofHomes' own boards:
+Which pad is which comes from Hirose's footprint and FutureProofHomes' own
+boards, and they agree:
 
 - the shoe's silkscreen marks pin 1 at the +x end of the row nearer the
-  board's centre;
+  board's centre, and the HAT's J7 marks it at the same end;
 - that row is the one routed out in full, as pads 1-40 are;
 - the protoboard labels its breakouts "1" and "41", both at the +x end, one
-  above each row.
+  above each row;
+- SnapEDA's footprint for the part, from Hirose's download page, has the
+  same pad order, turned 180°.
 
-The four power contacts are not settled that way. The two at −x sit in the
-shoe's ground pour, so they are drawn as the grounds, MH1 and MH3. Which of
-the +x pair is the HAT's 5 V (MH2) and which VBUS (MH4) is a guess, and a swap
-puts PoE's 12 V onto the HAT's 5 V rail. `parts.yaml` marks the part
-`unverified`, every `task gen:hardware` prints it, and the board is not
-ordered until one of these settles it:
+The four power contacts were measured. Nothing from Hirose names their nets,
+and both readings of FutureProofHomes' boards were wrong: each put the two
+grounds at one end. A continuity test on one of the household's HATs found
+them on one row instead:
 
-- Hirose's or a vendor's footprint for FX23L-80S-0.5SV, compared pad by pad;
-- a meter on a HAT powered from a 20 V USB-PD charger. The two power
-  contacts at the pin-1 end of the HAT's plug should read about 20 V (VBUS)
-  and 5 V; the two at the far end should be ground.
+| Contact | Net | Where |
+|---|---|---|
+| MH1, MH3 | Ground | the pads 1-40 row, the header's side, one at each end |
+| MH2 | 5 V | beside pad 41, the pin-1 end of the USB side |
+| MH4 | VBUS | beside pad 80, the far end of the USB side |
+
+The [footprint notes](../../hardware/chorus-main/chorus-main.pretty/README.md#the-fx23l-80s-05sv-receptacle)
+say how it was measured, so a new HAT revision can be checked the same way.
 
 ## Power
 
@@ -212,8 +219,7 @@ all-in-one board of ADR-0047, is retired and stays in git history.
 ### Ordering from JLCPCB
 
 Every part carries its LCSC number, or a per-value number for resistors and
-capacitors. The exception is the receptacle, whose `hand:` line says why it
-is soldered after assembly. `bom.csv` is in the columns JLCPCB's assembly
+capacitors. `bom.csv` is in the columns JLCPCB's assembly
 upload reads.
 
 1. Download the KiCad project: the `chorus-main-kicad` artifact of the latest
@@ -234,8 +240,7 @@ upload reads.
 3. Lay out per the next section. A later change goes in the YAML, then
    comes back into the laid-out board through *Update PCB from netlist* on
    the regenerated `chorus-main.net`.
-4. Settle the receptacle's power contacts (above), plot Gerbers, drill and
-   position files, and upload them with `bom.csv`.
+4. Plot Gerbers, drill and position files, and upload them with `bom.csv`.
 
 ## Layout
 
@@ -252,11 +257,10 @@ upload reads.
 
 ## From here to a built board
 
-1. **Settle the power contacts**, as [The receptacle](#the-receptacle) says.
-2. **Measure the gap** between a mated HAT and the shoe's outline, and the
+1. **Measure the gap** between a mated HAT and the shoe's outline, and the
    Core's lowest part, on one of the household's kits.
-3. **Lay out and order** five boards, four-layer, with assembly.
-4. **Bring up in order**:
+2. **Lay out and order** five boards, four-layer, with assembly.
+3. **Bring up in order**:
    - PoE alone, no kit: 12 V on the module's output, about 3.0 V on
      `POE_SENSE`;
    - the kit on USB-C with the main board fitted: nothing changes for the
@@ -264,7 +268,7 @@ upload reads.
    - Ethernet up, then `task test:hardware` over the cable, against the Wi-Fi
      numbers in SPEC §3.3.2;
    - PoE only: the kit boots on VBUS at 12 V, and the amplifier plays.
-5. **Firmware**: an ESPHome config for the main board is `satellite1.yaml`
+4. **Firmware**: an ESPHome config for the main board is `satellite1.yaml`
    with an `ethernet:` block for the W5500 on the pins above, in place of
    `wifi:`, and `POE_SENSE` read beside the PD contract. ESPHome builds one
    or the other, so the Wi-Fi build stays the config for a kit without a main
@@ -272,10 +276,6 @@ upload reads.
 
 ## Open questions
 
-- **The receptacle's power contacts.** Which of the +x pair is 5 V and which
-  VBUS; see [The receptacle](#the-receptacle).
-- **The receptacle's LCSC number.** None is confirmed, so it is hand-soldered
-  until one is.
 - **Stack height and the Core's clearance.** The shoe's outline and holes are
   taken as the kit's; the gap above the main board is not yet measured.
 - **J7 on the household's HATs.** Rev 6.1 draws it; whether every kit as sold
