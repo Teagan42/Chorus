@@ -82,6 +82,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET "+ui.Routes[ui.StepBrowse]+"/{id}", s.conversation)
 	mux.HandleFunc("POST "+ui.Routes[ui.StepBrowse]+"/{id}/turns/{seq}/labels/{label}", s.annotate)
 	mux.HandleFunc("POST "+ui.Routes[ui.StepBrowse]+"/{id}/turns/{seq}/note", s.annotate)
+	mux.HandleFunc("POST "+ui.Routes[ui.StepBrowse]+"/{id}/wakes/{seq}/{status}", s.wakeVerdict)
 	mux.HandleFunc("GET "+ui.Routes[ui.StepReplay], s.replays)
 	mux.HandleFunc("GET "+ui.Routes[ui.StepReplay]+"/{id}", s.replayPage)
 	mux.HandleFunc("POST "+ui.Routes[ui.StepReplay]+"/{id}", s.replayRun)
@@ -90,6 +91,7 @@ func (s *server) routes() http.Handler {
 	mux.Handle("GET /audio", audio.Handler(s.blobs))
 	mux.HandleFunc("GET "+ui.Routes[ui.StepExport], s.export)
 	mux.HandleFunc("GET /export/dpo.jsonl", s.exportJSONL)
+	mux.HandleFunc("GET /export/wake-negatives.jsonl", s.exportWake)
 	mux.HandleFunc("POST /pairs/{rest...}", s.pairAction)
 	return http.NewCrossOriginProtection().Handler(mux)
 }

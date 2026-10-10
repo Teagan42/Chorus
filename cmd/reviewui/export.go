@@ -119,6 +119,13 @@ func (s *server) export(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.mu.Lock()
+	wakes, err := s.negatives(r.Context(), &u)
+	s.mu.Unlock()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	text, err := preview(rows)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -148,6 +155,19 @@ func (s *server) export(w http.ResponseWriter, r *http.Request) {
 		"Preview": text,
 		"Empty":   (*ui.EmptyState)(nil),
 		"Unread":  u.alert(),
+	}
+	wc := countWakes(wakes)
+	data["Wake"] = map[string]any{
+		"Download": ui.Button{
+			Label: "Download " + plural(wc.Ships, "negative") + " (JSONL)",
+			Href:  "/export/wake-negatives.jsonl", Disabled: wc.Ships == 0,
+		},
+		"Stats": ui.MetricStrip{Label: "Wake corpus", Items: []ui.Metric{
+			{Label: "Ships", Value: fmt.Sprint(wc.Ships), Tone: ui.ToneVoice},
+			{Label: "Confirmed", Value: fmt.Sprint(wc.Confirmed)},
+			{Label: "Held · unknown speaker", Value: fmt.Sprint(wc.Held), Tone: ui.ToneConv},
+			{Label: "Discarded", Value: fmt.Sprint(wc.Discarded)},
+		}},
 	}
 	if c.Exportable == 0 {
 		data["Empty"] = &ui.EmptyState{

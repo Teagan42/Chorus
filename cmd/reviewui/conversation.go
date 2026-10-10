@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/reviewui/ui"
 	"github.com/teagan42/chorus/internal/triage"
@@ -39,6 +40,9 @@ type logRow struct {
 
 	// Annotation is the turn's labels, under the utterance that opens it.
 	Annotation *turnAnnotation
+
+	// Wake is the reviewer's word on a rejected wake, under it.
+	Wake *wakeView
 }
 
 var kindTones = map[journal.Kind]ui.Tone{
@@ -332,6 +336,10 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 	if err == nil && len(events) > 0 {
 		annos, err = s.decisions.Annotations(r.Context(), id)
 	}
+	var wakes map[uint64]curation.WakeVerdict
+	if err == nil && len(events) > 0 && strings.HasPrefix(id, devicePrefix) {
+		wakes, err = s.decisions.WakeVerdicts(r.Context(), id)
+	}
 	s.mu.Unlock()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -370,6 +378,11 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 				v.Again = againNote(r)
 			}
 			row.Annotation = &v
+		}
+		if e.Kind == journal.KindWakeRejected && wakes != nil {
+			n := negative{Negative: harvest.Negative{Seq: e.Seq, Reason: e.Fields["reason"]}, status: wakes[e.Seq].Status}
+			v := wakeVerdictView(id, n)
+			row.Wake = &v
 		}
 		if sig, ok := bySeq[e.Seq]; ok {
 			tag := signalTags[sig.Kind]
