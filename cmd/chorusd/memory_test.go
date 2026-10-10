@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -177,5 +180,60 @@ func TestNoMemoryMeansNoSummaries(t *testing.T) {
 	}
 	if n := len(r.store.ofKind(journal.KindConversationSummarized)); n != 0 || len(sum.people) != 0 {
 		t.Errorf("summarized %d times with no memory", n)
+	}
+}
+
+// garageWords is an embedding model that knows one topic: how much a text
+// is about getting into the garage.
+type garageWords struct{}
+
+func (garageWords) Embed(_ context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i, t := range texts {
+		t = strings.ToLower(t)
+		out[i] = []float32{float32(strings.Count(t, "garage") + strings.Count(t, "code")), 0.05}
+	}
+	return out, nil
+}
+
+func (garageWords) EmbedModel() string { return "nomic-embed-text" }
+
+// Alan has asked the house to remember two dozen things since he told it
+// the garage code in August. Asked for the code, the daemon recalls it by
+// relevance, records which model chose, and the model is told it.
+//
+// verifies SPEC §5
+func TestAlanIsToldTheGarageCodeOutOfTwoDozenMemories(t *testing.T) {
+	memories := memory.NewMemStore()
+	august := epoch.Add(-60 * 24 * time.Hour)
+	code := memory.Memory{ID: "m_9a7e4512", Person: "alan", Fact: "The garage door code is 4512.", At: august}
+	if err := memories.Remember(context.Background(), code); err != nil {
+		t.Fatalf("remember: %v", err)
+	}
+	for i := range 24 {
+		m := memory.Memory{
+			ID: fmt.Sprintf("m_alan%04d", i), Person: "alan", At: august.Add(time.Duration(i+1) * 24 * time.Hour),
+			Fact: fmt.Sprintf("Watered the porch plants on day %d of the month.", i+1),
+		}
+		if err := memories.Remember(context.Background(), m); err != nil {
+			t.Fatalf("remember: %v", err)
+		}
+	}
+	eng := &scriptEngine{acts: []session.Action{session.TurnEnd{FinishReason: "stop", Completion: "{}"}}}
+	r := newRig(t, inventory(), func(d *deps) {
+		d.engine, d.Memories, d.embedder = eng, memories, garageWords{}
+	})
+	dev := r.join(t, kitchenIP)
+	dev.SendWake(t, "hey_eddie")
+	r.utter(t, dev, r.line("what's the code for the garage", alan))
+	recalled := r.store.awaitKind(t, journal.KindMemoryRecalled, 1)
+	await(t, "the ask", func() bool { return len(eng.heard()) > 0 })
+
+	told := eng.heard()[0].Memories
+	if len(told) != memory.RecallLimit || !slices.Contains(told, code.Recalled()) {
+		t.Errorf("the model was told %d memories without the code: %+v", len(told), told)
+	}
+	if recalled.Fields["ranked_by"] != "nomic-embed-text" || recalled.Fields["memories_json"] != journal.EncodeMemories(told) {
+		t.Errorf("memory_recalled = %v, want what the model was told, ranked by the embedding model", recalled.Fields)
 	}
 }

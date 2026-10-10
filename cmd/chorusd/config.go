@@ -9,6 +9,7 @@ import (
 	"github.com/teaganglenn/chorus/internal/identity"
 	"github.com/teaganglenn/chorus/internal/journal"
 	"github.com/teaganglenn/chorus/internal/listen"
+	"github.com/teaganglenn/chorus/internal/memory"
 	"github.com/teaganglenn/chorus/internal/provider/kokoro"
 	"github.com/teaganglenn/chorus/internal/provider/ollama"
 	"github.com/teaganglenn/chorus/internal/provider/smartturn"
@@ -26,6 +27,7 @@ const (
 	blobDirEnv      = "CHORUS_BLOB_DIR"
 	ollamaURLEnv    = "OLLAMA_URL"
 	ollamaModelEnv  = "OLLAMA_MODEL"
+	ollamaEmbedEnv  = "OLLAMA_EMBED_MODEL"
 	kokoroURLEnv    = "KOKORO_URL"
 	sttURLEnv       = "STT_URL"
 	speakerIDURLEnv = "SPEAKERID_URL"
@@ -46,6 +48,7 @@ type Config struct {
 	BlobDir      string
 	OllamaURL    string
 	OllamaModel  string
+	EmbedModel   string
 	KokoroURL    string
 	STTURL       string
 	SpeakerIDURL string
@@ -63,6 +66,7 @@ func configFromEnv(getenv func(string) string) Config {
 		BlobDir:      getenv(blobDirEnv),
 		OllamaURL:    getenv(ollamaURLEnv),
 		OllamaModel:  getenv(ollamaModelEnv),
+		EmbedModel:   getenv(ollamaEmbedEnv),
 		KokoroURL:    getenv(kokoroURLEnv),
 		STTURL:       getenv(sttURLEnv),
 		SpeakerIDURL: getenv(speakerIDURLEnv),
@@ -115,13 +119,16 @@ type providers struct {
 	// summarizer writes what each conversation was about when it ends: the
 	// turn engine's own model, asked without tools (SPEC §5).
 	summarizer session.Summarizer
-	versions   journal.Versions
-	synth      satellite.Synth
-	stt        stt.Transcriber
-	speakers   listen.Speakers
-	judge      listen.Judge
-	household  []string
-	tools      map[string]session.Tool
+	// embedder chooses what a turn recalls by relevance, once a person has
+	// more than fits. Nil recalls the newest (ADR-0044).
+	embedder  memory.Embedder
+	versions  journal.Versions
+	synth     satellite.Synth
+	stt       stt.Transcriber
+	speakers  listen.Speakers
+	judge     listen.Judge
+	household []string
+	tools     map[string]session.Tool
 }
 
 // buildProviders constructs the providers without touching the network: a
@@ -175,6 +182,16 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger) (pro
 		if len(p.household) == 0 {
 			log.Warn("nobody is enrolled: every speaker is a guest until someone is (identities.yaml)")
 		}
+	}
+
+	if cfg.EmbedModel == "" {
+		log.Warn("memory relevance is off: " + ollamaEmbedEnv + " is not set, so a turn is told a person's newest 20 memories and newest 5 conversations of the past week, whatever was asked")
+	} else {
+		emb, err := ollama.NewEmbedder(ollama.EmbedConfig{BaseURL: cfg.OllamaURL, Model: cfg.EmbedModel})
+		if err != nil {
+			return providers{}, err
+		}
+		p.embedder = emb
 	}
 
 	if cfg.SmartTurnURL == "" {
