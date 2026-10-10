@@ -65,7 +65,10 @@ Assistant off and answers `not_implemented`, a result the model reasons
 about (SPEC §7), while `media_search` is not offered until something runs
 it. The offered set, and so the tool-schema version, is a property of the
 build rather than of one house's configuration, so Replay offers what
-`chorusd` did.
+`chorusd` offers: its editor, an unedited re-run, its schema diff and its
+version note all start from `registry.Offered`. A turn recorded under a
+schema that still offered `media_search` is re-run without it, under the
+newer version, and the page says the two differ.
 
 ```go
 import "github.com/teagan42/chorus/internal/registry"
@@ -92,6 +95,9 @@ bound the barge-in clip at that prefix.
 
 ## Alternatives rejected
 
+- **Re-run under every declared tool.** Replay would offer `media_search`,
+  which `chorusd` does not, so a re-run would show takes production cannot
+  make, and promoting one would teach the model a call nothing answers.
 - **Hide `ha_*` when Home Assistant is off.** The offered set would then
   differ by house, and Replay, which has no house configuration, would
   offer a different set from the turn it replays and so fingerprint a
@@ -105,6 +111,9 @@ bound the barge-in clip at that prefix.
 
 ## Forecloses
 
+- **A re-run cannot repeat a turn's search.** A turn recorded with
+  `media_search` is asked again without it, unless the reviewer adds its
+  declaration back, which runs under an edited schema.
 - **A `detach` or `uninterruptible` call has no deadline of its own.** One
   that never returns holds its goroutine until the session ends.
 - **A candidate's audio exists only once its utterance ends.** A reader
