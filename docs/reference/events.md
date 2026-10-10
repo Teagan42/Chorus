@@ -328,6 +328,6 @@ Actor: `device`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. `r
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `reason` | string | yes | Which gate rejected it. One of: `no_speech`, `low_confidence`, `unknown_speaker`. |
+| `reason` | string | yes | Which gate rejected it. transcription_failed is the first utterance that could not be decoded, so nothing confirmed the wake: not a verdict on the audio, and no hard negative. One of: `no_speech`, `low_confidence`, `unknown_speaker`, `transcription_failed`. |
 | `second_audio_ref` | string |  | The same span from the XMOS's second, lighter-processed output, so retraining can target either stream (SPEC §9.3). Empty when the device streams one channel. |
 
