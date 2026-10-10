@@ -52,6 +52,7 @@ decision rather than by clause: facets of one choice share one record.
 | [0041](0041-hold-a-cover-that-lets-someone-in-by-its-device-class.md) | Refines 0038: hold a garage, gate or door cover by the `device_class` Home Assistant gives it, read before dispatch | §6 |
 | [0042](0042-a-turn-that-ends-on-a-dangling-word-is-held.md) | Smart Turn's "finished" is checked against the words; a turn ending on *for*, *the*, *and* or a filler is held | §4.5, §11 |
 | [0043](0043-each-conversation-is-summarized-for-the-people-in-it-and-each-turn-is-told-the-time.md) | Each conversation is summarized for the people in it when it ends; each turn is told the time and the last week's conversations | §5, §8 |
+| [0044](0044-recall-chooses-by-relevance-and-recency-when-more-is-kept-than-a-turn-is-told.md) | Refines 0040 and 0043: past twenty memories or five conversations, an embedding model and recency choose what a turn is told | §5, §8, §11 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.

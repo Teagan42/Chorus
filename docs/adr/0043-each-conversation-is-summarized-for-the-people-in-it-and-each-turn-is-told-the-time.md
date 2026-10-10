@@ -96,8 +96,8 @@ summaries. A harvested pair carries them, exported as
 ## Forecloses
 
 - **Relevance does not choose them yet.** The newest five from the week are
-  told, whatever was asked. Ranking memories and summaries by relevance is
-  next.
+  told, whatever was asked. ADR-0044 ranks memories and summaries by
+  relevance.
 - **A guest's words reach the summary.** An unrecognised voice in Teagan's
   conversation is in Teagan's summary, as it was in Teagan's conversation.
 - **A summary costs a model call per conversation.** It runs after the
