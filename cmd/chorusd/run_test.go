@@ -416,15 +416,9 @@ func TestTheNativeAPIIsHeldAndRedialed(t *testing.T) {
 	clk.advance(nativeRetryMin)
 	r.logs.await(t, "satellite1 esphome 2026.7.2")
 
+	sent[*pb.ListEntitiesRequest](t, conn, "the entity list")
 	conn.in <- &pb.PingRequest{}
-	select {
-	case m := <-conn.sent:
-		if _, ok := m.(*pb.PingResponse); !ok {
-			t.Errorf("answered a ping with %T", m)
-		}
-	case <-time.After(patience):
-		t.Fatal("the ping was never answered")
-	}
+	sent[*pb.PingResponse](t, conn, "the ping's answer")
 
 	// The device drops the connection; the daemon arms a retry.
 	_ = conn.Close()
