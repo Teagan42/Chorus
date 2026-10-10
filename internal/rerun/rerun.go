@@ -157,6 +157,11 @@ func Turns(events []journal.Event) ([]Turn, error) {
 			case asked && f["tool"] == toolSpeak:
 				later[f["call_id"]] = true
 			case asked:
+			case f["tool"] == toolSpeak && acknowledges(f["args_json"]):
+				// The session's speak for a slow call: the model wrote the
+				// words as that call's argument, which a re-run of the call
+				// carries too, and never speaks them itself (ADR-0039).
+				later[f["call_id"]] = true
 			case f["tool"] != toolSpeak:
 				t.Recorded.Calls = append(t.Recorded.Calls, Call{Tool: f["tool"], Args: f["args_json"]})
 			}
@@ -169,6 +174,17 @@ func Turns(events []journal.Event) ([]Turn, error) {
 		}
 	}
 	return out, nil
+}
+
+// acknowledges reports a speak call the session made to say a slow call's
+// acknowledgement. A streamed speak's arguments carry no such field.
+func acknowledges(args string) bool {
+	var a struct {
+		Acknowledges string `json:"acknowledges"`
+	}
+	// An unreadable speak is the model's, so it is the turn's speech.
+	_ = json.Unmarshal([]byte(args), &a)
+	return a.Acknowledges != ""
 }
 
 // said adds speech to the take, or to the line an interjection paused,

@@ -486,3 +486,44 @@ func TestAnInterjectedLineIsOneLineOfTheTake(t *testing.T) {
 		t.Errorf("speech = %+v, want %+v", got, want)
 	}
 }
+
+// Alice asks for Zeppelin, and the search carries what to say while it looks.
+// The session spoke those words as a speak call of its own; the model wrote
+// them as the search's argument, so a re-run that makes the same search,
+// with the same words, and says the same answer, changed nothing (ADR-0039).
+//
+// verifies SPEC §9.2, §11
+func TestASlowCallsAcknowledgementIsItsArgumentNotTheTurnsSpeech(t *testing.T) {
+	const search = `{"query":"Led Zeppelin","media_type":"album","limit":5,"acknowledgement":"Let me find that."}`
+	ts := turns(t, logOf(t, []journal.Record{
+		record(journal.KindSessionOpened, "satellite", "kitchen", "speaker_id", "alice", "resumed", "false"),
+		record(journal.KindUtteranceTranscribed, "text", "play something by zeppelin", "speaker_id", "alice"),
+		record(journal.KindToolCalled, "tool", "media_search", "call_id", "c1", "args_json", search),
+		record(journal.KindToolCalled, "tool", "speak", "call_id", "c1_ack", "args_json", `{"text":"Let me find that.","mode":"queue","acknowledges":"c1"}`),
+		record(journal.KindSpeechStarted, "call_id", "c1_ack", "wait_ms", "450"),
+		record(journal.KindSpeechSpoken, "text", "Let me find that.", "frames_played", "16000", "call_id", "c1_ack"),
+		record(journal.KindToolResult, "call_id", "c1_ack", "outcome", "ok"),
+		record(journal.KindToolResult, "call_id", "c1", "outcome", "ok", "result_json", `{"results":["Led Zeppelin"]}`),
+		record(journal.KindToolCalled, "tool", "speak", "call_id", "s1", "args_json", `{"mode":"queue","streamed":true}`),
+		record(journal.KindSpeechSpoken, "text", "I found Led Zeppelin.", "frames_played", "24000", "call_id", "s1"),
+		record(journal.KindToolResult, "call_id", "s1", "outcome", "ok"),
+		record(journal.KindModelCompleted, "completion_json", "{}", "finish_reason", "stop"),
+	}))
+	if want := []rerun.Speech{{Text: "I found Led Zeppelin."}}; len(ts) != 1 || !slices.Equal(ts[0].Recorded.Speech, want) {
+		t.Fatalf("turns = %+v, want the answer alone as the turn's speech", ts)
+	}
+	eng := &scripted{answers: map[string][]session.Action{
+		"play something by zeppelin": then(
+			call("c1", "media_search", search),
+			say("s1", "I found Led Zeppelin."),
+			end("stop"),
+		),
+	}}
+	got, err := rerun.Run(context.Background(), eng, "conv-garage", ts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := rerun.Compare(ts[0].Recorded, got); c.Speech || c.Calls {
+		t.Errorf("change = %+v, want none: recorded %+v, replayed %+v", c, ts[0].Recorded, got)
+	}
+}
