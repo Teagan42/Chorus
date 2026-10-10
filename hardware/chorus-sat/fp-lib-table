@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "chorus-sat")(type "KiCad")(uri "${KIPRJMOD}/chorus-sat.pretty")(options "")(descr "Footprints drawn or vendored for chorus-sat; see chorus-sat.pretty/README.md"))
+)

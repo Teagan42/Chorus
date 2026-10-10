@@ -1,6 +1,7 @@
 package board
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -95,5 +96,24 @@ func TestTheRevASchematicChecksClean(t *testing.T) {
 	}
 	if err := s.Check(); err != nil {
 		t.Fatalf("hardware/chorus-sat:\n%v", err)
+	}
+}
+
+// What still stands between rev A and a layout. Drawing one of these into
+// chorus-sat.pretty takes it off this list; the check above then holds it
+// to its part's pads.
+func TestTheRevAFootprintsStillToDraw(t *testing.T) {
+	s, err := LoadSchematic("../../hardware/chorus-sat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"chorus-sat:CUI_CMM-4030DT",
+		"chorus-sat:Silvertel_Ag9912-MTB",
+		"chorus-sat:Texas_RYA0030A_VQFN-HR-30",
+		"chorus-sat:XMOS_QFN-60_7x7mm_P0.4mm_VDD-Bars",
+	}
+	if got := s.Undrawn(); !slices.Equal(got, want) {
+		t.Errorf("undrawn footprints = %q, want %q", got, want)
 	}
 }

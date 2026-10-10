@@ -387,9 +387,12 @@ The path to an order:
 1. In KiCad 9, *File → Import → Netlist* the generated `chorus-sat.net` into
    a new `chorus-sat.kicad_pcb`. Footprints and nets arrive; placement and
    routing are a person's work.
-2. Draw the five footprints KiCad's library lacks, named in `parts.yaml` as
-   `chorus-sat:*`: the XU316's QFN-60, the TAS2780's RYA0030A, the
-   CMM-4030DT, the AG9912-MTB and the LPJG0926HENL.
+2. Draw or vendor the footprints KiCad's library lacks into
+   `hardware/chorus-sat/chorus-sat.pretty`, which the board's `fp-lib-table`
+   makes the `chorus-sat` library: the XU316's QFN-60, the TAS2780's
+   RYA0030A, the CMM-4030DT and the AG9912-MTB. The LPJG0926HENL is the Home
+   Assistant Yellow's. `go test ./internal/board` checks each one's pads
+   against `parts.yaml` and lists those still to draw.
 3. Lay out per the next section. Changes to parts or nets go in the YAML and
    come back through *Update PCB from netlist*.
 4. Plot Gerbers and drill files, and the position file (the CPL), from
