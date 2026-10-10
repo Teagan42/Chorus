@@ -101,17 +101,30 @@ type decoder struct {
 // That is an answer only when the model's reasoning went to its own field and
 // the turn ended on its own: with think:false, content is the reasoning
 // (content_leak.ndjson), which no one should hear. A turn that called
-// anything has said what it meant to through its calls. A first line naming
-// the speak tool is the call the model meant to make, not words to say.
+// anything has said what it meant to through its calls. The speak tool's
+// name leading the content is the call the model meant to make, not words to
+// say: unspoken (ADR-0046).
 func (d decoder) answer(comp completion, reason string) string {
 	if d.speakInlineContent || len(comp.ToolCalls) > 0 || comp.Thinking == "" || reason != "stop" {
 		return ""
 	}
-	text := unthought(comp.Content)
-	if first, rest, ok := strings.Cut(text, "\n"); ok && strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(first), ":")) == toolSpeak {
-		text = strings.TrimSpace(rest)
+	return unspoken(unthought(comp.Content))
+}
+
+// unspoken drops the speak tool's name from the front of text, and the quotes
+// around what follows it, as qwen3:14b writes the call it meant to make:
+// "speak" on a line of its own, or speak "Would you like..." on one line.
+// Text that merely starts with the word, such as "speaker", is left alone.
+func unspoken(text string) string {
+	rest, ok := strings.CutPrefix(text, toolSpeak)
+	if !ok || (rest != "" && !strings.ContainsAny(rest[:1], ": \t\n")) {
+		return text
 	}
-	return text
+	rest = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(rest), ":"))
+	if len(rest) >= 2 && rest[0] == '"' && rest[len(rest)-1] == '"' {
+		rest = strings.TrimSpace(rest[1 : len(rest)-1])
+	}
+	return rest
 }
 
 // decode reads the stream until done, emitting actions as they arrive.

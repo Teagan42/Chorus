@@ -513,6 +513,34 @@ func TestTheSpeakToolsNameInContentIsNotSaid(t *testing.T) {
 	}
 }
 
+// Asked how Teagan takes her coffee, qwen3:14b also wrote the call on one
+// line, the words quoted after the tool's name, and the house said "speak"
+// and the quotes aloud. Neither is said, in any of the shapes the call is
+// written in; an answer that merely starts with the word is said whole.
+//
+// verifies SPEC §4.1
+func TestTheSpeakToolsNameIsNotSaidHoweverTheCallIsWritten(t *testing.T) {
+	const think = `{"model":"qwen3:14b","message":{"role":"assistant","content":"","thinking":"Teagan takes her coffee with oat milk."},"done":false}` + "\n"
+	const stop = `{"model":"qwen3:14b","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}` + "\n"
+	cases := []struct{ content, want string }{
+		{`speak \"Would you like instructions on how to brew your coffee?\"`, "Would you like instructions on how to brew your coffee?"},
+		{`speak: You take your coffee with oat milk.`, "You take your coffee with oat milk."},
+		{`speak:\n\"You take your coffee with oat milk.\"`, "You take your coffee with oat milk."},
+		{`Speaker volume in the kitchen is at forty percent.`, "Speaker volume in the kitchen is at forty percent."},
+		{`speaker volume in the kitchen is at forty percent.`, "speaker volume in the kitchen is at forty percent."},
+	}
+	for _, c := range cases {
+		said := `{"model":"qwen3:14b","message":{"role":"assistant","content":"` + c.content + `"},"done":false}` + "\n"
+		acts, err := collect(t, decoder{}, strings.NewReader(think+said+stop))
+		if err != nil {
+			t.Fatalf("%q: decode: %v", c.content, err)
+		}
+		if sp := speechOf(acts); len(sp) != 1 || sp[0].Text != c.want {
+			t.Errorf("%q: spoke %+v, want %q", c.content, sp, c.want)
+		}
+	}
+}
+
 // Content is not an answer when the turn called something, was cut off by
 // its length, or carried the model's reasoning because nothing else did.
 //
