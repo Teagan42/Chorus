@@ -1,8 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -12,6 +17,7 @@ import (
 
 	"github.com/teaganglenn/chorus/internal/journal"
 	"github.com/teaganglenn/chorus/internal/memory"
+	"github.com/teaganglenn/chorus/internal/provider/ollama"
 	"github.com/teaganglenn/chorus/internal/session"
 )
 
@@ -235,5 +241,53 @@ func TestAlanIsToldTheGarageCodeOutOfTwoDozenMemories(t *testing.T) {
 	}
 	if recalled.Fields["ranked_by"] != "nomic-embed-text" || recalled.Fields["memories_json"] != journal.EncodeMemories(told) {
 		t.Errorf("memory_recalled = %v, want what the model was told, ranked by the embedding model", recalled.Fields)
+	}
+}
+
+// recordedOllama answers every /api/chat with one stream the household's
+// Ollama sent, as the real engine reads it.
+type recordedOllama struct{ stream []byte }
+
+func (o recordedOllama) RoundTrip(r *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK, Status: "200 OK", Request: r, Header: http.Header{},
+		Body: io.NopCloser(bytes.NewReader(o.stream)),
+	}, nil
+}
+
+// Alan asks the kitchen for the garage code he asked the house to remember.
+// The real engine runs over the stream qwen3:14b sent when it answered from
+// memory without calling speak: "speak", then the code, as content. Alan
+// hears the code, and the log says it was said.
+//
+// verifies SPEC §4.1, §5
+func TestAlanHearsTheGarageCodeTheModelWroteAsContent(t *testing.T) {
+	stream, err := os.ReadFile(filepath.Join("..", "..", "internal", "provider", "ollama", "testdata", "answered_in_content.ndjson"))
+	if err != nil {
+		t.Fatalf("read stream: %v", err)
+	}
+	eng, err := ollama.New(ollama.Config{
+		BaseURL: "http://ollama.invalid:11434", Model: "qwen3:14b",
+		HTTP: &http.Client{Transport: recordedOllama{stream: stream}},
+	})
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+	memories := memory.NewMemStore()
+	if err := memories.Remember(context.Background(), memory.Memory{
+		ID: "m_9a7e4512", Person: "alan", Fact: "The garage door code is 4512.", At: epoch.Add(-60 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("remember: %v", err)
+	}
+	r := newRig(t, inventory(), func(d *deps) { d.engine, d.Memories = eng, memories })
+	dev := r.join(t, kitchenIP)
+	dev.SendWake(t, "hey_eddie")
+	r.utter(t, dev, r.line("what's the code for the garage", alan))
+
+	const code = "The garage door code is 4512."
+	dev.AwaitTTS(t, 2*len(code))
+	dev.PlayAll(t)
+	if spoken := r.store.awaitKind(t, journal.KindSpeechSpoken, 1); spoken.Fields["text"] != code {
+		t.Errorf("speech_spoken = %v, want the code and not the tool's name", spoken.Fields)
 	}
 }
