@@ -42,10 +42,11 @@ type speechChannel struct {
 	asked time.Time
 	heard bool
 
-	// dead holds calls already cut or dropped. A preempt does not latch the
-	// channel, so a trailing delta would otherwise write to a stream that is
-	// closing, or re-speak text already recorded as never heard.
-	dead map[string]bool
+	// dead holds calls already cut or dropped, and why. A preempt does not
+	// latch the channel, so a trailing delta would otherwise write to a
+	// stream that is closing, or re-speak text already recorded as never
+	// heard. Each has its result journalled, or about to be.
+	dead map[string]string
 }
 
 // utterance is one speak call. Text arrives as deltas, so playback starts
@@ -84,7 +85,7 @@ type utterance struct {
 }
 
 func newSpeechChannel(s *Session) *speechChannel {
-	c := &speechChannel{s: s, dead: map[string]bool{}}
+	c := &speechChannel{s: s, dead: map[string]string{}}
 	c.idle = sync.NewCond(&c.mu)
 	return c
 }
@@ -101,11 +102,16 @@ func (c *speechChannel) deliver(d SpeechDelta) bool {
 	return c.deliverLocked(d, false, nil, false)
 }
 
-// cutReason is why the channel was cut, for speech that arrives after it.
-func (c *speechChannel) cutReason() string {
+// refused says why speech for callID that arrives after a cut was not
+// played, and whether the channel already resolved that call: a call cut or
+// failed mid-stream has its result, and a trailing delta must not replace it.
+func (c *speechChannel) refused(callID string) (reason string, resolved bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.cutReasonLocked()
+	if reason, ok := c.dead[callID]; ok {
+		return reason, true
+	}
+	return c.cutReasonLocked(), false
 }
 
 func (c *speechChannel) cutReasonLocked() string {
@@ -164,7 +170,7 @@ func tell(heard chan<- bool, ok bool) {
 }
 
 func (c *speechChannel) deliverLocked(d SpeechDelta, announces bool, heard chan<- bool, canned bool) bool {
-	if c.closed || c.dead[d.CallID] {
+	if _, dead := c.dead[d.CallID]; c.closed || dead {
 		return false
 	}
 	u := c.find(d.CallID)
@@ -208,7 +214,7 @@ func (c *speechChannel) resume(asked time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cut, c.cannedSaid = "", false
-	c.dead = map[string]bool{}
+	c.dead = map[string]string{}
 	c.asked, c.heard = asked, false
 }
 
@@ -238,7 +244,7 @@ func (c *speechChannel) cutLocked(reason string) {
 		return
 	}
 	c.current.reason = reason
-	c.dead[c.current.callID] = true
+	c.dead[c.current.callID] = reason
 	c.current.cancel()
 }
 
@@ -253,14 +259,9 @@ func (c *speechChannel) dropLocked(reason string) {
 			continue
 		}
 		tell(u.heard, false)
-		c.dead[u.callID] = true
+		c.dead[u.callID] = reason
 		if text := strings.Join(u.buf, ""); text != "" {
-			c.s.fail(c.s.record(journal.Record{
-				Kind: journal.KindSpeechDiscarded,
-				Fields: map[string]string{
-					"unspoken_text": text, "reason": reason,
-				},
-			}))
+			c.discardedLocked(u.callID, text, reason)
 		}
 		c.s.result(u.callID, "cancelled", "")
 		c.live--
@@ -296,15 +297,15 @@ func (c *speechChannel) startNextLocked() {
 	if err != nil {
 		// The voice failed before a word of this was heard: never played,
 		// and never mistaken for a cut (ADR-0051).
-		c.dead[u.callID] = true
+		reason := ErrVoiceUnavailable.Error()
+		c.dead[u.callID] = reason
 		tell(u.heard, false)
 		u.cancel()
 		c.live--
-		reason := ErrVoiceUnavailable.Error()
 		id := c.claimForLocked(u, reason)
 		c.recordFailure(u.callID, reason, fmt.Errorf("open: %w", err), id)
 		if text := strings.Join(u.buf, ""); text != "" {
-			c.discardedLocked(text, reason)
+			c.discardedLocked(u.callID, text, reason)
 		}
 		c.s.result(u.callID, "error", failedResult(reason))
 		c.failedLocked(u, reason, id)
@@ -418,7 +419,7 @@ func (c *speechChannel) record(callID, reason string, failed bool, pb Playback) 
 	case pb.Truncated && pb.Spoken == "":
 		// Nothing was heard, so there is no split to record.
 		if pb.Unspoken != "" {
-			c.discardedLocked(pb.Unspoken, reason)
+			c.discardedLocked(callID, pb.Unspoken, reason)
 		}
 		c.s.result(callID, outcome, result)
 	case pb.Truncated:
@@ -497,10 +498,10 @@ func (c *speechChannel) failedLocked(u *utterance, reason, cannedID string) {
 
 // discardedLocked journals speech nobody heard. Safe with or without the
 // channel's lock: it touches only the journal.
-func (c *speechChannel) discardedLocked(text, reason string) {
+func (c *speechChannel) discardedLocked(callID, text, reason string) {
 	c.s.fail(c.s.record(journal.Record{
 		Kind:   journal.KindSpeechDiscarded,
-		Fields: map[string]string{"unspoken_text": text, "reason": reason},
+		Fields: map[string]string{"unspoken_text": text, "reason": reason, "call_id": callID},
 	}))
 }
 

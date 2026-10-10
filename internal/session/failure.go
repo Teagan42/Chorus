@@ -157,7 +157,7 @@ func (s *Session) sayCannedLocked(id, text string) {
 		return
 	}
 	if !s.speech.cannedLocked(id, text) {
-		s.speech.discardedLocked(text, s.speech.cutReasonLocked())
+		s.speech.discardedLocked(id, text, s.speech.cutReasonLocked())
 		s.result(id, "cancelled", "")
 	}
 }

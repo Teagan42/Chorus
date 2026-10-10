@@ -101,7 +101,7 @@ func (s *Session) Announce(_ context.Context, a Announcement) error {
 		// Ended between the check and the queue: recorded as never heard.
 		s.fail(s.record(journal.Record{
 			Kind:   journal.KindSpeechDiscarded,
-			Fields: map[string]string{"unspoken_text": text, "reason": "session_closed"},
+			Fields: map[string]string{"unspoken_text": text, "reason": "session_closed", "call_id": id},
 		}))
 		s.result(id, "cancelled", "")
 		return ErrClosed

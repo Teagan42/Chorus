@@ -597,6 +597,27 @@ func TestAVoiceFailureAndItsApologyAreNoPreferencePair(t *testing.T) {
 	}
 }
 
+// Alice talks before the queued apology starts, so it is discarded unheard
+// as a barge-in. The discard names the canned call, and dropping words no
+// model chose is no preference either.
+//
+// verifies SPEC §9.1
+func TestAnApologyDroppedByABargeInIsNoPreferencePair(t *testing.T) {
+	store := conversation(t, versions(), concat(
+		[]journal.Record{opened("kitchen")}, voiceFailedTurn(),
+		[]journal.Record{
+			bargeIn("120", "blob://mic/2"),
+			record(journal.KindSpeechDiscarded, "", "unspoken_text", "Sorry, I've lost my voice for a moment.", "reason", "barge_in", "call_id", "cn_3f9c"),
+			cancelled("cn_3f9c"),
+		},
+		correctedTurn(), []journal.Record{closed("model_ended")},
+	))
+	res := scan(t, store)
+	if len(res.Pairs) != 0 || res.Uncorrected != 0 {
+		t.Errorf("pairs = %+v uncorrected = %d, want neither: no model's words were dropped", res.Pairs, res.Uncorrected)
+	}
+}
+
 // A voice that failed on the turn after a real correction does not reach
 // into the pair: the answer as said is what the person heard of it, and the
 // apology is no part of it.

@@ -544,17 +544,16 @@ func streamedArgs(d SpeechDelta) string {
 }
 
 // discardSpeech records text the model generated for a turn that was cut
-// off, for whatever reason the speech channel was cut.
+// off, for whatever reason the speech channel was cut. A call the channel
+// already resolved, cut or failed partway, keeps the result it was given.
 func (s *Session) discardSpeech(callID, text string) {
+	reason, resolved := s.speech.refused(callID)
 	if text != "" {
-		s.fail(s.record(journal.Record{
-			Kind: journal.KindSpeechDiscarded,
-			Fields: map[string]string{
-				"unspoken_text": text, "reason": s.speech.cutReason(),
-			},
-		}))
+		s.speech.discardedLocked(callID, text, reason)
 	}
-	s.result(callID, "cancelled", "")
+	if !resolved {
+		s.result(callID, "cancelled", "")
+	}
 }
 
 // dispatch journals the call in stream order, then forks a child. Journalling

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -534,6 +535,52 @@ func TestAVoiceThatWillNotOpenIsTriedForOneApologyOnly(t *testing.T) {
 		t.Errorf("discarded = %q, want %q", unheard, want)
 	}
 }
+
+// Ollama streams the forecast as inline content, a clause at a time, and
+// the voice will not open for the first clause. The call's result is the
+// voice failing, and the clause that arrives after is no second, cancelling
+// result over it. Every discard names its call, so the apology that could
+// not be said either is never taken for the model's words.
+//
+// verifies SPEC §7, §9.1
+func TestAStreamedAnswerKeepsTheVoicesFailureAsItsResult(t *testing.T) {
+	steps := []step{
+		{act: session.SpeechDelta{CallID: "call_w1", Text: "Tomorrow will be sunny, "}},
+		{act: session.SpeechDelta{CallID: "call_w1", Text: "with a high of nineteen.", Last: true}},
+		{act: session.TurnEnd{FinishReason: "stop", Completion: "{}"}},
+	}
+	r := newRigWith(t, steps, nil, nil, func(c *session.Config) { c.Speaker = &kokoro{refuse: true} })
+
+	s := r.open(t, "alice")
+	wait(t, heard(s, "what's the weather tomorrow"))
+
+	events := r.all(t, s.ConversationID())
+	noBargeIn(t, events)
+	var results []string
+	for _, e := range ofKind(events, journal.KindToolResult) {
+		if e.Fields["call_id"] == "call_w1" {
+			results = append(results, e.Fields["outcome"])
+		}
+	}
+	if strings.Join(results, ",") != "error" {
+		t.Errorf("call_w1 results = %q, want the one error", results)
+	}
+	id := ofKind(events, journal.KindSpeechFailed)[0].Fields["canned_call_id"]
+	var discarded []string
+	for _, d := range ofKind(events, journal.KindSpeechDiscarded) {
+		discarded = append(discarded, d.Fields["call_id"]+"/"+d.Fields["reason"]+"/"+d.Fields["unspoken_text"])
+	}
+	want := []string{
+		"call_w1/tts_unavailable/Tomorrow will be sunny, ",
+		"call_w1/tts_unavailable/with a high of nineteen.",
+		id + "/tts_unavailable/" + session.DefaultCanned.Voice,
+	}
+	if !slices.Equal(sorted(discarded), sorted(want)) {
+		t.Errorf("discarded = %q, want %q", discarded, want)
+	}
+}
+
+func sorted(s []string) []string { return slices.Sorted(slices.Values(s)) }
 
 // One apology per turn, whichever failed first: a model that is down and a
 // voice that cannot say so do not stack apologies.
