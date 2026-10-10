@@ -32,7 +32,7 @@ changed. Each of SPEC §4.4's three policies was weighed against that:
   is the §4.4 principle of recording the truth.
 
 ```go
-import "github.com/teaganglenn/chorus/internal/registry"
+import "github.com/teagan42/chorus/internal/registry"
 
 // A service call runs to completion across a barge-in and keeps its result.
 func serviceCallDetaches() bool {

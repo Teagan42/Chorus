@@ -15,7 +15,7 @@ speech-to-speech adapter (§12), where speech is one event among many rather
 than the model's return value.
 
 ```go
-import "github.com/teaganglenn/chorus/internal/registry"
+import "github.com/teagan42/chorus/internal/registry"
 
 // speak is an ordinary registry entry, policy and all.
 func speakIsDeclared() bool { return registry.Specs["speak"].Name == "speak" }

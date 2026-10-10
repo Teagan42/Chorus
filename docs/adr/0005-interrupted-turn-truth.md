@@ -25,7 +25,7 @@ rests on it: an interruption is a free preference pair only because the split
 between heard and unheard text is exact (§9.1).
 
 ```go
-import "github.com/teaganglenn/chorus/internal/journal"
+import "github.com/teagan42/chorus/internal/journal"
 
 // Truncation carries both halves of the split and the model versions in effect.
 func truncationIsTrainingSignal() bool {

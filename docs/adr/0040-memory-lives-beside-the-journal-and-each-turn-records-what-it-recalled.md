@@ -13,7 +13,7 @@ model is told them on every turn.
 import (
 	"context"
 
-	"github.com/teaganglenn/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/memory"
 )
 
 // Teagan is told the oat milk and the wifi password Alice shared, never the

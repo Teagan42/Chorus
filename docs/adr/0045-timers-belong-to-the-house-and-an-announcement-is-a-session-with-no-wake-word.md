@@ -11,9 +11,9 @@ closes. It also says where a timer lives between being set and going off.
 
 ```go
 import (
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
-	"github.com/teaganglenn/chorus/internal/timer"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/timer"
 )
 
 // What the kitchen is given when Alan's oven timer goes off: what to say,

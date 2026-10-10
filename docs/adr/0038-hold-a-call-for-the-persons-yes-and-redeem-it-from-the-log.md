@@ -13,8 +13,8 @@ whether it may run.
 
 ```go
 import (
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/registry"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/registry"
 )
 
 // Unlocking the front door waits for a yes; the kitchen lights do not.

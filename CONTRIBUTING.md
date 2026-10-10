@@ -54,7 +54,7 @@ rejected.
 import (
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // Seven forty-two on a weekday morning, for as long as the test runs.
@@ -171,7 +171,7 @@ type-checked as a library against this module. So an example citing a real
 symbol fails the build when that symbol is renamed:
 
 ```go
-import "github.com/teaganglenn/chorus/internal/registry"
+import "github.com/teagan42/chorus/internal/registry"
 
 // media_search is declared slow, so the model may speak before results land.
 func mediaSearchIsSlow() bool { return registry.Specs["media_search"].Slow }

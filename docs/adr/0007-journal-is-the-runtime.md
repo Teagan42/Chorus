@@ -22,7 +22,7 @@ start even though phase 1 generates no speculative work. Adding an event type
 later is cheap; retrofitting the distinction into replay is not (§11).
 
 ```go
-import "github.com/teaganglenn/chorus/internal/journal"
+import "github.com/teagan42/chorus/internal/journal"
 
 // Replay asserts exhaustive handling against the generated kind list.
 func everyKindIsKnown() int { return len(journal.AllKinds) }

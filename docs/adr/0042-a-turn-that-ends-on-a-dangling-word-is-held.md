@@ -13,8 +13,8 @@ calls finished is now checked against them.
 
 ```go
 import (
-	"github.com/teaganglenn/chorus/internal/listen"
-	"github.com/teaganglenn/chorus/internal/stt"
+	"github.com/teagan42/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/stt"
 )
 
 // Smart Turn decides; the words can only hold the turn open.

@@ -12,8 +12,8 @@ one, and falls back to the silence whenever it cannot say.
 
 ```go
 import (
-	"github.com/teaganglenn/chorus/internal/listen"
-	"github.com/teaganglenn/chorus/internal/provider/smartturn"
+	"github.com/teagan42/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/provider/smartturn"
 )
 
 // One endpointer per link: it holds that device's turn in progress.
