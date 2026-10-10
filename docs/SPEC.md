@@ -282,6 +282,11 @@ latency is viscerally felt, and a wrong stop is cheap (keep talking) while a
 slow stop feels broken. **Every rejected candidate barge-in is logged** as the
 tuning corpus for this gate.
 
+The speaker stage's refusal stands once the voice pauses: an utterance that
+talked over speech, never stopped it, and is a voice the household does not
+know is not answered as a turn (ADR-0049). A household voice the other stages
+refused is still heard.
+
 ### 4.4 Interrupted-turn semantics
 
 Record the **truth**. What was actually spoken is kept, marked interrupted, with
@@ -319,7 +324,10 @@ current speaker, but a confident mismatch **flips attribution within the same
 conversation** — a second person chiming in is a real case Assist cannot handle.
 
 Unknown or low-confidence speaker → guest context, person-scoped tools gated, no
-interrogation. The embedding is stored on every trace record regardless, which
+interrogation. That holds per utterance: a guest who chimes into someone's
+conversation is a guest for that turn, told none of the other person's
+memories, while a voice nothing could judge stays with the current speaker
+(ADR-0049). The embedding is stored on every trace record regardless, which
 gives implicit clustering for free later.
 
 Memory: explicit `remember` / `forget` tools plus an auto rolling summary per
@@ -554,7 +562,8 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
 ### Phase 2
 
 - ~~Review UI~~ **Done — ADR-0034, [the review UI guide](reviewui/README.md).**
-- Memory
+- ~~Memory~~ **Done — ADR-0040, ADR-0043, ADR-0044, ADR-0049.** Summaries are
+  kept per conversation, not as one rolling summary per person.
 - MCP provider
 - ~~Confirmation gates~~ **Done — ADR-0038, ADR-0041.** Garage, gate and door
   covers are held by the class Home Assistant gives them.

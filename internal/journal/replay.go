@@ -158,11 +158,10 @@ func Reduce(s State, e Event) (State, error) {
 		s.CloseReason = e.Fields["reason"]
 	case KindUtteranceTranscribed:
 		s.Heard = append(s.Heard, e.Fields["text"])
-		if id := e.Fields["speaker_id"]; id != "" {
-			s.Speaker = id
-		}
-		// Attributed as the session attributes it: an utterance nobody was
-		// matched to is still the current speaker's (SPEC §5).
+		s.Speaker = Attribute(s.Speaker, e.Fields["speaker_id"], e.Fields["speaker_match"])
+		// Attributed as the session attributes it: a voice judged to be
+		// nobody's is a guest's, and one nothing judged is still the current
+		// speaker's (SPEC §5).
 		s.Dialogue = appendEntry(s.Dialogue, Entry{Kind: EntryHeard, Text: e.Fields["text"], Speaker: s.Speaker})
 		s.HeardAt = e.At.UTC()
 		s.Participants = participate(s.Participants, e.Fields["speaker_id"])
@@ -268,6 +267,33 @@ func Reduce(s State, e Event) (State, error) {
 	}
 	return s, nil
 }
+
+// Attribute is who an utterance belongs to, given who the conversation's
+// current speaker is and how the utterance's voice matched the household.
+// The session and the reducer both call it, so a replay attributes every
+// turn as it ran (SPEC §5).
+//
+// A match names its person. A voice that was judged and matched nobody,
+// below the threshold or too close between two people, is a guest's: handing
+// it to whoever spoke before would tell a dinner guest that person's
+// memories and let them forget them (ADR-0049). A voice nothing judged keeps
+// the current speaker: no identifier, or an embedder that failed this once,
+// is no evidence of someone else, and logs from before the match was
+// recorded attribute exactly as they always did.
+func Attribute(current, speakerID, match string) string {
+	switch {
+	case speakerID != "":
+		return speakerID
+	case Unmatched(match):
+		return ""
+	}
+	return current
+}
+
+// Unmatched reports a speaker_match that judged the voice and found it was
+// nobody the household enrolled: below the threshold, or too close between
+// two people to hand either one's context to (SPEC §5).
+func Unmatched(match string) bool { return match == "below_threshold" || match == "ambiguous" }
 
 // participate adds an identified speaker the first time they speak.
 func participate(people []string, id string) []string {

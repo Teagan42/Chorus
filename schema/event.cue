@@ -65,6 +65,7 @@ events: {
 			{name: "speaker_id", type: "string", description: "Per-utterance speaker match."},
 			{name: "embedding_json", type: "string", description: "The utterance's speaker embedding as a JSON array of numbers, stored whether or not it matched anyone (SPEC §5). Empty when the embedder was unavailable."},
 			{name: "second_audio_ref", type: "string", description: "The same span from the XMOS's second, lighter-processed output (SPEC §8). Empty when the device streams one channel."},
+			{name: "speaker_match", type: "string", description: "How the voice matched the household (SPEC §5). below_threshold and ambiguous make the utterance a guest's, whoever spoke before it. Empty when nothing judged the voice (no speaker identification, or the embedder failed) and in logs from before it was recorded: the current speaker keeps the turn.", enum: ["identified", "below_threshold", "ambiguous", "nobody_enrolled"]},
 		]
 	}
 	speech_started: {
@@ -146,7 +147,7 @@ events: {
 		name:        "memory_recalled", actor: "session"
 		description: "What the model is told it remembers, from this turn on: the speaker's own memories and what others shared, and their recent conversations, chosen by relevance when there are more than fit. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5)."
 		fields: [
-			{name: "person", type: "string", description: "Whose memories these are: the identified speaker.", required: true},
+			{name: "person", type: "string", description: "Whose memories these are: the identified speaker. Empty for a guest, who is told nothing: recorded when a guest follows someone who was told something, so the guest's turn does not inherit it (SPEC §5)."},
 			{name: "memories_json", type: "string", description: "The memories as a JSON array of {id, person, fact, shareable}, newest first. An empty array means nothing is remembered.", required: true},
 			{name: "summaries_json", type: "string", description: "The person's recent conversations as a JSON array of {conversation_id, at, text}, newest first. Empty in logs from before conversations were summarized."},
 			{name: "ranked_by", type: "string", description: "The embedding model that chose these by relevance to what was just said, when there were more than a turn is told. Empty when they are simply the newest: too few to choose from, no embedding model, or ranking failed (ADR-0044)."},

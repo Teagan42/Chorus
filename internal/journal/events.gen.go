@@ -74,7 +74,7 @@ var Meta = map[Kind]EventMeta{
 	KindConfirmationGiven:      {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id", "nonce"}},
 	KindConfirmationRequested:  {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id", "nonce"}},
 	KindConversationSummarized: {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: true, RequiredFields: []string{"people_json"}},
-	KindMemoryRecalled:         {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"person", "memories_json"}},
+	KindMemoryRecalled:         {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"memories_json"}},
 	KindModelCompleted:         {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: true, RequiredFields: []string{"completion_json", "finish_reason"}},
 	KindPresenceChanged:        {Actor: "device", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"state"}},
 	KindSessionClosed:          {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"reason", "satellite"}},

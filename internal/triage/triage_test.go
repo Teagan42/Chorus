@@ -158,6 +158,48 @@ func TestASpeakerChangeMidConversationIsAFlip(t *testing.T) {
 	}
 }
 
+// A friend chimes in after Teagan with a voice that matched nobody. The
+// session ran that turn as a guest (ADR-0049), so triage says so, and a tool
+// that failed on the guest's turn is the guest's, not Teagan's.
+//
+// verifies SPEC §5, §9.1
+func TestAVoiceThatMatchedNobodyIsAFlipToAGuest(t *testing.T) {
+	sigs := scan(t,
+		opened("kitchen", "teagan"),
+		record(journal.KindUtteranceTranscribed, "blob://mic/1", "text", "add oat milk to the list", "speaker_id", "teagan", "speaker_match", "identified"),
+		completed("stop"),
+		record(journal.KindUtteranceTranscribed, "blob://mic/2", "text", "and put the lights on in the porch", "speaker_id", "", "speaker_match", "below_threshold"),
+		called("ha_call_service", "c1"),
+		result("c1", "error"),
+		completed("stop"),
+	)
+	if len(sigs) != 2 {
+		t.Fatalf("raised %+v, want the flip and the failure", sigs)
+	}
+	if f := sigs[0]; f.Kind != triage.KindSpeakerFlip || f.Detail != "teagan → guest" || f.Utterance != "and put the lights on in the porch" {
+		t.Errorf("flip = %+v", f)
+	}
+	if f := sigs[1]; f.Kind != triage.KindFailure || f.Speaker != "" {
+		t.Errorf("failure = %+v, want it on the guest's turn", f)
+	}
+}
+
+// Nothing judged the voice, so it is still Teagan's turn: no flip.
+//
+// verifies SPEC §5, §9.1
+func TestAnUnjudgedVoiceIsNotAFlip(t *testing.T) {
+	sigs := scan(t,
+		opened("kitchen", "teagan"),
+		heard("add oat milk to the list", "teagan"),
+		completed("stop"),
+		heard("and eggs please", ""),
+		completed("stop"),
+	)
+	if len(sigs) != 0 {
+		t.Errorf("raised %+v", sigs)
+	}
+}
+
 // verifies SPEC §9.1
 func TestABargeInIsSignalledWithItsPair(t *testing.T) {
 	s := one(t, scan(t,
