@@ -593,14 +593,14 @@ func TestE2EJourneyBrowseFollowsThePersonAndWalksTheDays(t *testing.T) {
 	if fmt.Sprint(lanes) != "[kitchen living_room office]" {
 		t.Errorf("lanes = %v, want kitchen, living_room, office", lanes)
 	}
-	// Sessions: weather, zeppelin, the timer and its going off in the
-	// kitchen; zeppelin's second half and jazz in the living room; garage and
-	// the list in the office.
-	if n := p.count(".day-lanes__session"); n != 8 {
-		t.Errorf("%d sessions on the lanes, want 8", n)
+	// Sessions: weather, zeppelin, the timer, its going off and the door in
+	// the kitchen; zeppelin's second half and jazz in the living room; garage
+	// and the list in the office.
+	if n := p.count(".day-lanes__session"); n != 9 {
+		t.Errorf("%d sessions on the lanes, want 9", n)
 	}
 	// Flagged: every session that raised a signal. Zeppelin's living-room
-	// half and the shopping list raised none.
+	// half, the door and the shopping list raised none.
 	if n := p.count(".day-lanes__session.is-flagged"); n != 5 {
 		t.Errorf("%d flagged sessions, want 5", n)
 	}
@@ -626,9 +626,9 @@ func TestE2EJourneyBrowseFollowsThePersonAndWalksTheDays(t *testing.T) {
 	}
 	p.waitText(".day-lanes", "room occupied (mmWave)")
 	p.waitText(".day-lanes", "moved rooms · same conversation")
-	p.waitText(".band:not(.row) .cap", "7 conversations")
+	p.waitText(".band:not(.row) .cap", "8 conversations")
 	p.waitText("#conversations", "alice · kitchen → living_room")
-	if strings.Contains(p.text("#conversations"), "lock the front door") {
+	if p.has(fmt.Sprintf(`#conversations a[href="%s"]`, conversationHref(convLock))) {
 		t.Error("yesterday's conversation is listed today")
 	}
 	// Today has no tomorrow.
@@ -777,7 +777,7 @@ func TestE2EJourneyReplayTheJazzEveningUnderAnEditedPrompt(t *testing.T) {
 	p.visit("/replays")
 	var order []string
 	p.eval(`[...document.querySelectorAll("#replays a.list__row")].map(a => new URL(a.href).pathname)`, &order)
-	want := []string{convList, convJazz, convTimer, convGarage, convZeppel, convWeather, convLock}
+	want := []string{convList, convDoor, convJazz, convTimer, convGarage, convZeppel, convWeather, convLock}
 	for i := range want {
 		want[i] = replayHref(want[i])
 	}
@@ -814,7 +814,7 @@ func TestE2EJourneyReplayTheJazzEveningUnderAnEditedPrompt(t *testing.T) {
 
 	p.waitText("#replay-result", "Late Night Jazz or something quieter?")
 	tags := map[string]string{}
-	p.eval(`Object.fromEntries([...document.querySelectorAll('#replay-result [id^="turn-"]')].map(r => [r.id, r.lastElementChild.textContent.trim()]))`, &tags)
+	p.eval(`Object.fromEntries([...document.querySelectorAll('#replay-result [id^="turn-"]')].map(r => [r.id, r.lastElementChild.querySelector(".sig-tag").textContent.trim()]))`, &tags)
 	for turn, w := range map[string]string{"turn-2": "same", "turn-9": "speech changed", "turn-17": "same"} {
 		if tags[turn] != w {
 			t.Errorf("%s is tagged %q, want %q (all %v)", turn, tags[turn], w, tags)

@@ -7,6 +7,7 @@
 <div class="cols" style="align-items: flex-start; margin-top: 18px">
 <div style="flex: 1 1 320px; min-width: 0" class="stack">
 {{template "inspector" .Inspector}}
+{{with .Told}}<div class="stack" role="group" aria-label="Told it remembers" style="gap: 4px"><span class="cap">Told it remembers</span>{{range .}}<span class="meta">{{.}}</span>{{end}}</div>{{end}}
 {{template "review-clips" .Clips}}
 </div>
 <div style="flex: 1.2 1 480px; min-width: 0">{{template "pair-actions" .Pair}}</div>

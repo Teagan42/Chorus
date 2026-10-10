@@ -28,12 +28,18 @@
 {{- range .Rows}}
 <div id="{{.Anchor}}" class="list__row" style="grid-template-columns: 70px minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr) 180px; align-items: start">
 <span class="list__when">#{{.Seq}}</span>
-<span class="list__text"><span class="list__title" style="white-space: normal">{{.Text}}</span><span class="list__detail">{{.Speaker}}</span></span>
+<span class="list__text"><span class="list__title" style="white-space: normal">{{.Text}}</span><span class="list__detail">{{.Speaker}}</span>{{if .Told}}<span class="cap" style="margin-top: 6px">Told it remembers</span>{{range .Told}}<span class="list__detail" style="white-space: normal">{{.}}</span>{{end}}{{end}}</span>
 <span class="list__text">{{template "replay-take" .Recorded}}</span>
 <span class="list__text">{{with .Replayed}}{{template "replay-take" .}}{{else}}<span class="list__detail">not re-run</span>{{end}}</span>
-<span>{{template "sig-tag" .Tag}}</span>
+<span class="stack" style="gap: 8px; align-items: flex-start">{{template "sig-tag" .Tag}}{{template "replay-promote" .Promote}}</span>
 </div>{{end}}
 </section>{{end}}
+
+{{define "replay-promote"}}<span id="promote-{{.Seq}}" class="stack" style="gap: 6px; align-items: flex-start">
+{{- with .Button}}{{template "button" .}}{{end}}
+{{- with .Promoted}}<span class="list__detail tone-human" style="color: var(--tone-text); white-space: normal; word-break: break-word">promoted · {{.}}</span>{{end}}
+{{- with .Href}}<a class="list__detail" href="{{.}}">In Curate ›</a>{{end -}}
+</span>{{end}}
 
 {{define "replay-take"}}
 {{- range .Speech}}<span class="list__title" style="white-space: normal">{{.Text}}{{with .Unheard}}<span class="inspector__unheard">{{.}}</span>{{end}}</span>{{end}}

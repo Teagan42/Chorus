@@ -62,7 +62,10 @@ func summarize(id string, events []journal.Event, sigs []triage.Signal) convSumm
 		if c.start.IsZero() {
 			c.start = e.At
 		}
-		c.end = e.At
+		// A summary is written after the close, as long after as the model took.
+		if e.Kind != journal.KindConversationSummarized {
+			c.end = e.At
+		}
 		switch e.Kind {
 		case journal.KindSessionOpened:
 			c.sessions = append(c.sessions, session{

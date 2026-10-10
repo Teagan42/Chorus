@@ -16,8 +16,8 @@ import (
 )
 
 // The household's Thursday (internal/reviewui/household): three people,
-// three satellites, every signal Triage knows, and one conversation from the
-// night before so Browse has a yesterday. The browser tests walk a reviewer
+// three satellites, every signal Triage knows, a door that waits for a yes,
+// and one conversation from the night before so Browse has a yesterday. The browser tests walk a reviewer
 // through this day; TestHouseholdDay pins what it derives so a fixture edit
 // cannot quietly hollow them out.
 
@@ -31,6 +31,7 @@ const (
 	convJazz    = household.ConvJazz
 	convList    = household.ConvList
 	convLock    = household.ConvLock
+	convDoor    = household.ConvDoor
 
 	pairWeather = household.PairWeather
 	pairZeppel  = household.PairZeppelin
