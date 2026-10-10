@@ -6,6 +6,9 @@
 // A candidate is not a training pair yet. What the assistant said after the
 // correction answers the correction, not the prompt the rejected turn
 // answered, so the chosen side is left for the Curate step (ADR-0026).
+//
+// A satellite's rejected wakes are read the same way, as the wake-word
+// corpus's hard negatives (SPEC §9.3).
 package harvest
 
 import (
@@ -441,7 +444,8 @@ func (w *walker) fold(e journal.Event) error {
 		journal.KindConfirmationRequested, journal.KindConfirmationGiven, journal.KindConversationSummarized,
 		journal.KindTimerStarted, journal.KindTimerCancelled, journal.KindTimerFinished,
 		journal.KindPresenceChanged:
-		// A resumed open continues the same log; rejections tune the gate; a
+		// A resumed open continues the same log; a barge-in rejection tunes the
+		// gate and a wake rejection is a hard negative (Negatives), not a turn; a
 		// start is when speech was heard, and the pair is what (ADR-0035). A
 		// held call's outcome is its tool_result; the nonce is the audit's. A
 		// summary is the conversation's, written after its last turn. Timers
