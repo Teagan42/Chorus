@@ -41,13 +41,18 @@ func TestIsGenerated(t *testing.T) {
 		"internal/pb/api.pb.go",
 		"schema/json/tool.json",
 		"docs/reference/events.md",
+		"hardware/chorus-sat/chorus-sat.net",
+		"hardware/chorus-sat/bom.csv",
 	}
 	for _, p := range gen {
 		if !IsGenerated(p) {
 			t.Errorf("%s should be generated", p)
 		}
 	}
-	hand := []string{"internal/session/supervisor.go", "docs/SPEC.md", "schema/tool.cue"}
+	hand := []string{
+		"internal/session/supervisor.go", "docs/SPEC.md", "schema/tool.cue",
+		"hardware/chorus-sat/pins.yaml", "hardware/chorus-sat/sheets/mics.yaml",
+	}
 	for _, p := range hand {
 		if IsGenerated(p) {
 			t.Errorf("%s should not be generated", p)

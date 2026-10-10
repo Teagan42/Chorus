@@ -117,6 +117,8 @@ func IsGenerated(path string) bool {
 		strings.HasPrefix(path, "schema/json/"),
 		strings.HasPrefix(path, "docs/reference/"):
 		return true
+	case strings.HasPrefix(path, "hardware/"):
+		return strings.HasSuffix(path, ".net") || strings.HasSuffix(path, "/bom.csv")
 	}
 	return false
 }
