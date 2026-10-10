@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -250,6 +251,37 @@ func TestTheModelIsToldTheRoomTheInventoryNames(t *testing.T) {
 	await(t, "the turn", func() bool { return len(r.engine.heard()) == 1 })
 	if in := r.engine.heard()[0]; in.Room != "living_room" || in.Text != "dim the lights" {
 		t.Errorf("the model was given %+v, want dim the lights from the living_room", in)
+	}
+}
+
+// The whole stack keeps the satellite's second channel: what the device
+// sends on it lands in the blob store beside the utterance, and the journal
+// says where (SPEC §8).
+//
+// verifies SPEC §8
+func TestTheSecondMicChannelIsJournalledBesideTheFirst(t *testing.T) {
+	r := newRig(t, inventory())
+	dev := r.join(t, kitchenIP)
+	kettle := r.line("put the kettle on", alan)
+	const lighter = 2900
+
+	dev.SendWake(t, "hey_eddie")
+	for range 8 {
+		dev.SendMic(t, bridge.ChannelAEC, voice(kettle, chunkBytes))
+		dev.SendMic(t, bridge.ChannelSecond, voice(lighter, chunkBytes))
+	}
+	for sent := 0; sent < silence; sent += chunkBytes {
+		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+		dev.SendMic(t, bridge.ChannelSecond, quiet(chunkBytes))
+	}
+
+	heard := r.store.awaitKind(t, journal.KindUtteranceTranscribed, 1)
+	second, ok := r.blobs.Bytes(heard.Fields["second_audio_ref"])
+	if !ok {
+		t.Fatalf("second_audio_ref %q is not in the blob store", heard.Fields["second_audio_ref"])
+	}
+	if !bytes.Contains(second, voice(lighter, 8*chunkBytes)) {
+		t.Errorf("the second channel's blob (%d bytes) does not hold what the device sent on it", len(second))
 	}
 }
 

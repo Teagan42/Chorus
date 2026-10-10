@@ -157,6 +157,10 @@ type Transcript struct {
 	// the listener has no clock.
 	Ended time.Time
 
+	// SecondAudioRef is the same span from the device's second mic channel,
+	// kept for the corpus (SPEC §8). Empty when it streams one channel.
+	SecondAudioRef string
+
 	// Embedding is the utterance's speaker vector, recorded whether or not it
 	// matched anyone so voices can be clustered later (SPEC §5). Nil when the
 	// embedder was unavailable.
@@ -305,6 +309,9 @@ func (s *Session) Heard(ctx context.Context, t Transcript) error {
 			return fmt.Errorf("encode embedding for %s: %w", s.convID, err)
 		}
 		fields["embedding_json"] = string(b)
+	}
+	if t.SecondAudioRef != "" {
+		fields["second_audio_ref"] = t.SecondAudioRef
 	}
 	if err := s.record(journal.Record{
 		Kind: journal.KindUtteranceTranscribed, AudioRef: t.AudioRef, Fields: fields,
