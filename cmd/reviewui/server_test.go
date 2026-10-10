@@ -245,7 +245,7 @@ func TestAWriteFromAnotherSiteIsRefused(t *testing.T) {
 		{turnURL(convZeppel, 2, "labels/wrong_tool"), url.Values{"note": {shouldHaveZeppel}}},
 		{turnURL(convZeppel, 2, "note"), url.Values{"note": {shouldHaveZeppel}}},
 		{"/replays/" + convZeppel, url.Values{"model": {"qwen3-32b"}, "prompt": {"Lead with the count."}}},
-		{"/replays/" + convZeppel + "/turns/2/promote", url.Values{"speech": {shouldHaveZeppel}}},
+		{"/replays/" + convZeppel + "/runs/1/turns/2/promote", nil},
 	}
 	send := func(target string, form url.Values, header ...string) int {
 		r := httptest.NewRequest(http.MethodPost, target, strings.NewReader(form.Encode()))
@@ -271,6 +271,9 @@ func TestAWriteFromAnotherSiteIsRefused(t *testing.T) {
 	}
 	if d, ok, _ := decisions.Get(context.Background(), pairZeppel); ok {
 		t.Errorf("a refused write stored %+v", d)
+	}
+	if rs, _ := decisions.Reruns(context.Background(), convZeppel); len(rs) > 0 {
+		t.Errorf("a refused write kept %d re-runs", len(rs))
 	}
 	if a, _ := decisions.Annotations(context.Background(), convZeppel); len(a) > 0 {
 		t.Errorf("a refused write labelled %+v", a)

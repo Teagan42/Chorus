@@ -25,6 +25,7 @@
 
 {{define "replay-result"}}<section id="replay-result" aria-label="Turns">
 {{with .Alert}}<div class="pad">{{template "alert" .}}</div>{{end}}
+{{template "list" .Runs}}
 {{with .Stats}}{{template "metric-strip" .}}{{end}}
 {{with .Diff}}<div class="pad">{{template "code-diff" .}}</div>{{end}}
 {{with .ToolDiff}}<div class="pad">{{template "code-diff" .}}</div>{{end}}
