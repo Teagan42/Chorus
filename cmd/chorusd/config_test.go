@@ -23,6 +23,7 @@ func complete() map[string]string {
 		blobDirEnv:      "/var/lib/chorus/blobs",
 		ollamaURLEnv:    "http://ollama:11434",
 		ollamaModelEnv:  "qwen3:32b",
+		ollamaEmbedEnv:  "nomic-embed-text",
 		kokoroURLEnv:    "http://kokoro:8880",
 		sttURLEnv:       "http://speaches:8000",
 		speakerIDURLEnv: "http://speakerid:8890",
@@ -104,6 +105,7 @@ func TestOptionalSidecarsDegradeWithALogLine(t *testing.T) {
 	env := complete()
 	delete(env, speakerIDURLEnv)
 	delete(env, smartTurnURLEnv)
+	delete(env, ollamaEmbedEnv)
 	delete(env, hass.URLEnv)
 	delete(env, hass.TokenEnv)
 	var logs bytes.Buffer
@@ -122,7 +124,10 @@ func TestOptionalSidecarsDegradeWithALogLine(t *testing.T) {
 	if p.judge != nil || p.endpointer() != nil {
 		t.Error("a semantic endpointer was built with no Smart Turn endpoint")
 	}
-	for _, want := range []string{"guest", "barge-in", "television", "not_implemented", "800 ms of quiet", "mid-sentence"} {
+	if p.embedder != nil {
+		t.Error("an embedder was built with no embedding model")
+	}
+	for _, want := range []string{"guest", "barge-in", "television", "not_implemented", "800 ms of quiet", "mid-sentence", "memory relevance is off", "newest 20 memories"} {
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("log does not say %q:\n%s", want, logs.String())
 		}
@@ -181,7 +186,10 @@ func TestFullyConfiguredProvidersWireEverything(t *testing.T) {
 			t.Errorf("%s not wired", name)
 		}
 	}
-	for _, off := range []string{"speaker identification is off", "semantic endpointing is off", "home assistant is off"} {
+	if p.embedder == nil || p.embedder.EmbedModel() != "nomic-embed-text" {
+		t.Errorf("embedder = %v, want nomic-embed-text on the turn engine's endpoint", p.embedder)
+	}
+	for _, off := range []string{"speaker identification is off", "semantic endpointing is off", "home assistant is off", "memory relevance is off"} {
 		if strings.Contains(logs.String(), off) {
 			t.Errorf("a fully configured daemon logged %q:\n%s", off, logs.String())
 		}

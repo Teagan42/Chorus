@@ -8,6 +8,7 @@ import (
 
 	"github.com/teaganglenn/chorus/internal/journal"
 	"github.com/teaganglenn/chorus/internal/memory"
+	"github.com/teaganglenn/chorus/internal/session"
 )
 
 // Teagan and Alan talked about the garage door together, with a visitor
@@ -16,7 +17,7 @@ import (
 // verifies SPEC §5
 func TestASummaryIsKeptForEveryoneWhoWasThere(t *testing.T) {
 	store := memory.NewMemStore()
-	r := memory.Recaller(store)
+	r := memory.Recaller(store, memory.RecallConfig{})
 	garage := journal.Summary{
 		ConversationID: "conv-garage-0812",
 		At:             friday.Add(-14 * time.Hour),
@@ -26,7 +27,7 @@ func TestASummaryIsKeptForEveryoneWhoWasThere(t *testing.T) {
 		t.Fatalf("keep: %v", err)
 	}
 	for _, person := range []string{"teagan", "alan"} {
-		got, err := r.Recall(context.Background(), person, "conv-kitchen-0815", friday)
+		got, err := r.Recall(context.Background(), session.Ask{Person: person, ConversationID: "conv-kitchen-0815", Now: friday})
 		if err != nil {
 			t.Fatalf("recall %s: %v", person, err)
 		}
@@ -34,7 +35,7 @@ func TestASummaryIsKeptForEveryoneWhoWasThere(t *testing.T) {
 			t.Errorf("%s recalls %+v, want the garage door", person, got.Summaries)
 		}
 	}
-	alice, err := r.Recall(context.Background(), "alice", "conv-office-0815", friday)
+	alice, err := r.Recall(context.Background(), session.Ask{Person: "alice", ConversationID: "conv-office-0815", Now: friday})
 	if err != nil {
 		t.Fatalf("recall alice: %v", err)
 	}
@@ -50,7 +51,7 @@ func TestASummaryIsKeptForEveryoneWhoWasThere(t *testing.T) {
 func TestTheRecallerGivesTheLastWeeksConversations(t *testing.T) {
 	store := memory.NewMemStore()
 	keepAll(t, store, teagansWeek())
-	got, err := memory.Recaller(store).Recall(context.Background(), "teagan", "conv-office-0702", friday)
+	got, err := memory.Recaller(store, memory.RecallConfig{}).Recall(context.Background(), session.Ask{Person: "teagan", ConversationID: "conv-office-0702", Now: friday})
 	if err != nil {
 		t.Fatalf("recall: %v", err)
 	}

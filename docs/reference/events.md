@@ -11,7 +11,7 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | `confirmation_given` | session |  |  | A held call came back with its nonce after the person answered, and ran. What they said is the utterance the nonce was redeemed after (SPEC §6). |
 | `confirmation_requested` | session |  |  | A call that needs the person's yes was held, and the model was handed a nonce to call again with once they agree (SPEC §6). |
 | `conversation_summarized` | session |  |  | The conversation ended and the model summarized it for the identified people in it, to be told in their later conversations. Recorded in full, as a completion is, because replay cannot regenerate it (SPEC §5, §8). |
-| `memory_recalled` | session |  |  | What the model is told it remembers, from this turn on: the speaker's own memories and what others shared. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5). |
+| `memory_recalled` | session |  |  | What the model is told it remembers, from this turn on: the speaker's own memories and what others shared, and their recent conversations, chosen by relevance when there are more than fit. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5). |
 | `model_completed` | thinking |  |  | Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8). |
 | `session_closed` | session |  |  | Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). |
 | `session_opened` | session |  |  | Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5). |
@@ -82,7 +82,7 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 
 ## `memory_recalled`
 
-What the model is told it remembers, from this turn on: the speaker's own memories and what others shared. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5).
+What the model is told it remembers, from this turn on: the speaker's own memories and what others shared, and their recent conversations, chosen by relevance when there are more than fit. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5).
 
 Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
 
@@ -91,6 +91,7 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 | `person` | string | yes | Whose memories these are: the identified speaker. |
 | `memories_json` | string | yes | The memories as a JSON array of {id, person, fact, shareable}, newest first. An empty array means nothing is remembered. |
 | `summaries_json` | string |  | The person's recent conversations as a JSON array of {conversation_id, at, text}, newest first. Empty in logs from before conversations were summarized. |
+| `ranked_by` | string |  | The embedding model that chose these by relevance to what was just said, when there were more than a turn is told. Empty when they are simply the newest: too few to choose from, no embedding model, or ranking failed (ADR-0044). |
 
 ## `model_completed`
 

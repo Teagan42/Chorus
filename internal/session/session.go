@@ -302,7 +302,7 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 	if err != nil {
 		return err
 	}
-	if st, err = s.recall(ctx, st); err != nil {
+	if st, err = s.recall(ctx, st, t.Text); err != nil {
 		return err
 	}
 

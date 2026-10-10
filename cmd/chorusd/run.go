@@ -117,7 +117,12 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 			tools = map[string]session.Tool{}
 		}
 		maps.Copy(tools, memory.Tools(d.Memories, d.Clock))
-		dm.tools, dm.memories = tools, memory.Recaller(d.Memories)
+		dm.tools, dm.memories = tools, memory.Recaller(d.Memories, memory.RecallConfig{
+			Embedder: d.embedder,
+			Failed: func(person string, err error) {
+				d.Log.Warn("recall: ranking failed, so the turn is told the newest", "person", person, "err", err)
+			},
+		})
 	} else {
 		// Nowhere to keep a summary, so none is written.
 		dm.summarizer = nil

@@ -92,7 +92,7 @@ said. A memory somebody else shared says whose it is. A re-run of a turn
   yes (ADR-0038).
 - **No relevance ranking yet.** Recall gives everything up to the limit,
   newest first. A household past twenty memories a person loses its oldest
-  from the prompt until recall ranks by relevance.
+  from the prompt until recall ranks by relevance, which ADR-0044 adds.
 - **"What did I ask yesterday" is not this.** Only facts the person asked to
   keep are remembered. The per-person summaries SPEC §5 also names are
   ADR-0043.

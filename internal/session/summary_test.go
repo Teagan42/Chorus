@@ -285,8 +285,9 @@ func TestATurnIsToldTheTimeAndWhatThePersonAskedLately(t *testing.T) {
 	if !reflect.DeepEqual(asks[0].Summaries, []journal.Summary{eggs}) {
 		t.Errorf("told %+v, want the eggs", asks[0].Summaries)
 	}
-	if got := r.mem.askedAt; len(got) != 1 || !got[0].Equal(epoch.Add(3*time.Minute)) {
-		t.Errorf("recalled as of %v, want when it was heard", got)
+	if got := r.mem.asked(); len(got) != 1 || !got[0].Now.Equal(epoch.Add(3*time.Minute)) ||
+		got[0].Words != "what did I ask you yesterday" {
+		t.Errorf("recalled for %+v, want what was said, as of when it was heard", got)
 	}
 
 	r.mem.setSummaries("teagan", garage, eggs)

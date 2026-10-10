@@ -40,10 +40,12 @@ type State struct {
 
 	// Recalled is what the model is told it remembers, and RecalledFor whose
 	// memories they are: the last memory_recalled, newest first (SPEC §5).
-	// RecalledSummaries are that person's recent conversations from it.
+	// RecalledSummaries are that person's recent conversations from it, and
+	// RecalledRankedBy the embedding model that chose them, if one did.
 	Recalled          []Memory
 	RecalledFor       string
 	RecalledSummaries []Summary
+	RecalledRankedBy  string
 
 	// HeardAt is when the last utterance was logged: the time a turn is
 	// told it is, so a replay is told the same.
@@ -162,6 +164,7 @@ func Reduce(s State, e Event) (State, error) {
 			return s, err
 		}
 		s.Recalled, s.RecalledFor, s.RecalledSummaries = ms, e.Fields["person"], ss
+		s.RecalledRankedBy = e.Fields["ranked_by"]
 	case KindConversationSummarized:
 		s.Summary = e.Fields["summary"]
 	case KindToolCalled:

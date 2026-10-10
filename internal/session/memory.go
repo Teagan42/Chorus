@@ -17,18 +17,33 @@ import (
 type Memories interface {
 	// Recall returns the person's own memories and what the rest of the
 	// household shared, and the person's recent conversations other than
-	// this one, as of now.
-	Recall(ctx context.Context, person, conversationID string, now time.Time) (Recollection, error)
+	// this one, as of when the ask was heard.
+	Recall(ctx context.Context, a Ask) (Recollection, error)
 
 	// Keep stores what a conversation was about for each of the people in
 	// it, replacing an older summary of the same conversation.
 	Keep(ctx context.Context, people []string, s journal.Summary) error
 }
 
+// Ask is the turn a recollection is for.
+type Ask struct {
+	// Person is the identified speaker; a guest recalls nothing.
+	Person         string
+	ConversationID string
+	// Now is when the turn was heard, and Words what was said in it: what
+	// the memories most worth telling are relevant to.
+	Now   time.Time
+	Words string
+}
+
 // Recollection is what one turn is told it remembers.
 type Recollection struct {
 	Memories  []journal.Memory
 	Summaries []journal.Summary
+
+	// RankedBy names the embedding model that chose them by relevance to
+	// the words, or is empty when they are the newest (ADR-0044).
+	RankedBy string
 }
 
 // Summarizer writes what a finished conversation was about, for the people
@@ -72,26 +87,30 @@ func denied(spec registry.ToolSpec, person string) bool {
 // from what the log already says it was told, and returns the state with it.
 // A guest recalls nothing. Recorded rather than fetched per ask, so a replay
 // asks with exactly what this turn was given, as of when it was heard.
-func (s *Session) recall(ctx context.Context, st journal.State) (journal.State, error) {
+func (s *Session) recall(ctx context.Context, st journal.State, words string) (journal.State, error) {
 	if s.sup.cfg.Memories == nil || st.Speaker == "" {
 		return st, nil
 	}
-	got, err := s.sup.cfg.Memories.Recall(ctx, st.Speaker, s.convID, st.HeardAt)
+	got, err := s.sup.cfg.Memories.Recall(ctx, Ask{
+		Person: st.Speaker, ConversationID: s.convID, Now: st.HeardAt, Words: words,
+	})
 	if err != nil {
 		return st, err
 	}
 	if st.RecalledFor == st.Speaker && slices.Equal(got.Memories, st.Recalled) &&
-		slices.EqualFunc(got.Summaries, st.RecalledSummaries, sameSummary) {
+		slices.EqualFunc(got.Summaries, st.RecalledSummaries, sameSummary) &&
+		got.RankedBy == st.RecalledRankedBy {
 		return st, nil
 	}
-	if err := s.record(journal.Record{
-		Kind: journal.KindMemoryRecalled,
-		Fields: map[string]string{
-			"person":         st.Speaker,
-			"memories_json":  journal.EncodeMemories(got.Memories),
-			"summaries_json": journal.EncodeSummaries(got.Summaries),
-		},
-	}); err != nil {
+	fields := map[string]string{
+		"person":         st.Speaker,
+		"memories_json":  journal.EncodeMemories(got.Memories),
+		"summaries_json": journal.EncodeSummaries(got.Summaries),
+	}
+	if got.RankedBy != "" {
+		fields["ranked_by"] = got.RankedBy
+	}
+	if err := s.record(journal.Record{Kind: journal.KindMemoryRecalled, Fields: fields}); err != nil {
 		return st, err
 	}
 	return s.State(ctx)

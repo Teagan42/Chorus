@@ -20,7 +20,7 @@ const (
 	KindConfirmationRequested Kind = "confirmation_requested"
 	// The conversation ended and the model summarized it for the identified people in it, to be told in their later conversations. Recorded in full, as a completion is, because replay cannot regenerate it (SPEC §5, §8).
 	KindConversationSummarized Kind = "conversation_summarized"
-	// What the model is told it remembers, from this turn on: the speaker's own memories and what others shared. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5).
+	// What the model is told it remembers, from this turn on: the speaker's own memories and what others shared, and their recent conversations, chosen by relevance when there are more than fit. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5).
 	KindMemoryRecalled Kind = "memory_recalled"
 	// Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8).
 	KindModelCompleted Kind = "model_completed"
