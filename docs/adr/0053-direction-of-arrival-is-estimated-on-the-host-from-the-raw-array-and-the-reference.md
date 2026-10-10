@@ -1,6 +1,6 @@
 # 0053. Direction of arrival is estimated on the host, from the raw array and the reference
 
-- **Status:** proposed
+- **Status:** proposed; amended by [ADR-0061](0061-direction-of-arrival-uses-the-kits-four-mics-and-is-estimated-on-the-satellite.md): four mics, estimated on the satellite, the array frame opt-in
 - **Source:** SPEC §3.2, §3.3.2, §4.3, §5, §8, §9 · ADR-0010, ADR-0033,
   ADR-0047, ADR-0050 · FutureProofHomes/Satellite1-XMOS `bb411c7`,
   xmos/fwk_voice `e230d55`, xmos/lib_mic_array `e4996bd` (v5.3.0),
