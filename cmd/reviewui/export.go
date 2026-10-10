@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/teagan42/chorus/internal/harvest"
@@ -51,8 +52,12 @@ func (s *server) exportJSONL(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/jsonl")
 	w.Header().Set("Content-Disposition", `attachment; filename="chorus-dpo.jsonl"`)
-	// Headers are sent; a mid-stream failure can only truncate the body.
-	_ = harvest.Export(w, rows)
+	if err := harvest.Export(w, rows); err != nil {
+		// The 200 is sent; only a dropped connection tells the client the file
+		// is short.
+		log.Printf("reviewui: export aborted: %v", err)
+		panic(http.ErrAbortHandler)
+	}
 }
 
 // exportCounts are the piles the page explains: what ships and what each
