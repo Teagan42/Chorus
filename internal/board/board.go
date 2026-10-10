@@ -1,6 +1,6 @@
 // Package board checks a satellite board's pin map against the module it is
 // built on and against the Satellite1 wiring it promises to mirror.
-// hardware/chorus-sat/pins.yaml is the map; docs/hardware/README.md, the why.
+// hardware/chorus-main/pins.yaml is the map; docs/hardware/README.md, the why.
 package board
 
 import (
@@ -21,12 +21,18 @@ type Board struct {
 	Board    string `yaml:"board"`
 	Revision string `yaml:"revision"`
 	Module   string `yaml:"module"`
-	Pins     []Pin  `yaml:"pins"`
+	// Expansion names the kit file, beside pins.yaml, of a bought board
+	// that carries the module. A board built under one does not place the
+	// module: its pins arrive on the kit's expansion connector, so each
+	// pin says which pad.
+	Expansion string `yaml:"expansion"`
+	Pins      []Pin  `yaml:"pins"`
 }
 
 // Pin is one module GPIO and the schematic net it carries.
 type Pin struct {
 	GPIO       int    `yaml:"gpio"`
+	Pad        string `yaml:"pad"` // the kit connector pad, on an expansion board
 	Net        string `yaml:"net"`
 	Dir        string `yaml:"dir"`
 	Peer       string `yaml:"peer"`
@@ -108,8 +114,20 @@ func (b Board) Check() error {
 	var errs []error
 	byGPIO := map[int]string{}
 	byNet := map[string]int{}
+	byPad := map[string]string{}
 	for _, p := range b.Pins {
 		where := fmt.Sprintf("%s on GPIO%d", p.Net, p.GPIO)
+		switch {
+		case b.Expansion != "" && p.Pad == "":
+			errs = append(errs, fmt.Errorf("%s: the module is on %s, so the pin needs the pad it arrives on", where, b.Expansion))
+		case b.Expansion == "" && p.Pad != "":
+			errs = append(errs, fmt.Errorf("%s: pad %s names a connector pad, but the board carries its own module", where, p.Pad))
+		case p.Pad != "":
+			if other, ok := byPad[p.Pad]; ok {
+				errs = append(errs, fmt.Errorf("pad %s carries both %s and %s", p.Pad, other, p.Net))
+			}
+			byPad[p.Pad] = p.Net
+		}
 		if net, ok := m.fixed[p.GPIO]; ok && p.Net != net {
 			errs = append(errs, fmt.Errorf("%s: native USB is the flashing and log path; this pin carries only %s", where, net))
 		}

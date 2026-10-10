@@ -93,3 +93,15 @@ func (s Schematic) Undrawn() []string {
 	slices.Sort(out)
 	return out
 }
+
+// Unverified lists each part that says something about it is not yet
+// confirmed, as "part: what". The board is not ordered until it is empty.
+func (s Schematic) Unverified() []string {
+	var out []string
+	for _, key := range sortedKeys(s.Parts) {
+		if u := strings.TrimSpace(s.Parts[key].Unverified); u != "" {
+			out = append(out, key+": "+u)
+		}
+	}
+	return out
+}
