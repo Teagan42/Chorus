@@ -9,7 +9,8 @@ import "struct"
 #InterruptPolicy: "cancel" | "detach" | "uninterruptible"
 
 // #Scope gates who may invoke a tool. "person" requires speaker identification
-// to have succeeded (SPEC §5).
+// to have succeeded; "guest" runs in guest context whoever speaks, told
+// nobody's identity (SPEC §5, ADR-0060).
 #Scope: "household" | "person" | "guest"
 
 #JSONType: "string" | "number" | "integer" | "boolean" | "array" | "object"
