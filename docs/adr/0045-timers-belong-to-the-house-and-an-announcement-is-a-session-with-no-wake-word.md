@@ -44,11 +44,12 @@ restart. A timer survives because it was never a session's.
 
 **It goes off where it was set.** `timer_finished` records the outcome:
 
-- `announced`, with the conversation it was said in.
-- `unannounced`, when the satellite was gone or the announcement failed.
-  A satellite that is not connected is asked again every 5 s
-  (`timer.RetryEvery`), so a kitchen that redials after a restart still
-  hears it, a few seconds late.
+- `announced`, with the conversation it was said in, once some of it was
+  heard. Queued is not heard: the session may end, or the speaker fail,
+  before it plays, and `Announcement.Heard` says which.
+- `unannounced`, when the satellite was gone or never played it. Either
+  is tried again every 5 s (`timer.RetryEvery`), so a kitchen that redials
+  after a restart still hears it, a few seconds late.
 - `missed`, when the timer came due more than 5 minutes ago
   (`timer.DefaultGrace`). That only happens while chorusd was down. An
   oven timer read out half an hour late is worse than none.
@@ -94,7 +95,8 @@ and whether an answer is expected.
 says the announcement in that session, queued behind whatever it is
 saying (SPEC §4.2). The person in the room hears the timer, and their next
 ask knows it went off. An announcement plays even after a barge-in cut the
-turn's speech. The cut silences the turn it interrupted, not the house.
+turn's speech, whether it was queued before the cut or after. The cut
+silences the turn it interrupted, not the house.
 On a quiet satellite, a second announcement joins the first's session
 until it closes.
 
