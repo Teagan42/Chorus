@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "chorus-main")(type "KiCad")(uri "${KIPRJMOD}/chorus-main.pretty")(options "")(descr "Footprints drawn or vendored for chorus-main; see chorus-main.pretty/README.md"))
+)

@@ -2,7 +2,7 @@
 
 Taskfile.yml's KICAD_IMAGE and the Hardware workflow's container are two
 copies of one pin; this holds them equal, so `task hardware:kicad` cannot
-drift from the chorus-sat-kicad artifact.
+drift from the chorus-main-kicad artifact.
 """
 
 from __future__ import annotations

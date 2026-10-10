@@ -1,6 +1,6 @@
 # 0047. The satellite board keeps the reference voice frontend and adds a wire
 
-- **Status:** proposed
+- **Status:** superseded by [ADR-0055](0055-the-satellite-is-a-bought-satellite1-kit-and-chorus-draws-only-the-board-under-it.md)
 - **Source:** SPEC §3.2.1, §3.3, §3.3.2, §4.3, §5, §1 · ADR-0010, ADR-0033 ·
   FutureProofHomes/Satellite1-XMOS `bb411c7`, Satellite1-Hardware `2eb08ff`
 

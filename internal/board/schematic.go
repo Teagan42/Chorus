@@ -16,11 +16,14 @@ import (
 
 // Schematic is a board's netlist as data: the parts it may place
 // (parts.yaml), the sheets that wire them (sheets/*.yaml), and the pin map
-// the ESP32 module must agree with (pins.yaml). There is no KiCad in CI, so
-// this is what the checks read and what the KiCad netlist is generated from.
+// the ESP32 module must agree with (pins.yaml). A board under a bought kit
+// also has the kit's expansion connector (the file pins.yaml names). There
+// is no KiCad in CI, so this is what the checks read and what the KiCad
+// netlist is generated from.
 type Schematic struct {
 	Dir    string
 	Pins   Board
+	Kit    *Kit // nil on a board that places its own module
 	Parts  map[string]Part
 	Sheets []Sheet
 }
@@ -43,8 +46,13 @@ type Part struct {
 	Hand string `yaml:"hand"`
 	// Side is "back" for a part that mounts on B.Cu, as a reverse-mount LED
 	// shining up through its cutout does; empty is the top.
-	Side string    `yaml:"side"`
-	Pins []PartPin `yaml:"pins"`
+	Side string `yaml:"side"`
+	// Unverified says what about the part is not yet confirmed. It does not
+	// fail the checks, which cannot confirm it either; it rides on the
+	// netlist and kicadnet prints it, and the board is not ordered while
+	// any part says it.
+	Unverified string    `yaml:"unverified"`
+	Pins       []PartPin `yaml:"pins"`
 }
 
 // PartPin is one pad. Pads sharing a name are one pin: wiring the name wires
@@ -112,6 +120,13 @@ func LoadSchematic(dir string) (Schematic, error) {
 	var err error
 	if s.Pins, err = Load(filepath.Join(dir, "pins.yaml")); err != nil {
 		return Schematic{}, err
+	}
+	if s.Pins.Expansion != "" {
+		k, err := LoadKit(filepath.Join(dir, s.Pins.Expansion))
+		if err != nil {
+			return Schematic{}, err
+		}
+		s.Kit = &k
 	}
 	var lib struct {
 		Parts map[string]Part `yaml:"parts"`
@@ -315,7 +330,19 @@ func (s Schematic) Check() error {
 	for _, name := range sortedKeys(nets) {
 		errs = append(errs, checkNet(name, nets[name], rails)...)
 	}
-	errs = append(errs, s.checkModule(nets, refs)...)
+	if s.Kit != nil {
+		if err := s.Kit.Check(); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", s.Pins.Expansion, err))
+		}
+		errs = append(errs, s.checkExpansion(nets, refs)...)
+		for _, ref := range sortedKeys(refs) {
+			if refs[ref].Part == s.Pins.Module {
+				errs = append(errs, fmt.Errorf("%s places a %s, but the module is on %s", ref, s.Pins.Module, s.Pins.Expansion))
+			}
+		}
+	} else {
+		errs = append(errs, s.checkModule(nets, refs)...)
+	}
 	errs = append(errs, s.checkFootprints()...)
 	return errors.Join(errs...)
 }

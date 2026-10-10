@@ -59,6 +59,12 @@ func (s Schematic) KiCadNetlist() []byte {
 		if inst.Note != "" {
 			fields = append(fields, [2]string{"Note", inst.Note})
 		}
+		if s.Kit != nil && inst.Part == s.Kit.Mate {
+			fields = append(fields, [2]string{"Mates", s.Kit.Connector + " of " + s.Kit.Kit})
+		}
+		if part.Unverified != "" {
+			fields = append(fields, [2]string{"Unverified", strings.TrimSpace(part.Unverified)})
+		}
 		if len(fields) > 0 {
 			b.WriteString("      (fields")
 			for _, f := range fields {

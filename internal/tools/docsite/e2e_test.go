@@ -256,14 +256,14 @@ func TestE2EHardwareDesignDrawsItsDiagramsAndLinksThePinMap(t *testing.T) {
 		t.Fatal("the hardware design no longer links its pin map")
 	}
 	for _, h := range hrefs {
-		if !strings.HasPrefix(h, "https://github.com/Teagan42/Chorus/") || !strings.HasSuffix(h, "/hardware/chorus-sat/pins.yaml") {
+		if !strings.HasPrefix(h, "https://github.com/Teagan42/Chorus/") || !strings.HasSuffix(h, "/hardware/chorus-main/pins.yaml") {
 			t.Errorf("pin map linked as %q, want the source on GitHub", h)
 		}
 	}
 	var adr string
-	p.eval(`document.querySelector('article a[href*="adr/0047-"]').href`, &adr)
-	if !strings.HasSuffix(adr, "/Chorus/adr/0047-the-satellite-board-keeps-the-reference-voice-frontend-and-adds-a-wire/") {
-		t.Errorf("ADR-0047 linked as %q, want its page on the site", adr)
+	p.eval(`document.querySelector('article a[href*="adr/0055-"]').href`, &adr)
+	if !strings.HasSuffix(adr, "/Chorus/adr/0055-the-satellite-is-a-bought-satellite1-kit-and-chorus-draws-only-the-board-under-it/") {
+		t.Errorf("ADR-0055 linked as %q, want its page on the site", adr)
 	}
 	p.run(chromedp.ScrollIntoView("article .mermaid", chromedp.ByQuery))
 	p.shot("site-hardware")

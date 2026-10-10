@@ -1,0 +1,57 @@
+sheet: power
+title: PoE in, onto the HAT's VBUS, and the W5500's 3V3
+parts:
+  # PoE: the magjack's centre taps (ethernet sheet), two bridges so either
+  # polarity and either pair set works, a TVS, then the isolated 12 V module.
+  BR1: {part: MB6S, note: "data-pair taps, mode A"}
+  BR2: {part: MB6S, note: "spare-pair taps, mode B"}
+  D1: {part: SMAJ58A, note: across the PoE input}
+  U80: {part: AG9912-MTB, note: "802.3af PD, isolated 12 V at 1 A; ADJ open is 12 V"}
+  C500: {part: CP_100u_25V, note: "AG9912 output, as its application circuit"}
+  C501: {part: C_0805, value: 10uF 25V, note: AG9912 output}
+
+  # Onto the HAT's VBUS through a Schottky, as FutureProofHomes' shoe does.
+  # The HAT has the same diode behind its USB-C, so the two sources are a
+  # diode-OR: a USB-PD charger at 20 V outvotes PoE, and neither back-feeds.
+  D2: {part: SS32, note: "PoE 12 V onto VBUS"}
+
+  # PoE present: 12 V x 33k / 133k is 2.98 V, a logic high for GPIO42.
+  R500: {part: R_0402, value: 100k, note: POE_SENSE divider top}
+  R501: {part: R_0402, value: 33k, note: POE_SENSE divider bottom}
+
+  # The W5500's own 3V3, from the HAT's 5 V, so it never loads the Core's.
+  U81: {part: SPX3819M5-L-3-3, note: "500 mA; the W5500 draws under 150 mA"}
+  C502: {part: C_0402, value: 1uF, note: LDO input}
+  C503: {part: C_0402, value: 1uF, note: "LDO output; MaxLinear asks for at least 1 uF"}
+  C504: {part: C_0402, value: 10nF, note: LDO noise bypass}
+power:
+  5V0: the HAT's 5 V rail, through J1 MH2
+  POE_VIN_P: the PoE bridges' positive output
+  POE_VIN_N: the PoE bridges' negative output, isolated from GND
+  GND: the HAT's ground through J1, which is also the AG9912's isolated output return
+nets:
+  POE_VC1: [BR1.AC1]
+  POE_VC2: [BR1.AC2]
+  POE_VC3: [BR2.AC1]
+  POE_VC4: [BR2.AC2]
+  POE_VIN_P: [BR1.P, BR2.P, D1.K, U80.VIN_P]
+  POE_VIN_N: [BR1.N, BR2.N, D1.A, U80.VIN_N]
+  POE_12V: [U80.VDC_P, C500.P, C501.1, D2.A, R500.1]
+  VBUS: [D2.K]
+  POE_SENSE: [R500.2, R501.1]
+
+  5V0: [U81.IN, U81.EN, C502.1]
+  3V3: [U81.OUT, C503.1]
+  LDO_BP: [U81.BP, C504.1]
+
+  GND:
+    - U80.VDC_N
+    - C500.N
+    - C501.2
+    - R501.2
+    - U81.GND
+    - C502.2
+    - C503.2
+    - C504.2
+nc:
+  - U80.ADJ
