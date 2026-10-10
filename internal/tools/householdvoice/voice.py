@@ -9,9 +9,12 @@ exactly as long as the fixture says, so every duration the tests assert holds.
 A cut clip is rendered in two halves, so the barge-in lands on the word
 boundary the journal recorded rather than wherever a fitted sentence puts it.
 
-    task household:voice
+    task household:voice                     # everyone, in Kokoro
+    task household:voice -- --who alice      # only Alice's clips
 
-The model files are fetched once into a cache directory (not the repo).
+The model files are fetched once into a cache directory (not the repo). To
+speak someone in a cloned voice instead, see clone.py; --who then keeps
+this script off the clips it made.
 """
 
 from __future__ import annotations
@@ -23,7 +26,6 @@ import urllib.request
 from pathlib import Path
 
 import numpy as np
-from kokoro_onnx import Kokoro
 
 DEVICE_RATE = 16_000
 RELEASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
@@ -60,20 +62,17 @@ def trim(x: np.ndarray, floor: float = 0.01) -> np.ndarray:
 
 
 class Speaker:
-    def __init__(self, model: Path, voices: Path) -> None:
-        self.kokoro = Kokoro(str(model), str(voices))
+    """A TTS that says text in a voice at a speed, as 16 kHz float samples."""
 
     def say(self, voice: str, text: str, speed: float = 1.0) -> np.ndarray:
-        lang = "en-gb" if voice.startswith("b") else "en-us"
-        audio, rate = self.kokoro.create(text.strip(), voice=voice, speed=speed, lang=lang)
-        return resample(trim(np.asarray(audio, dtype=np.float64)), rate, DEVICE_RATE)
+        raise NotImplementedError
 
     def fit(self, voice: str, text: str, frames: int) -> np.ndarray:
         """Speak text into exactly frames, faster if it must be, padded if not."""
         room = frames - round(LEAD_S * DEVICE_RATE)
         speed = 1.0
         speech = self.say(voice, text)
-        # Kokoro's speed is not quite proportional to length, so converge on it.
+        # A TTS's speed is not quite proportional to length, so converge on it.
         while len(speech) > room and speed < MAX_SPEED:
             speed = min(MAX_SPEED, speed * 1.03 * len(speech) / room)
             speech = self.say(voice, text, speed)
@@ -81,6 +80,19 @@ class Speaker:
             lost = (len(speech) - room) / DEVICE_RATE
             print(f"  {text.strip()!r} loses {lost:.2f} s at {speed:.2f}x")
         return place(speech, frames)
+
+
+class KokoroSpeaker(Speaker):
+    def __init__(self, model: Path, voices: Path) -> None:
+        # Imported here so clone.py can reuse this module without Kokoro.
+        from kokoro_onnx import Kokoro
+
+        self.kokoro = Kokoro(str(model), str(voices))
+
+    def say(self, voice: str, text: str, speed: float = 1.0) -> np.ndarray:
+        lang = "en-gb" if voice.startswith("b") else "en-us"
+        audio, rate = self.kokoro.create(text.strip(), voice=voice, speed=speed, lang=lang)
+        return resample(trim(np.asarray(audio, dtype=np.float64)), rate, DEVICE_RATE)
 
 
 def place(speech: np.ndarray, frames: int) -> np.ndarray:
@@ -135,22 +147,40 @@ def render(clip: dict, voices: dict, speaker: Speaker) -> np.ndarray:
     return room(out, ref) if ref.startswith("mic/") else out
 
 
+def generate(script: dict, speaker: Speaker, out: Path, who: set[str] | None = None) -> list[Path]:
+    """Write each clip as device PCM; with who, only those people's clips."""
+    written = []
+    for clip in script["clips"]:
+        if who is not None and clip.get("who") not in who:
+            continue
+        pcm = render(clip, script["voices"], speaker)
+        path = out / (clip["ref"] + ".pcm")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((np.clip(pcm, -1, 1) * 32767).astype("<i2").tobytes())
+        print(f"{clip['ref']:28} {len(pcm) / DEVICE_RATE:.2f} s")
+        written.append(path)
+    return written
+
+
 def main() -> None:
     here = Path(__file__).resolve().parents[3]
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--script", type=Path, default=here / "internal/reviewui/household/voice.json")
     ap.add_argument("--out", type=Path, default=here / "internal/reviewui/household/audio")
     ap.add_argument("--cache", type=Path, default=Path.home() / ".cache/chorus/kokoro")
+    ap.add_argument(
+        "--who",
+        action="append",
+        help="only this person's clips (a voices key in the script); repeat for more",
+    )
     args = ap.parse_args()
 
     script = json.loads(args.script.read_text())
-    speaker = Speaker(*fetch(args.cache))
-    for clip in script["clips"]:
-        pcm = render(clip, script["voices"], speaker)
-        path = args.out / (clip["ref"] + ".pcm")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes((np.clip(pcm, -1, 1) * 32767).astype("<i2").tobytes())
-        print(f"{clip['ref']:28} {len(pcm) / DEVICE_RATE:.2f} s")
+    unknown = set(args.who or ()) - set(script["voices"])
+    if unknown:
+        ap.error(f"--who {', '.join(sorted(unknown))}: not in {args.script.name}")
+    speaker = KokoroSpeaker(*fetch(args.cache))
+    generate(script, speaker, args.out, set(args.who) if args.who else None)
 
 
 if __name__ == "__main__":
