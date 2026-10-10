@@ -88,6 +88,15 @@ pins:
     peer: FUSB302B interrupt, so a USB-C contract is seen as it lands
     satellite1: fusb302b.irq_pin
 
+  - gpio: 19
+    net: USB_DN
+    dir: io
+    peer: USB-C receptacle D-; native USB is the flashing and log path
+  - gpio: 20
+    net: USB_DP
+    dir: io
+    peer: USB-C receptacle D+; native USB is the flashing and log path
+
   # --------------------------------------------------------- new on this board
   - gpio: 17
     net: AMP_SENSE

@@ -92,9 +92,10 @@ Porting the firmware is a pin change, and the pin map makes most of it no
 change at all: every XMOS-facing pin sits where Satellite1 has it, and a test
 fails the build if one moves.
 
-Octal PSRAM costs GPIO33–37; the native USB pins (19, 20) stay for flashing
-and logs, and GPIO45, which picks the flash supply voltage, carries nothing.
-`internal/board` refuses all of them.
+Octal PSRAM costs GPIO33–37 and GPIO45, which picks the flash supply voltage,
+carries nothing; `internal/board` refuses all of them. The native USB pins
+(19, 20) carry `USB_DN` and `USB_DP` to the USB-C receptacle for flashing and
+logs, and the check refuses any other net there.
 
 ### XMOS XU316, with Satellite1's XMOS firmware
 

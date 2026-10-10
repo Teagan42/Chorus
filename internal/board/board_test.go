@@ -111,7 +111,20 @@ func TestFlashVoltageStrapIsRefusedEvenWithAReason(t *testing.T) {
 
 func TestNativeUSBPinsAreKeptForFlashingAndLogs(t *testing.T) {
 	b := load(t, kitchen+"  - {gpio: 19, net: BTN_VOL_DOWN, dir: in, peer: volume-down button}\n")
-	wantProblem(t, b, "BTN_VOL_DOWN", "GPIO19", "USB")
+	wantProblem(t, b, "BTN_VOL_DOWN", "GPIO19", "USB_DN")
+}
+
+// The USB-C receptacle's data pair is on the schematic like any other net;
+// the map carries it so a netlist check finds nothing unaccounted for.
+func TestNativeUSBPinsCarryOnlyTheUSBPair(t *testing.T) {
+	b := load(t, kitchen+
+		"  - {gpio: 19, net: USB_DN, dir: io, peer: USB-C receptacle D-}\n"+
+		"  - {gpio: 20, net: USB_DP, dir: io, peer: USB-C receptacle D+}\n")
+	if err := b.Check(); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	swapped := load(t, kitchen+"  - {gpio: 19, net: USB_DP, dir: io, peer: USB-C receptacle D+}\n")
+	wantProblem(t, swapped, "USB_DP", "GPIO19", "USB_DN")
 }
 
 func TestAGPIOTheChipDoesNotHaveIsRefused(t *testing.T) {

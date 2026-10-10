@@ -37,6 +37,7 @@ type Pin struct {
 // module is what a pin map may and may not use on one ESP32-S3 module.
 type module struct {
 	reserved map[int]string // never usable, with why
+	fixed    map[int]string // usable only for this net
 	straps   []int          // usable only with a stated reason
 }
 
@@ -45,15 +46,17 @@ type module struct {
 func moduleFor(name string) (module, bool) {
 	switch name {
 	case "ESP32-S3-WROOM-1-N16R8":
-		return module{reserved: reservedN16R8(), straps: []int{0, 3, 46}}, true
+		return module{
+			reserved: reservedN16R8(),
+			fixed:    map[int]string{19: "USB_DN", 20: "USB_DP"},
+			straps:   []int{0, 3, 46},
+		}, true
 	}
 	return module{}, false
 }
 
 func reservedN16R8() map[int]string {
 	r := map[int]string{
-		19: "native USB D-, the flashing and log path",
-		20: "native USB D+, the flashing and log path",
 		45: "the strap that picks the flash supply voltage",
 	}
 	for g := 22; g <= 25; g++ {
@@ -107,6 +110,9 @@ func (b Board) Check() error {
 	byNet := map[string]int{}
 	for _, p := range b.Pins {
 		where := fmt.Sprintf("%s on GPIO%d", p.Net, p.GPIO)
+		if net, ok := m.fixed[p.GPIO]; ok && p.Net != net {
+			errs = append(errs, fmt.Errorf("%s: native USB is the flashing and log path; this pin carries only %s", where, net))
+		}
 		if why, ok := m.reserved[p.GPIO]; ok {
 			errs = append(errs, fmt.Errorf("%s: no such pin to spare, it is %s", where, why))
 		} else if p.GPIO < 0 || p.GPIO > 48 {
