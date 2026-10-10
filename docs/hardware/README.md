@@ -391,7 +391,9 @@ The path to an order:
 2. Copy `hardware/chorus-sat/fp-lib-table` and `chorus-sat.pretty` beside
    the new board, or open it from that folder: the footprints KiCad's library
    lacks are there, each checked pad for pad against `parts.yaml` by
-   `go test ./internal/board` (sources in its README).
+   `go test ./internal/board` (sources in its README). The TAS2780's is the
+   one exception: its licence does not allow republishing it, so download it
+   first as that README says.
 3. Lay out per the next section. Changes to parts or nets go in the YAML and
    come back through *Update PCB from netlist*.
 4. Plot Gerbers and drill files, and the position file (the CPL), from
