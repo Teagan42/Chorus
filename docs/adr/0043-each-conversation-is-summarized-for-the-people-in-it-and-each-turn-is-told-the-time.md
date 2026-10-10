@@ -106,7 +106,11 @@ summaries. A harvested pair carries them, exported as
 - **The summary prompt is part of the prompt version.** Every event's
   `prompt` fingerprint changes with this release, without the turn prompt
   changing.
-- **The prompt is unmeasured.** The models tier asks qwen3:14b to summarize
-  the garage door, to answer "what did I ask you yesterday" from a summary,
-  and what day it is. It has not run where this was written, which has no
-  Ollama endpoint.
+- **The prompt is measured once.** The models tier asks qwen3:14b to
+  summarize the garage door, to answer "what did I ask you yesterday" from a
+  summary, and what day it is. On the household's Ollama it summarized and
+  knew the day. Shown last night's garage door, though, it said it did not
+  remember previous questions unless asked to remember them: it took the
+  remember tool for its only memory. The heading over the summaries now says
+  they are how it remembers earlier conversations. That has not yet been
+  measured.
