@@ -5,6 +5,9 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
+
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // Judge says whether the turn so far is finished, from its audio. Smart Turn
@@ -40,6 +43,13 @@ const (
 // a short pause the judge says whether the words were a whole turn. A
 // finished turn ends then; an unfinished one is held open to Hold; with no
 // answer it ends where Energy would (ADR-0036).
+//
+// Quiet is counted in audio, but the judge answers on the clock. Audio that
+// arrives faster than it was spoken, the burst a satellite sends after its
+// radio stalls, would otherwise reach Silence before a judge on time could
+// answer. So a pending verdict holds the turn until the judge has had, by
+// the clock, the time Silence would have given it, and never past Hold
+// (ADR-0048).
 type Semantic struct {
 	// Threshold is the RMS fraction of full scale that counts as speech.
 	Threshold float64
@@ -59,8 +69,13 @@ type Semantic struct {
 	// whether it could. Nil takes the listener's goroutines.
 	Go func(func()) bool
 
-	// Log hears when the judge stops and starts answering. Nil discards.
+	// Log hears when the judge stops and starts answering, and each verdict
+	// at debug level. Nil discards.
 	Log *slog.Logger
+
+	// Clock times the judge's answer. Nil takes the listener's; with neither,
+	// the judge is timed by the audio alone, as if it came in real time.
+	Clock journal.Clock
 
 	ctx context.Context
 
@@ -73,6 +88,9 @@ type Semantic struct {
 	pause   uint64
 	cancel  context.CancelFunc
 	failing bool
+
+	// due is when the judge's time for the current ask runs out.
+	due time.Time
 }
 
 // NewSemantic returns the defaults around a judge.
@@ -86,14 +104,14 @@ func NewSemantic(j Judge) *Semantic {
 // binder is an Endpointer whose model calls the listener owns. Feed runs
 // under the listener's lock, so spawn may be its spawnLocked.
 type binder interface {
-	bind(ctx context.Context, spawn func(func()) bool, log *slog.Logger)
+	bind(ctx context.Context, spawn func(func()) bool, log *slog.Logger, clock journal.Clock)
 }
 
 var _ binder = (*Semantic)(nil)
 
 // bind hands the endpointer the listener's lifetime: asks end with the link,
 // and the listener waits for them.
-func (s *Semantic) bind(ctx context.Context, spawn func(func()) bool, log *slog.Logger) {
+func (s *Semantic) bind(ctx context.Context, spawn func(func()) bool, log *slog.Logger, clock journal.Clock) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ctx = ctx
@@ -102,6 +120,9 @@ func (s *Semantic) bind(ctx context.Context, spawn func(func()) bool, log *slog.
 	}
 	if s.Log == nil {
 		s.Log = log
+	}
+	if s.Clock == nil {
+		s.Clock = clock
 	}
 }
 
@@ -139,6 +160,10 @@ func (s *Semantic) Feed(pcm []byte) Boundary {
 		limit = 0
 	case unfinished:
 		limit = s.Hold
+	case pending:
+		if s.Clock != nil && s.Clock.Now().Before(s.due) {
+			limit = max(s.Silence, s.Hold)
+		}
 	}
 	if s.quiet < limit {
 		return Continue
@@ -192,6 +217,10 @@ func (s *Semantic) askLocked() {
 	}
 	ctx, cancel := context.WithCancel(parent)
 	s.cancel = cancel
+	if s.Clock != nil {
+		left := time.Duration(max(s.Silence-s.quiet, 0)) * time.Second / bytesPerSecond
+		s.due = s.Clock.Now().Add(left)
+	}
 	pause, audio := s.pause, bytes.Clone(s.audio)
 	run := s.Go
 	if run == nil {
@@ -224,6 +253,7 @@ func (s *Semantic) answer(ctx context.Context, pause uint64, audio []byte) {
 	default:
 		s.said = unfinished
 	}
+	s.logger().Debug("semantic endpointing judged the pause", "finished", done)
 	if s.failing {
 		s.failing = false
 		s.logger().Info("semantic endpointing answering again")

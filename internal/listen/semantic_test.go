@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/teagan42/chorus/internal/listen"
 )
@@ -262,6 +263,93 @@ func TestSemanticDoesNotWaitForASlowJudge(t *testing.T) {
 	q.run()
 	if feed(t, ep, 0, chunkBytes) != chunkBytes {
 		t.Error("the next turn was judged by the last one's late verdict")
+	}
+}
+
+// wall is the clock the judge answers on, moved only by the test. Audio the
+// test feeds does not move it: that is a burst, audio arriving faster than
+// it was spoken.
+type wall struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (w *wall) Now() time.Time {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.now
+}
+
+func (w *wall) advance(d time.Duration) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.now = w.now.Add(d)
+}
+
+// afterAStall is the endpointer with its asks held by the test and the clock
+// stopped, the morning after the kitchen satellite's radio stalled.
+func afterAStall(j *judge) (*listen.Semantic, *later, *wall) {
+	ep, q := semantic(j, nil)
+	clk := &wall{now: time.Date(2025, 10, 9, 7, 42, 0, 0, time.UTC)}
+	ep.Clock = clk
+	return ep, q, clk
+}
+
+// The kitchen satellite's radio stalls while Alan finishes "turn off the
+// kitchen lights", then sends the quiet after it in one burst. The audio
+// says 800 ms of silence went by; the clock says Smart Turn has had no time
+// at all. The turn waits for its verdict, then ends on the next chunk, as it
+// would have in real time.
+//
+// verifies SPEC §4.5
+func TestSemanticWaitsOutABurstForTheJudge(t *testing.T) {
+	j := &judge{answers: []judgement{{done: true}}}
+	ep, q, _ := afterAStall(j)
+
+	speakTo(t, ep, 8000, ms(1900))
+	if got := feed(t, ep, 0, listen.DefaultSilence+ms(300)); got != -1 {
+		t.Fatalf("a burst of quiet ended the turn %d bytes in, before the judge could answer", got)
+	}
+	q.run()
+	if got := feed(t, ep, 0, chunkBytes); got != chunkBytes {
+		t.Fatal("the finished turn did not end on the chunk after its verdict")
+	}
+}
+
+// The same burst, and the judge's time runs out by the clock with no verdict:
+// the turn ends on the next chunk, where Energy's silence was long passed.
+//
+// verifies SPEC §4.5
+func TestSemanticStopsWaitingWhenTheJudgesTimeIsUp(t *testing.T) {
+	j := &judge{answers: []judgement{{done: true}}}
+	ep, _, clk := afterAStall(j)
+
+	speakTo(t, ep, 8000, ms(1900))
+	if got := feed(t, ep, 0, listen.DefaultSilence); got != -1 {
+		t.Fatalf("a burst of quiet ended the turn %d bytes in, before the judge could answer", got)
+	}
+	// Energy's 800 ms less the 200 ms pause the judge was asked after.
+	clk.advance(600 * time.Millisecond)
+	if got := feed(t, ep, 0, chunkBytes); got != chunkBytes {
+		t.Fatal("a judge out of time still held the turn")
+	}
+}
+
+// A burst is no licence to wait forever: with the clock stopped and no
+// verdict, the turn ends at the hold, as an unfinished one would.
+//
+// verifies SPEC §4.5
+func TestSemanticEndsABurstAtTheHold(t *testing.T) {
+	j := &judge{answers: []judgement{{done: true}}}
+	ep, _, _ := afterAStall(j)
+
+	speakTo(t, ep, 8000, ms(1900))
+	got := feed(t, ep, 0, 2*listen.DefaultHold)
+	if got == -1 {
+		t.Fatal("a turn with no verdict was held past the hold")
+	}
+	if tr := ep.Trailing(); tr < listen.DefaultHold || tr >= listen.DefaultHold+chunkBytes {
+		t.Errorf("Trailing = %d, want the chunk that reached the hold (%d)", tr, listen.DefaultHold)
 	}
 }
 
