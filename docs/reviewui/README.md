@@ -315,8 +315,10 @@ re-runs and promoted takes are rows beside them (ADR-0052, ADR-0059).
 ![Export](export.png)
 
 The dataset is every pair that is accepted, fixed, and attributed: the turn
-recorded the STT, LLM and TTS versions that produced it (ADR-0032), so a
-trainer can hold a configuration responsible. The page counts what each gate
+recorded a completion stamped with the model, prompt and tool-schema versions
+that produced it, so a trainer can hold a configuration responsible. The STT
+and TTS identities ride along in `meta.versions` but are not checked: a pair
+without them still exports (ADR-0032). The page counts what each gate
 holds back (unreviewed, still being edited, discarded, unfixed, unattributed)
 and previews the first rows exactly as `/export/dpo.jsonl` writes them
 (`harvest.Export`). This is the only curated export: `task harvest` writes
