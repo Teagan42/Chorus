@@ -29,10 +29,15 @@ import (
 	"github.com/teaganglenn/chorus/internal/stt"
 )
 
-// Opener opens a session for a confirmed wake. *session.Supervisor fills it.
+// Opener opens a session for a confirmed wake, or for an announcement with
+// no wake at all. *session.Supervisor fills it.
 type Opener interface {
 	Open(ctx context.Context, w session.Wake) (*session.Session, error)
+	Announce(ctx context.Context, satellite string, a session.Announcement) (*session.Session, error)
 }
+
+// ErrLinkClosed is an announcement for a satellite whose link has gone.
+var ErrLinkClosed = errors.New("listen: the satellite's link is closed")
 
 // Speakers attributes an utterance. *identity.Resolver fills it; nil means
 // everyone is a guest and stage three of wake confirmation is skipped.
@@ -120,10 +125,17 @@ type Listener struct {
 	wake       []byte // audio since the wake, until speech starts
 	lead       []byte // audio just before an utterance, prepended to it
 	sess       *session.Session
+	// announcing is an announcement nobody was asked to answer, playing.
+	// The mic is not its to hear, but the speaker is: a wake waits for it.
+	announcing *session.Session
 	cur        *utterance
 	// last is the newest utterance's ticket. Each utterance waits on the one
 	// before it before it is heard, so turns run one at a time, in order.
 	last <-chan struct{}
+
+	// opening is held while a session is chosen or opened, by a wake or an
+	// announcement: one speaker, so one session speaking on it at a time.
+	opening sync.Mutex
 }
 
 // Open validates the wiring and starts the listener. It runs until ctx ends,
@@ -181,10 +193,11 @@ func (l *Listener) watch() {
 	l.mu.Lock()
 	l.closed = true
 	l.abortLocked()
-	sess := l.sess
-	l.sess = nil
+	sess, ann := l.sess, l.announcing
+	l.sess, l.announcing = nil, nil
 	l.mu.Unlock()
 	l.lost(sess)
+	l.lost(ann)
 	// Safe against the WaitGroup rule: closed is set under the lock every
 	// spawn checks, so no Add can follow this Wait.
 	l.wg.Wait()
@@ -386,11 +399,90 @@ func (l *Listener) liveLocked() bool {
 func (l *Listener) OnWake(string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.closed || l.muted || l.confirming || l.cur != nil || l.liveLocked() {
+	if l.closed || l.muted || l.confirming || l.cur != nil || l.liveLocked() || l.announcingLocked() != nil {
 		return nil
 	}
 	l.woken, l.wake = true, l.wake[:0]
 	return nil
+}
+
+// announcingLocked is the announcement playing that nobody may answer, or
+// nil once it has ended.
+func (l *Listener) announcingLocked() *session.Session {
+	if l.announcing == nil {
+		return nil
+	}
+	select {
+	case <-l.announcing.Done():
+		l.announcing = nil
+		return nil
+	default:
+		return l.announcing
+	}
+}
+
+// Announce says a here, in the open session or a new one, and returns its
+// conversation. One that asks for an answer gets the mic (SPEC §4).
+func (l *Listener) Announce(ctx context.Context, a session.Announcement) (string, error) {
+	l.opening.Lock()
+	defer l.opening.Unlock()
+	// Twice: the session found may end between finding it and speaking in it.
+	for range 2 {
+		l.mu.Lock()
+		if l.closed {
+			l.mu.Unlock()
+			return "", ErrLinkClosed
+		}
+		sess := l.sess
+		if !l.liveLocked() {
+			sess = l.announcingLocked()
+		}
+		l.mu.Unlock()
+		if sess == nil {
+			break
+		}
+		err := sess.Announce(ctx, a)
+		if errors.Is(err, session.ErrClosed) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if sess.Answerable() {
+			l.adopt(sess)
+		}
+		return sess.ConversationID(), nil
+	}
+	sess, err := l.cfg.Sessions.Announce(l.ctx, l.cfg.Satellite, a)
+	if err != nil {
+		return "", err
+	}
+	l.mu.Lock()
+	closed := l.closed
+	if !closed && sess.Answerable() {
+		l.sess = sess
+	} else if !closed {
+		l.announcing = sess
+	}
+	l.mu.Unlock()
+	if closed {
+		l.lost(sess)
+		return "", ErrLinkClosed
+	}
+	return sess.ConversationID(), nil
+}
+
+// adopt makes an announcing session the one this mic feeds, once it asks
+// for an answer.
+func (l *Listener) adopt(sess *session.Session) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.announcing == sess {
+		l.announcing = nil
+	}
+	if !l.liveLocked() {
+		l.sess = sess
+	}
 }
 
 // OnPlayed tracks the DAC's cumulative position, the number a candidate
@@ -608,6 +700,24 @@ func (l *Listener) confirm(pcm []byte, out identity.Outcome) bool {
 		// not: the fresh install must answer someone (SPEC §5).
 		l.rejectWake(pcm, "unknown_speaker")
 		return false
+	}
+	l.opening.Lock()
+	defer l.opening.Unlock()
+	l.mu.Lock()
+	live, ann := l.liveLocked(), l.announcingLocked()
+	l.mu.Unlock()
+	if live {
+		// An announcement asked for an answer while this wake was being
+		// confirmed: the utterance answers it, in its conversation.
+		return true
+	}
+	if ann != nil {
+		// One speaker: the wake's session opens once the announcement ends.
+		select {
+		case <-ann.Done():
+		case <-l.ctx.Done():
+			return false
+		}
 	}
 	sess, err := l.cfg.Sessions.Open(l.ctx, session.Wake{Satellite: l.cfg.Satellite, PersonID: out.PersonID})
 	if err != nil {
