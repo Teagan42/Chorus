@@ -105,6 +105,7 @@ events: {
 		training_signal: true
 		fields: [
 			{name: "unspoken_text", type: "string", description: "Generated but never played.", required: true},
+			{name: "call_id", type: "string", description: "The speak call the text belonged to, so a reader can set aside a line nobody's turn chose, such as a canned one. Absent in logs written before ADR-0051."},
 			{name: "reason", type: "string", description: "Why it was dropped. tts_unavailable and playback_unconfirmed are the voice or the device failing, not the person (ADR-0051).", required: true, enum: ["barge_in", "preempted", "session_closed", "migrated", "tts_unavailable", "playback_unconfirmed"]},
 		]
 	}
