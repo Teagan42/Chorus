@@ -272,7 +272,7 @@ func Logs() map[string][]Line {
 			{at(8, 58, 30), presence("absent")}, // she carries the music next door
 			{at(12, 8, 0), presence("present")}, // Alan, about the oven
 			{at(12, 14, 0), presence("absent")}, // so the timer goes off to an empty room
-			{at(14, 2, 0), rec(journal.KindWakeRejected, "blob://wake/kitchen-dishwasher", "reason", "no_speech")},
+			{at(14, 2, 0), rec(journal.KindWakeRejected, "blob://wake/kitchen-dishwasher", "reason", "no_speech", "second_audio_ref", "blob://wake/kitchen-dishwasher-second")},
 			{at(17, 45, 0), presence("present")}, // dinner
 			{at(18, 30, 0), presence("absent")},
 		},

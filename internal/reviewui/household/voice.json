@@ -49,6 +49,7 @@
     {"ref": "tts/lock-done", "who": "assistant", "say": "Front door locked.", "seconds": 1},
 
     {"ref": "wake/kitchen-dishwasher", "noise": "dishwasher", "seconds": 0.8},
+    {"ref": "wake/kitchen-dishwasher-second", "noise": "dishwasher", "seconds": 0.8},
     {"ref": "wake/office-podcast", "who": "podcast", "say": "and that's the thing about sourdough", "seconds": 1.2}
   ]
 }
