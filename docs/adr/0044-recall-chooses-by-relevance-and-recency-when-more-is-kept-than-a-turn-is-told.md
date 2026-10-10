@@ -61,7 +61,8 @@ first audio. A turn usually embeds one short text: what is kept is embedded
 once, cached by its text, and only the words are new. The first turn after
 a restart embeds what the person has kept, 32 at a time, in the background.
 A turn that cannot wait for it is told the newest, and the embedding
-carries on, for up to a minute, so the next turn is ranked.
+carries on, for up to five minutes, so the next turn is ranked. A minute
+was not enough to load `nomic-embed-text` cold on the household's Ollama.
 
 **The log says what chose.** `memory_recalled` gains `ranked_by`, the
 embedding model, when one chose. It is absent when the turn was told the
