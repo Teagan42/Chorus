@@ -33,10 +33,10 @@ func dataset(pairs []pair) []harvest.Pair {
 
 // curated reads the dataset under the lock and returns it detached, so a
 // slow client streaming it holds nothing the other pages need.
-func (s *server) curated(r *http.Request) ([]pair, []harvest.Pair, error) {
+func (s *server) curated(r *http.Request, u *unread) ([]pair, []harvest.Pair, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	pairs, err := s.pairs(r.Context())
+	pairs, err := s.pairs(r.Context(), u)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -45,7 +45,7 @@ func (s *server) curated(r *http.Request) ([]pair, []harvest.Pair, error) {
 
 // exportJSONL serves the dataset in harvest.Export's conversational shape.
 func (s *server) exportJSONL(w http.ResponseWriter, r *http.Request) {
-	_, rows, err := s.curated(r)
+	_, rows, err := s.curated(r, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -113,7 +113,8 @@ func preview(rows []harvest.Pair) (string, error) {
 }
 
 func (s *server) export(w http.ResponseWriter, r *http.Request) {
-	pairs, rows, err := s.curated(r)
+	var u unread
+	pairs, rows, err := s.curated(r, &u)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -146,6 +147,7 @@ func (s *server) export(w http.ResponseWriter, r *http.Request) {
 		}},
 		"Preview": text,
 		"Empty":   (*ui.EmptyState)(nil),
+		"Unread":  u.alert(),
 	}
 	if c.Exportable == 0 {
 		data["Empty"] = &ui.EmptyState{

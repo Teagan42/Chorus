@@ -188,10 +188,10 @@ func presenceSpans(marks []presenceMark, from, to, now time.Time) [][2]float64 {
 // household reads every log once: conversations to summarize, device logs
 // for their rejected wakes and presence, and the unreviewed count every
 // header badges.
-func (s *server) household(r *http.Request) ([]convSummary, map[string]*deviceLog, int, error) {
+func (s *server) household(r *http.Request, u *unread) ([]convSummary, map[string]*deviceLog, int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	pairs, err := s.pairs(r.Context())
+	pairs, err := s.pairs(r.Context(), u)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -204,7 +204,8 @@ func (s *server) household(r *http.Request) ([]convSummary, map[string]*deviceLo
 	for _, id := range ids {
 		events, err := s.journal.Events(r.Context(), id)
 		if err != nil {
-			return nil, nil, 0, err
+			u.skip(id, err)
+			continue
 		}
 		if id == houseLog {
 			continue
@@ -224,7 +225,8 @@ func (s *server) household(r *http.Request) ([]convSummary, map[string]*deviceLo
 		}
 		sigs, err := triage.Scan(r.Context(), s.journal, id)
 		if err != nil {
-			return nil, nil, 0, fmt.Errorf("triage %s: %w", id, err)
+			u.skip(id, fmt.Errorf("triage: %w", err))
+			continue
 		}
 		convs = append(convs, summarize(id, events, sigs))
 	}
@@ -232,7 +234,8 @@ func (s *server) household(r *http.Request) ([]convSummary, map[string]*deviceLo
 }
 
 func (s *server) browse(w http.ResponseWriter, r *http.Request) {
-	convs, devices, unreviewed, err := s.household(r)
+	var u unread
+	convs, devices, unreviewed, err := s.household(r, &u)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -373,5 +376,6 @@ func (s *server) browse(w http.ResponseWriter, r *http.Request) {
 		"Lanes":     dl,
 		"ListTitle": plural(len(list.Rows), "conversation"),
 		"List":      list,
+		"Unread":    u.alert(),
 	})
 }

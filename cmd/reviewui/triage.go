@@ -33,10 +33,10 @@ var signalTags = map[triage.Kind]ui.SigTag{
 
 // signals scans every conversation, newest event first across the household,
 // and counts the unreviewed pairs the header badges on every page.
-func (s *server) signals(r *http.Request) ([]triage.Signal, int, error) {
+func (s *server) signals(r *http.Request, u *unread) ([]triage.Signal, int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	pairs, err := s.pairs(r.Context())
+	pairs, err := s.pairs(r.Context(), u)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -48,7 +48,8 @@ func (s *server) signals(r *http.Request) ([]triage.Signal, int, error) {
 	for _, conv := range convs {
 		sigs, err := triage.Scan(r.Context(), s.journal, conv)
 		if err != nil {
-			return nil, 0, fmt.Errorf("triage %s: %w", conv, err)
+			u.skip(conv, fmt.Errorf("triage: %w", err))
+			continue
 		}
 		out = append(out, sigs...)
 	}
@@ -78,7 +79,8 @@ func signalRow(sig triage.Signal) ui.ListRow {
 }
 
 func (s *server) triage(w http.ResponseWriter, r *http.Request) {
-	sigs, unreviewed, err := s.signals(r)
+	var u unread
+	sigs, unreviewed, err := s.signals(r, &u)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -117,7 +119,8 @@ func (s *server) triage(w http.ResponseWriter, r *http.Request) {
 			Eyebrow: "02 · Triage", Title: "What's worth a listen",
 			Subtitle: "Barge-ins, failures, repeated asks, slow answers and speaker flips, read from the journal.",
 		},
-		"Tabs": tabs,
-		"List": list,
+		"Tabs":   tabs,
+		"List":   list,
+		"Unread": u.alert(),
 	})
 }

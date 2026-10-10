@@ -3,6 +3,7 @@
 {{define "page-export"}}{{template "doc-start" .Doc}}
 {{template "app-header" .Header}}
 {{template "page-head" .Head}}
+{{with .Unread}}<div class="pad">{{template "alert" .}}</div>{{end}}
 {{template "metric-strip" .Stats}}
 {{with .Empty}}{{template "empty-state" .}}{{end}}
 {{with .Preview}}<div class="stack" style="margin-top: 18px">

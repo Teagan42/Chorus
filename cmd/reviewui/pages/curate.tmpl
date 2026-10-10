@@ -3,6 +3,7 @@
 {{define "page-curate"}}{{template "doc-start" .Doc}}
 {{template "app-header" .Header}}
 {{template "page-head" .Head}}
+{{with .Unread}}<div class="pad">{{template "alert" .}}</div>{{end}}
 {{template "tabs" .Tabs}}
 <div class="cols" style="align-items: flex-start">
 <div style="flex: 1 1 440px; min-width: 0">{{template "pair-rows" .Rows}}</div>

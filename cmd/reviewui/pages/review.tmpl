@@ -3,6 +3,7 @@
 {{define "page-review"}}{{template "doc-start" .Doc}}
 {{template "app-header" .Header}}
 {{template "page-head" .Head}}
+{{with .Unread}}<div class="pad">{{template "alert" .}}</div>{{end}}
 {{template "timeline" .Timeline}}
 <div class="cols" style="align-items: flex-start; margin-top: 18px">
 <div style="flex: 1 1 320px; min-width: 0" class="stack">
@@ -26,5 +27,6 @@
 
 {{define "page-review-empty"}}{{template "doc-start" .Doc}}
 {{template "app-header" .Header}}
+{{with .Unread}}<div class="pad">{{template "alert" .}}</div>{{end}}
 {{template "empty-state" .Empty}}
 {{template "doc-end"}}{{end}}

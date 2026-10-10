@@ -3,6 +3,7 @@
 {{define "page-replays"}}{{template "doc-start" .Doc}}
 {{template "app-header" .Header}}
 {{template "page-head" .Head}}
+{{with .Unread}}<div class="pad">{{template "alert" .}}</div>{{end}}
 {{template "list" .List}}
 {{template "doc-end"}}{{end}}
 

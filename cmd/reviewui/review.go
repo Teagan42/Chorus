@@ -221,7 +221,8 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	all, err := s.pairs(r.Context())
+	var u unread
+	all, err := s.pairs(r.Context(), &u)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -238,6 +239,7 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 		s.render(w, "page-review-empty", map[string]any{
 			"Doc":    s.doc("Review"),
 			"Header": ui.NewAppHeader(ui.StepReview, 0, "chorus · journal"),
+			"Unread": u.alert(),
 			"Empty": ui.EmptyState{
 				Title: "Nothing to review.",
 				Body:  "Barge-ins land here as the journal records them.",
@@ -279,6 +281,7 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 		"Clips":     clips(sel.H),
 		"Told":      memoryLines(sel.speaker(), sel.H.Recalled, sel.H.RecalledSummaries, s.now().Location()),
 		"Pair":      s.pairView(sel, ui.PairModeView, ""),
+		"Unread":    u.alert(),
 	})
 }
 

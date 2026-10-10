@@ -3,6 +3,7 @@
 {{define "page-browse"}}{{template "doc-start" .Doc}}
 {{template "app-header" .Header}}
 {{template "page-head" .Head}}
+{{with .Unread}}<div class="pad">{{template "alert" .}}</div>{{end}}
 <div class="row band pad" style="justify-content: space-between">
 <div class="row"><h2 style="margin: 0; font-size: 18px; font-weight: 600">{{.DayLabel}}</h2>{{if .Today}}<span class="cap muted">today · so far</span>{{end}}{{range .Nav}}{{template "button" .}}{{end}}</div>
 </div>
