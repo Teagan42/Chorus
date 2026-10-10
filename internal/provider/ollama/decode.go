@@ -22,7 +22,7 @@ const maxLine = 1 << 20
 
 // finishError marks a turn the endpoint never finished. It cannot collide with
 // a real done_reason, which this endpoint only ever reports as stop or length.
-const finishError = "error"
+const finishError = session.FinishError
 
 // chunk is one NDJSON line of a /api/chat stream.
 type chunk struct {
@@ -164,7 +164,7 @@ func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Act
 		if merr != nil {
 			return
 		}
-		_ = emit(closing, out, session.TurnEnd{FinishReason: finishError, Completion: string(raw)})
+		_ = emit(closing, out, session.TurnEnd{FinishReason: finishError, Completion: string(raw), Error: comp.Error})
 	}()
 
 	sc := bufio.NewScanner(r)

@@ -25,6 +25,12 @@ func dialogue(entries []journal.Entry) []message {
 				// yet: nothing to tell the model it said.
 				continue
 			}
+			if e.Canned {
+				// The orchestrator's apology for a failure, not the model's
+				// words: shown it, the model learns to say it unprompted. The
+				// failure itself is in the speak result it follows (ADR-0051).
+				continue
+			}
 			if e.Acknowledges != "" && !e.Cut {
 				// The model wrote these words as the slow call's argument,
 				// which it is shown already. A speak call it never made
@@ -70,6 +76,8 @@ func calling(out []message, id, name string, args json.RawMessage) []message {
 func heard(e journal.Entry) string {
 	var r string
 	switch {
+	case e.Cut && voiceFailed(e.CutBy):
+		r = `{"interrupted":true,"note":"your voice failed partway: the person heard only the text in this call, and did not cut you off"}`
 	case e.Cut:
 		r = `{"interrupted":true,"note":"the person cut you off and heard only the text in this call"}`
 	case e.Pending:
@@ -81,6 +89,11 @@ func heard(e journal.Entry) string {
 		return r
 	}
 	return r[:len(r)-1] + `,"announcement":` + announcement(e.Announces) + "}"
+}
+
+// voiceFailed reports a cut the voice or the device made, not the person.
+func voiceFailed(cutBy string) bool {
+	return cutBy == "tts_unavailable" || cutBy == "playback_unconfirmed"
 }
 
 // announcement says why something nobody here asked for was said, and

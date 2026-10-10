@@ -121,6 +121,11 @@ func Turns(events []journal.Event) ([]Turn, error) {
 		case journal.KindAnnouncementMade:
 			// Said for a timer or another room, not by the turn's model.
 			later[f["call_id"]] = true
+		case journal.KindModelFailed, journal.KindSpeechFailed:
+			// The canned line is the orchestrator's, not the model's (ADR-0051).
+			if id := f["canned_call_id"]; id != "" {
+				later[id] = true
+			}
 		case journal.KindMemoryRecalled:
 			if !asked {
 				t.Memories, t.Summaries = state.Recalled, state.RecalledSummaries
@@ -134,9 +139,11 @@ func Turns(events []journal.Event) ([]Turn, error) {
 				t.Recorded.Speech = append(t.Recorded.Speech, Speech{Text: f["spoken_text"], Unheard: f["unspoken_text"]})
 			}
 		case journal.KindSpeechDiscarded:
-			// Names no call, so a follow-up's discarded speech cannot be
-			// told apart from the first ask's and is kept with the turn.
-			t.Recorded.Speech = append(t.Recorded.Speech, Speech{Unheard: f["unspoken_text"]})
+			// A log from before ADR-0051 names no call, so its discarded
+			// speech is kept with the turn whichever ask generated it.
+			if !later[f["call_id"]] {
+				t.Recorded.Speech = append(t.Recorded.Speech, Speech{Unheard: f["unspoken_text"]})
+			}
 		case journal.KindToolCalled:
 			switch {
 			case asked && f["tool"] == toolSpeak:

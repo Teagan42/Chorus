@@ -35,6 +35,16 @@ type Entry struct {
 	// Cut marks said speech a barge-in stopped after Text.
 	Cut bool
 
+	// CutBy is why a cut entry stopped, as speech_truncated recorded it:
+	// barge_in for the person, or the voice failing (ADR-0051). Empty in
+	// logs from before it was recorded, which only a barge-in or a preempt
+	// wrote.
+	CutBy string
+
+	// Canned marks a line the orchestrator said because the model or the
+	// voice failed: words nobody's turn chose (SPEC §7, ADR-0051).
+	Canned bool
+
 	// Pending marks said speech still playing: Text is what the model asked
 	// to say, and becomes what was heard once playback is recorded.
 	Pending bool
@@ -68,6 +78,7 @@ func (s State) called(id, tool, args string) []Entry {
 	var a struct {
 		Text         string `json:"text"`
 		Acknowledges string `json:"acknowledges"`
+		Canned       bool   `json:"canned"`
 	}
 	// A streamed speak's args carry no text (internal/session/session.go),
 	// and an unreadable one is the model's mistake, not the log's: either way
@@ -75,8 +86,20 @@ func (s State) called(id, tool, args string) []Entry {
 	_ = json.Unmarshal([]byte(args), &a)
 	return appendEntry(s.Dialogue, Entry{
 		Kind: EntrySaid, CallID: id, Text: a.Text, Pending: true,
-		Acknowledges: a.Acknowledges, Announces: s.announcement(id),
+		Acknowledges: a.Acknowledges, Announces: s.announcement(id), Canned: a.Canned,
 	})
+}
+
+// cutBy records why a cut speak call stopped, once playback has settled it.
+func (s State) cutBy(id, reason string) []Entry {
+	i := s.said(id)
+	if i < 0 {
+		// A legacy event with no call id was appended last by played.
+		i = len(s.Dialogue) - 1
+	}
+	out := cloneEntries(s.Dialogue)
+	out[i].CutBy = reason
+	return out
 }
 
 // played settles what a speak call was heard to say. A log written before

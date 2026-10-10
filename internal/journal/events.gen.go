@@ -26,19 +26,23 @@ const (
 	KindMemoryRecalled Kind = "memory_recalled"
 	// Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8).
 	KindModelCompleted Kind = "model_completed"
+	// The model could not answer the turn: it was unreachable, its stream broke, or it went quiet past its deadline. No model is left to reason with, so a canned line says so instead (SPEC §7, ADR-0051).
+	KindModelFailed Kind = "model_failed"
 	// The satellite's own presence sensor changed: the Satellite1's mmWave radar, read over the native API. Recorded in the device's log, since presence belongs to the room, not to a conversation (ADR-0050).
 	KindPresenceChanged Kind = "presence_changed"
 	// Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). An announcement nobody was asked to answer closes as announced once it has been said.
 	KindSessionClosed Kind = "session_closed"
 	// Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5).
 	KindSessionOpened Kind = "session_opened"
-	// Speech generated but never played, because a barge-in emptied the queue first. Distinct from truncation: nothing was heard.
+	// Speech generated but never played, because a barge-in, or whatever reason names, emptied the queue first. Distinct from truncation: nothing was heard.
 	KindSpeechDiscarded Kind = "speech_discarded"
+	// A speak call's audio failed short of the person interrupting: the voice could not render it, or the device never confirmed playing it. The truncation or discard it caused names the same reason, so it is never mistaken for a barge-in (SPEC §7, ADR-0051).
+	KindSpeechFailed Kind = "speech_failed"
 	// Audio the user actually heard, bounded by DAC-reported playback position.
 	KindSpeechSpoken Kind = "speech_spoken"
 	// The DAC played the first frame of a turn's speech. Recorded once per turn, when the device reports it, so its wall clock is when the household first heard the answer (SPEC §11).
 	KindSpeechStarted Kind = "speech_started"
-	// Barge-in cut speech short. Carries the exact split between heard and unheard text.
+	// Speech was cut short, usually by a barge-in; reason says what cut it. Carries the exact split between heard and unheard text.
 	KindSpeechTruncated Kind = "speech_truncated"
 	// A running timer was cancelled before it went off.
 	KindTimerCancelled Kind = "timer_cancelled"
@@ -76,10 +80,12 @@ var Meta = map[Kind]EventMeta{
 	KindConversationSummarized: {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: true, RequiredFields: []string{"people_json"}},
 	KindMemoryRecalled:         {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"memories_json"}},
 	KindModelCompleted:         {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: true, RequiredFields: []string{"completion_json", "finish_reason"}},
+	KindModelFailed:            {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: true, RequiredFields: []string{"reason", "error"}},
 	KindPresenceChanged:        {Actor: "device", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"state"}},
 	KindSessionClosed:          {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"reason", "satellite"}},
 	KindSessionOpened:          {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"satellite"}},
 	KindSpeechDiscarded:        {Actor: "speaking", HasAudio: false, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"unspoken_text", "reason"}},
+	KindSpeechFailed:           {Actor: "speaking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id", "reason"}},
 	KindSpeechSpoken:           {Actor: "speaking", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"text", "frames_played"}},
 	KindSpeechStarted:          {Actor: "speaking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id"}},
 	KindSpeechTruncated:        {Actor: "speaking", HasAudio: true, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"spoken_text", "unspoken_text", "frames_played"}},
@@ -102,10 +108,12 @@ var AllKinds = []Kind{
 	KindConversationSummarized,
 	KindMemoryRecalled,
 	KindModelCompleted,
+	KindModelFailed,
 	KindPresenceChanged,
 	KindSessionClosed,
 	KindSessionOpened,
 	KindSpeechDiscarded,
+	KindSpeechFailed,
 	KindSpeechSpoken,
 	KindSpeechStarted,
 	KindSpeechTruncated,

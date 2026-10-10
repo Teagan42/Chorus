@@ -213,3 +213,28 @@ func TestAnAcknowledgementGoesBackAsTheArgumentItWas(t *testing.T) {
 		t.Errorf("a cut acknowledgement went back as %+v, want the speak call beside the search", got)
 	}
 }
+
+// Kokoro failed partway through the forecast. The model is told its voice
+// failed, not that Alice cut it off: a model told it was interrupted
+// apologises for talking over someone who never spoke. The kitchen's canned
+// apology is not shown as the model's own speak call, or it learns to say
+// it (ADR-0051).
+//
+// verifies SPEC §4.4, §7
+func TestAVoiceFailureIsNotToldAsAnInterruption(t *testing.T) {
+	msgs := sent(t, session.Input{Dialogue: []journal.Entry{
+		{Kind: journal.EntryHeard, Text: "what's the weather tomorrow"},
+		{Kind: journal.EntrySaid, CallID: "call_s1", Text: "Tomorrow will be sunny, ", Cut: true, CutBy: "tts_unavailable"},
+		{Kind: journal.EntrySaid, CallID: "cn_3f9c2a10", Text: "Sorry, I've lost my voice for a moment.", Canned: true},
+		{Kind: journal.EntryHeard, Text: "what was the high"},
+	}})
+	if len(msgs) != 5 {
+		t.Fatalf("%d messages, want system, utterance, speak, its result and the next utterance: %+v", len(msgs), msgs)
+	}
+	if n := len(msgs[2].ToolCalls); n != 1 || msgs[2].ToolCalls[0].ID != "call_s1" {
+		t.Errorf("speak calls = %+v, want call_s1 alone", msgs[2].ToolCalls)
+	}
+	if got := msgs[3].Content; got != `{"interrupted":true,"note":"your voice failed partway: the person heard only the text in this call, and did not cut you off"}` {
+		t.Errorf("failed speech result = %s", got)
+	}
+}

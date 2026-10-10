@@ -161,3 +161,56 @@ func TestAnAcknowledgementIsTiedToItsCall(t *testing.T) {
 		t.Errorf("acknowledgement = %+v, want %+v", got, want)
 	}
 }
+
+// Kokoro falls over halfway through Alice's forecast, and the kitchen says
+// it lost its voice. The next ask is told the voice cut the answer, not
+// Alice, and the apology is marked as nobody's turn's words (ADR-0051).
+//
+// verifies SPEC §4.4, §7
+func TestAVoiceFailureIsToldAsTheVoiceAndTheApologyAsCanned(t *testing.T) {
+	s := reduceAll(t, []journal.Event{
+		ev(journal.KindSessionOpened, map[string]string{"satellite": "kitchen", "speaker_id": "alice"}),
+		ev(journal.KindUtteranceTranscribed, map[string]string{"text": "what's the weather tomorrow", "speaker_id": "alice"}),
+		ev(journal.KindToolCalled, map[string]string{"tool": "speak", "call_id": "call_s1", "args_json": `{"text":"Tomorrow will be sunny, with a high of nineteen.","mode":"queue"}`}),
+		ev(journal.KindModelCompleted, map[string]string{"completion_json": "{}", "finish_reason": "stop"}),
+		ev(journal.KindSpeechFailed, map[string]string{"call_id": "call_s1", "reason": "tts_unavailable", "error": "kokoro: 503 Service Unavailable", "canned_call_id": "cn_3f9c2a10"}),
+		ev(journal.KindSpeechTruncated, map[string]string{
+			"spoken_text": "Tomorrow will be sunny, ", "unspoken_text": "with a high of nineteen.",
+			"frames_played": "12000", "call_id": "call_s1", "reason": "tts_unavailable",
+		}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "call_s1", "outcome": "error", "result_json": `{"error":"tts_unavailable"}`}),
+		ev(journal.KindToolCalled, map[string]string{"tool": "speak", "call_id": "cn_3f9c2a10", "args_json": `{"text":"Sorry, I've lost my voice for a moment.","mode":"queue","canned":true}`}),
+		ev(journal.KindSpeechSpoken, map[string]string{"text": "Sorry, I've lost my voice for a moment.", "frames_played": "30400", "call_id": "cn_3f9c2a10"}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "cn_3f9c2a10", "outcome": "ok"}),
+	})
+
+	want := []journal.Entry{
+		{Kind: journal.EntryHeard, Text: "what's the weather tomorrow", Speaker: "alice"},
+		{Kind: journal.EntrySaid, CallID: "call_s1", Text: "Tomorrow will be sunny, ", Cut: true, CutBy: "tts_unavailable"},
+		{Kind: journal.EntrySaid, CallID: "cn_3f9c2a10", Text: "Sorry, I've lost my voice for a moment.", Canned: true},
+	}
+	if !reflect.DeepEqual(s.Dialogue, want) {
+		t.Errorf("dialogue =\n%+v\nwant\n%+v", s.Dialogue, want)
+	}
+}
+
+// Ollama refused the connection, so the turn has no completion: the
+// failure and the apology are all the log holds, and replay folds both.
+//
+// verifies SPEC §7, §8
+func TestAModelThatNeverAnsweredReplaysToTheApology(t *testing.T) {
+	s := reduceAll(t, []journal.Event{
+		ev(journal.KindSessionOpened, map[string]string{"satellite": "kitchen", "speaker_id": "teagan"}),
+		ev(journal.KindUtteranceTranscribed, map[string]string{"text": "turn off the kitchen lights", "speaker_id": "teagan"}),
+		ev(journal.KindModelFailed, map[string]string{"reason": "unavailable", "error": "dial tcp 10.0.0.20:11434: connect: connection refused", "canned_call_id": "cn_77d01b4e"}),
+		ev(journal.KindToolCalled, map[string]string{"tool": "speak", "call_id": "cn_77d01b4e", "args_json": `{"text":"Sorry, I can't think straight right now. Give me a minute and ask again.","mode":"queue","canned":true}`}),
+		ev(journal.KindSpeechSpoken, map[string]string{"text": "Sorry, I can't think straight right now. Give me a minute and ask again.", "frames_played": "64000", "call_id": "cn_77d01b4e"}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "cn_77d01b4e", "outcome": "ok"}),
+	})
+	if len(s.Completions) != 0 || s.Interrupted {
+		t.Errorf("state = %+v, want no completion and no interruption", s)
+	}
+	if n := len(s.Dialogue); n != 2 || !s.Dialogue[1].Canned {
+		t.Errorf("dialogue = %+v, want the utterance and the canned apology", s.Dialogue)
+	}
+}

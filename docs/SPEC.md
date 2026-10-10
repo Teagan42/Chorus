@@ -309,7 +309,9 @@ semantic endpointing** (Smart Turn v2 over STT partials, not the big LLM) so
 "turn off the... uh... kitchen lights" works.
 
 Close is **model-decided** via an `end_session` tool, with a ~20 s silence
-backstop. The model knows when a task is done better than a timer does.
+backstop. The model knows when a task is done better than a timer does. The
+backstop waits while the model thinks, so the model has a deadline of its
+own: an ask that emits nothing for 90 s is given up on (§7, ADR-0051).
 
 **The conversation belongs to the person; the audio stream belongs to the
 device.** Keeping those separate makes device migration fall out for free: wake
@@ -370,6 +372,15 @@ the orchestrator barging in with "sorry, something went wrong."
 Canned fallback reserved for LLM-unavailable and TTS-unavailable, where there is
 no model left to reason with. Failures are first-class event types — they are
 training data too.
+
+- A model that is unreachable, breaks mid-stream, or emits nothing past its
+  deadline is `model_failed`. The turn ends with one canned line.
+- A voice that fails mid-utterance is `speech_failed`, and the truncation or
+  discard it caused names it, never `barge_in`: a dead synthesiser is not a
+  preference (§9.1). The voice's canned line is rendered at startup, so it can
+  still be said once the synthesiser is down.
+- A canned line is a speak call marked `canned`. The model is not shown it as
+  its own words, and no pair is cut from it (ADR-0051).
 
 Sessions do not survive an orchestrator restart in phase 1. The log replays for
 debugging; resuming live audio across a restart is a lot of machinery for a case

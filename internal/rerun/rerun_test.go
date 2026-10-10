@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -415,5 +416,48 @@ func TestAnAnnouncementIsNotPartOfTheTurnItInterrupts(t *testing.T) {
 	}
 	if len(ts[0].Recorded.Speech) != 2 {
 		t.Errorf("speech = %+v, want the turn's own two", ts[0].Recorded.Speech)
+	}
+}
+
+// Ollama was down for Teagan's ask, so the kitchen said its canned line. That
+// is not what the model said: a re-run against a model that is up is
+// compared with nothing, not with an apology (ADR-0051).
+//
+// verifies SPEC §7, §9.2
+func TestTheApologyForAModelThatWasDownIsNotItsSpeech(t *testing.T) {
+	ts := turns(t, logOf(t, []journal.Record{
+		record(journal.KindSessionOpened, "satellite", "kitchen", "speaker_id", "teagan", "resumed", "false"),
+		record(journal.KindUtteranceTranscribed, "text", "turn off the kitchen lights", "speaker_id", "teagan"),
+		record(journal.KindModelFailed, "reason", "unavailable", "error", "ollama chat: dial tcp 10.0.0.20:11434: connect: connection refused", "canned_call_id", "cn_77d0"),
+		record(journal.KindToolCalled, "tool", "speak", "call_id", "cn_77d0", "args_json", `{"text":"Sorry, I can't think straight right now.","mode":"queue","canned":true}`),
+		record(journal.KindSpeechSpoken, "text", "Sorry, I can't think straight right now.", "frames_played", "40000", "call_id", "cn_77d0"),
+		record(journal.KindToolResult, "call_id", "cn_77d0", "outcome", "ok"),
+	}))
+	if len(ts) != 1 || len(ts[0].Recorded.Speech) != 0 || len(ts[0].Recorded.Calls) != 0 {
+		t.Errorf("turns = %+v, want one turn that said and did nothing of its own", ts)
+	}
+}
+
+// Kokoro is down for the forecast and for the apology: the forecast is the
+// model's and was never heard, so it stays the turn's speech; the apology's
+// discard names its canned call, and is not.
+//
+// verifies SPEC §7, §9.1
+func TestAnApologyThatCouldNotBeSaidIsNotTheTurnsSpeech(t *testing.T) {
+	ts := turns(t, logOf(t, []journal.Record{
+		record(journal.KindSessionOpened, "satellite", "kitchen", "speaker_id", "alice", "resumed", "false"),
+		record(journal.KindUtteranceTranscribed, "text", "what's the weather tomorrow", "speaker_id", "alice"),
+		record(journal.KindToolCalled, "tool", "speak", "call_id", "call_w1", "args_json", `{"mode":"queue","streamed":true,"text":"Tomorrow will be sunny, with a high of nineteen."}`),
+		record(journal.KindSpeechFailed, "call_id", "call_w1", "reason", "tts_unavailable", "error", "open: kokoro: 503 Service Unavailable", "canned_call_id", "cn_5e21"),
+		record(journal.KindToolCalled, "tool", "speak", "call_id", "cn_5e21", "args_json", `{"text":"Sorry, I've lost my voice for a moment.","mode":"queue","canned":true}`),
+		record(journal.KindSpeechDiscarded, "unspoken_text", "Tomorrow will be sunny, with a high of nineteen.", "reason", "tts_unavailable", "call_id", "call_w1"),
+		record(journal.KindToolResult, "call_id", "call_w1", "outcome", "error", "result_json", `{"error":"tts_unavailable"}`),
+		record(journal.KindSpeechFailed, "call_id", "cn_5e21", "reason", "tts_unavailable", "error", "open: kokoro: 503 Service Unavailable"),
+		record(journal.KindSpeechDiscarded, "unspoken_text", "Sorry, I've lost my voice for a moment.", "reason", "tts_unavailable", "call_id", "cn_5e21"),
+		record(journal.KindToolResult, "call_id", "cn_5e21", "outcome", "error", "result_json", `{"error":"tts_unavailable"}`),
+	}))
+	want := []rerun.Speech{{Unheard: "Tomorrow will be sunny, with a high of nineteen."}}
+	if len(ts) != 1 || !slices.Equal(ts[0].Recorded.Speech, want) {
+		t.Errorf("turns = %+v, want only the forecast as the turn's unheard speech", ts)
 	}
 }

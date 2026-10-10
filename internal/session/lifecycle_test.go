@@ -144,9 +144,11 @@ func TestBackstopDoesNotCloseASessionWithLiveChildren(t *testing.T) {
 	r.speaker.wrote(t)
 
 	// Still talking: the backstop is a floor under silence, not a turn limit.
-	r.clock.awaitTimers(t, 1)
+	// Awaited by its own wait: the model's deadline is armed beside it, and
+	// would satisfy a count before the backstop has seen its timer fire.
+	r.clock.awaitDeadline(t, session.DefaultSilence)
 	r.clock.advance(session.DefaultSilence)
-	r.clock.awaitTimers(t, 1)
+	r.clock.awaitDeadline(t, session.DefaultSilence)
 
 	select {
 	case <-s.Done():

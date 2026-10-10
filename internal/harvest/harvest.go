@@ -298,24 +298,37 @@ type walker struct {
 	recalled  []journal.Memory
 	summaries []journal.Summary
 
-	// announced are the speak calls that said an announcement. Nobody's
-	// turn chose those words, so they are no side of a pair (ADR-0045).
-	announced map[string]bool
+	// unchosen are the speak calls that said an announcement, or a canned
+	// line for a failed model or voice. Nobody's turn chose those words, so
+	// they are no side of a pair (ADR-0045, ADR-0051).
+	unchosen map[string]bool
+}
+
+// skip marks a speak call as said by nobody's turn.
+func (w *walker) skip(callID string) {
+	if callID == "" {
+		return
+	}
+	if w.unchosen == nil {
+		w.unchosen = map[string]bool{}
+	}
+	w.unchosen[callID] = true
 }
 
 func (w *walker) fold(e journal.Event) error {
 	if e.Speculative {
 		return nil
 	}
-	if w.announced[e.Fields["call_id"]] && e.Kind != journal.KindAnnouncementMade {
+	if w.unchosen[e.Fields["call_id"]] && e.Kind != journal.KindAnnouncementMade {
 		return nil
 	}
 	switch e.Kind {
 	case journal.KindAnnouncementMade:
-		if w.announced == nil {
-			w.announced = map[string]bool{}
-		}
-		w.announced[e.Fields["call_id"]] = true
+		w.skip(e.Fields["call_id"])
+	case journal.KindModelFailed, journal.KindSpeechFailed:
+		// The failure itself is no correction and no answer; the line said
+		// for it is nobody's choice (ADR-0051).
+		w.skip(e.Fields["canned_call_id"])
 	case journal.KindUtteranceTranscribed:
 		w.closeTurn(&e)
 		w.cur = &turn{
@@ -367,7 +380,9 @@ func (w *walker) fold(e journal.Event) error {
 		}
 		w.cur.spoken = append(w.cur.spoken, e.Fields["spoken_text"])
 		w.cur.spokenAudio = append(w.cur.spokenAudio, e.AudioRef)
-		if w.cur.bargeIn != nil {
+		// Heard either way; only the person's cut is half of a pair. A voice
+		// that failed is not a correction (ADR-0051).
+		if w.cur.bargeIn != nil && cutByPerson(e.Fields["reason"]) {
 			frames, err := strconv.Atoi(e.Fields["frames_played"])
 			if err != nil {
 				return fmt.Errorf("frames_played %q: %w", e.Fields["frames_played"], err)
@@ -419,6 +434,11 @@ func (w *walker) fold(e journal.Event) error {
 	}
 	return nil
 }
+
+// cutByPerson reports a truncation the barge-in made. A log from before
+// truncations named their reason recorded only barge-ins and preempts, and a
+// preempt never follows a barge-in in the same turn.
+func cutByPerson(reason string) bool { return reason == "" || reason == "barge_in" }
 
 func (t *turn) markCut(e journal.Event) {
 	if !t.cut {

@@ -180,6 +180,12 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 			if e.Fields["finish_reason"] == "error" {
 				raise(e, KindFailure, "model finished with error")
 			}
+		case journal.KindModelFailed:
+			// A model that never answered left no completion to raise on;
+			// one that broke or stalled already raised on its completion.
+			if e.Fields["reason"] == "unavailable" {
+				raise(e, KindFailure, "model unavailable: "+e.Fields["error"])
+			}
 		case journal.KindTimerStarted:
 			said := e.Fields["announcement"]
 			if said == "" {

@@ -29,6 +29,10 @@ const helloTimeout = 10 * time.Second
 // minBargeInWords is the gate's third stage: one word is usually "uh" (SPEC §4.3).
 const minBargeInWords = 2
 
+// rehearseEvery is how often rendering the canned lines is retried while the
+// synthesiser is not answering, as it may not be yet when the daemon starts.
+const rehearseEvery = 30 * time.Second
+
 // bargeInGate is the detector every link's supervisor shares. Only this place
 // knows whether a resolver was configured, so the speaker mode is set here,
 // not from an empty id (ADR-0031).
@@ -157,6 +161,16 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 	maps.Copy(tools, timer.Tools(timers))
 	tools["announce"] = announce.Tool(dm, inv.Satellites)
 	dm.tools = tools
+	// Every satellite speaks through one voice that keeps its own apology,
+	// rendered while it still answers: that line is only ever needed once
+	// it does not (SPEC §7, ADR-0051).
+	canned := satellite.NewCanned(d.synth)
+	dm.synth = canned
+	dm.wg.Add(1)
+	go func() {
+		defer dm.wg.Done()
+		dm.rehearse(ctx, canned)
+	}()
 	if d.Native != nil {
 		for i := range inv.Satellites {
 			sat := &inv.Satellites[i]
@@ -171,6 +185,29 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 	cancel()
 	dm.wg.Wait()
 	return err
+}
+
+// rehearse renders the canned lines, retrying until the synthesiser answers
+// or the daemon stops. Until it does, a voice that fails mid-turn fails in
+// silence, so that is said rather than left to be found.
+func (d *daemon) rehearse(ctx context.Context, c *satellite.Canned) {
+	lines := session.DefaultCanned.Lines()
+	for {
+		err := c.Render(ctx, lines...)
+		if err == nil {
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		d.Log.Warn("the canned lines are not rendered yet, so a voice that fails mid-turn cannot apologise; retrying",
+			"err", err, "retry_in", rehearseEvery)
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.Timers.After(rehearseEvery):
+		}
+	}
 }
 
 // indexByHost maps each inventory address's host to its satellite. The audio

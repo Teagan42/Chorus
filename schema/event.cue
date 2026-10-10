@@ -88,7 +88,7 @@ events: {
 	}
 	speech_truncated: {
 		name:            "speech_truncated", actor: "speaking"
-		description:     "Barge-in cut speech short. Carries the exact split between heard and unheard text."
+		description:     "Speech was cut short, usually by a barge-in; reason says what cut it. Carries the exact split between heard and unheard text."
 		has_audio:       true
 		training_signal: true
 		fields: [
@@ -96,15 +96,17 @@ events: {
 			{name: "unspoken_text", type: "string", description: "Generated but never played.", required: true},
 			{name: "frames_played", type: "integer", description: "DAC frame count at cut.", required: true},
 			{name: "call_id", type: "string", description: "The speak call that was cut. Empty in logs from before it was recorded."},
+			{name: "reason", type: "string", description: "Why it was cut. Only barge_in is the person interrupting; tts_unavailable and playback_unconfirmed are the voice or the device failing, which nobody chose and no preference pair may be cut from (ADR-0051). Empty in logs from before it was recorded.", enum: ["barge_in", "preempted", "session_closed", "migrated", "tts_unavailable", "playback_unconfirmed"]},
 		]
 	}
 	speech_discarded: {
 		name:            "speech_discarded", actor: "speaking"
-		description:     "Speech generated but never played, because a barge-in emptied the queue first. Distinct from truncation: nothing was heard."
+		description:     "Speech generated but never played, because a barge-in, or whatever reason names, emptied the queue first. Distinct from truncation: nothing was heard."
 		training_signal: true
 		fields: [
 			{name: "unspoken_text", type: "string", description: "Generated but never played.", required: true},
-			{name: "reason", type: "string", description: "Why it was dropped.", required: true, enum: ["barge_in", "preempted", "session_closed", "migrated"]},
+			{name: "call_id", type: "string", description: "The speak call the text belonged to, so a reader can set aside a line nobody's turn chose, such as a canned one. Absent in logs written before ADR-0051."},
+			{name: "reason", type: "string", description: "Why it was dropped. tts_unavailable and playback_unconfirmed are the voice or the device failing, not the person (ADR-0051).", required: true, enum: ["barge_in", "preempted", "session_closed", "migrated", "tts_unavailable", "playback_unconfirmed"]},
 		]
 	}
 	tool_called: {
@@ -171,6 +173,27 @@ events: {
 		fields: [
 			{name: "completion_json", type: "string", description: "Raw completion as returned.", required: true},
 			{name: "finish_reason", type: "string", description: "Why generation stopped.", required: true, enum: ["stop", "length", "tool_calls", "error"]},
+		]
+	}
+	model_failed: {
+		name:        "model_failed", actor: "thinking"
+		description: "The model could not answer the turn: it was unreachable, its stream broke, or it went quiet past its deadline. No model is left to reason with, so a canned line says so instead (SPEC §7, ADR-0051)."
+		// A failure is attributed to the configuration that failed.
+		requires_versions: true
+		fields: [
+			{name: "reason", type: "string", description: "unavailable: the ask never started. failed: the stream broke partway. timed_out: nothing came for longer than the deadline, and the ask was given up on.", required: true, enum: ["unavailable", "failed", "timed_out"]},
+			{name: "error", type: "string", description: "What the engine reported.", required: true},
+			{name: "canned_call_id", type: "string", description: "The speak call that said the canned line. Empty when none was said: one has already been said this turn, or the session is ending."},
+		]
+	}
+	speech_failed: {
+		name:        "speech_failed", actor: "speaking"
+		description: "A speak call's audio failed short of the person interrupting: the voice could not render it, or the device never confirmed playing it. The truncation or discard it caused names the same reason, so it is never mistaken for a barge-in (SPEC §7, ADR-0051)."
+		fields: [
+			{name: "call_id", type: "string", description: "The speak call whose audio failed.", required: true},
+			{name: "reason", type: "string", description: "tts_unavailable: the voice failed to open or render. playback_unconfirmed: the device stopped reporting playback before the end.", required: true, enum: ["tts_unavailable", "playback_unconfirmed"]},
+			{name: "error", type: "string", description: "What the voice or the device reported. Empty when it said nothing."},
+			{name: "canned_call_id", type: "string", description: "The speak call that said the canned line from audio rendered ahead of time. Empty when none was said."},
 		]
 	}
 	presence_changed: {

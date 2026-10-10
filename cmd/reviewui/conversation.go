@@ -47,6 +47,7 @@ var kindTones = map[journal.Kind]ui.Tone{
 	journal.KindTimerStarted:     ui.ToneHome, journal.KindTimerCancelled: ui.ToneHome, journal.KindTimerFinished: ui.ToneHome,
 	journal.KindMemoryRecalled: ui.ToneConv, journal.KindConversationSummarized: ui.ToneConv,
 	journal.KindConfirmationRequested: ui.ToneHome, journal.KindConfirmationGiven: ui.ToneHome,
+	journal.KindModelFailed: ui.ToneMuted, journal.KindSpeechFailed: ui.ToneVoice,
 }
 
 // logContext is what a row needs from the events before it: the call a
@@ -127,6 +128,9 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) logRow {
 	case journal.KindSpeechTruncated:
 		row.Text, row.Unheard = f["spoken_text"], f["unspoken_text"]
 		row.Note = f["frames_played"] + " frames played"
+		if f["reason"] != "" {
+			row.Note += " · cut: " + f["reason"]
+		}
 		if row.Audio != "" {
 			row.Audio += "&to=" + f["frames_played"]
 		}
@@ -138,6 +142,13 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) logRow {
 		row.Text, row.Note = f["outcome"], f["call_id"]
 	case journal.KindModelCompleted:
 		row.Text = "completed: " + f["finish_reason"]
+	case journal.KindModelFailed:
+		row.Text, row.Note = "model failed: "+f["reason"], failedBecause(f)
+	case journal.KindSpeechFailed:
+		row.Text, row.Note = "voice failed: "+f["reason"], "call "+f["call_id"]
+		if why := failedBecause(f); why != "" {
+			row.Note += " · " + why
+		}
 	case journal.KindAnnouncementMade:
 		row.Text, row.Note = f["text"], announcedBecause(f)
 	case journal.KindTimerStarted:
@@ -378,4 +389,17 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 		},
 		"Rows": rows,
 	})
+}
+
+// failedBecause is what a failure reported, and the canned line said for it
+// (ADR-0051).
+func failedBecause(f map[string]string) string {
+	var parts []string
+	if f["error"] != "" {
+		parts = append(parts, f["error"])
+	}
+	if f["canned_call_id"] != "" {
+		parts = append(parts, "apologised in "+f["canned_call_id"])
+	}
+	return strings.Join(parts, " · ")
 }

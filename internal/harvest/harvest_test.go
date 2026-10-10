@@ -560,3 +560,83 @@ func TestAnAnnouncementInTheMiddleOfACutTurnIsNoPartOfThePair(t *testing.T) {
 		t.Errorf("rejected audio = %v", p.Audio.Rejected)
 	}
 }
+
+// voiceFailedTurn is Kokoro falling over mid-forecast, as the session writes
+// it: the failure, the truncation it caused, and the apology said for it.
+func voiceFailedTurn() []journal.Record {
+	return []journal.Record{
+		heard("what's the weather tomorrow", "blob://mic/1"),
+		record(journal.KindToolCalled, "", "tool", "speak", "call_id", "s1", "args_json", `{"text":"Tomorrow will be sunny, with a high of nineteen.","mode":"queue"}`),
+		completed(),
+		record(journal.KindSpeechFailed, "", "call_id", "s1", "reason", "tts_unavailable", "error", "kokoro: 503 Service Unavailable", "canned_call_id", "cn_3f9c"),
+		record(journal.KindSpeechTruncated, "blob://tts/s1", "spoken_text", "Tomorrow will be sunny, ", "unspoken_text", "with a high of nineteen.", "frames_played", "12000", "call_id", "s1", "reason", "tts_unavailable"),
+		record(journal.KindToolResult, "", "call_id", "s1", "outcome", "error", "result_json", `{"error":"tts_unavailable"}`),
+		record(journal.KindToolCalled, "", "tool", "speak", "call_id", "cn_3f9c", "args_json", `{"text":"Sorry, I've lost my voice for a moment.","mode":"queue","canned":true}`),
+	}
+}
+
+// Kokoro dies mid-forecast and the kitchen apologises; Alice talks over the
+// apology. Neither cut is a preference: the first is the voice, and the
+// second interrupts words no model chose. Before ADR-0051 the voice's cut
+// was recorded as a barge-in.
+//
+// verifies SPEC §9.1
+func TestAVoiceFailureAndItsApologyAreNoPreferencePair(t *testing.T) {
+	store := conversation(t, versions(), concat(
+		[]journal.Record{opened("kitchen")}, voiceFailedTurn(),
+		[]journal.Record{
+			bargeIn("380", "blob://mic/2"),
+			record(journal.KindSpeechTruncated, "blob://tts/cn_3f9c", "spoken_text", "Sorry, ", "unspoken_text", "I've lost my voice for a moment.", "frames_played", "6080", "call_id", "cn_3f9c", "reason", "barge_in"),
+			cancelled("cn_3f9c"),
+		},
+		correctedTurn(), []journal.Record{closed("model_ended")},
+	))
+	res := scan(t, store)
+	if len(res.Pairs) != 0 || res.Uncorrected != 0 {
+		t.Errorf("pairs = %+v uncorrected = %d, want neither: no model's words were corrected", res.Pairs, res.Uncorrected)
+	}
+}
+
+// Alice talks before the queued apology starts, so it is discarded unheard
+// as a barge-in. The discard names the canned call, and dropping words no
+// model chose is no preference either.
+//
+// verifies SPEC §9.1
+func TestAnApologyDroppedByABargeInIsNoPreferencePair(t *testing.T) {
+	store := conversation(t, versions(), concat(
+		[]journal.Record{opened("kitchen")}, voiceFailedTurn(),
+		[]journal.Record{
+			bargeIn("120", "blob://mic/2"),
+			record(journal.KindSpeechDiscarded, "", "unspoken_text", "Sorry, I've lost my voice for a moment.", "reason", "barge_in", "call_id", "cn_3f9c"),
+			cancelled("cn_3f9c"),
+		},
+		correctedTurn(), []journal.Record{closed("model_ended")},
+	))
+	res := scan(t, store)
+	if len(res.Pairs) != 0 || res.Uncorrected != 0 {
+		t.Errorf("pairs = %+v uncorrected = %d, want neither: no model's words were dropped", res.Pairs, res.Uncorrected)
+	}
+}
+
+// A voice that failed on the turn after a real correction does not reach
+// into the pair: the answer as said is what the person heard of it, and the
+// apology is no part of it.
+//
+// verifies SPEC §9.1
+func TestAnApologyInTheAnsweringTurnIsNotAsSaid(t *testing.T) {
+	store := conversation(t, versions(), concat(
+		[]journal.Record{opened("kitchen")}, cutTurn(),
+		[]journal.Record{
+			heard("just the first one", "blob://mic/3"),
+			record(journal.KindModelFailed, "", "reason", "unavailable", "error", "ollama chat: 503 Service Unavailable", "canned_call_id", "cn_77d0"),
+			record(journal.KindToolCalled, "", "tool", "speak", "call_id", "cn_77d0", "args_json", `{"text":"Sorry, I can't think straight right now.","mode":"queue","canned":true}`),
+			record(journal.KindSpeechSpoken, "blob://tts/cn_77d0", "text", "Sorry, I can't think straight right now.", "frames_played", "40000", "call_id", "cn_77d0"),
+			record(journal.KindToolResult, "", "call_id", "cn_77d0", "outcome", "ok"),
+		},
+		[]journal.Record{closed("model_ended")},
+	))
+	p := onePair(t, scan(t, store))
+	if p.AsSaid != "" || len(p.Audio.AsSaid) != 0 {
+		t.Errorf("as said = %q %v, want nothing: the model never answered", p.AsSaid, p.Audio.AsSaid)
+	}
+}

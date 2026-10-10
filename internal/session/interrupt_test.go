@@ -44,12 +44,13 @@ func TestBargeInKeepsWhatWasSpokenWithItsTruncationPoint(t *testing.T) {
 	cut := r.eventOf(t, s.ConversationID(), journal.KindSpeechTruncated)
 	// The split is exact because it comes from DAC frames, not an estimate
 	// (SPEC §3.2.1), and it names the call it cut so the next ask is told
-	// where it said it.
+	// where it said it, and says the person cut it (ADR-0051).
 	want := map[string]string{
 		"spoken_text":   "I found three",
 		"unspoken_text": " albums by that artist",
 		"frames_played": "2080",
 		"call_id":       "s1",
+		"reason":        "barge_in",
 	}
 	if !maps.Equal(cut.Fields, want) {
 		t.Errorf("truncation = %v, want %v", cut.Fields, want)

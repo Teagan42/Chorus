@@ -222,6 +222,9 @@ func Reduce(s State, e Event) (State, error) {
 		s.Unspoken = append(s.Unspoken, e.Fields["unspoken_text"])
 		s.Interrupted = true
 		s.Dialogue = s.played(e.Fields["call_id"], e.Fields["spoken_text"], true)
+		if r := e.Fields["reason"]; r != "" {
+			s.Dialogue = s.cutBy(e.Fields["call_id"], r)
+		}
 	case KindSpeechDiscarded:
 		// Never played, so it joins Unspoken only. The model must not believe
 		// the user heard it (SPEC §4.4).
@@ -264,6 +267,10 @@ func Reduce(s State, e Event) (State, error) {
 	case KindSpeechStarted:
 		// Timing only: what was heard is the spoken or truncated event that
 		// closes the same speech (ADR-0035).
+	case KindModelFailed, KindSpeechFailed:
+		// What was heard is the speech events either caused, and the canned
+		// line is a speak call of its own; the failure is the triage's and
+		// the reviewer's (ADR-0051).
 	}
 	return s, nil
 }
@@ -322,10 +329,12 @@ var handled = map[Kind]bool{
 	KindConversationSummarized: true,
 	KindMemoryRecalled:         true,
 	KindModelCompleted:         true,
+	KindModelFailed:            true,
 	KindPresenceChanged:        true,
 	KindSessionClosed:          true,
 	KindSessionOpened:          true,
 	KindSpeechDiscarded:        true,
+	KindSpeechFailed:           true,
 	KindSpeechSpoken:           true,
 	KindSpeechStarted:          true,
 	KindSpeechTruncated:        true,
