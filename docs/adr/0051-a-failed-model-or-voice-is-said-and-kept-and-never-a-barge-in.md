@@ -51,7 +51,8 @@ may still be playing, so it drops nothing.
 - one for the voice ("Sorry, I've lost my voice for a moment.")
 
 It is a speak call of its own with `"canned":true`, and the failure event
-names it in `canned_call_id`. The dialogue, the harvester and re-runs skip it,
+names it in `canned_call_id`. `speech_discarded` now names its call too, so
+a canned line that could not be played is still recognisable as one. The dialogue, the harvester and re-runs skip it,
 as they skip announcements (ADR-0045): nobody's turn chose those words.
 
 The voice's line can only be heard if it was rendered before the voice
