@@ -33,8 +33,12 @@ def read_wav(path: Path) -> np.ndarray:
 
 @pytest.fixture(scope="module")
 def turn() -> OnnxTurn:
-    if not MODEL_DIR or not (Path(MODEL_DIR) / ASSET_NAME).is_file():
+    if not MODEL_DIR:
         pytest.skip("no model: set SMARTTURN_MODEL_DIR to a directory holding the pinned asset")
+    # Set and empty is a broken fetch, not an opted-out machine: CI sets it,
+    # and a skip there would pass with the model never run.
+    if not (Path(MODEL_DIR) / ASSET_NAME).is_file():
+        pytest.fail(f"SMARTTURN_MODEL_DIR={MODEL_DIR} does not hold {ASSET_NAME}")
     t = OnnxTurn(MODEL_DIR)
     t.load()
     return t
