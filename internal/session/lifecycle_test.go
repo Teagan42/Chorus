@@ -2,6 +2,8 @@ package session_test
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"reflect"
 	"slices"
 	"testing"
@@ -352,5 +354,61 @@ func TestHeardRecordsTheSpeakerEmbedding(t *testing.T) {
 	}
 	if _, present := second.Fields["embedding_json"]; present {
 		t.Errorf("a transcript with no embedding recorded %q", second.Fields["embedding_json"])
+	}
+}
+
+// closesUnkept is a rig whose log cannot keep a session's close, and whose
+// log lines are kept for the test to read.
+func closesUnkept(t *testing.T, steps []step) (*rig, *logged) {
+	t.Helper()
+	logs := &logged{}
+	r := newRigWith(t, steps, nil, nil, func(c *session.Config) {
+		c.Store = refusingStore{Store: c.Store, kind: journal.KindSessionClosed}
+		c.Journal = journal.New(c.Store, c.Clock, versions())
+		c.Log = slog.New(logs)
+	})
+	return r, logs
+}
+
+// Nobody is waiting on the backstop, so a close it could not record is
+// logged: kept for a turn, the next turn would have wiped it unread.
+//
+// verifies SPEC §4.5, §8
+func TestABackstopCloseTheLogLostIsLogged(t *testing.T) {
+	r, logs := closesUnkept(t, nil)
+	s := r.open(t, "alice")
+
+	r.clock.awaitTimers(t, 1)
+	r.clock.advance(session.DefaultSilence)
+	awaitDone(t, s)
+	logs.await(t, errDiskFull)
+}
+
+// verifies SPEC §4, §8
+func TestAnAnnouncementsCloseTheLogLostIsLogged(t *testing.T) {
+	r, logs := closesUnkept(t, nil)
+	s, err := r.sup.Announce(context.Background(), "kitchen", ovenDone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitDone(t, s)
+	logs.await(t, errDiskFull)
+}
+
+// The model's own close runs beside the turn that asked for it, so it is
+// either the turn's error or a log line, and never neither.
+//
+// verifies SPEC §4.5, §8
+func TestAnEndSessionCloseTheLogLostIsReported(t *testing.T) {
+	r, logs := closesUnkept(t, []step{
+		{act: session.ToolCall{ID: "e1", Tool: "end_session", Args: "{}"}},
+		{act: session.TurnEnd{FinishReason: "tool_calls", Completion: "{}"}},
+	})
+	s := r.open(t, "teagan")
+
+	err := s.Heard(context.Background(), session.Transcript{Text: "thanks, that's all", SpeakerID: "teagan", AudioRef: "blob://mic/1"})
+	awaitDone(t, s)
+	if !errors.Is(err, errDiskFull) {
+		logs.await(t, errDiskFull)
 	}
 }

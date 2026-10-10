@@ -995,13 +995,19 @@ func (s *Session) record(r journal.Record) error {
 	return err
 }
 
-// fail keeps the first error of the current turn for Heard to return.
+// fail keeps the first error of the current turn for Heard to return. With
+// no turn running nobody would read it, as when the backstop closes, so it
+// is logged instead.
 func (s *Session) fail(err error) {
 	if err == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.turnCancel == nil {
+		s.sup.cfg.Log.Warn("record outside a turn", "conversation", s.convID, "err", err)
+		return
+	}
 	if s.turnErr == nil {
 		s.turnErr = err
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime"
 	"sync"
 	"testing"
@@ -523,4 +524,55 @@ func (r *rig) awaitOutcome(t *testing.T, convID, id, outcome string) journal.Cal
 	}
 	t.Fatalf("call %q never reached %s; last %+v", id, outcome, last)
 	return journal.Call{}
+}
+
+// ---------------------------------------------------------------------- logs
+
+// logged is a slog handler that keeps what it is told, so a test can see an
+// error that has no caller to return to.
+type logged struct {
+	mu   sync.Mutex
+	recs []slog.Record
+}
+
+func (l *logged) Enabled(context.Context, slog.Level) bool { return true }
+func (l *logged) WithAttrs([]slog.Attr) slog.Handler       { return l }
+func (l *logged) WithGroup(string) slog.Handler            { return l }
+
+func (l *logged) Handle(_ context.Context, r slog.Record) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.recs = append(l.recs, r.Clone())
+	return nil
+}
+
+// carries reports whether a record logged err. Converges on a write the
+// implementation is already committed to; it is not a timing assumption.
+func (l *logged) carries(err error) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, r := range l.recs {
+		found := false
+		r.Attrs(func(a slog.Attr) bool {
+			e, ok := a.Value.Any().(error)
+			found = found || ok && errors.Is(e, err)
+			return !found
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+func (l *logged) await(t *testing.T, err error) {
+	t.Helper()
+	deadline := time.Now().Add(patience)
+	for time.Now().Before(deadline) {
+		if l.carries(err) {
+			return
+		}
+		runtime.Gosched()
+	}
+	t.Fatalf("%v was never logged", err)
 }
