@@ -386,3 +386,98 @@ func stagesOf(cases []rejection) []string {
 	}
 	return out
 }
+
+// A tool's timeout tells the model now, but it is not a barge-in: work the
+// registry says outlives an interruption outlives its timeout too, and what
+// it finally returns is kept, as nobody waits for it any more.
+//
+// verifies SPEC §4.4
+func TestATimedOutDetachCallFinishesAndKeepsTheResult(t *testing.T) {
+	steps := []step{
+		// timer_start declares on_interrupt: detach.
+		{act: session.ToolCall{ID: "c1", Tool: "timer_start", Args: `{"seconds":720,"label":"oven"}`}},
+		{act: session.TurnEnd{FinishReason: "tool_calls", Completion: "{}"}},
+	}
+	gate := newGateTool(`{"timer_id":"t_3f9c2a10"}`)
+	r := newRig(t, steps, map[string]session.Tool{"timer_start": gate})
+
+	s := r.open(t, "teagan")
+	errc := heard(s, "set an oven timer for twelve minutes")
+	gate.enter(t)
+	timeout := registry.Specs["timer_start"].Timeout
+	r.clock.awaitDeadline(t, timeout)
+	r.clock.advance(timeout)
+	// The model is told it timed out, and the turn goes on without it.
+	wait(t, errc)
+	if got := callByID(t, r.state(t, s.ConversationID()), "c1"); got.Outcome != "timed_out" {
+		t.Fatalf("outcome = %q, want timed_out once the timeout passed", got.Outcome)
+	}
+
+	close(gate.release)
+	got := r.awaitOutcome(t, s.ConversationID(), "c1", "detached")
+	if got.Result != `{"timer_id":"t_3f9c2a10"}` {
+		t.Errorf("call = %+v, want the late result kept", got)
+	}
+	if !gate.ran() {
+		t.Error("a detach-policy tool was cancelled by its timeout")
+	}
+}
+
+// verifies SPEC §4.4
+func TestATimedOutUninterruptibleCallIsNotCancelled(t *testing.T) {
+	specs := maps.Clone(registry.Specs)
+	specs["unlock_door"] = registry.ToolSpec{
+		Name: "unlock_door", OnInterrupt: registry.InterruptUninterruptible,
+		Scope: registry.ScopeHousehold, Timeout: registry.Specs["remember"].Timeout,
+		RequiresConfirmation: true,
+	}
+	steps := []step{
+		{act: session.ToolCall{ID: "c1", Tool: "unlock_door", Args: `{"confirmation":"cf_4c1e9a07"}`}},
+		{act: session.TurnEnd{FinishReason: "tool_calls", Completion: "{}"}},
+	}
+	gate := newGateTool(`{"unlocked":true}`)
+	r := newRigSpecs(t, steps, map[string]session.Tool{"unlock_door": gate}, specs)
+
+	s := r.open(t, "alice")
+	r.held(t, s.ConversationID(), "c0", "unlock_door", `{}`, "cf_4c1e9a07")
+	errc := heard(s, "yes, unlock the door")
+	gate.enter(t)
+	r.clock.awaitDeadline(t, specs["unlock_door"].Timeout)
+	r.clock.advance(specs["unlock_door"].Timeout)
+	wait(t, errc)
+
+	// Side effects are already committed: the timeout's return must not stop it.
+	close(gate.release)
+	if got := r.awaitOutcome(t, s.ConversationID(), "c1", "detached"); got.Result != `{"unlocked":true}` {
+		t.Errorf("call = %+v, want the late result kept", got)
+	}
+	if !gate.ran() {
+		t.Error("an uninterruptible tool was cancelled by its timeout")
+	}
+}
+
+// verifies SPEC §7
+func TestATimedOutCancelCallIsCancelled(t *testing.T) {
+	steps := []step{
+		// ha_get_state declares on_interrupt: cancel.
+		{act: session.ToolCall{ID: "c1", Tool: "ha_get_state", Args: `{"entity_id":"cover.garage_door"}`}},
+		{act: session.TurnEnd{FinishReason: "tool_calls", Completion: "{}"}},
+	}
+	gate := newGateTool(`{"state":"closed"}`)
+	r := newRig(t, steps, map[string]session.Tool{"ha_get_state": gate})
+
+	s := r.open(t, "alan")
+	errc := heard(s, "is the garage door closed")
+	gate.enter(t)
+	timeout := registry.Specs["ha_get_state"].Timeout
+	r.clock.awaitDeadline(t, timeout)
+	r.clock.advance(timeout)
+	wait(t, errc)
+
+	if got := callByID(t, r.state(t, s.ConversationID()), "c1"); got.Outcome != "timed_out" || got.Result != `{"error":"timed_out"}` {
+		t.Errorf("call = %+v, want timed_out", got)
+	}
+	if gate.ran() {
+		t.Error("a cancel-policy tool ran on past its timeout")
+	}
+}

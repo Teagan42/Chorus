@@ -822,16 +822,24 @@ func (s *Session) runTool(parent context.Context, wg *sync.WaitGroup, tc ToolCal
 		}
 	}
 
+	lapsed := false
 	for {
 		select {
 		case r := <-results:
-			// Detached means the work outlived the barge-in. A result stamped
-			// on time is the model's to see, whichever branch select woke on.
-			record(r, r.late && spec.OnInterrupt == registry.InterruptDetach)
+			// Detached means the work outlived the barge-in or its timeout. A
+			// result stamped on time is the model's to see, whichever branch
+			// select woke on.
+			record(r, lapsed || (r.late && spec.OnInterrupt == registry.InterruptDetach))
 			return
 		case <-timeout:
 			s.result(tc.ID, "timed_out", `{"error":"timed_out"}`)
-			return
+			if !outlives(spec.OnInterrupt) {
+				return
+			}
+			// The model is told now; the work runs on as its policy says,
+			// and the turn stops waiting for it.
+			timeout, lapsed = nil, true
+			release()
 		case <-interrupted:
 			// nil the channel: a closed Done would spin this loop.
 			interrupted = nil
@@ -842,6 +850,12 @@ func (s *Session) runTool(parent context.Context, wg *sync.WaitGroup, tc ToolCal
 			}
 		}
 	}
+}
+
+// outlives reports a policy whose work is not stopped by the turn moving on
+// without it, whether a barge-in or a timeout moved it on.
+func outlives(p registry.InterruptPolicy) bool {
+	return p == registry.InterruptDetach || p == registry.InterruptUninterruptible
 }
 
 // policyContext maps the registry's on_interrupt onto cancellation.

@@ -308,6 +308,10 @@ Per-tool `on_interrupt` policy, declared in the registry:
 - `detach` — finish, keep the result (wasted but harmless work)
 - `uninterruptible` — must complete (side effects already committed)
 
+A tool's timeout (§7) is not an interruption either. The model is told
+`timed_out` and the turn goes on, but `detach` and `uninterruptible` work runs
+on past it, and its eventual result is kept as `detached` (ADR-0060).
+
 This is unretrofittable. It is why truncation fidelity matters — and why we take
 the position from `add_audio_output_callback` (§3.2.1) rather than estimating.
 

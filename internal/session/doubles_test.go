@@ -500,3 +500,27 @@ func (r *rig) awaitCall(t *testing.T, convID, id string) journal.Call {
 	t.Fatalf("call %q never produced a result", id)
 	return journal.Call{}
 }
+
+// awaitOutcome waits for a call to land one outcome, for a call whose first
+// result was not its last.
+func (r *rig) awaitOutcome(t *testing.T, convID, id, outcome string) journal.Call {
+	t.Helper()
+	deadline := time.Now().Add(patience)
+	var last journal.Call
+	for time.Now().Before(deadline) {
+		st, err := journal.Replay(context.Background(), r.store, convID, journal.Overrides{})
+		if err == nil {
+			for _, c := range st.Calls {
+				if c.ID == id {
+					last = c
+				}
+			}
+			if last.Outcome == outcome {
+				return last
+			}
+		}
+		runtime.Gosched()
+	}
+	t.Fatalf("call %q never reached %s; last %+v", id, outcome, last)
+	return journal.Call{}
+}
