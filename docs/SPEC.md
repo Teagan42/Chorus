@@ -29,12 +29,12 @@ conversation, and its trace data is too thin to learn from.
 │  event journal (source of truth)                      │
 └───┬────────────┬───────────┬───────────┬──────────────┘
     │            │           │           │
-   STT          LLM         TTS      speaker-ID     (Python sidecars, gRPC)
- Parakeet   Qwen3/vLLM    Kokoro      ECAPA
+   STT          LLM         TTS      speaker-ID     (model sidecars, HTTP)
+ Parakeet  Qwen3/Ollama   Kokoro    TitaNet-L
     │
 ┌───┴──────────────────┐   ┌─────────────────────┐
 │ Postgres (JSONB log) │   │ review UI (Go+htmx) │
-│ MinIO (audio blobs)  │   │ dataset export      │
+│ audio blobs (files)  │   │ dataset export      │
 └──────────────────────┘   └─────────────────────┘
 ```
 
@@ -256,8 +256,10 @@ Two consequences:
 - Speech deltas stream to TTS as emitted.
 
 `speak` is a declared tool so it is schema-addressable, but holds no privileged
-position. Inline `content` from models whose template emits `content` +
-`tool_calls` together is treated as an implicit `speak`.
+position. Inline `content` is not speech: beside a tool call it is never
+spoken, and with no thinking field it is taken for reasoning. A turn that
+called nothing, ended on its own, and kept its reasoning in the thinking field
+has its content spoken once it ends, as an implicit `speak` (ADR-0046).
 
 ### 4.2 Speech channel
 
@@ -336,8 +338,12 @@ Unknown or low-confidence speaker → guest context, person-scoped tools gated, 
 interrogation. That holds per utterance: a guest who chimes into someone's
 conversation is a guest for that turn, told none of the other person's
 memories, while a voice nothing could judge stays with the current speaker
-(ADR-0049). The embedding is stored on every trace record regardless, which
-gives implicit clustering for free later.
+(ADR-0049). A guest cannot open a session, though, once anyone is enrolled:
+§9.3's third stage rejects their wake as `unknown_speaker`. Guest context is
+reached only in a session already open, one a household member woke or an
+announcement that asked for an answer. Whether a guest should be able to wake
+the house is open (ADR-0030). The embedding is stored on every trace record
+regardless, which gives implicit clustering for free later.
 
 Memory: explicit `remember` / `forget` tools plus an auto rolling summary per
 person, both injected by relevance. Person context is global across satellites;
@@ -457,18 +463,24 @@ coughs. Recall is fine; precision is not. So the priority is suppressing false
 accepts, not recovering false rejects.
 
 `micro_wake_word` activation on-device is **stage one, and is not user-visible.**
-The component sends a pre-roll with the activation; the orchestrator runs stage
-two before any LED or chime:
+The component is meant to send a pre-roll with the activation, and the
+orchestrator to run stage two on it before any LED or chime. The wire carries
+no pre-roll yet (`bridge.TypeWake` is the word alone), so check 1 below is not
+run, and checks 2 and 3 run on the first utterance after the wake, which is
+when the session opens (ADR-0030):
 
 1. re-score the pre-roll against the wake model at a higher threshold
 2. confirm the segment contains speech at all
 3. confirm the speaker embedding matches a household member
 
-A cough fails all three. Only on confirmation does the session become
-perceptible to the user. Rejections are logged with audio and auto-labeled as
-hard negatives, so the retraining corpus fills itself with precisely the
-negatives the model lacks — no manual labeling, no retraining needed to get
-immediate relief.
+A cough fails all three. A guest fails the third once anyone is enrolled: a
+voice below the accept threshold, or too close to two people, is rejected as
+`unknown_speaker`, so a guest is heard only in a session already open (§5).
+With nobody enrolled, or no speaker ID, stage three passes every voice. Only
+on confirmation does the session become perceptible to the user. Rejections
+are logged with audio and auto-labeled as hard negatives, so the retraining
+corpus fills itself with precisely the negatives the model lacks — no manual
+labeling, no retraining needed to get immediate relief.
 
 Dual-channel capture means the corpus carries the fully processed stream and
 the XMOS's lighter-processed second output, so retraining can target either.
@@ -485,14 +497,16 @@ privacy story holds. Not needed today.
 
 ## 10. Model stack
 
-Local-first, cloud escape hatch per provider. Each behind a streaming
-gRPC/HTTP contract, every provider declaring capabilities (streaming? tool
-calls? interruption?).
+Local-first, cloud escape hatch per provider. Each behind an HTTP contract,
+every provider declaring capabilities (streaming? tool calls? interruption?)
+so a build-time check can reject a pipeline that cannot work. Those
+declarations and the check are not built: nothing in `schema/` describes a
+provider.
 
 | Role | Choice | Rationale |
 |---|---|---|
 | STT | Parakeet TDT 0.6B v2 | Streaming, far faster than Whisper large at better accuracy. English-only; swap to faster-whisper if multilingual is needed. |
-| LLM | Qwen3 32B (or 30B-A3B) on **vLLM** | Template emits `content` + `tool_calls` together; vLLM streams tool-call parsing. Both are hard requirements of §4.1. Ollama/llama.cpp are weaker at exactly this seam. |
+| LLM | Qwen3 32B (or 30B-A3B) on **vLLM** | vLLM streams tool-call parsing, a hard requirement of §4.1. Ollama/llama.cpp are weaker at exactly this seam. |
 | TTS | Kokoro-82M | Sentence-level streaming, sub-200 ms first chunk. Orpheus if more expression is wanted. Piper as degraded fallback. |
 | Speaker ID | ECAPA-TDNN / TitaNet-L | Embeddings + cosine. |
 | Endpointing | Smart Turn v2 | Purpose-built; avoids prompting the big model. |
@@ -536,14 +550,18 @@ Do not build the S2S path until the cascade works end to end.
   protocol contract that must version together. Split repos mean a coordinated
   release dance for a one-person project.
 - **docker-compose**, model sidecars pinned to GPU.
-- **Satellite inventory:** mDNS discovery (`_esphomelib._tcp`) for addresses;
-  static YAML for Noise PSKs, room assignment, and capability profile. Secrets
-  stay out of a database that would need separate backup.
-- **Addressing is asymmetric.** Discovery runs one way only: the orchestrator
-  resolves satellites, but the orchestrator's own address must be a literal IP
-  in the device YAML. ESPHome's `set_sockaddr` does not resolve hostnames, so
-  the device cannot dial an mDNS name. The orchestrator needs a static lease;
-  `chorus_bridge` enforces this at `esphome config` time via `cv.ipaddress`.
+- **Satellite inventory:** static YAML for each satellite's address, Noise
+  PSK, room assignment, and capability profile. Secrets stay out of a database
+  that would need separate backup. The address is an IP literal: the audio
+  link's hello carries no name, so a device is known by its source address,
+  and `chorusd` refuses a hostname, or a host two satellites share, at
+  startup. mDNS discovery (`_esphomelib._tcp`) is not built.
+- **Addressing is asymmetric.** Discovery, were it built, would run one way
+  only: the orchestrator could resolve satellites, but the orchestrator's own
+  address must be a literal IP in the device YAML. ESPHome's `set_sockaddr`
+  does not resolve hostnames, so the device cannot dial an mDNS name. The
+  orchestrator needs a static lease; `chorus_bridge` enforces this at
+  `esphome config` time via `cv.ipaddress`.
 - Wake word: existing trained "Hey Eddie" model, gated by two-stage
   confirmation (§9.3). Swappable without touching anything else.
 - Persona lives in the system prompt as a **versioned artifact** — because

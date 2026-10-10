@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// Store persists the log. SPEC §8 names Postgres JSONB partitioned by
-// conversation plus MinIO for blobs; that implementation lands later, and
-// `task test` stays hermetic against MemStore.
+// Store persists the log. PgStore is SPEC §8's Postgres JSONB, partitioned
+// by conversation; `task test` stays hermetic against MemStore. Audio is kept
+// apart, as files, by internal/blob.
 type Store interface {
 	// Append rejects a sequence number that is not exactly one past the last.
 	Append(ctx context.Context, e Event) error
