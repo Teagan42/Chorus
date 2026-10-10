@@ -69,6 +69,9 @@ type Signal struct {
 
 	// PairID names the harvested candidate for a barge-in.
 	PairID string
+
+	// First is a repeat's earlier ask: the turn whose answer failed.
+	First uint64
 }
 
 // turnContext is where the conversation stood when an event was recorded.
@@ -191,6 +194,7 @@ func read(ctx context.Context, store journal.Store, conversationID string) ([]Si
 					detail += " · no tool call on the first ask"
 				}
 				raise(e, KindRepeated, detail)
+				out[len(out)-1].First = last.seq
 				correct(last.seq)
 			}
 			// An answer ("yes") is not a request, so the request it answered

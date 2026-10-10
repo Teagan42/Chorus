@@ -314,6 +314,9 @@ func TestAskingAgainSoonAfterIsARepeat(t *testing.T) {
 	if s.Detail != "asked again 6.2 s after “set a timer for the oven” · no tool call on the first ask" {
 		t.Errorf("detail = %q", s.Detail)
 	}
+	if s.First != 2 {
+		t.Errorf("first ask = #%d, want #2: the turn whose answer failed", s.First)
+	}
 }
 
 // verifies SPEC §9.1
@@ -384,6 +387,9 @@ func TestAConfirmationInBetweenDoesNotHideARepeat(t *testing.T) {
 	s := one(t, sigs)
 	if s.Seq != 6 || s.Detail != "asked again 12.0 s after “turn off the kitchen lights” · no tool call on the first ask" {
 		t.Errorf("repeat = #%d %q", s.Seq, s.Detail)
+	}
+	if s.First != 2 {
+		t.Errorf("first ask = #%d, want the request at #2, not the yes", s.First)
 	}
 }
 
