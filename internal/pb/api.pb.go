@@ -17511,7 +17511,7 @@ const file_api_proto_rawDesc = "" +
 	"\x1bserial_proxy_set_modem_pins\x12\x1f.SerialProxySetModemPinsRequest\x1a\x05.void\"\x00\x12G\n" +
 	"\x1bserial_proxy_get_modem_pins\x12\x1f.SerialProxyGetModemPinsRequest\x1a\x05.void\"\x00\x124\n" +
 	"\x14serial_proxy_request\x12\x13.SerialProxyRequest\x1a\x05.void\"\x00\x12<\n" +
-	"\x15serial_proxy_set_mode\x12\x1a.SerialProxySetModeRequest\x1a\x05.void\"\x00B7B\bApiProtoP\x01Z)github.com/teaganglenn/chorus/internal/pbb\x06proto3"
+	"\x15serial_proxy_set_mode\x12\x1a.SerialProxySetModeRequest\x1a\x05.void\"\x00B4B\bApiProtoP\x01Z&github.com/teagan42/chorus/internal/pbb\x06proto3"
 
 var (
 	file_api_proto_rawDescOnce sync.Once

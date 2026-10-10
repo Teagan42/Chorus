@@ -499,7 +499,7 @@ const file_api_options_proto_rawDesc = "" +
 	"\x0fmax_data_length\x12\x1d.google.protobuf.FieldOptions\x18\xe2\x86\x03 \x01(\rR\rmaxDataLength:G\n" +
 	"\vmac_address\x12\x1d.google.protobuf.FieldOptions\x18\xe3\x86\x03 \x01(\b:\x05falseR\n" +
 	"macAddress:M\n" +
-	"\x0etrack_presence\x12\x1d.google.protobuf.FieldOptions\x18\xe4\x86\x03 \x01(\b:\x05falseR\rtrackPresenceB>B\x0fApiOptionsProtoP\x01Z)github.com/teaganglenn/chorus/internal/pb"
+	"\x0etrack_presence\x12\x1d.google.protobuf.FieldOptions\x18\xe4\x86\x03 \x01(\b:\x05falseR\rtrackPresenceB;B\x0fApiOptionsProtoP\x01Z&github.com/teagan42/chorus/internal/pb"
 
 var (
 	file_api_options_proto_rawDescOnce sync.Once
