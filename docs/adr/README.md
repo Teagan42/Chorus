@@ -53,6 +53,7 @@ decision rather than by clause: facets of one choice share one record.
 | [0042](0042-a-turn-that-ends-on-a-dangling-word-is-held.md) | Smart Turn's "finished" is checked against the words; a turn ending on *for*, *the*, *and* or a filler is held | §4.5, §11 |
 | [0043](0043-each-conversation-is-summarized-for-the-people-in-it-and-each-turn-is-told-the-time.md) | Each conversation is summarized for the people in it when it ends; each turn is told the time and the last week's conversations | §5, §8 |
 | [0044](0044-recall-chooses-by-relevance-and-recency-when-more-is-kept-than-a-turn-is-told.md) | Refines 0040 and 0043: past twenty memories or five conversations, an embedding model and recency choose what a turn is told | §5, §8, §11 |
+| [0045](0045-timers-belong-to-the-house-and-an-announcement-is-a-session-with-no-wake-word.md) | Timers belong to the house, in a log of their own; an announcement is a session with no wake word, answerable with `start_conversation` | §4, §4.2, §7, §8 |
 | [0046](0046-a-turn-that-calls-nothing-has-its-answer-spoken-from-its-content.md) | A turn that calls nothing, with its reasoning in the thinking field, has its content spoken when it ends | §4.1, §5 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,

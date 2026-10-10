@@ -120,6 +120,17 @@ audio is its own row, saying how long the person waited.
 
 ![Conversation, first audio](conversation-first-audio.png)
 
+A timer going off, or someone asking for something to be said in another
+room, opens a session with no wake word (ADR-0045). Browse lists it as an
+*announcement*, named by what it said and whom it was for. Its log says why
+it was said. Timers live in the household's own log, `house:timers`, which
+Browse does not list. Its events appear in the conversations they name, as
+`house #N` rows: the timer being set beside the `timer_start` call, and its
+going off in the session that said it. A timer nobody heard is a failure in
+Triage, which opens the house log at the event.
+
+![An announcement: the oven timer going off](e2e/journey-oven-goes-off.png)
+
 ### Triage
 
 ![Triage](triage.png)
@@ -258,7 +269,8 @@ reviewer through a whole day, start to finish:
 - cancel and undo leave no verdict behind;
 - Review walks every cut in turn;
 - every Triage signal opens where it happened;
-- Browse follows a person across satellites and walks back through the days.
+- Browse follows a person across satellites and walks back through the days;
+- the oven timer goes off in an empty kitchen, and is shown set where it was.
 
 ![Journey: Browse today](e2e/journey-browse-today.png)
 ![Journey: editing the chosen side](e2e/journey-review-editing.png)

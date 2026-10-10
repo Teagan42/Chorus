@@ -548,8 +548,9 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
 - MCP provider
 - ~~Confirmation gates~~ **Done — ADR-0038, ADR-0041.** Garage, gate and door
   covers are held by the class Home Assistant gives them.
-- Timers
-- Announcements with `start_conversation`
+- ~~Timers~~ **Done — ADR-0045.** A timer belongs to the house, outlives the
+  conversation and the process, and goes off where it was set.
+- ~~Announcements with `start_conversation`~~ **Done — ADR-0045.**
 - ~~Semantic endpointing~~ **Done — ADR-0036.**
 - Wake-word retraining from the harvested negative corpus
 - Near-miss buffer if false rejects surface
