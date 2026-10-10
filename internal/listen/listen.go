@@ -568,8 +568,10 @@ type utterance struct {
 	// stopped is when its speech stopped, set before ended closes.
 	stopped time.Time
 
-	// Touched only by run.
+	// Touched only by run. refused is set once the gate turned a candidate
+	// down, and bargedIn once one stopped speech.
 	bargedIn   bool
+	refused    bool
 	candidates int
 
 	mu    sync.Mutex
@@ -673,10 +675,11 @@ func (l *Listener) candidate(u *utterance, r stt.Result) {
 	})
 	if err != nil {
 		l.warn("offer barge-in", err)
+		return
 	}
 	// One interruption per utterance: speech is already stopping, and a
 	// second detection would journal a cut that did not happen.
-	u.bargedIn = ok
+	u.bargedIn, u.refused = ok, u.refused || !ok
 }
 
 // offset turns the DAC's cumulative frame count into how far into the speech
@@ -713,6 +716,9 @@ func (l *Listener) complete(u *utterance) {
 	if u.first && !l.confirm(pcm, second, out) {
 		return
 	}
+	if overheard(u, out) {
+		return
+	}
 	ref, err := l.store(u.key(), pcm)
 	if err != nil {
 		l.warn("store utterance audio", err)
@@ -732,12 +738,28 @@ func (l *Listener) complete(u *utterance) {
 		return
 	}
 	err = sess.Heard(l.ctx, session.Transcript{
-		Text: res.Text, SpeakerID: out.PersonID, AudioRef: ref, Embedding: out.Embedding,
-		Ended: u.stopped, SecondAudioRef: secondRef,
+		Text: res.Text, SpeakerID: out.PersonID, SpeakerMatch: string(out.Reason),
+		AudioRef: ref, Embedding: out.Embedding, Ended: u.stopped, SecondAudioRef: secondRef,
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		l.warn("hear utterance", err)
 	}
+}
+
+// overheard reports an utterance that is not a turn: it talked over speech,
+// the gate never let it stop that speech, and the whole of it, judged once
+// more now it has ended, is a voice the household does not know. That is
+// the television the gate refused, and its rejected candidates are already
+// in the log with their audio; answering it as a turn would undo the refusal
+// a pause later (ADR-0048).
+//
+// A household voice the gate turned down for a short partial or a quiet
+// start is still heard: the refusal was about stopping speech, not about
+// who spoke. So is any voice nothing could judge: with no identification,
+// or nobody enrolled, the television and a guest cannot be told apart, and
+// SPEC §5 answers the guest.
+func overheard(u *utterance, out identity.Outcome) bool {
+	return u.refused && !u.bargedIn && out.PersonID == "" && journal.Unmatched(string(out.Reason))
 }
 
 // confirm is stages two and three of wake confirmation (SPEC §9.3) on the
