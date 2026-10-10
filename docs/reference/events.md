@@ -14,13 +14,15 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | `conversation_summarized` | session |  |  | The conversation ended and the model summarized it for the identified people in it, to be told in their later conversations. Recorded in full, as a completion is, because replay cannot regenerate it (SPEC §5, §8). |
 | `memory_recalled` | session |  |  | What the model is told it remembers, from this turn on: the speaker's own memories and what others shared, and their recent conversations, chosen by relevance when there are more than fit. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5). |
 | `model_completed` | thinking |  |  | Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8). |
+| `model_failed` | thinking |  |  | The model could not answer the turn: it was unreachable, its stream broke, or it went quiet past its deadline. No model is left to reason with, so a canned line says so instead (SPEC §7, ADR-0051). |
 | `presence_changed` | device |  |  | The satellite's own presence sensor changed: the Satellite1's mmWave radar, read over the native API. Recorded in the device's log, since presence belongs to the room, not to a conversation (ADR-0050). |
 | `session_closed` | session |  |  | Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). An announcement nobody was asked to answer closes as announced once it has been said. |
 | `session_opened` | session |  |  | Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5). |
-| `speech_discarded` | speaking |  | yes | Speech generated but never played, because a barge-in emptied the queue first. Distinct from truncation: nothing was heard. |
+| `speech_discarded` | speaking |  | yes | Speech generated but never played, because a barge-in, or whatever reason names, emptied the queue first. Distinct from truncation: nothing was heard. |
+| `speech_failed` | speaking |  |  | A speak call's audio failed short of the person interrupting: the voice could not render it, or the device never confirmed playing it. The truncation or discard it caused names the same reason, so it is never mistaken for a barge-in (SPEC §7, ADR-0051). |
 | `speech_spoken` | speaking | yes |  | Audio the user actually heard, bounded by DAC-reported playback position. |
 | `speech_started` | speaking |  |  | The DAC played the first frame of a turn's speech. Recorded once per turn, when the device reports it, so its wall clock is when the household first heard the answer (SPEC §11). |
-| `speech_truncated` | speaking | yes | yes | Barge-in cut speech short. Carries the exact split between heard and unheard text. |
+| `speech_truncated` | speaking | yes | yes | Speech was cut short, usually by a barge-in; reason says what cut it. Carries the exact split between heard and unheard text. |
 | `timer_cancelled` | tool |  |  | A running timer was cancelled before it went off. |
 | `timer_finished` | session |  |  | A timer went off, and whether anybody was told. A timer nobody heard is a failure the household felt, so it is recorded as one (SPEC §7). |
 | `timer_started` | tool |  |  | A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0045). |
@@ -126,6 +128,18 @@ Actor: `thinking`. `has_audio`: no. `training_signal`: no. `speculative`: no. `r
 | `completion_json` | string | yes | Raw completion as returned. |
 | `finish_reason` | string | yes | Why generation stopped. One of: `stop`, `length`, `tool_calls`, `error`. |
 
+## `model_failed`
+
+The model could not answer the turn: it was unreachable, its stream broke, or it went quiet past its deadline. No model is left to reason with, so a canned line says so instead (SPEC §7, ADR-0051).
+
+Actor: `thinking`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: yes.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `reason` | string | yes | unavailable: the ask never started. failed: the stream broke partway. timed_out: nothing came for longer than the deadline, and the ask was given up on. One of: `unavailable`, `failed`, `timed_out`. |
+| `error` | string | yes | What the engine reported. |
+| `canned_call_id` | string |  | The speak call that said the canned line. Empty when none was said: one has already been said this turn, or the session is ending. |
+
 ## `presence_changed`
 
 The satellite's own presence sensor changed: the Satellite1's mmWave radar, read over the native API. Recorded in the device's log, since presence belongs to the room, not to a conversation (ADR-0050).
@@ -165,14 +179,27 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 
 ## `speech_discarded`
 
-Speech generated but never played, because a barge-in emptied the queue first. Distinct from truncation: nothing was heard.
+Speech generated but never played, because a barge-in, or whatever reason names, emptied the queue first. Distinct from truncation: nothing was heard.
 
 Actor: `speaking`. `has_audio`: no. `training_signal`: yes. `speculative`: no. `requires_versions`: yes.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `unspoken_text` | string | yes | Generated but never played. |
-| `reason` | string | yes | Why it was dropped. One of: `barge_in`, `preempted`, `session_closed`, `migrated`. |
+| `reason` | string | yes | Why it was dropped. tts_unavailable and playback_unconfirmed are the voice or the device failing, not the person (ADR-0051). One of: `barge_in`, `preempted`, `session_closed`, `migrated`, `tts_unavailable`, `playback_unconfirmed`. |
+
+## `speech_failed`
+
+A speak call's audio failed short of the person interrupting: the voice could not render it, or the device never confirmed playing it. The truncation or discard it caused names the same reason, so it is never mistaken for a barge-in (SPEC §7, ADR-0051).
+
+Actor: `speaking`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `call_id` | string | yes | The speak call whose audio failed. |
+| `reason` | string | yes | tts_unavailable: the voice failed to open or render. playback_unconfirmed: the device stopped reporting playback before the end. One of: `tts_unavailable`, `playback_unconfirmed`. |
+| `error` | string |  | What the voice or the device reported. Empty when it said nothing. |
+| `canned_call_id` | string |  | The speak call that said the canned line from audio rendered ahead of time. Empty when none was said. |
 
 ## `speech_spoken`
 
@@ -199,7 +226,7 @@ Actor: `speaking`. `has_audio`: no. `training_signal`: no. `speculative`: no. `r
 
 ## `speech_truncated`
 
-Barge-in cut speech short. Carries the exact split between heard and unheard text.
+Speech was cut short, usually by a barge-in; reason says what cut it. Carries the exact split between heard and unheard text.
 
 Actor: `speaking`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. `requires_versions`: yes.
 
@@ -209,6 +236,7 @@ Actor: `speaking`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. 
 | `unspoken_text` | string | yes | Generated but never played. |
 | `frames_played` | integer | yes | DAC frame count at cut. |
 | `call_id` | string |  | The speak call that was cut. Empty in logs from before it was recorded. |
+| `reason` | string |  | Why it was cut. Only barge_in is the person interrupting; tts_unavailable and playback_unconfirmed are the voice or the device failing, which nobody chose and no preference pair may be cut from (ADR-0051). Empty in logs from before it was recorded. One of: `barge_in`, `preempted`, `session_closed`, `migrated`, `tts_unavailable`, `playback_unconfirmed`. |
 
 ## `timer_cancelled`
 
