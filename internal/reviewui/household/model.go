@@ -44,12 +44,12 @@ func brief(text string) (rerun.Take, bool) {
 		}, true
 	case "play something by zeppelin":
 		return rerun.Take{
-			Calls:  []rerun.Call{{Tool: "media_search", Args: `{"query":"Led Zeppelin","media_type":"album","limit":5}`}},
+			Calls:  []rerun.Call{{Tool: "media_search", Args: `{"query":"Led Zeppelin","limit":5}`}},
 			Speech: []rerun.Speech{{Text: "I found three albums. Want Led Zeppelin one?"}},
 		}, true
 	case "and put on some jazz":
 		return rerun.Take{
-			Calls:  []rerun.Call{{Tool: "media_search", Args: `{"query":"jazz","media_type":"playlist","limit":3}`}},
+			Calls:  []rerun.Call{{Tool: "media_search", Args: `{"query":"jazz","limit":3}`}},
 			Speech: []rerun.Speech{{Text: "Three jazz playlists. Playing Late Night Jazz."}},
 		}, true
 	case "is the garage door closed":

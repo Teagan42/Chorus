@@ -141,7 +141,7 @@ func Logs() map[string][]Line {
 		ConvZeppelin: {
 			{at(8, 53, 20), rec(journal.KindSessionOpened, "", "satellite", "kitchen", "speaker_id", "alice", "resumed", "false")},
 			{at(8, 53, 20.3), rec(journal.KindUtteranceTranscribed, "blob://mic/zeppelin-ask", "text", "play something by zeppelin", "speaker_id", "alice")},
-			{at(8, 53, 20.4), rec(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c1", "args_json", `{"query":"Led Zeppelin","media_type":"album","limit":5}`)},
+			{at(8, 53, 20.4), rec(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c1", "args_json", `{"query":"Led Zeppelin","limit":5}`)},
 			{at(8, 53, 20.55), rec(journal.KindToolResult, "", "call_id", "c1", "outcome", "ok", "result_json", `{"results":["Led Zeppelin","Led Zeppelin II","Led Zeppelin IV"]}`)},
 			{at(8, 53, 20.6), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s1", "args_json", speakArgs)},
 			{at(8, 53, 20.7), started("s1", 650)},
@@ -249,7 +249,7 @@ func Logs() map[string][]Line {
 			{at(18, 40, 2.35), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
 			// Alan, from the sofa: a second voice in Alice's conversation.
 			{at(18, 40, 4.5), rec(journal.KindUtteranceTranscribed, "blob://mic/jazz-ask", "text", "and put on some jazz", "speaker_id", "alan")},
-			{at(18, 40, 4.6), rec(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c2", "args_json", `{"query":"jazz","media_type":"playlist","limit":3}`)},
+			{at(18, 40, 4.6), rec(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c2", "args_json", `{"query":"jazz","limit":3}`)},
 			{at(18, 40, 4.75), rec(journal.KindToolResult, "", "call_id", "c2", "outcome", "ok", "result_json", `{"results":["Late Night Jazz","Jazz Classics","Coffee Table Jazz"]}`)},
 			{at(18, 40, 4.8), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s2", "args_json", speakArgs)},
 			{at(18, 40, 4.9), started("s2", 650)},
@@ -260,7 +260,7 @@ func Logs() map[string][]Line {
 			{at(18, 40, 6.1), rec(journal.KindSpeechDiscarded, "", "unspoken_text", "Say skip to hear the next one.", "reason", "barge_in")},
 			{at(18, 40, 6.1), rec(journal.KindToolResult, "", "call_id", "s2", "outcome", "cancelled")},
 			{at(18, 40, 7.3), rec(journal.KindUtteranceTranscribed, "blob://mic/jazz-quieter", "text", "something quieter", "speaker_id", "alan")},
-			{at(18, 40, 7.35), rec(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c3", "args_json", `{"query":"quiet jazz piano","media_type":"playlist","limit":3}`)},
+			{at(18, 40, 7.35), rec(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c3", "args_json", `{"query":"quiet jazz piano","limit":3}`)},
 			{at(18, 40, 7.45), rec(journal.KindToolResult, "", "call_id", "c3", "outcome", "ok")},
 			{at(18, 40, 7.5), rec(journal.KindToolCalled, "", "tool", "ha_call_service", "call_id", "c4", "args_json", `{"domain":"media_player","service":"play_media","entity_id":"media_player.living_room","data":{"media_content_id":"playlist:quiet-jazz-piano"}}`)},
 			{at(18, 40, 7.55), rec(journal.KindToolResult, "", "call_id", "c4", "outcome", "ok")},

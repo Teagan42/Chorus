@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/kokoro"
 	"github.com/teagan42/chorus/internal/provider/speaches"
+	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/reviewui/household"
 )
 
@@ -350,5 +352,36 @@ func TestTheCancelledPastaTimerNeverGoesOff(t *testing.T) {
 	}
 	if !started || !cancelled {
 		t.Errorf("pasta timer started by its call %v, cancelled by its call %v", started, cancelled)
+	}
+}
+
+// Every call the household's model made asks only for what its tool offered
+// the model: a model shown no media_type cannot have asked for one. The
+// session's own speak calls carry its fields, not the model's.
+//
+// verifies SPEC §3
+func TestEveryCallAsksOnlyForWhatItsToolOffered(t *testing.T) {
+	for id, lines := range household.Logs() {
+		for _, l := range lines {
+			f := l.Rec.Fields
+			if l.Rec.Kind != journal.KindToolCalled || f["tool"] == "speak" {
+				continue
+			}
+			spec, ok := registry.Specs[f["tool"]]
+			if !ok {
+				t.Errorf("%s: %s is no tool", id, f["tool"])
+				continue
+			}
+			var args map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(f["args_json"]), &args); err != nil {
+				t.Errorf("%s: %s %s: %v", id, f["call_id"], f["args_json"], err)
+				continue
+			}
+			for name := range args {
+				if !slices.ContainsFunc(spec.ModelParams, func(p registry.ParamSpec) bool { return p.Name == name }) {
+					t.Errorf("%s: %s asks %s for %q, which it never offered", id, f["call_id"], f["tool"], name)
+				}
+			}
+		}
 	}
 }
