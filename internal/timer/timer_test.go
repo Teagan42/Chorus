@@ -78,6 +78,9 @@ type announcer struct {
 	mu        sync.Mutex
 	connected map[string]bool
 	said      []said
+
+	// unheard satellites take an announcement, then never play it.
+	unheard map[string]bool
 }
 
 type said struct {
@@ -86,7 +89,7 @@ type said struct {
 }
 
 func newAnnouncer(connected ...string) *announcer {
-	a := &announcer{connected: map[string]bool{}}
+	a := &announcer{connected: map[string]bool{}, unheard: map[string]bool{}}
 	for _, s := range connected {
 		a.connected[s] = true
 	}
@@ -99,8 +102,19 @@ func (a *announcer) Announce(_ context.Context, satellite string, an session.Ann
 	if !a.connected[satellite] {
 		return "", announce.ErrNotConnected
 	}
+	if an.Heard != nil {
+		an.Heard <- !a.unheard[satellite]
+		an.Heard = nil
+	}
 	a.said = append(a.said, said{satellite, an})
 	return "conv-announce-" + satellite, nil
+}
+
+// play sets whether satellite plays what it is handed.
+func (a *announcer) play(satellite string, ok bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.unheard[satellite] = !ok
 }
 
 func (a *announcer) connect(satellite string) {
@@ -367,6 +381,47 @@ func TestATimerWaitsForItsSatelliteWithinTheGrace(t *testing.T) {
 	done := gone.finished(t, 1)
 	if done.Fields["outcome"] != "unannounced" || !strings.Contains(done.Fields["error"], "kitchen: not connected") {
 		t.Errorf("timer_finished = %v, want unannounced on a kitchen that never came back", done.Fields)
+	}
+}
+
+// The oven goes off as the kitchen's link drops: the announcement is taken,
+// then never played. Queued is not heard, so the scheduler says it again
+// once the kitchen plays again, and a kitchen that never does leaves the
+// timer unannounced rather than announced.
+//
+// verifies SPEC §7
+func TestATimerQueuedButNeverPlayedIsSaidAgain(t *testing.T) {
+	h := newHouse("kitchen")
+	h.ann.play("kitchen", false)
+	s, _ := h.start(t)
+	if _, err := s.Set(context.Background(), alanInTheKitchen, timer.Request{Seconds: 720, Label: "oven"}); err != nil {
+		t.Fatal(err)
+	}
+	h.clock.advance(12 * time.Minute)
+	await(t, "a retry to be armed", func() bool { return h.clock.armed() > 0 })
+	h.ann.play("kitchen", true)
+	h.clock.advance(timer.RetryEvery)
+	if done := h.finished(t, 1); done.Fields["outcome"] != "announced" {
+		t.Errorf("timer_finished = %v, want announced once the kitchen played it", done.Fields)
+	}
+	if got := h.ann.heard(); len(got) != 2 {
+		t.Errorf("handed to the kitchen %d times, want twice", len(got))
+	}
+
+	gone := newHouse("kitchen")
+	gone.ann.play("kitchen", false)
+	s, _ = gone.start(t)
+	if _, err := s.Set(context.Background(), alanInTheKitchen, timer.Request{Seconds: 60, Label: "tea"}); err != nil {
+		t.Fatal(err)
+	}
+	gone.clock.advance(time.Minute)
+	for range int(timer.DefaultGrace / timer.RetryEvery) {
+		await(t, "a retry", func() bool { return gone.clock.armed() > 0 || len(gone.log(t)) == 2 })
+		gone.clock.advance(timer.RetryEvery)
+	}
+	done := gone.finished(t, 1)
+	if done.Fields["outcome"] != "unannounced" || !strings.Contains(done.Fields["error"], "kitchen: not heard") {
+		t.Errorf("timer_finished = %v, want unannounced on a kitchen that never played it", done.Fields)
 	}
 }
 

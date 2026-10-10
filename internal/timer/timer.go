@@ -222,16 +222,31 @@ func (s *Scheduler) fire(id string) {
 	}
 }
 
-// announce says a timer on its satellite, trying again while the satellite
-// is not connected and the timer is still within its grace.
+// errNotHeard is an announcement queued on a satellite that never played it.
+var errNotHeard = errors.New("not heard")
+
+// announce says a timer on its satellite, trying again while it is not
+// connected or not heard and the timer is still within its grace.
 func (s *Scheduler) announce(t journal.Timer) (string, error) {
 	for {
+		heard := make(chan bool, 1)
 		conv, err := s.cfg.Announcer.Announce(s.ctx, t.Satellite, session.Announcement{
 			Text: Says(t), Source: session.SourceTimer, TimerID: t.ID, RequestedBy: t.Person,
-			FromSatellite: t.Satellite, FromConversation: t.ConversationID,
+			FromSatellite: t.Satellite, FromConversation: t.ConversationID, Heard: heard,
 		})
+		if err == nil {
+			select {
+			case ok := <-heard:
+				if !ok {
+					err = errNotHeard
+				}
+			case <-s.ctx.Done():
+				return conv, s.ctx.Err()
+			}
+		}
 		late := s.cfg.Clock.Now().Sub(t.FiresAt)
-		if !errors.Is(err, announce.ErrNotConnected) || late+RetryEvery > s.cfg.Grace {
+		retry := errors.Is(err, announce.ErrNotConnected) || errors.Is(err, errNotHeard)
+		if !retry || late+RetryEvery > s.cfg.Grace {
 			return conv, err
 		}
 		select {
