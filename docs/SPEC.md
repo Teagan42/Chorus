@@ -164,7 +164,7 @@ Entities that matter, all usable from the orchestrator over the native API:
 | `light` **LED Ring** | §19 concurrency feedback — speaking *and* working |
 | `select` **Wake word sensitivity** (3 levels) | **Immediate relief for cough false-accepts, no retraining** (§9.3) |
 | `switch` **Capture wake-word audio** | Stock corpus capture hook — inspect before building our own |
-| `binary_sensor` **Room Presence** + mmWave radar suite | Unplanned bonus: presence-gated sessions, occupancy-aware routing |
+| `binary_sensor` **Room Presence** + mmWave radar suite | Journalled to the device's log as `presence_changed` and drawn on Browse (ADR-0050). Presence-gated sessions and occupancy-aware routing are not built |
 | `switch` **Mute Microphones** (HW) | Hardware mute is a user-facing privacy control; respect it |
 | `button` **XMOS Flash Embedded FW** | XMOS firmware is flashable from the API |
 
@@ -324,7 +324,9 @@ gives implicit clustering for free later.
 
 Memory: explicit `remember` / `forget` tools plus an auto rolling summary per
 person, both injected by relevance. Person context is global across satellites;
-the satellite contributes **location as turn metadata, not identity**.
+the satellite contributes **location as turn metadata, not identity**: the
+inventory's room, recorded when a session opens there and told to every turn
+from the log (ADR-0050).
 Cross-person visibility off by default, with an explicit per-memory `shareable`
 flag — this is a household, not a tenancy, but surprising disclosure is how a
 voice assistant loses trust.
@@ -373,7 +375,8 @@ review UI, replay harness, and dataset export become readers of existing data
 rather than new plumbing.
 
 Storage: Postgres `JSONB`, partitioned by conversation, plus MinIO/filesystem
-for audio blobs (mic PCM, both channels; synthesized TTS). Keep everything;
+for audio blobs (mic PCM, both channels, the second named by
+`second_audio_ref`; synthesized TTS). Keep everything;
 retention configurable per satellite. 16 kHz mono is ~115 MB/day of continuous
 capture.
 
