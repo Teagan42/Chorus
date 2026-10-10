@@ -332,9 +332,10 @@
       (footprint "chorus-main:Hirose_FX23L-80S-0.5SV")
       (fields
         (field (name "MPN") "FX23L-80S-0.5SV(20)")
+        (field (name "LCSC") "C2911203")
         (field (name "Note") "mates the HAT's J7; centred 10 mm above the HAT's centre, pad 1 toward +x, as FutureProofHomes' shoe places it")
         (field (name "Mates") "J7 of FutureProofHomes Satellite1, HAT rev 6.1 on Core rev 4.1 or 5.1")
-        (field (name "Unverified") "which power contact is which. The signal pads are read from FutureProofHomes' shoe and protoboard; MH1-MH4 are inferred from the shoe's copper, and a 5 V and VBUS swap puts PoE's 12 V on the HAT's 5 V rail. Confirm against Hirose's or a vendor's footprint, or by measuring a powered HAT's plug, before ordering"))
+        (field (name "Unverified") "which end of the plug is ground. The signal pads and all four holes match Hirose's own 3D model of this part, but nothing Hirose publishes says which net a power contact carries. MH1-MH4 are FutureProofHomes' names, placed here from their shoe's ground pour; numbered as Hirose numbers its power contacts, the grounds would be at the other end, and this board would short PoE and the HAT's VBUS to ground. A continuity test on an unpowered HAT settles it: chorus-main.pretty/README.md"))
       (libsource (lib "chorus-main") (part "FX23L-80S-0.5SV") (description ""))
       (property (name "Sheetname") (value "connector"))
       (sheetpath (names "/connector/") (tstamps "/84925036-658d-5260-8ea8-1f71439d4c3b/"))
