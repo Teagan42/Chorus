@@ -1,5 +1,29 @@
 [
   {
+    "description": "Say something out loud on other satellites with nobody waking them, e.g. Dinner is ready. Name a room, or leave it out to say it in every room but this one. Set start_conversation to listen there for an answer afterwards with no wake word.",
+    "input_schema": {
+      "properties": {
+        "room": {
+          "description": "Where to say it: a room or satellite name, e.g. kitchen. Leave it out for every room but this one.",
+          "type": "string"
+        },
+        "start_conversation": {
+          "description": "Listen for an answer afterwards, as if the person there had said the wake word.",
+          "type": "boolean"
+        },
+        "text": {
+          "description": "What to say, as it should be heard, e.g. Dinner is ready, come down.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "announce"
+  },
+  {
     "description": "Close the conversation. Call when the task is complete rather than waiting for silence.",
     "input_schema": {
       "properties": {},
@@ -162,5 +186,53 @@
       "type": "object"
     },
     "name": "speak"
+  },
+  {
+    "description": "Cancel a running timer before it ends. Name it by the id timer_start or timer_list gave; call timer_list first when you do not know it.",
+    "input_schema": {
+      "properties": {
+        "timer_id": {
+          "description": "The id of the timer to cancel, e.g. t_3f9c2a10.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timer_id"
+      ],
+      "type": "object"
+    },
+    "name": "timer_cancel"
+  },
+  {
+    "description": "List the household's running timers: each one's id, label, the satellite it was set on, and the seconds left.",
+    "input_schema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "timer_list"
+  },
+  {
+    "description": "Start a countdown timer on this satellite. When it ends, the announcement is said out loud here, whether or not anyone is talking to you then. Returns the timer's id.",
+    "input_schema": {
+      "properties": {
+        "announcement": {
+          "description": "What to say when it ends, as one short sentence, e.g. The oven timer is done.",
+          "type": "string"
+        },
+        "label": {
+          "description": "What it is for, in a word or two, e.g. oven.",
+          "type": "string"
+        },
+        "seconds": {
+          "description": "How long, in seconds, e.g. 720 for twelve minutes.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seconds"
+      ],
+      "type": "object"
+    },
+    "name": "timer_start"
   }
 ]

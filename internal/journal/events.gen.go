@@ -10,6 +10,8 @@ type Kind string
 type Actor string
 
 const (
+	// Something was said that nobody in this conversation asked for: a timer going off, or someone in another room asking for it to be said here. Recorded in the conversation it was said in, ahead of the speak call that says it (SPEC §4).
+	KindAnnouncementMade Kind = "announcement_made"
 	// Interruption passed the detection gate. Timing is milliseconds into TTS playback, not wall clock, so replay reproduces the cut.
 	KindBargeInDetected Kind = "barge_in_detected"
 	// Candidate interruption failed the detection gate. Tuning corpus for SPEC §4.3.
@@ -24,7 +26,7 @@ const (
 	KindMemoryRecalled Kind = "memory_recalled"
 	// Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8).
 	KindModelCompleted Kind = "model_completed"
-	// Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5).
+	// Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). An announcement nobody was asked to answer closes as announced once it has been said.
 	KindSessionClosed Kind = "session_closed"
 	// Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5).
 	KindSessionOpened Kind = "session_opened"
@@ -36,6 +38,12 @@ const (
 	KindSpeechStarted Kind = "speech_started"
 	// Barge-in cut speech short. Carries the exact split between heard and unheard text.
 	KindSpeechTruncated Kind = "speech_truncated"
+	// A running timer was cancelled before it went off.
+	KindTimerCancelled Kind = "timer_cancelled"
+	// A timer went off, and whether anybody was told. A timer nobody heard is a failure the household felt, so it is recorded as one (SPEC §7).
+	KindTimerFinished Kind = "timer_finished"
+	// A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0044).
+	KindTimerStarted Kind = "timer_started"
 	// Model dispatched a tool; emitted when its JSON closed, not at end of message.
 	KindToolCalled Kind = "tool_called"
 	// Tool completed, failed, or timed out. Failures are results the model reasons about (SPEC §7).
@@ -58,6 +66,7 @@ type EventMeta struct {
 
 // Meta describes every known event kind.
 var Meta = map[Kind]EventMeta{
+	KindAnnouncementMade:       {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"text", "call_id", "source"}},
 	KindBargeInDetected:        {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"tts_position_ms"}},
 	KindBargeInRejected:        {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"stage"}},
 	KindConfirmationGiven:      {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id", "nonce"}},
@@ -71,6 +80,9 @@ var Meta = map[Kind]EventMeta{
 	KindSpeechSpoken:           {Actor: "speaking", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"text", "frames_played"}},
 	KindSpeechStarted:          {Actor: "speaking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id"}},
 	KindSpeechTruncated:        {Actor: "speaking", HasAudio: true, TrainingSignal: true, Speculative: false, RequiresVersions: true, RequiredFields: []string{"spoken_text", "unspoken_text", "frames_played"}},
+	KindTimerCancelled:         {Actor: "tool", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"timer_id", "conversation_id", "call_id"}},
+	KindTimerFinished:          {Actor: "session", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"timer_id", "outcome"}},
+	KindTimerStarted:           {Actor: "tool", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"timer_id", "seconds", "fires_at", "satellite", "conversation_id", "call_id"}},
 	KindToolCalled:             {Actor: "thinking", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"tool", "call_id", "args_json"}},
 	KindToolResult:             {Actor: "tool", HasAudio: false, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"call_id", "outcome"}},
 	KindUtteranceTranscribed:   {Actor: "listening", HasAudio: true, TrainingSignal: false, Speculative: false, RequiresVersions: false, RequiredFields: []string{"text"}},
@@ -79,6 +91,7 @@ var Meta = map[Kind]EventMeta{
 
 // AllKinds lets replay assert exhaustive handling.
 var AllKinds = []Kind{
+	KindAnnouncementMade,
 	KindBargeInDetected,
 	KindBargeInRejected,
 	KindConfirmationGiven,
@@ -92,6 +105,9 @@ var AllKinds = []Kind{
 	KindSpeechSpoken,
 	KindSpeechStarted,
 	KindSpeechTruncated,
+	KindTimerCancelled,
+	KindTimerFinished,
+	KindTimerStarted,
 	KindToolCalled,
 	KindToolResult,
 	KindUtteranceTranscribed,
