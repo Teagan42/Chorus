@@ -1,0 +1,42 @@
+# A Satellite1 kit with the Chorus main board under its HAT (ADR-0055): the
+# device satellite1.yaml describes, on wired Ethernet instead of Wi-Fi, and
+# powered over PoE through the HAT's VBUS.
+#
+# Every pin below is hardware/chorus-main/pins.yaml's, and
+# `go test ./internal/board` holds the two to each other. A kit without the
+# main board keeps satellite1.yaml: ESPHome 2026.7 builds Wi-Fi or Ethernet,
+# never both (ethernet's CONFLICTS_WITH), so the two configs stay separate.
+#
+#   task firmware:config -- satellite1-main.yaml
+#   task firmware:upload -- satellite1-main.yaml
+
+packages:
+  satellite1: !include satellite1.yaml
+
+wifi: !remove
+
+# The W5500 on its own clock and data. The XMOS's `spi_0` holds SPI2, and
+# ESPHome refuses an ethernet and a spi bus on one host, so this is SPI3.
+# Its pins route through the GPIO matrix, which the S3 runs at up to 40 MHz;
+# the default 26.67 MHz clock is inside that.
+ethernet:
+  type: W5500
+  interface: spi3
+  clk_pin: GPIO39
+  mosi_pin: GPIO41
+  miso_pin: GPIO14
+  cs_pin: GPIO3
+  interrupt_pin: GPIO38
+  reset_pin: GPIO2
+
+# PoE present: the PoE module's 12 V through the main board's divider, about
+# 3.0 V when the cable carries power. With no USB-PD contract on PoE alone,
+# satellite1.yaml would otherwise wake the amplifier in its low-power mode.
+binary_sensor:
+  - platform: gpio
+    id: poe_present
+    name: PoE Power
+    device_class: power
+    pin: GPIO42
+    on_state:
+      - lambda: id(poe_supply) = x;

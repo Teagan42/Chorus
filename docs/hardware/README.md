@@ -268,11 +268,17 @@ upload reads.
    - Ethernet up, then `task test:hardware` over the cable, against the Wi-Fi
      numbers in SPEC §3.3.2;
    - PoE only: the kit boots on VBUS at 12 V, and the amplifier plays.
-4. **Firmware**: an ESPHome config for the main board is `satellite1.yaml`
-   with an `ethernet:` block for the W5500 on the pins above, in place of
-   `wifi:`, and `POE_SENSE` read beside the PD contract. ESPHome builds one
-   or the other, so the Wi-Fi build stays the config for a kit without a main
-   board.
+4. **Firmware**: [`esphome/satellite1-main.yaml`](../../esphome/satellite1-main.yaml)
+   is `satellite1.yaml` with `wifi:` removed and the W5500 on SPI3, on the
+   pins above. `POE_SENSE` is a binary sensor, and with PoE present the
+   amplifier wakes in its full-power mode, as it does on a 9 V or higher PD
+   contract. ESPHome 2026.7 builds Wi-Fi or Ethernet, never both, so a kit
+   without a main board keeps `satellite1.yaml`. `go test ./internal/board`
+   holds every pin the config drives to `pins.yaml`. Full power on 12 V is
+   proved at bring-up: if speech peaks brown out the 12 W module, the PoE
+   case drops back to the low-power mode.
+5. **Four raw mics**: the [XMOS firmware derivative](xmos-four-mics.md) for
+   direction finding (ADR-0061). It needs no main board; it is the same kit.
 
 ## Open questions
 
@@ -283,9 +289,6 @@ upload reads.
 - **The kit's draw on PoE.** The amplifier's speech peaks, the LED ring and
   the radar against the AG9912's 12 W, and its maintain-power signature at
   idle.
-- **The W5500 on SPI3 in ESPHome.** The running config takes SPI2 for the
-  XMOS explicitly; that the `ethernet:` component lands on the other host is
-  expected, and proved at bring-up.
 
 ## Sources
 
