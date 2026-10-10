@@ -1,0 +1,114 @@
+sheet: mics
+title: Eight PDM mics, mic power and the hardware mute
+parts:
+  # The mute switch. COM is ground. Muted, it grounds MUTE_SENSE: the mics'
+  # load switch opens, the PDM clock stops, the red LED lights and the ESP32
+  # reads it. Live, it grounds MIC_MUTED instead, so the XU316's X0D43 reads
+  # high while muted, as the Satellite1's latch output does. No GPIO can
+  # undo either position.
+  SW40: {part: MSK12C02, note: mute}
+  R100: {part: R_0402, value: 10k, note: MUTE_SENSE pull-up; high means the mics are live}
+  R101: {part: R_0402, value: 10k, note: MIC_MUTED pull-up; high means muted}
+  D40: {part: LED_RED_0603, note: lit while muted}
+  R102: {part: R_0402, value: 1k}
+  FB40: {part: FB_600R_0603, note: "keeps switching noise off the mics' supply, as [S1] p5"}
+  U40: {part: TPS22917DBVR, note: mic power; ON is the switch}
+  C100: {part: C_0402, value: 1uF, note: load switch input}
+  C101: {part: C_0603, value: 10uF, note: VDD_MIC bulk}
+  U41: {part: 74LVC1G08, note: PDM clock gate; a muted mic gets no clock and cannot be back-powered through it}
+  C102: {part: C_0402, value: 100nF, note: U41}
+  R103: {part: R_0402, value: 100R, note: "PDM clock series, at its source"}
+  MK1: {part: CMM-4030DT-261280-TR, note: "(0, -32.08) mm; Satellite1 position"}
+  MK2: {part: CMM-4030DT-261280-TR, note: "(+32.08, 0) mm; Satellite1 position"}
+  MK3: {part: CMM-4030DT-261280-TR, note: "(0, +32.08) mm; Satellite1 position"}
+  MK4: {part: CMM-4030DT-261280-TR, note: "(-32.08, 0) mm; Satellite1 position"}
+  MK5: {part: CMM-4030DT-261280-TR, note: "(+22.68, -22.68) mm"}
+  MK6: {part: CMM-4030DT-261280-TR, note: "(+22.68, +22.68) mm"}
+  MK7: {part: CMM-4030DT-261280-TR, note: "(-22.68, +22.68) mm"}
+  MK8: {part: CMM-4030DT-261280-TR, note: "(-22.68, -22.68) mm"}
+  C103: {part: C_0402, value: 100nF, note: MK1}
+  C104: {part: C_0402, value: 100nF, note: MK2}
+  C105: {part: C_0402, value: 100nF, note: MK3}
+  C106: {part: C_0402, value: 100nF, note: MK4}
+  C107: {part: C_0402, value: 100nF, note: MK5}
+  C108: {part: C_0402, value: 100nF, note: MK6}
+  C109: {part: C_0402, value: 100nF, note: MK7}
+  C110: {part: C_0402, value: 100nF, note: MK8}
+  R104: {part: R_0402, value: 100k, note: holds PDM_DATA_1 low while the mics are unpowered}
+  R105: {part: R_0402, value: 100k, note: PDM_DATA_2}
+  R106: {part: R_0402, value: 100k, note: PDM_DATA_3}
+  R107: {part: R_0402, value: 100k, note: PDM_DATA_4}
+power:
+  3V3_MIC: 3V3 through FB40, before the load switch
+nets:
+  3V3: [FB40.1, R100.1, R101.1, R102.1, U41.VCC, C102.1]
+  3V3_MIC: [FB40.2, U40.VIN, C100.1]
+  VDD_MIC:
+    - U40.VOUT
+    - U40.QOD
+    - C101.1
+    - MK1.VDD
+    - MK2.VDD
+    - MK3.VDD
+    - MK4.VDD
+    - MK5.VDD
+    - MK6.VDD
+    - MK7.VDD
+    - MK8.VDD
+    - MK2.SEL
+    - MK4.SEL
+    - MK6.SEL
+    - MK8.SEL
+    - C103.1
+    - C104.1
+    - C105.1
+    - C106.1
+    - C107.1
+    - C108.1
+    - C109.1
+    - C110.1
+  GND:
+    - SW40.COM
+    - SW40.SHIELD
+    - U40.GND
+    - U41.GND
+    - C100.2
+    - C101.2
+    - C102.2
+    - MK1.GND
+    - MK2.GND
+    - MK3.GND
+    - MK4.GND
+    - MK5.GND
+    - MK6.GND
+    - MK7.GND
+    - MK8.GND
+    - MK1.SEL
+    - MK3.SEL
+    - MK5.SEL
+    - MK7.SEL
+    - C103.2
+    - C104.2
+    - C105.2
+    - C106.2
+    - C107.2
+    - C108.2
+    - C109.2
+    - C110.2
+    - R104.2
+    - R105.2
+    - R106.2
+    - R107.2
+  MUTE_SENSE: [SW40.A, R100.2, D40.K, U40.ON, U41.B]
+  MIC_MUTED: [SW40.B, R101.2]
+  MUTE_LED: [R102.2, D40.A]
+  PDM_CLK_X: [U41.A]
+  PDM_CLK_GATED: [U41.Y, R103.1]
+  PDM_CLK: [R103.2, MK1.CLK, MK2.CLK, MK3.CLK, MK4.CLK, MK5.CLK, MK6.CLK, MK7.CLK, MK8.CLK]
+  # Two mics per line, one on each clock edge by SEL ([S1] p5).
+  PDM_DATA_1: [MK3.DATA, MK4.DATA, R104.1]
+  PDM_DATA_2: [MK1.DATA, MK2.DATA, R105.1]
+  PDM_DATA_3: [MK5.DATA, MK6.DATA, R106.1]
+  PDM_DATA_4: [MK7.DATA, MK8.DATA, R107.1]
+nc:
+  - U40.CT

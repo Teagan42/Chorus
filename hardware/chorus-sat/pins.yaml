@@ -91,9 +91,12 @@ pins:
     peer: TAS2780 amplifier (0x3F) and FUSB302B USB-PD controller
     satellite1: i2c[0].scl
   - gpio: 1
-    net: PD_INT_N
+    net: I2C_IRQ
     dir: in
-    peer: FUSB302B interrupt, so a USB-C contract is seen as it lands
+    peer: >-
+      the I2C bus's shared open-drain interrupt, as the Satellite1 wires it:
+      FUSB302B INT_N, so a USB-C contract is seen as it lands, TAS2780 IRQZ
+      and XU316 X0D32
     satellite1: fusb302b.irq_pin
 
   - gpio: 19

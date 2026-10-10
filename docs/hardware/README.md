@@ -306,7 +306,7 @@ Rough budget on PoE, from datasheet typicals and to be measured at bring-up:
 - **Mute** is a slide switch, not a button with firmware behind it. It opens
   the mics' load switch (TPS22917), as the Satellite1's latch cuts `VDD_MIC`,
   and also gates the PDM clock with a single AND gate, which the Satellite1
-  does not, lights a red LED through a transistor on the switch net, and is read
+  does not, lights a red LED straight off the switch net, and is read
   by the ESP32 on `MUTE_SENSE` so the device can send `0x05 mute` with the
   hardware bit set. No GPIO can unmute it.
 - **LED ring**: 12 SK6812-mini on the 5V0 rail, driven from `LED_DATA`
@@ -346,13 +346,72 @@ verify truncation itself. The board only has to make either possible.
 
 ## Schematic architecture
 
-A hierarchical KiCad schematic, one sheet per block. Net labels on every sheet
-are the `net` names in [`pins.yaml`](../../hardware/chorus-sat/pins.yaml); a
-net not in the map does not touch the ESP32.
+The schematic is data: [`parts.yaml`](../../hardware/chorus-sat/parts.yaml)
+lists every part with each pad's name and electrical type, and one file per
+sheet under [`sheets/`](../../hardware/chorus-sat/sheets/) places parts and
+names nets. Net labels are global across sheets, and the ESP32's are the `net`
+names in [`pins.yaml`](../../hardware/chorus-sat/pins.yaml); a net not in the
+map does not touch the ESP32. `internal/board` checks it the way KiCad's ERC
+would (every pad on a net or marked unconnected, no net with one end, one
+driver per net, every rail supplied, every module pad where the pin map says)
+and `task gen:hardware` writes the KiCad netlist and the JLCPCB BOM from it.
+There is no KiCad in CI, and YAML diffs read in review where a `.kicad_sch`
+does not.
 
 | Sheet | Contents | Nets out |
 |---|---|---|
-| `power_in` | RJ45 magjack with PoE centre taps, input bridges, AG9912-MTB, USB-C receptacle, FUSB302B, TPS2121, TVS on both inputs | `VSYS`, `PWR_SRC`, `PD_INT_N`, `I2C_*` |
+| `power_in` | Bridges on the magjack's PoE taps, SMAJ58A, AG9912-MTB, USB-C receptacle with ESD and SMAJ24A, FUSB302B, TPS2121 | `VSYS`, `PWR_SRC`, `I2C_*`, `USB_D*` |
+| `regulators` | TPS62933 3V3 and 5V0 bucks, TLV62569 0V9, two TLV75518 for 1V8 and the amplifier's 1V8A | `3V3`, `5V0`, `0V9`, `1V8`, `1V8A` |
+| `mcu` | ESP32-S3-WROOM-1-N16R8, EN RC and reset button, action and volume buttons | every net in the pin map |
+| `voice_dsp` | XU316-1024-QF60B, 24 MHz crystal, W25Q64JVSSIQ QSPI flash, the two BL1530 SPI muxes, the FDV301N reset inverter, unfitted 0 Ω on MCLK, PLL ferrite, decoupling, unfitted TC2030 JTAG | `I2S_*`, `XMOS_*`, `PDM_CLK_X`, `PDM_DATA_*`, `AMP_SDIN`, `I2C_*` |
+| `mics` | Eight CMM-4030DT PDM mics with the SEL straps above, TPS22917 load switch, PDM clock gate, mute switch and its LED | `MUTE_SENSE`, `MIC_MUTED`, `PDM_*` |
+| `amp` | TAS2780, filterless as on the Satellite1, PVDD bulk, sense taps at the speaker connector | `AMP_SENSE`, `AMP_SDIN`, `I2S_*`, `I2C_*` |
+| `ethernet` | W5500 after WIZnet's reference, 25 MHz crystal, the LPJG0926HENL magjack | `ETH_*`, `POE_VC*` |
+| `ui` | SK6812 ring, 74AHCT1G125, radar header, unfitted test points | `LED_DIN`, `RADAR_*` |
+
+`I2C_IRQ` is one open-drain line shared by the FUSB302B, the TAS2780 and the
+XU316's X0D32, as on the Satellite1; it replaces the earlier `PD_INT_N`.
+
+### Ordering from JLCPCB
+
+Every part carries its LCSC number, or for jellybean resistors and capacitors a
+per-value number, or a `hand:` line saying why JLCPCB will not place it (the
+pin header, the TC2030 pads and test points). `bom.csv` is in the columns
+JLCPCB's assembly upload reads (Comment, Designator, Footprint, LCSC Part #),
+and unfitted parts (`dnp: true`) stay on the netlist for layout but off it. A
+value with an empty number is one JLCPCB matches by value and footprint at
+upload.
+
+The path to an order:
+
+1. In KiCad 9.0.5 or later (9.0.0 lacks the mute switch's and the bucks'
+   inductor footprints), *File → Import → Netlist* the generated `chorus-sat.net` into
+   a new `chorus-sat.kicad_pcb`. Footprints and nets arrive; placement and
+   routing are a person's work.
+2. Copy `hardware/chorus-sat/fp-lib-table` and `chorus-sat.pretty` beside
+   the new board, or open it from that folder: the footprints KiCad's library
+   lacks are there, each checked pad for pad against `parts.yaml` by
+   `go test ./internal/board` (sources in its README).
+3. Lay out per the next section. Changes to parts or nets go in the YAML and
+   come back through *Update PCB from netlist*.
+4. Plot Gerbers and drill files, and the position file (the CPL), from
+   Pcbnew. EasyEDA Pro imports a KiCad project too, for those who would rather
+   route there; it keeps the LCSC field.
+5. Upload Gerbers, `bom.csv` and the CPL to JLCPCB as a four-layer board with
+   assembly, and check each rotation in its preview.
+
+Stock to check before layout, not after:
+
+| Part | LCSC | Risk |
+|---|---|---|
+| AG9912-MTB | C20939164 | none in stock at capture; may need hand placement or a different PoE module |
+| CMM-4030DT | C37002688 | 25 in stock, eight per board |
+| XU316-1024-QF60B-C32 | C7397517 | 12 in stock |
+| BL1530TQFN | C313543 | stock unknown |
+
+| Sheet | Contents | Nets out |
+|---|---|---|
+| `power_in` | RJ45 magjack with PoE centre taps, input bridges, AG9912-MTB, USB-C receptacle, FUSB302B, TPS2121, TVS on both inputs | `VSYS`, `PWR_SRC`, `I2C_IRQ`, `I2C_*` |
 | `regulators` | TPS62933 3V3, 5V0 buck, TLV62569 0V9, TLV75518 1V8, PLL filter for the XU316 | `3V3`, `5V0`, `1V8`, `0V9`, `0V9_PLL` |
 | `mcu` | ESP32-S3-WROOM-1-N16R8, USB D+/D− to the receptacle, EN RC and reset button, action and volume buttons | every net in the pin map |
 | `voice_dsp` | XU316-1024-QF60B, 24 MHz crystal, W25Q64JVSSIQ QSPI flash, the two 2:1 SPI muxes, the FDV301N reset inverter, unfitted 0 Ω on MCLK, decoupling per the XMOS datasheet, TC2030 JTAG | `I2S_*`, `XMOS_*`, `PDM_CLK`, `PDM_DATA_*`, `AMP_TDM_*` |
@@ -390,17 +449,13 @@ net not in the map does not touch the ESP32.
    (reset inverter and SPI muxes included), QSPI flash and mic positions are
    redrawn from `hat/rev6.1hatSCH.pdf` and `hat/rev6.1hat3D.step`, with the
    port map above.
-2. **Capture the schematic** in KiCad 9 under `hardware/chorus-sat/`, sheets
-   as above, labels from `pins.yaml`. Espressif publishes a KiCad library
-   with the module; the XU316, TAS2780 and W5500 come from their vendors'
-   symbols.
-3. **Check the schematic against the map in CI.** `kicad-cli sch export
-   netlist` gives which ESP32 pad each label lands on; a test beside
-   `internal/board` comparing that to `pins.yaml` keeps the two from
-   drifting, exactly as `Mirrors` keeps the map honest against Satellite1.
+2. **Capture the schematic.** Done: the sheets above, checked in CI against
+   `pins.yaml` and each other by `TestTheRevASchematicChecksClean`.
+3. **Read the three datasheets nobody could reach** (below), then check the
+   stock above. The regulators, power mux, load switch, PD controller and PoE
+   module are already checked against TI's, onsemi's and Silvertel's.
 4. **Lay out, then order a small batch** (five boards) of four-layer with
-   assembly. Check every BOM line against the assembler's stock before
-   layout, not after; the PoE module may need hand placement.
+   assembly, as [Ordering from JLCPCB](#ordering-from-jlcpcb) describes.
 5. **Bring up in order**, each step with the check that proves it:
    - rails, with no modules powered past them;
    - ESP32 alone, flashed over USB-C;
@@ -428,8 +483,6 @@ What rev A still cannot settle without a datasheet or a bench:
 - **Where the array sits on the board outline** relative to the speaker
   axis, which MK5–MK8 inherit, and where each mic's acoustic port sits in its package: the STEP
   model gives positions, not the outline.
-- **The 1.8 V reset and JTAG domain**, inferred from the Satellite1's pull-up;
-  check it against the XU316 datasheet before layout.
 - **Two I2S peripherals on shared clock pads.** `AMP_SENSE` assumes the
   ESP32's second I2S peripheral can take the same BCLK and LRCLK pads as the
   first through the GPIO matrix. Expected to work; prove it at bring-up.
@@ -438,12 +491,21 @@ What rev A still cannot settle without a datasheet or a bench:
 - **Muted PDM lines.** With the mics' clock gated their data lines float;
   pull-downs plus the XMOS pipeline's DC blocking should settle to silence,
   and the bridge's mute frame tells the host either way.
-- **The PoE magjack**: a part with centre taps exposed, chosen against the
-  assembler's stock.
+- **The PoE module**: the AG9912-MTB had no JLCPCB stock at capture, and it
+  wants at least 100 mA of load to keep the switch's maintain-power signature.
+  An idle board draws about that at 12 V; measure it at bring-up.
+- **Two datasheets still unread.** The TAS2780's modes are taken from the
+  Satellite1 schematic and its driver, and neither TI's nor CUI's document was
+  reachable; the vendors' own symbols agree with both pad tables.
+- **The SK6812MINI-E's pad positions.** The board's footprint numbers pads as
+  the datasheet does and places them as the mirror of its top view, reading
+  that view as the lens side, which its drawn lens says it is; KiCad's own
+  footprint agrees. Solder one to a scrap board before the ring is laid out.
 
 Settled since the first draft, from the sources below: the firmware licence,
-the XU316 port map, the mic part and geometry, and the MCLK direction (the
-XU316 drives it). The Voice PE fallback is gone: its firmware has the same
+the XU316 port map, the mic part and geometry, the MCLK direction (the
+XU316 drives it), the 1.8 V reset and JTAG domain (XU316 datasheet, p33), and the magjack
+(the LPJG0926HENL, with its PoE taps). The Voice PE fallback is gone: its firmware has the same
 licence and its ESP32 interface would move pins for no gain.
 
 ## Sources

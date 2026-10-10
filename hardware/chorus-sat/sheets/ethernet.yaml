@@ -1,0 +1,131 @@
+sheet: ethernet
+title: W5500 Ethernet and the PoE magjack, after WIZnet's W5500-EVB-Pico-PoE
+parts:
+  U60: {part: W5500}
+  J60: {part: LPJG0926HENL, note: "RJ45 with magnetics, LEDs and PoE centre taps; its taps go to power_in"}
+  Y60: {part: XTAL_25M_3225}
+  C300: {part: C_0402, value: 18pF}
+  C301: {part: C_0402, value: 18pF}
+  R300: {part: R_0402, value: 1M, note: crystal feedback}
+  FB60: {part: FB_600R_0603, note: analog supply filter}
+  C302: {part: C_0402, value: 1uF, note: 3V3 before the ferrite}
+  C303: {part: C_0402, value: 100nF}
+  C304: {part: C_0402, value: 1uF, note: 3V3A}
+  C305: {part: C_0402, value: 1uF, note: 3V3A}
+  C306: {part: C_0402, value: 100nF, note: AVDD pin 4}
+  C307: {part: C_0402, value: 100nF, note: AVDD pin 8}
+  C308: {part: C_0402, value: 100nF, note: AVDD pin 11}
+  C309: {part: C_0402, value: 100nF, note: AVDD pin 15}
+  C310: {part: C_0402, value: 100nF, note: AVDD pin 17}
+  C311: {part: C_0402, value: 100nF, note: VDD}
+  R301: {part: R_0402, value: 12k4, note: "EXRES1, 1 %"}
+  C312: {part: C_0603, value: 4u7, note: TOCAP}
+  C313: {part: C_0402, value: 100nF, note: 1V2O}
+  R302: {part: R_0402, value: 49R9, note: TXP termination}
+  R303: {part: R_0402, value: 49R9, note: TXN termination}
+  R304: {part: R_0402, value: 49R9, note: RXP termination}
+  R305: {part: R_0402, value: 49R9, note: RXN termination}
+  C314: {part: C_0402, value: 100nF, note: RX termination centre}
+  C315: {part: C_0402, value: 6n8, note: RXP coupling}
+  C316: {part: C_0402, value: 6n8, note: RXN coupling}
+  C317: {part: C_0402, value: 100nF, note: RX centre tap}
+  C318: {part: C_1206_2KV, note: shield to ground}
+  R306: {part: R_0402, value: 10k, note: CS pull-up}
+  R307: {part: R_0402, value: 10k, note: INT pull-up}
+  R308: {part: R_0402, value: 10k, note: RST pull-up}
+  R309: {part: R_0402, value: 330R, note: link LED}
+  R310: {part: R_0402, value: 330R, note: activity LED}
+power:
+  3V3A: 3V3 through FB60
+nets:
+  3V3:
+    - FB60.1
+    - U60.VDD
+    - U60.PMODE2
+    - U60.PMODE1
+    - U60.PMODE0
+    - C302.1
+    - C303.1
+    - C311.1
+    - R306.1
+    - R307.1
+    - R308.1
+    - J60.LED1_A
+    - J60.LED2_A
+  3V3A:
+    - FB60.2
+    - U60.AVDD
+    - C304.1
+    - C305.1
+    - C306.1
+    - C307.1
+    - C308.1
+    - C309.1
+    - C310.1
+    - R302.1
+    - R303.1
+    - J60.CT1
+  GND:
+    - U60.GND
+    - U60.AGND
+    - U60.RSVD
+    - Y60.GND
+    - C300.2
+    - C301.2
+    - C302.2
+    - C303.2
+    - C304.2
+    - C305.2
+    - C306.2
+    - C307.2
+    - C308.2
+    - C309.2
+    - C310.2
+    - C311.2
+    - R301.2
+    - C312.2
+    - C313.2
+    - C314.2
+    - C317.2
+    - C318.2
+  ETH_XI: [U60.XI, Y60.1, C300.1, R300.1]
+  ETH_XO: [U60.XO, Y60.3, C301.1, R300.2]
+  ETH_EXRES: [U60.EXRES1, R301.1]
+  ETH_TOCAP: [U60.TOCAP, C312.1]
+  ETH_1V2: [U60.1V2O, C313.1]
+
+  ETH_TXP: [U60.TXP, R302.2, J60.TD1_P]
+  ETH_TXN: [U60.TXN, R303.2, J60.TD1_N]
+  ETH_RXP: [U60.RXP, R304.1, C315.1]
+  ETH_RXN: [U60.RXN, R305.1, C316.1]
+  ETH_RX_TERM: [R304.2, R305.2, C314.1]
+  ETH_RXP_JACK: [C315.2, J60.TD2_P]
+  ETH_RXN_JACK: [C316.2, J60.TD2_N]
+  ETH_RX_CT: [J60.CT2, C317.1]
+  ETH_SHIELD: [J60.SHIELD, C318.1]
+  ETH_LINK_LED: [U60.LINKLED, R309.1]
+  ETH_LINK_LED_K: [R309.2, J60.LED1_K]
+  ETH_ACT_LED: [U60.ACTLED, R310.1]
+  ETH_ACT_LED_K: [R310.2, J60.LED2_K]
+
+  # The PoE taps, to the bridges on power_in.
+  POE_VC1: [J60.VC1]
+  POE_VC2: [J60.VC2]
+  POE_VC3: [J60.VC3]
+  POE_VC4: [J60.VC4]
+
+  ETH_CS_N: [U60.SCS_N, R306.2]
+  ETH_SCLK: [U60.SCLK]
+  ETH_MOSI: [U60.MOSI]
+  ETH_MISO: [U60.MISO]
+  ETH_INT_N: [U60.INT_N, R307.2]
+  ETH_RST_N: [U60.RST_N, R308.2]
+nc:
+  # 10/100 uses two pairs; the jack's gigabit pairs are unused.
+  - J60.TD3_P
+  - J60.TD3_N
+  - J60.TD4_P
+  - J60.TD4_N
+  - U60.VBG
+  - U60.SPDLED
+  - U60.DUPLED

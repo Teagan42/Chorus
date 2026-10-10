@@ -1,0 +1,800 @@
+# Every part the chorus-sat rev A sheets may place, with every pad on its
+# footprint. `go test ./internal/board` refuses a sheet that wires a pin not
+# listed here, leaves a pad off every net, or places a part JLCPCB cannot
+# source without saying so. docs/hardware/README.md explains the choices.
+#
+#   symbol     KiCad lib:symbol, for the drawn schematic
+#   footprint  KiCad lib:footprint; chorus-sat:* are drawn for this board
+#   pinout     where the pad table was read; "inferred" where nothing states it
+#   mpn        the manufacturer's part number
+#   lcsc       JLCPCB's catalogue number; stock as of 2026-10-09 is in the doc
+#   values     for parts bought by value: each value the board uses, with its
+#              number, or "" for JLCPCB to match from its basic library
+#   hand       why JLCPCB cannot place it, when it cannot
+#
+# Sources named below: [XDS] XMOS XU316-1024-QF60B datasheet XM-015129-PC
+# v2.0.0; [S1] FutureProofHomes Satellite1 HAT rev 6.1 schematic at 2eb08ffa;
+# [WIZ] WIZnet W5500-EVB-Pico-PoE schematic at e3f0b08d; [AG] Silvertel
+# Ag9900M datasheet v3.4.
+
+parts:
+  # ------------------------------------------------------------------ modules
+  ESP32-S3-WROOM-1-N16R8:
+    symbol: RF_Module:ESP32-S3-WROOM-1
+    footprint: RF_Module:ESP32-S3-WROOM-1
+    datasheet: https://www.espressif.com/sites/default/files/documentation/esp32-s3-wroom-1_wroom-1u_datasheet_en.pdf
+    pinout: Espressif ESP32-S3-WROOM-1 datasheet table 3-1, as KiCad's RF_Module symbol and footprint
+    mpn: ESP32-S3-WROOM-1-N16R8
+    lcsc: C2913202
+    pins:
+      - {pad: "1", name: GND, type: power_in}
+      - {pad: "2", name: 3V3, type: power_in}
+      - {pad: "3", name: EN, type: input}
+      - {pad: "4", name: IO4, type: bidirectional, gpio: 4}
+      - {pad: "5", name: IO5, type: bidirectional, gpio: 5}
+      - {pad: "6", name: IO6, type: bidirectional, gpio: 6}
+      - {pad: "7", name: IO7, type: bidirectional, gpio: 7}
+      - {pad: "8", name: IO15, type: bidirectional, gpio: 15}
+      - {pad: "9", name: IO16, type: bidirectional, gpio: 16}
+      - {pad: "10", name: IO17, type: bidirectional, gpio: 17}
+      - {pad: "11", name: IO18, type: bidirectional, gpio: 18}
+      - {pad: "12", name: IO8, type: bidirectional, gpio: 8}
+      - {pad: "13", name: IO19, type: bidirectional, gpio: 19}
+      - {pad: "14", name: IO20, type: bidirectional, gpio: 20}
+      - {pad: "15", name: IO3, type: bidirectional, gpio: 3}
+      - {pad: "16", name: IO46, type: bidirectional, gpio: 46}
+      - {pad: "17", name: IO9, type: bidirectional, gpio: 9}
+      - {pad: "18", name: IO10, type: bidirectional, gpio: 10}
+      - {pad: "19", name: IO11, type: bidirectional, gpio: 11}
+      - {pad: "20", name: IO12, type: bidirectional, gpio: 12}
+      - {pad: "21", name: IO13, type: bidirectional, gpio: 13}
+      - {pad: "22", name: IO14, type: bidirectional, gpio: 14}
+      - {pad: "23", name: IO21, type: bidirectional, gpio: 21}
+      - {pad: "24", name: IO47, type: bidirectional, gpio: 47}
+      - {pad: "25", name: IO48, type: bidirectional, gpio: 48}
+      - {pad: "26", name: IO45, type: bidirectional, gpio: 45}
+      - {pad: "27", name: IO0, type: bidirectional, gpio: 0}
+      - {pad: "28", name: IO35, type: bidirectional, gpio: 35}
+      - {pad: "29", name: IO36, type: bidirectional, gpio: 36}
+      - {pad: "30", name: IO37, type: bidirectional, gpio: 37}
+      - {pad: "31", name: IO38, type: bidirectional, gpio: 38}
+      - {pad: "32", name: IO39, type: bidirectional, gpio: 39}
+      - {pad: "33", name: IO40, type: bidirectional, gpio: 40}
+      - {pad: "34", name: IO41, type: bidirectional, gpio: 41}
+      - {pad: "35", name: IO42, type: bidirectional, gpio: 42}
+      - {pad: "36", name: IO44, type: bidirectional, gpio: 44}
+      - {pad: "37", name: IO43, type: bidirectional, gpio: 43}
+      - {pad: "38", name: IO2, type: bidirectional, gpio: 2}
+      - {pad: "39", name: IO1, type: bidirectional, gpio: 1}
+      - {pad: "40", name: GND, type: passive}
+      - {pad: "41", name: GND, type: passive}
+
+  XU316-1024-QF60B:
+    symbol: chorus-sat:XU316-1024-QF60B
+    footprint: chorus-sat:XMOS_QFN-60_7x7mm_P0.4mm_VDD-Bars
+    datasheet: https://www.xmos.com/download/XU316-1024-QF60B-Datasheet
+    pinout: "[XDS] fig. 4 p9 and table 1 pp11-15; pads 61-64 are the VDD bars, 65 the centre pad"
+    mpn: XU316-1024-QF60B-C32
+    lcsc: C7397517
+    pins:
+      - {pad: "1", name: X0D05, type: bidirectional}
+      - {pad: "2", name: X0D07, type: bidirectional}
+      - {pad: "3", name: X0D01, type: bidirectional}
+      - {pad: "4", name: VDD, type: power_in}
+      - {pad: "5", name: X0D10, type: bidirectional}
+      - {pad: "6", name: X0D00, type: bidirectional}
+      - {pad: "7", name: X0D11, type: bidirectional}
+      - {pad: "8", name: VDDIO, type: power_in}
+      - {pad: "9", name: X1D00, type: bidirectional}
+      - {pad: "10", name: X1D01, type: bidirectional}
+      - {pad: "11", name: X1D09, type: bidirectional}
+      - {pad: "12", name: VDD, type: power_in}
+      - {pad: "13", name: X1D10, type: bidirectional}
+      - {pad: "14", name: X1D11, type: bidirectional}
+      - {pad: "15", name: XOUT, type: output}
+      - {pad: "16", name: XIN, type: input}
+      - {pad: "17", name: VDDIOB18, type: power_in}
+      - {pad: "18", name: TDI, type: input}
+      - {pad: "19", name: VDD, type: power_in}
+      - {pad: "20", name: TDO, type: output}
+      - {pad: "21", name: RST_N, type: input}
+      - {pad: "22", name: PLL_AVDD, type: power_in}
+      - {pad: "23", name: TMS, type: input}
+      - {pad: "24", name: TCK, type: input}
+      - {pad: "25", name: NC, type: no_connect}
+      - {pad: "26", name: VDDIOB18, type: power_in}
+      - {pad: "27", name: VDD, type: power_in}
+      - {pad: "28", name: USB_DM, type: bidirectional}
+      - {pad: "29", name: USB_DP, type: bidirectional}
+      - {pad: "30", name: USB_VDD33, type: power_in}
+      - {pad: "31", name: USB_VDD18, type: power_in}
+      - {pad: "32", name: X1D13, type: bidirectional}
+      - {pad: "33", name: X1D16, type: bidirectional}
+      - {pad: "34", name: VDD, type: power_in}
+      - {pad: "35", name: X1D17, type: bidirectional}
+      - {pad: "36", name: X1D18, type: bidirectional}
+      - {pad: "37", name: X1D19, type: bidirectional}
+      - {pad: "38", name: VDDIO, type: power_in}
+      - {pad: "39", name: X1D22, type: bidirectional}
+      - {pad: "40", name: X0D29, type: bidirectional}
+      - {pad: "41", name: X0D35, type: bidirectional}
+      - {pad: "42", name: VDD, type: power_in}
+      - {pad: "43", name: X0D36, type: bidirectional}
+      - {pad: "44", name: X0D37, type: bidirectional}
+      - {pad: "45", name: X0D38, type: bidirectional}
+      - {pad: "46", name: X0D40, type: bidirectional}
+      - {pad: "47", name: X0D39, type: bidirectional}
+      - {pad: "48", name: X0D42, type: bidirectional}
+      - {pad: "49", name: VDD, type: power_in}
+      - {pad: "50", name: X0D41, type: bidirectional}
+      - {pad: "51", name: X0D43, type: bidirectional}
+      - {pad: "52", name: VDDIO, type: power_in}
+      - {pad: "53", name: X1D34, type: bidirectional}
+      - {pad: "54", name: X0D30, type: bidirectional}
+      - {pad: "55", name: X0D31, type: bidirectional}
+      - {pad: "56", name: X0D32, type: bidirectional}
+      - {pad: "57", name: VDD, type: power_in}
+      - {pad: "58", name: X0D33, type: bidirectional}
+      - {pad: "59", name: X0D04, type: bidirectional}
+      - {pad: "60", name: X0D06, type: bidirectional}
+      - {pad: "61", name: VDD, type: power_in}
+      - {pad: "62", name: VDD, type: power_in}
+      - {pad: "63", name: VDD, type: power_in}
+      - {pad: "64", name: VDD, type: power_in}
+      - {pad: "65", name: GND, type: power_in}
+
+  TAS2780RYAR:
+    symbol: chorus-sat:TAS2780
+    footprint: chorus-sat:Texas_RYA0030A_VQFN-HR-30
+    datasheet: https://www.ti.com/lit/ds/symlink/tas2780.pdf
+    pinout: TI SLOSE75 pin table, as [S1] p8 and the elagil and blus-audio KiCad symbols
+    mpn: TAS2780RYAR
+    lcsc: C5214951
+    pins:
+      - {pad: "1", name: VSNS_N, type: input}
+      - {pad: "2", name: PGND, type: power_in}
+      - {pad: "3", name: OUT_P, type: output}
+      - {pad: "4", name: BST_P, type: passive}
+      - {pad: "5", name: VSNS_P, type: input}
+      - {pad: "6", name: ICC, type: bidirectional}
+      - {pad: "7", name: GND, type: power_in}
+      - {pad: "8", name: NC, type: no_connect}
+      - {pad: "9", name: NC, type: no_connect}
+      - {pad: "10", name: DREG, type: passive}
+      - {pad: "11", name: BYP_EN, type: output}
+      - {pad: "12", name: SDOUT, type: tri_state}
+      - {pad: "13", name: SDIN, type: input}
+      - {pad: "14", name: FSYNC, type: input}
+      - {pad: "15", name: SBCLK, type: input}
+      - {pad: "16", name: NC, type: no_connect}
+      - {pad: "17", name: NC, type: no_connect}
+      - {pad: "18", name: SCL, type: input}
+      - {pad: "19", name: SDA, type: bidirectional}
+      - {pad: "20", name: IOVDD, type: power_in}
+      - {pad: "21", name: IRQZ, type: open_collector}
+      - {pad: "22", name: SDZ, type: input}
+      - {pad: "23", name: ADDR, type: input}
+      - {pad: "24", name: AVDD, type: power_in}
+      - {pad: "25", name: DGND, type: power_in}
+      - {pad: "26", name: PVDD_SNS, type: input}
+      - {pad: "27", name: VBAT1S, type: power_in}
+      - {pad: "28", name: PVDD, type: power_in}
+      - {pad: "29", name: OUT_N, type: output}
+      - {pad: "30", name: BST_N, type: passive}
+
+  W5500:
+    symbol: Interface_Ethernet:W5500
+    footprint: Package_QFP:LQFP-48_7x7mm_P0.5mm
+    datasheet: https://docs.wiznet.io/img/products/w5500/W5500_ds_v110e.pdf
+    pinout: KiCad Interface_Ethernet:W5500, as [WIZ] p1
+    mpn: W5500
+    lcsc: C32843
+    pins:
+      - {pad: "1", name: TXN, type: output}
+      - {pad: "2", name: TXP, type: output}
+      - {pad: "3", name: AGND, type: power_in}
+      - {pad: "4", name: AVDD, type: power_in}
+      - {pad: "5", name: RXN, type: input}
+      - {pad: "6", name: RXP, type: input}
+      - {pad: "7", name: DNC, type: no_connect}
+      - {pad: "8", name: AVDD, type: power_in}
+      - {pad: "9", name: AGND, type: power_in}
+      - {pad: "10", name: EXRES1, type: passive}
+      - {pad: "11", name: AVDD, type: power_in}
+      - {pad: "12", name: NC, type: no_connect}
+      - {pad: "13", name: NC, type: no_connect}
+      - {pad: "14", name: AGND, type: power_in}
+      - {pad: "15", name: AVDD, type: power_in}
+      - {pad: "16", name: AGND, type: power_in}
+      - {pad: "17", name: AVDD, type: power_in}
+      - {pad: "18", name: VBG, type: output}
+      - {pad: "19", name: AGND, type: power_in}
+      - {pad: "20", name: TOCAP, type: passive}
+      - {pad: "21", name: AVDD, type: power_in}
+      - {pad: "22", name: 1V2O, type: passive}
+      - {pad: "23", name: RSVD, type: input}
+      - {pad: "24", name: SPDLED, type: output}
+      - {pad: "25", name: LINKLED, type: output}
+      - {pad: "26", name: DUPLED, type: output}
+      - {pad: "27", name: ACTLED, type: output}
+      - {pad: "28", name: VDD, type: power_in}
+      - {pad: "29", name: GND, type: power_in}
+      - {pad: "30", name: XI, type: input}
+      - {pad: "31", name: XO, type: output}
+      - {pad: "32", name: SCS_N, type: input}
+      - {pad: "33", name: SCLK, type: input}
+      - {pad: "34", name: MISO, type: tri_state}
+      - {pad: "35", name: MOSI, type: input}
+      - {pad: "36", name: INT_N, type: open_collector}
+      - {pad: "37", name: RST_N, type: input}
+      - {pad: "38", name: RSVD, type: input}
+      - {pad: "39", name: RSVD, type: input}
+      - {pad: "40", name: RSVD, type: input}
+      - {pad: "41", name: RSVD, type: input}
+      - {pad: "42", name: RSVD, type: input}
+      - {pad: "43", name: PMODE2, type: input}
+      - {pad: "44", name: PMODE1, type: input}
+      - {pad: "45", name: PMODE0, type: input}
+      - {pad: "46", name: NC, type: no_connect}
+      - {pad: "47", name: NC, type: no_connect}
+      - {pad: "48", name: AGND, type: power_in}
+
+  AG9912-MTB:
+    symbol: chorus-sat:AG9912-MTB
+    footprint: chorus-sat:Silvertel_Ag9912-MTB
+    datasheet: https://silvertel.com/images/datasheets/Ag9900M-datasheet-ultra-miniature-isolated-Power-over-Ethernet-POE-module.pdf
+    pinout: "[AG] pp3-9; output is isolated, so -VDC is the board's ground"
+    mpn: AG9912-MTB
+    lcsc: C20939164
+    pins:
+      - {pad: "1", name: VDC_P, type: power_out}
+      - {pad: "2", name: VDC_N, type: power_in}
+      - {pad: "3", name: ADJ, type: passive}
+      - {pad: "4", name: VIN_P, type: power_in}
+      - {pad: "5", name: VIN_N, type: power_in}
+
+  # -------------------------------------------------------------- interfaces
+  FUSB302BMPX:
+    symbol: Interface_USB:FUSB302BMPX
+    footprint: Package_DFN_QFN:WQFN-14-1EP_2.5x2.5mm_P0.5mm_EP1.45x1.45mm
+    datasheet: https://www.onsemi.com/pdf/datasheet/fusb302b-d.pdf
+    pinout: onsemi FUSB302B/D rev 5, as KiCad Interface_USB:FUSB302BMPX and [S1] p9; I2C address 0x22
+    mpn: FUSB302BMPX
+    lcsc: C132291
+    pins:
+      - {pad: "1", name: CC2, type: bidirectional}
+      - {pad: "2", name: VBUS, type: input}
+      - {pad: "3", name: VDD, type: power_in}
+      - {pad: "4", name: VDD, type: power_in}
+      - {pad: "5", name: INT_N, type: open_collector}
+      - {pad: "6", name: SCL, type: input}
+      - {pad: "7", name: SDA, type: bidirectional}
+      - {pad: "8", name: GND, type: power_in}
+      - {pad: "9", name: GND, type: power_in}
+      - {pad: "10", name: CC1, type: bidirectional}
+      - {pad: "11", name: CC1, type: bidirectional}
+      - {pad: "12", name: VCONN, type: power_in}
+      - {pad: "13", name: VCONN, type: power_in}
+      - {pad: "14", name: CC2, type: bidirectional}
+      - {pad: "15", name: GND, type: power_in}
+
+  W25Q64JVSSIQ:
+    symbol: Memory_Flash:W25Q32JVSS
+    footprint: Package_SO:SOIC-8_5.3x5.3mm_P1.27mm
+    datasheet: https://www.winbond.com/resource-files/w25q64jv%20revj%2003272018%20plus.pdf
+    pinout: Winbond W25Q64JV SOIC-8 208 mil, as [S1] p3 U18
+    mpn: W25Q64JVSSIQ
+    lcsc: C179171
+    pins:
+      - {pad: "1", name: CS_N, type: input}
+      - {pad: "2", name: IO1, type: bidirectional}
+      - {pad: "3", name: IO2, type: bidirectional}
+      - {pad: "4", name: GND, type: power_in}
+      - {pad: "5", name: IO0, type: bidirectional}
+      - {pad: "6", name: CLK, type: input}
+      - {pad: "7", name: IO3, type: bidirectional}
+      - {pad: "8", name: VCC, type: power_in}
+
+  BL1530TQFN:
+    symbol: chorus-sat:BL1530
+    footprint: Package_DFN_QFN:UQFN-10_1.4x1.8mm_P0.4mm
+    pinout: "[S1] p3 U9/U10 symbol: 1 DP1, 2 DP2, 3 DP, 4 GND, 5 DN, 6 DN2, 7 DN1, 8 OEB, 9 VCC, 10 SEL"
+    mpn: BL1530TQFN
+    lcsc: C313543
+    pins:
+      - {pad: "1", name: DP1, type: passive}
+      - {pad: "2", name: DP2, type: passive}
+      - {pad: "3", name: DP, type: passive}
+      - {pad: "4", name: GND, type: power_in}
+      - {pad: "5", name: DN, type: passive}
+      - {pad: "6", name: DN2, type: passive}
+      - {pad: "7", name: DN1, type: passive}
+      - {pad: "8", name: OEB, type: input}
+      - {pad: "9", name: VCC, type: power_in}
+      - {pad: "10", name: SEL, type: input}
+
+  LPJG0926HENL:
+    symbol: chorus-sat:LPJG0926HENL
+    footprint: chorus-sat:LINK-PP_LPJG0926HENL
+    pinout: >-
+      NabuCasa yellow Yellow.kicad_sym at c3d51b80 and OLIMEX's footprint at
+      ad6e0bc4; which TD pair the W5500's TX and RX take is inferred
+    mpn: LPJG0926HENL
+    lcsc: C22457393
+    pins:
+      - {pad: "1", name: TD1_P, type: passive}
+      - {pad: "2", name: TD1_N, type: passive}
+      - {pad: "3", name: TD2_P, type: passive}
+      - {pad: "4", name: CT1, type: passive}
+      - {pad: "5", name: CT2, type: passive}
+      - {pad: "6", name: TD2_N, type: passive}
+      - {pad: "7", name: TD3_P, type: passive}
+      - {pad: "8", name: TD3_N, type: passive}
+      - {pad: "9", name: TD4_P, type: passive}
+      - {pad: "10", name: TD4_N, type: passive}
+      - {pad: "11", name: VC1, type: passive}
+      - {pad: "12", name: VC2, type: passive}
+      - {pad: "13", name: VC3, type: passive}
+      - {pad: "14", name: VC4, type: passive}
+      - {pad: "15", name: LED1_A, type: passive}
+      - {pad: "16", name: LED1_K, type: passive}
+      - {pad: "17", name: LED2_A, type: passive}
+      - {pad: "18", name: LED2_K, type: passive}
+      - {pad: SH, name: SHIELD, type: passive}
+
+  USB_C_HRO_TYPE-C-31-M-12:
+    symbol: Connector:USB_C_Receptacle_USB2.0_16P
+    footprint: Connector_USB:USB_C_Receptacle_HRO_TYPE-C-31-M-12
+    pinout: KiCad Connector:USB_C_Receptacle_USB2.0_16P against the footprint's pads; KiCad names the shell S1
+    mpn: TYPE-C-31-M-12
+    lcsc: C165948
+    pins:
+      - {pad: A1, name: GND, type: passive}
+      - {pad: A4, name: VBUS, type: passive}
+      - {pad: A5, name: CC1, type: bidirectional}
+      - {pad: A6, name: DP, type: bidirectional}
+      - {pad: A7, name: DN, type: bidirectional}
+      - {pad: A8, name: SBU1, type: bidirectional}
+      - {pad: A9, name: VBUS, type: passive}
+      - {pad: A12, name: GND, type: passive}
+      - {pad: B1, name: GND, type: passive}
+      - {pad: B4, name: VBUS, type: passive}
+      - {pad: B5, name: CC2, type: bidirectional}
+      - {pad: B6, name: DP, type: bidirectional}
+      - {pad: B7, name: DN, type: bidirectional}
+      - {pad: B8, name: SBU2, type: bidirectional}
+      - {pad: B9, name: VBUS, type: passive}
+      - {pad: B12, name: GND, type: passive}
+      - {pad: S1, name: SHIELD, type: passive}
+
+  # -------------------------------------------------------------------- power
+  TPS2121RUXR:
+    symbol: chorus-sat:TPS2121
+    footprint: Package_DFN_QFN:Texas_VQFN-HR-12_2x2.5mm_P0.5mm
+    datasheet: https://www.ti.com/lit/ds/symlink/tps2121.pdf
+    pinout: TI SLVSEA3C pp4-5, the RUX0012A footprint's pads
+    mpn: TPS2121RUXR
+    lcsc: C485916
+    pins:
+      - {pad: "1", name: OUT, type: power_out}
+      - {pad: "2", name: IN2, type: power_in}
+      - {pad: "3", name: CP2, type: input}
+      - {pad: "4", name: OV2, type: input}
+      - {pad: "5", name: OV1, type: input}
+      - {pad: "6", name: PR1, type: input}
+      - {pad: "7", name: IN1, type: power_in}
+      - {pad: "8", name: OUT, type: power_out}
+      - {pad: "9", name: ST, type: open_collector}
+      - {pad: "10", name: ILM, type: passive}
+      - {pad: "11", name: SS, type: passive}
+      - {pad: "12", name: GND, type: power_in}
+
+  TPS62933DRLR:
+    symbol: Regulator_Switching:TPS62933
+    footprint: Package_TO_SOT_SMD:SOT-583-8
+    datasheet: https://www.ti.com/lit/ds/symlink/tps62933.pdf
+    pinout: TI SLUSEA4D table 7-1, as KiCad Regulator_Switching:TPS62933
+    mpn: TPS62933DRLR
+    lcsc: C3200405
+    pins:
+      - {pad: "1", name: RT, type: passive}
+      - {pad: "2", name: EN, type: input}
+      - {pad: "3", name: VIN, type: power_in}
+      - {pad: "4", name: GND, type: power_in}
+      - {pad: "5", name: SW, type: output}
+      - {pad: "6", name: BST, type: passive}
+      - {pad: "7", name: SS, type: passive}
+      - {pad: "8", name: FB, type: input}
+
+  TLV62569DBVR:
+    symbol: Regulator_Switching:TLV62569DBV
+    footprint: Package_TO_SOT_SMD:SOT-23-5
+    datasheet: https://www.ti.com/lit/ds/symlink/tlv62569.pdf
+    pinout: TI SLVSDG1C p3, as KiCad Regulator_Switching:TLV62568DBV
+    mpn: TLV62569DBVR
+    lcsc: C141836
+    pins:
+      - {pad: "1", name: EN, type: input}
+      - {pad: "2", name: GND, type: power_in}
+      - {pad: "3", name: SW, type: output}
+      - {pad: "4", name: VIN, type: power_in}
+      - {pad: "5", name: FB, type: input}
+
+  TLV75518PDBVR:
+    symbol: Regulator_Linear:TLV75518PDBV
+    footprint: Package_TO_SOT_SMD:SOT-23-5
+    datasheet: https://www.ti.com/lit/ds/symlink/tlv755p.pdf
+    pinout: TI SBVS320D p3, as KiCad Regulator_Linear:TLV70012_SOT23-5
+    mpn: TLV75518PDBVR
+    lcsc: C2877863
+    pins:
+      - {pad: "1", name: IN, type: power_in}
+      - {pad: "2", name: GND, type: power_in}
+      - {pad: "3", name: EN, type: input}
+      - {pad: "4", name: NC, type: no_connect}
+      - {pad: "5", name: OUT, type: power_out}
+
+  TPS22917DBVR:
+    symbol: Power_Management:TPS22917DBV
+    footprint: Package_TO_SOT_SMD:SOT-23-6
+    datasheet: https://www.ti.com/lit/ds/symlink/tps22917.pdf
+    pinout: TI SLVSDW8B p3, as KiCad Power_Management:TPS22917DBV
+    mpn: TPS22917DBVR
+    lcsc: C2681320
+    pins:
+      - {pad: "1", name: VIN, type: power_in}
+      - {pad: "2", name: GND, type: power_in}
+      - {pad: "3", name: ON, type: input}
+      - {pad: "4", name: CT, type: passive}
+      - {pad: "5", name: QOD, type: passive}
+      - {pad: "6", name: VOUT, type: power_out}
+
+  # ------------------------------------------------------------------- logic
+  74AHCT1G125:
+    symbol: 74xGxx:74AHCT1G125
+    footprint: Package_TO_SOT_SMD:SOT-23-5
+    pinout: TI SN74AHCT1G125 DBV package
+    mpn: SN74AHCT1G125DBVR
+    lcsc: C20617903
+    pins:
+      - {pad: "1", name: OE_N, type: input}
+      - {pad: "2", name: A, type: input}
+      - {pad: "3", name: GND, type: power_in}
+      - {pad: "4", name: "Y", type: tri_state}
+      - {pad: "5", name: VCC, type: power_in}
+
+  74LVC1G08:
+    symbol: 74xGxx:74LVC1G08
+    footprint: Package_TO_SOT_SMD:SOT-23-5
+    pinout: TI SN74LVC1G08 DBV package, as KiCad 74xGxx:74LVC1G08
+    mpn: SN74LVC1G08DBVR
+    lcsc: C19829660
+    pins:
+      - {pad: "1", name: A, type: input}
+      - {pad: "2", name: B, type: input}
+      - {pad: "3", name: GND, type: power_in}
+      - {pad: "4", name: "Y", type: output}
+      - {pad: "5", name: VCC, type: power_in}
+
+  FDV301N:
+    symbol: Transistor_FET:Q_NMOS_GSD
+    footprint: Package_TO_SOT_SMD:SOT-23
+    pinout: onsemi FDV301N SOT-23, gate 1, source 2, drain 3
+    mpn: FDV301N
+    lcsc: C20069151
+    pins:
+      - {pad: "1", name: G, type: input}
+      - {pad: "2", name: S, type: passive}
+      - {pad: "3", name: D, type: passive}
+
+  USBLC6-2SC6:
+    symbol: Power_Protection:USBLC6-2SC6
+    footprint: Package_TO_SOT_SMD:SOT-23-6
+    pinout: KiCad Power_Protection:USBLC6-2P6, which USBLC6-2SC6 extends
+    mpn: USBLC6-2SC6
+    lcsc: C7519
+    pins:
+      - {pad: "1", name: IO1, type: passive}
+      - {pad: "2", name: GND, type: passive}
+      - {pad: "3", name: IO2, type: passive}
+      - {pad: "4", name: IO2, type: passive}
+      - {pad: "5", name: VBUS, type: passive}
+      - {pad: "6", name: IO1, type: passive}
+
+  # -------------------------------------------------------- audio and people
+  CMM-4030DT-261280-TR:
+    symbol: chorus-sat:CMM-4030DT
+    footprint: chorus-sat:CUI_CMM-4030DT
+    pinout: >-
+      [S1] p5: 1 VDD, 2 SEL, 3 CLOCK, 4 DATA; pads 5-8 ground, as two
+      independent KiCad footprints draw it. CUI's drawing is still unread
+    mpn: CMM-4030DT-261280-TR
+    lcsc: C37002688
+    pins:
+      - {pad: "1", name: VDD, type: power_in}
+      - {pad: "2", name: SEL, type: input}
+      - {pad: "3", name: CLK, type: input}
+      - {pad: "4", name: DATA, type: tri_state}
+      - {pad: "5", name: GND, type: power_in}
+      - {pad: "6", name: GND, type: power_in}
+      - {pad: "7", name: GND, type: power_in}
+      - {pad: "8", name: GND, type: power_in}
+
+  SK6812MINI-E:
+    symbol: chorus-sat:SK6812MINI-E
+    footprint: chorus-sat:SK6812MINI-E_DatasheetPads
+    datasheet: https://www.lcsc.com/datasheet/C5149201.pdf
+    pinout: >-
+      OPSCO SK6812MINI-E rev 02 p4, the datasheet LCSC links for C5149201.
+      KiCad's LED:SK6812MINI-E numbers the same pads 1 VSS, 2 DIN, 3 VDD,
+      4 DOUT, and KiCad 9 ships no footprint for it, so the board carries
+      its own numbered as the datasheet is
+    mpn: SK6812MINI-E
+    lcsc: C5149201
+    pins:
+      - {pad: "1", name: VDD, type: power_in}
+      - {pad: "2", name: DOUT, type: output}
+      - {pad: "3", name: VSS, type: power_in}
+      - {pad: "4", name: DIN, type: input}
+
+  LED_RED_0603:
+    symbol: Device:LED
+    footprint: LED_SMD:LED_0603_1608Metric
+    pinout: KiCad Device:LED, cathode 1
+    mpn: KT-0603R
+    lcsc: C2286
+    pins:
+      - {pad: "1", name: K, type: passive}
+      - {pad: "2", name: A, type: passive}
+
+  MSK12C02:
+    symbol: Switch:SW_SPDT
+    footprint: Button_Switch_SMD:SW_SPDT_Shouhan_MSK12C02
+    pinout: KiCad's MSK12C02 footprint; 2 is the common, SH the case tabs
+    mpn: MSK12C02G15-B
+    lcsc: C22435661
+    pins:
+      - {pad: "1", name: A, type: passive}
+      - {pad: "2", name: COM, type: passive}
+      - {pad: "3", name: B, type: passive}
+      - {pad: SH, name: SHIELD, type: passive}
+
+  TS-1187A-B-A-B:
+    symbol: Switch:SW_Push
+    footprint: Button_Switch_SMD:SW_Push_1P1T_XKB_TS-1187A
+    pinout: KiCad's TS-1187A footprint, two pads per contact
+    mpn: TS-1187A-B-A-B
+    lcsc: C318884
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  # ------------------------------------------------------------ connectors
+  JST_PH_2P_VERTICAL:
+    symbol: Connector_Generic:Conn_01x02
+    footprint: Connector_JST:JST_PH_B2B-PH-K_1x02_P2.00mm_Vertical
+    pinout: JST PH 2.0 mm, vertical; BX-PH2.0-2PZZ is pin for pin a B2B-PH-K-S
+    mpn: BX-PH2.0-2PZZ
+    lcsc: C18077744
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  HEADER_1x04:
+    symbol: Connector_Generic:Conn_01x04
+    footprint: Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical
+    pinout: 2.54 mm header
+    hand: the radar is optional, so its header is fitted by hand with the radar
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+      - {pad: "3", name: "3", type: passive}
+      - {pad: "4", name: "4", type: passive}
+
+  TC2030:
+    symbol: Connector_Generic:Conn_02x03_Odd_Even
+    footprint: Connector:Tag-Connect_TC2030-IDC-NL_2x03_P1.27mm_Vertical
+    pinout: "[S1] p3 J6: 1 TCK, 2 GND, 3 TMS, 4 TDI, 5 1V8, 6 TDO"
+    hand: pads for a Tag-Connect cable; nothing is fitted
+    pins:
+      - {pad: "1", name: TCK, type: passive}
+      - {pad: "2", name: GND, type: passive}
+      - {pad: "3", name: TMS, type: passive}
+      - {pad: "4", name: TDI, type: passive}
+      - {pad: "5", name: VREF, type: passive}
+      - {pad: "6", name: TDO, type: passive}
+
+  TESTPOINT:
+    symbol: Connector:TestPoint
+    footprint: TestPoint:TestPoint_Pad_D1.0mm
+    pinout: one pad
+    hand: a bare pad for a probe; nothing is fitted
+    pins:
+      - {pad: "1", name: "1", type: passive}
+
+  # ------------------------------------------------------- crystals, diodes
+  XTAL_24M_2016:
+    symbol: Device:Crystal_GND24
+    footprint: Crystal:Crystal_SMD_2016-4Pin_2.0x1.6mm
+    pinout: 4-pad 2016 crystal; 1 and 3 the crystal, 2 and 4 its case
+    mpn: XRCGB24M000F1SBAR0
+    lcsc: C6616880
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: GND, type: passive}
+      - {pad: "3", name: "3", type: passive}
+      - {pad: "4", name: GND, type: passive}
+
+  XTAL_25M_3225:
+    symbol: Device:Crystal_GND24
+    footprint: Crystal:Crystal_SMD_3225-4Pin_3.2x2.5mm
+    pinout: 4-pad 3225 crystal; 1 and 3 the crystal, 2 and 4 its case
+    mpn: XL2EL89CRI-111YLC-25M
+    lcsc: C19078191
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: GND, type: passive}
+      - {pad: "3", name: "3", type: passive}
+      - {pad: "4", name: GND, type: passive}
+
+  MB6S:
+    symbol: Diode_Bridge:MB6S
+    footprint: Package_TO_SOT_SMD:TO-269AA
+    pinout: KiCad Diode_Bridge:MB2S, which MB6S extends; 1 and 2 AC, 3 +, 4 -
+    mpn: MB6S
+    lcsc: C7528221
+    pins:
+      - {pad: "1", name: AC1, type: passive}
+      - {pad: "2", name: AC2, type: passive}
+      - {pad: "3", name: P, type: passive}
+      - {pad: "4", name: "N", type: passive}
+
+  SMAJ58A:
+    symbol: Diode:SMAJ58A
+    footprint: Diode_SMD:D_SMA
+    pinout: SMA, cathode band on pad 1
+    mpn: SMAJ58A
+    lcsc: C19077554
+    pins:
+      - {pad: "1", name: K, type: passive}
+      - {pad: "2", name: A, type: passive}
+
+  SMAJ24A:
+    symbol: Diode:SMAJ24A
+    footprint: Diode_SMD:D_SMA
+    pinout: SMA, cathode band on pad 1
+    mpn: SMAJ24A
+    lcsc: C19077541
+    pins:
+      - {pad: "1", name: K, type: passive}
+      - {pad: "2", name: A, type: passive}
+
+  # ------------------------------------------------------------ inductors
+  L_2u2_4040:
+    symbol: Device:L
+    footprint: Inductor_SMD:L_Changjiang_FTC404020S
+    pinout: two-terminal
+    mpn: XRIM404020S2R2MGCA
+    lcsc: C39846857
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  L_4u7_4040:
+    symbol: Device:L
+    footprint: Inductor_SMD:L_Changjiang_FTC404020S
+    pinout: two-terminal
+    mpn: XRIM404020S4R7MGCA
+    lcsc: C39846859
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  L_2u2_1008:
+    symbol: Device:L
+    footprint: Inductor_SMD:L_1008_2520Metric
+    pinout: two-terminal
+    mpn: XRIM252012S2R2MBCA
+    lcsc: C22471111
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  FB_600R_0603:
+    symbol: Device:FerriteBead_Small
+    footprint: Inductor_SMD:L_0603_1608Metric
+    pinout: two-terminal
+    mpn: GZ1608D601TF
+    lcsc: C1002
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  # ---------------------------------------------------- resistors, capacitors
+  R_0402:
+    symbol: Device:R
+    footprint: Resistor_SMD:R_0402_1005Metric
+    pinout: two-terminal
+    values:
+      0R: C17168
+      22R: ""
+      33R: ""
+      49R9: ""
+      100R: C25076
+      330R: C25104
+      470R: C25117
+      680R: ""
+      1k: C11702
+      4k7: C25900
+      5k1: C25905
+      10k: C25744
+      12k: C25752
+      12k4: ""
+      20k: C25765
+      33k: C25779
+      47k: C25792
+      100k: C25741
+      1M: C26083
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  C_0402:
+    symbol: Device:C
+    footprint: Capacitor_SMD:C_0402_1005Metric
+    pinout: two-terminal
+    values:
+      10pF: ""
+      18pF: ""
+      22pF: C1555
+      220pF: ""
+      6n8: ""
+      10nF: C15195
+      100nF: C1525
+      1uF: C52923
+      10uF: C15525
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  C_0603:
+    symbol: Device:C
+    footprint: Capacitor_SMD:C_0603_1608Metric
+    pinout: two-terminal
+    values:
+      4u7: ""
+      10uF: C19702
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  C_0805:
+    symbol: Device:C
+    footprint: Capacitor_SMD:C_0805_2012Metric
+    pinout: two-terminal
+    values:
+      10uF 25V: C15850
+      22uF 25V: C45783
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  C_1206_2KV:
+    symbol: Device:C
+    footprint: Capacitor_SMD:C_1206_3216Metric
+    pinout: two-terminal
+    mpn: CL31B102KJHNNNE
+    lcsc: C16196254
+    pins:
+      - {pad: "1", name: "1", type: passive}
+      - {pad: "2", name: "2", type: passive}
+
+  CP_100u_25V:
+    symbol: Device:C_Polarized
+    footprint: Capacitor_SMD:CP_Elec_6.3x5.4
+    pinout: polarised, + on pad 1
+    mpn: RVT1E101M0605
+    lcsc: C22383797
+    pins:
+      - {pad: "1", name: P, type: passive}
+      - {pad: "2", name: "N", type: passive}

@@ -1,0 +1,118 @@
+sheet: ui
+title: LED ring, radar header and test points
+parts:
+  U70: {part: 74AHCT1G125, note: lifts LED_DATA to the ring's 5 V input threshold}
+  C400: {part: C_0402, value: 100nF, note: U70}
+  R400: {part: R_0402, value: 33R, note: "LED data series, at its source"}
+  C401: {part: C_0805, value: 22uF 25V, note: ring bulk}
+  D71: {part: SK6812MINI-E, note: ring LED 1 of 12}
+  D72: {part: SK6812MINI-E, note: ring LED 2 of 12}
+  D73: {part: SK6812MINI-E, note: ring LED 3 of 12}
+  D74: {part: SK6812MINI-E, note: ring LED 4 of 12}
+  D75: {part: SK6812MINI-E, note: ring LED 5 of 12}
+  D76: {part: SK6812MINI-E, note: ring LED 6 of 12}
+  D77: {part: SK6812MINI-E, note: ring LED 7 of 12}
+  D78: {part: SK6812MINI-E, note: ring LED 8 of 12}
+  D79: {part: SK6812MINI-E, note: ring LED 9 of 12}
+  D80: {part: SK6812MINI-E, note: ring LED 10 of 12}
+  D81: {part: SK6812MINI-E, note: ring LED 11 of 12}
+  D82: {part: SK6812MINI-E, note: ring LED 12 of 12}
+  C402: {part: C_0402, value: 100nF, note: D71}
+  C403: {part: C_0402, value: 100nF, note: D72}
+  C404: {part: C_0402, value: 100nF, note: D73}
+  C405: {part: C_0402, value: 100nF, note: D74}
+  C406: {part: C_0402, value: 100nF, note: D75}
+  C407: {part: C_0402, value: 100nF, note: D76}
+  C408: {part: C_0402, value: 100nF, note: D77}
+  C409: {part: C_0402, value: 100nF, note: D78}
+  C410: {part: C_0402, value: 100nF, note: D79}
+  C411: {part: C_0402, value: 100nF, note: D80}
+  C412: {part: C_0402, value: 100nF, note: D81}
+  C413: {part: C_0402, value: 100nF, note: D82}
+  J70: {part: HEADER_1x04, note: "HLK-LD2450 radar: 1 5V, 2 GND, 3 its TX, 4 its RX"}
+  TP70: {part: TESTPOINT, dnp: true, note: "AMP_SENSE, for a logic analyser"}
+  TP71: {part: TESTPOINT, dnp: true, note: I2S_DOUT}
+  TP72: {part: TESTPOINT, dnp: true, note: I2S_LRCLK}
+  TP73: {part: TESTPOINT, dnp: true, note: ground for the probe}
+nets:
+  5V0:
+    - U70.VCC
+    - C400.1
+    - C401.1
+    - J70.1
+    - D71.VDD
+    - D72.VDD
+    - D73.VDD
+    - D74.VDD
+    - D75.VDD
+    - D76.VDD
+    - D77.VDD
+    - D78.VDD
+    - D79.VDD
+    - D80.VDD
+    - D81.VDD
+    - D82.VDD
+    - C402.1
+    - C403.1
+    - C404.1
+    - C405.1
+    - C406.1
+    - C407.1
+    - C408.1
+    - C409.1
+    - C410.1
+    - C411.1
+    - C412.1
+    - C413.1
+  GND:
+    - U70.GND
+    - U70.OE_N
+    - C400.2
+    - C401.2
+    - J70.2
+    - TP73.1
+    - D71.VSS
+    - D72.VSS
+    - D73.VSS
+    - D74.VSS
+    - D75.VSS
+    - D76.VSS
+    - D77.VSS
+    - D78.VSS
+    - D79.VSS
+    - D80.VSS
+    - D81.VSS
+    - D82.VSS
+    - C402.2
+    - C403.2
+    - C404.2
+    - C405.2
+    - C406.2
+    - C407.2
+    - C408.2
+    - C409.2
+    - C410.2
+    - C411.2
+    - C412.2
+    - C413.2
+  LED_DATA: [U70.A]
+  LED_BUF: [U70.Y, R400.1]
+  LED_DIN: [R400.2, D71.DIN]
+  LED_CHAIN_1: [D71.DOUT, D72.DIN]
+  LED_CHAIN_2: [D72.DOUT, D73.DIN]
+  LED_CHAIN_3: [D73.DOUT, D74.DIN]
+  LED_CHAIN_4: [D74.DOUT, D75.DIN]
+  LED_CHAIN_5: [D75.DOUT, D76.DIN]
+  LED_CHAIN_6: [D76.DOUT, D77.DIN]
+  LED_CHAIN_7: [D77.DOUT, D78.DIN]
+  LED_CHAIN_8: [D78.DOUT, D79.DIN]
+  LED_CHAIN_9: [D79.DOUT, D80.DIN]
+  LED_CHAIN_10: [D80.DOUT, D81.DIN]
+  LED_CHAIN_11: [D81.DOUT, D82.DIN]
+  RADAR_RX: [J70.3]
+  RADAR_TX: [J70.4]
+  AMP_SENSE: [TP70.1]
+  I2S_DOUT: [TP71.1]
+  I2S_LRCLK: [TP72.1]
+nc:
+  - D82.DOUT

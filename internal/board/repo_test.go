@@ -37,7 +37,7 @@ func TestTheXMOSInterfaceIsWhereSatellite1HasIt(t *testing.T) {
 	for _, net := range []string{
 		"I2S_LRCLK", "I2S_BCLK", "I2S_MCLK", "I2S_DOUT", "I2S_DIN",
 		"XMOS_RST", "XMOS_SPI_CS_N", "XMOS_SPI_SCLK", "XMOS_SPI_MOSI", "XMOS_SPI_MISO",
-		"I2C_SDA", "I2C_SCL", "PD_INT_N",
+		"I2C_SDA", "I2C_SCL", "I2C_IRQ",
 	} {
 		p := b.Net(net)
 		if p == nil {
@@ -81,5 +81,32 @@ func TestTheXU316OwnsItsClocksAndTheESP32HoldsItInReset(t *testing.T) {
 	}
 	if b.Net("XMOS_RST_N") != nil {
 		t.Error("XMOS_RST_N names the XU316 pin; the ESP32 drives XMOS_RST, the inverter's gate")
+	}
+}
+
+// verifies SPEC §3.3.2
+// The captured board passes its ERC and wires the ESP32 module exactly as
+// pins.yaml says, pad by pad, so the netlist Pcbnew imports is the board
+// the pin map and the ESPHome config describe.
+func TestTheRevASchematicChecksClean(t *testing.T) {
+	s, err := LoadSchematic("../../hardware/chorus-sat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Check(); err != nil {
+		t.Fatalf("hardware/chorus-sat:\n%v", err)
+	}
+}
+
+// Every footprint of the board's own is in chorus-sat.pretty, so a KiCad 9
+// import resolves all of them, and the check above has held each to its
+// part's pads.
+func TestEveryRevAFootprintIsDrawn(t *testing.T) {
+	s, err := LoadSchematic("../../hardware/chorus-sat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Undrawn(); len(got) != 0 {
+		t.Errorf("footprints parts.yaml names but chorus-sat.pretty lacks: %q", got)
 	}
 }
