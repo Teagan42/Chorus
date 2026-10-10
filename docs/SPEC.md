@@ -463,8 +463,11 @@ coughs. Recall is fine; precision is not. So the priority is suppressing false
 accepts, not recovering false rejects.
 
 `micro_wake_word` activation on-device is **stage one, and is not user-visible.**
-The component sends a pre-roll with the activation; the orchestrator runs stage
-two before any LED or chime:
+The component is meant to send a pre-roll with the activation, and the
+orchestrator to run stage two on it before any LED or chime. The wire carries
+no pre-roll yet (`bridge.TypeWake` is the word alone), so check 1 below is not
+run, and checks 2 and 3 run on the first utterance after the wake, which is
+when the session opens (ADR-0030):
 
 1. re-score the pre-roll against the wake model at a higher threshold
 2. confirm the segment contains speech at all
