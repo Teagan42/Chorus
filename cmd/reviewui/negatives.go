@@ -45,7 +45,10 @@ func (s *server) negatives(ctx context.Context, u *unread) ([]negative, error) {
 		if !strings.HasPrefix(conv, devicePrefix) {
 			continue
 		}
-		ns, err := harvest.Negatives(ctx, s.journal, conv)
+		d, err := s.logs.of(ctx, s.journal, conv)
+		if err == nil {
+			err = d.negErr
+		}
 		if err != nil {
 			u.skip(conv, err)
 			continue
@@ -54,7 +57,7 @@ func (s *server) negatives(ctx context.Context, u *unread) ([]negative, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, n := range ns {
+		for _, n := range d.negatives {
 			out = append(out, negative{Negative: n, status: vs[n.Seq].Status})
 		}
 	}
