@@ -1,11 +1,13 @@
 // Package curation persists what a reviewer decides (SPEC §9.2): verdicts on
-// preference candidates, labels on turns, and re-run takes promoted to a
-// pair's chosen side. It lives beside the journal, not in it: the log
-// records what the runtime did, a verdict records what a person later decided
-// about it, and a verdict is revisable where the log is append-only.
+// preference candidates, labels on turns, the re-runs they asked, and re-run
+// takes promoted to a pair's chosen side. It lives beside the journal, not
+// in it: the log records what the runtime did, a verdict records what a
+// person later decided about it, and a verdict is revisable where the log is
+// append-only.
 package curation
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -86,6 +88,11 @@ type Store interface {
 	PutPromotion(ctx context.Context, p Promotion) error
 	// Promotions returns the conversation's promoted takes keyed by turn seq.
 	Promotions(ctx context.Context, conversationID string) (map[uint64]Promotion, error)
+
+	// AddRerun keeps a re-run and returns the id the store gave it.
+	AddRerun(ctx context.Context, r Rerun) (uint64, error)
+	// Reruns returns the conversation's re-runs, newest first.
+	Reruns(ctx context.Context, conversationID string) ([]Rerun, error)
 }
 
 // MemStore is the in-memory Store used by tests and the demo server.
@@ -93,6 +100,7 @@ type MemStore struct {
 	byPair      map[string]Decision
 	annotations map[turnKey]Annotation
 	promotions  map[turnKey]Promotion
+	reruns      []Rerun // in the order added, which is the id's
 	mu          sync.RWMutex
 }
 
@@ -222,5 +230,39 @@ func (m *MemStore) Promotions(_ context.Context, conversationID string) (map[uin
 			out[k.seq] = p
 		}
 	}
+	return out, nil
+}
+
+// AddRerun keeps the re-run under the next id.
+func (m *MemStore) AddRerun(_ context.Context, r Rerun) (uint64, error) {
+	if err := r.validate(); err != nil {
+		return 0, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r.ID = uint64(len(m.reruns) + 1)
+	r.Takes = cloneTakes(r.Takes)
+	r.RanAt = r.RanAt.Truncate(StoredClockResolution)
+	m.reruns = append(m.reruns, r)
+	return r.ID, nil
+}
+
+// Reruns returns the conversation's re-runs, newest first.
+func (m *MemStore) Reruns(_ context.Context, conversationID string) ([]Rerun, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []Rerun
+	for _, r := range m.reruns {
+		if r.ConversationID == conversationID {
+			r.Takes = cloneTakes(r.Takes)
+			out = append(out, r)
+		}
+	}
+	slices.SortFunc(out, func(a, b Rerun) int {
+		if c := b.RanAt.Compare(a.RanAt); c != 0 {
+			return c
+		}
+		return cmp.Compare(b.ID, a.ID)
+	})
 	return out, nil
 }

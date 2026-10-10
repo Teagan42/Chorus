@@ -313,6 +313,138 @@ var promotionConformance = map[string]func(*testing.T, curation.Store){
 	},
 }
 
+var rerunConformance = map[string]func(*testing.T, curation.Store){
+	"a re-run's every field round-trips": func(t *testing.T, s curation.Store) {
+		ctx := context.Background()
+		want := zeppelinRerun()
+		id, err := s.AddRerun(ctx, want)
+		if err != nil {
+			t.Fatalf("add: %v", err)
+		}
+		if id == 0 {
+			t.Fatal("the store gave the re-run no id")
+		}
+		want.ID = id
+		got, err := s.Reruns(ctx, want.ConversationID)
+		if err != nil {
+			t.Fatalf("reruns: %v", err)
+		}
+		if !reflect.DeepEqual(got, []curation.Rerun{want}) {
+			t.Errorf("reruns = %+v, want only %+v", got, want)
+		}
+	},
+
+	"every re-run is kept, newest first": func(t *testing.T, s curation.Store) {
+		ctx := context.Background()
+		first, second, third := zeppelinRerun(), zeppelinRerun(), zeppelinRerun()
+		second.Versions.ToolSchema, second.RanAt = "tools@edited", first.RanAt.Add(time.Minute)
+		third.Versions.Model, third.RanAt = "qwen3-14b@1", second.RanAt // same instant: the later add is newer
+		var ids []uint64
+		for _, r := range []curation.Rerun{first, second, third} {
+			id, err := s.AddRerun(ctx, r)
+			if err != nil {
+				t.Fatalf("add: %v", err)
+			}
+			ids = append(ids, id)
+		}
+		got, err := s.Reruns(ctx, first.ConversationID)
+		if err != nil {
+			t.Fatalf("reruns: %v", err)
+		}
+		var order []uint64
+		for _, r := range got {
+			order = append(order, r.ID)
+		}
+		if want := []uint64{ids[2], ids[1], ids[0]}; !reflect.DeepEqual(order, want) {
+			t.Errorf("re-runs came back %v, want newest first %v", order, want)
+		}
+	},
+
+	"re-runs stay with their conversation": func(t *testing.T, s curation.Store) {
+		ctx := context.Background()
+		mine, other := zeppelinRerun(), zeppelinRerun()
+		other.ConversationID = "conv-1840-living_room"
+		for _, r := range []curation.Rerun{mine, other} {
+			if _, err := s.AddRerun(ctx, r); err != nil {
+				t.Fatalf("add: %v", err)
+			}
+		}
+		got, err := s.Reruns(ctx, mine.ConversationID)
+		if err != nil {
+			t.Fatalf("reruns: %v", err)
+		}
+		if len(got) != 1 || got[0].ConversationID != mine.ConversationID {
+			t.Errorf("reruns = %+v, want only Alice's morning", got)
+		}
+	},
+
+	"a re-run's take that only speaks keeps no calls": func(t *testing.T, s curation.Store) {
+		ctx := context.Background()
+		r := zeppelinRerun()
+		r.Takes[1].Calls = []curation.Call{}
+		if _, err := s.AddRerun(ctx, r); err != nil {
+			t.Fatalf("add: %v", err)
+		}
+		got, err := s.Reruns(ctx, r.ConversationID)
+		if err != nil || len(got) != 1 {
+			t.Fatalf("reruns: %v, %v", got, err)
+		}
+		if got[0].Takes[1].Calls != nil {
+			t.Errorf("calls = %#v, want nil", got[0].Takes[1].Calls)
+		}
+	},
+
+	"a re-run nothing could be promoted from is refused": func(t *testing.T, s curation.Store) {
+		for name, edit := range map[string]func(*curation.Rerun){
+			"no conversation":        func(r *curation.Rerun) { r.ConversationID = "" },
+			"no turn ran":            func(r *curation.Rerun) { r.Takes = nil },
+			"a take with no turn":    func(r *curation.Rerun) { r.Takes[0].Seq = 0 },
+			"no tool-schema version": func(r *curation.Rerun) { r.Versions.ToolSchema = "" },
+		} {
+			r := zeppelinRerun()
+			edit(&r)
+			if _, err := s.AddRerun(context.Background(), r); err == nil {
+				t.Errorf("%s: stored %+v", name, r)
+			}
+		}
+	},
+}
+
+// zeppelinRerun is Alice's morning asked again under the brief prompt: the
+// list turn changes, the follow-up answers as it did.
+func zeppelinRerun() curation.Rerun {
+	return curation.Rerun{
+		ConversationID: "conv-0853-kitchen",
+		Versions:       journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@edited", ToolSchema: "tools@7"},
+		SystemPrompt:   "You are a voice assistant in a home.\nWhen there are several results, say how many, offer the first, and stop.",
+		ToolSchema:     mediaSearchOnly,
+		Takes: []curation.Take{
+			{
+				Seq: 2, Speech: "I found three albums. Want Led Zeppelin one?", Finish: "stop",
+				Calls: []curation.Call{{Tool: "media_search", Args: `{"query":"Led Zeppelin","media_type":"album","limit":5}`}},
+			},
+			{
+				Seq: 10, Speech: "Playing Led Zeppelin one.", Finish: "stop",
+				Calls: []curation.Call{{Tool: "ha_call_service", Args: `{"domain":"media_player","service":"play_media"}`}},
+			},
+		},
+		RanAt: time.Date(2025, 10, 9, 22, 43, 5, 500000000, time.UTC),
+	}
+}
+
+// mediaSearchOnly is a tool schema cut down to the search, as Replay's
+// editor holds one.
+const mediaSearchOnly = `[
+  {
+    "type": "function",
+    "function": {
+      "name": "media_search",
+      "description": "Search the media library. Takes several seconds to return.",
+      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
+    }
+  }
+]`
+
 // garageCheckPromotion is Teagan's garage question re-run: it checks the
 // contact sensor and says nothing until the sensor answers.
 func garageCheckPromotion() curation.Promotion {
@@ -346,6 +478,7 @@ func zeppelinPromotion() curation.Promotion {
 		Calls:          []curation.Call{{Tool: "media_search", Args: `{"query":"Led Zeppelin","media_type":"album","limit":5}`}},
 		Versions:       journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@edited", ToolSchema: "tools@7"},
 		SystemPrompt:   "You are a voice assistant in a home.\nWhen there are several results, say how many, offer the first, and stop.",
+		ToolSchema:     mediaSearchOnly,
 		PromotedAt:     time.Date(2025, 10, 9, 22, 44, 30, 0, time.UTC),
 	}
 }
@@ -363,7 +496,7 @@ func decision(pairID string, status curation.Status) curation.Decision {
 
 func runStoreConformance(t *testing.T, open newStore) {
 	t.Helper()
-	for _, suite := range []map[string]func(*testing.T, curation.Store){storeConformance, annotationConformance, promotionConformance} {
+	for _, suite := range []map[string]func(*testing.T, curation.Store){storeConformance, annotationConformance, promotionConformance, rerunConformance} {
 		for name, run := range suite {
 			t.Run(name, func(t *testing.T) { run(t, open(t)) })
 		}

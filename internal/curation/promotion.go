@@ -24,10 +24,12 @@ type Promotion struct {
 	Speech string
 	Calls  []Call
 
-	// Versions is what the re-run ran under, and SystemPrompt the edited
-	// prompt itself, so a trainer can say where the chosen side came from.
+	// Versions is what the re-run ran under, and SystemPrompt and ToolSchema
+	// the edited prompt and tool declarations themselves, so a trainer can
+	// say where the chosen side came from.
 	Versions     journal.Versions
 	SystemPrompt string
+	ToolSchema   string
 
 	PromotedAt time.Time
 }
