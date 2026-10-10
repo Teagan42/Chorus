@@ -8,6 +8,9 @@ the way it does. Start from [`0000-template.md`](0000-template.md).
 These were backfilled from `docs/SPEC.md` and the commit log, grouped by
 decision rather than by clause: facets of one choice share one record.
 
+There is no 0028. The number was skipped when 0029 was written, and no record
+numbered 0028 was ever committed or dropped.
+
 | ADR | Decision | Source |
 |---|---|---|
 | [0001](0001-scope-single-household.md) | Target one household, not a product | §1 |
