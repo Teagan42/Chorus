@@ -20,8 +20,8 @@ import (
 	"github.com/teaganglenn/chorus/internal/session"
 )
 
-// RecallLimit is how many memories a turn is given. Everything, newest
-// first, until a household outgrows it and recall ranks by relevance.
+// RecallLimit is how many memories a turn is given: everything, until a
+// household outgrows it and recall chooses by relevance (ADR-0044).
 const RecallLimit = 20
 
 // What a turn is told of the person's earlier conversations: the few most
@@ -232,32 +232,129 @@ func (s *MemStore) Summaries(_ context.Context, person, except string, since tim
 }
 
 // Recaller is a Store as the session asks it: a guest recalls nothing, and
-// anyone else at most RecallLimit memories and SummaryLimit conversations
-// from the past SummaryWindow.
-func Recaller(s Store) session.Memories { return recaller{s} }
+// anyone else at most RecallLimit memories and SummaryLimit conversations.
+// Without an Embedder they are the newest, the conversations from the past
+// SummaryWindow; with one, any of the past SummaryKeep's can be chosen, by
+// relevance to what was just said as well as by recency (ADR-0044).
+func Recaller(s Store, cfg RecallConfig) session.Memories {
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = DefaultRankTimeout
+	}
+	r := recaller{s: s, cfg: cfg}
+	if cfg.Embedder != nil {
+		r.rank = &ranker{e: cfg.Embedder, cache: &vectors{}}
+	}
+	return r
+}
 
-type recaller struct{ s Store }
+type recaller struct {
+	s    Store
+	cfg  RecallConfig
+	rank *ranker
+}
 
-func (r recaller) Recall(ctx context.Context, person, conversationID string, now time.Time) (session.Recollection, error) {
+func (r recaller) Recall(ctx context.Context, a session.Ask) (session.Recollection, error) {
 	var out session.Recollection
-	if person == "" {
+	if a.Person == "" {
 		return out, nil
 	}
-	ms, err := r.s.Recall(ctx, person, RecallLimit)
-	if err != nil {
-		return out, fmt.Errorf("recall %s: %w", person, err)
+	pool, since := RecallLimit, a.Now.Add(-SummaryWindow)
+	if r.rank != nil {
+		pool, since = rankPool, a.Now.Add(-SummaryKeep)
 	}
+	ms, err := r.s.Recall(ctx, a.Person, pool)
+	if err != nil {
+		return out, fmt.Errorf("recall %s: %w", a.Person, err)
+	}
+	ss, err := r.s.Summaries(ctx, a.Person, a.ConversationID, since, pool)
+	if err != nil {
+		return out, fmt.Errorf("recall %s's conversations: %w", a.Person, err)
+	}
+	ms, ss, out.RankedBy = r.choose(ctx, a, ms, ss)
 	for _, m := range ms {
 		out.Memories = append(out.Memories, m.Recalled())
-	}
-	ss, err := r.s.Summaries(ctx, person, conversationID, now.Add(-SummaryWindow), SummaryLimit)
-	if err != nil {
-		return out, fmt.Errorf("recall %s's conversations: %w", person, err)
 	}
 	for _, s := range ss {
 		out.Summaries = append(out.Summaries, s.Recalled())
 	}
 	return out, nil
+}
+
+// choose cuts the candidates to what a turn is told: by relevance where
+// there are more than fit and an Embedder to rank them, otherwise the
+// newest. Ranking that fails costs the turn its relevance, never its
+// memories: it is told what it would have been without an Embedder.
+func (r recaller) choose(ctx context.Context, a session.Ask, ms []Memory, ss []Summary) ([]Memory, []Summary, string) {
+	if r.rank == nil || strings.TrimSpace(a.Words) == "" {
+		return newest(ms, ss, a.Now)
+	}
+	if len(ms) <= RecallLimit && len(ss) <= SummaryLimit {
+		// Everything fits: there is nothing to choose between.
+		return ms, ss, ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.cfg.Timeout)
+	defer cancel()
+	ranked, err := r.ranked(ctx, a.Words, ms, ss)
+	if err != nil {
+		if r.cfg.Failed != nil {
+			r.cfg.Failed(a.Person, err)
+		}
+		return newest(ms, ss, a.Now)
+	}
+	return ranked.ms, ranked.ss, r.rank.e.EmbedModel()
+}
+
+type chosen struct {
+	ms []Memory
+	ss []Summary
+}
+
+func (r recaller) ranked(ctx context.Context, words string, ms []Memory, ss []Summary) (chosen, error) {
+	out := chosen{ms: ms, ss: ss}
+	if len(ms) > RecallLimit {
+		facts := make([]string, len(ms))
+		for i, m := range ms {
+			facts[i] = m.Fact
+		}
+		keep, err := r.rank.choose(ctx, words, facts, RecallLimit)
+		if err != nil {
+			return out, fmt.Errorf("rank memories: %w", err)
+		}
+		out.ms = pick(ms, keep)
+	}
+	if len(ss) > SummaryLimit {
+		texts := make([]string, len(ss))
+		for i, s := range ss {
+			texts[i] = s.Text
+		}
+		keep, err := r.rank.choose(ctx, words, texts, SummaryLimit)
+		if err != nil {
+			return out, fmt.Errorf("rank conversations: %w", err)
+		}
+		out.ss = pick(ss, keep)
+	}
+	return out, nil
+}
+
+// newest is what a turn is told without ranking: the newest memories, and
+// the newest conversations of the past SummaryWindow.
+func newest(ms []Memory, ss []Summary, now time.Time) ([]Memory, []Summary, string) {
+	ms = ms[:min(len(ms), RecallLimit)]
+	recent := ss[:0:0]
+	for _, s := range ss {
+		if !s.At.Before(now.Add(-SummaryWindow)) && len(recent) < SummaryLimit {
+			recent = append(recent, s)
+		}
+	}
+	return ms, recent, ""
+}
+
+func pick[T any](from []T, at []int) []T {
+	out := make([]T, len(at))
+	for i, j := range at {
+		out[i] = from[j]
+	}
+	return out
 }
 
 // Keep stores the summary for each person; a guest is nobody to keep it for.

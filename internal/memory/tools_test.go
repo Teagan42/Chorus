@@ -61,7 +61,7 @@ func TestASharedFactReachesTheRestOfTheHousehold(t *testing.T) {
 	if _, err := tools["remember"].Invoke(call("alice", "call_r2"), `{"fact":"Teagan's surprise party is Saturday at the Lantern."}`); err != nil {
 		t.Fatalf("remember: %v", err)
 	}
-	rec, err := memory.Recaller(store).Recall(context.Background(), "teagan", "conv-kitchen-2", breakfast)
+	rec, err := memory.Recaller(store, memory.RecallConfig{}).Recall(context.Background(), session.Ask{Person: "teagan", ConversationID: "conv-kitchen-2", Now: breakfast})
 	if err != nil {
 		t.Fatalf("recall: %v", err)
 	}
@@ -129,15 +129,15 @@ func TestAGuestOrABlankFactIsRefused(t *testing.T) {
 	}
 }
 
-// A guest recalls nothing, and a busy household's oldest memories wait
-// for relevance ranking.
+// A guest recalls nothing, and without an embedding model a busy
+// household's oldest memories make room for the newest.
 //
 // verifies SPEC §5
 func TestTheRecallerGivesAGuestNothingAndAPersonTheNewest(t *testing.T) {
 	store := memory.NewMemStore()
 	rememberAll(t, store, household())
-	r := memory.Recaller(store)
-	if got, err := r.Recall(context.Background(), "", "conv-front-door-1", breakfast); err != nil || got.Memories != nil || got.Summaries != nil {
+	r := memory.Recaller(store, memory.RecallConfig{})
+	if got, err := r.Recall(context.Background(), session.Ask{Person: "", ConversationID: "conv-front-door-1", Now: breakfast}); err != nil || got.Memories != nil || got.Summaries != nil {
 		t.Errorf("a guest recalls %+v, %v; want nothing", got, err)
 	}
 
@@ -147,7 +147,7 @@ func TestTheRecallerGivesAGuestNothingAndAPersonTheNewest(t *testing.T) {
 			t.Fatalf("remember: %v", err)
 		}
 	}
-	rec, err := r.Recall(context.Background(), "teagan", "conv-kitchen-2", breakfast.Add(24*time.Hour))
+	rec, err := r.Recall(context.Background(), session.Ask{Person: "teagan", ConversationID: "conv-kitchen-2", Now: breakfast.Add(24 * time.Hour)})
 	if err != nil {
 		t.Fatalf("recall: %v", err)
 	}
