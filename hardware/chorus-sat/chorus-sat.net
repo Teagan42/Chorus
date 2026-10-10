@@ -1300,6 +1300,7 @@
       (fields
         (field (name "MPN") "SK6812MINI-E")
         (field (name "LCSC") "C5149201")
+        (field (name "Side") "back")
         (field (name "Note") "ring LED 1 of 12"))
       (libsource (lib "chorus-sat") (part "SK6812MINI-E") (description ""))
       (property (name "Sheetname") (value "ui"))
@@ -1312,6 +1313,7 @@
       (fields
         (field (name "MPN") "SK6812MINI-E")
         (field (name "LCSC") "C5149201")
+        (field (name "Side") "back")
         (field (name "Note") "ring LED 2 of 12"))
       (libsource (lib "chorus-sat") (part "SK6812MINI-E") (description ""))
       (property (name "Sheetname") (value "ui"))
@@ -1324,6 +1326,7 @@
       (fields
         (field (name "MPN") "SK6812MINI-E")
         (field (name "LCSC") "C5149201")
+        (field (name "Side") "back")
         (field (name "Note") "ring LED 3 of 12"))
       (libsource (lib "chorus-sat") (part "SK6812MINI-E") (description ""))
       (property (name "Sheetname") (value "ui"))
@@ -1336,6 +1339,7 @@
       (fields
         (field (name "MPN") "SK6812MINI-E")
         (field (name "LCSC") "C5149201")
+        (field (name "Side") "back")
         (field (name "Note") "ring LED 4 of 12"))
       (libsource (lib "chorus-sat") (part "SK6812MINI-E") (description ""))
       (property (name "Sheetname") (value "ui"))
@@ -1348,6 +1352,7 @@
       (fields
         (field (name "MPN") "SK6812MINI-E")
         (field (name "LCSC") "C5149201")
+        (field (name "Side") "back")
         (field (name "Note") "ring LED 5 of 12"))
       (libsource (lib "chorus-sat") (part "SK6812MINI-E") (description ""))
       (property (name "Sheetname") (value "ui"))
@@ -1360,6 +1365,7 @@
       (fields
         (field (name "MPN") "SK6812MINI-E")
         (field (name "LCSC") "C5149201")
+        (field (name "Side") "back")
         (field (name "Note") "ring LED 6 of 12"))
       (libsource (lib "chorus-sat") (part "SK6812MINI-E") (description ""))
       (property (name "Sheetname") (value "ui"))
@@ -1372,6 +1378,7 @@
       (fields
         (field (name "MPN") "SK6812MINI-E")
         (field (name "LCSC") "C5149201")
+        (field (name "Side") "back")
         (field (name "Note") "ring LED 7 of 12"))
       (libsource (lib "chorus-sat") (part "SK6812MINI-E") (description ""))
       (property (name "Sheetname") (value "ui"))
@@ -1384,6 +1391,7 @@
       (fields
         (field (name "MPN") "SK6812MINI-E")
         (field (name "LCSC") "C5149201")
+        (field (name "Side") "back")
         (field (name "Note") "ring LED 8 of 12"))
       (libsource (lib "chorus-sat") (part "SK6812MINI-E") (description ""))
       (property (name "Sheetname") (value "ui"))
@@ -1396,6 +1404,7 @@
       (fields
         (field (name "MPN") "SK6812MINI-E")
         (field (name "LCSC") "C5149201")
+        (field (name "Side") "back")
         (field (name "Note") "ring LED 9 of 12"))
       (libsource (lib "chorus-sat") (part "SK6812MINI-E") (description ""))
       (property (name "Sheetname") (value "ui"))
@@ -1408,6 +1417,7 @@
       (fields
         (field (name "MPN") "SK6812MINI-E")
         (field (name "LCSC") "C5149201")
+        (field (name "Side") "back")
         (field (name "Note") "ring LED 10 of 12"))
       (libsource (lib "chorus-sat") (part "SK6812MINI-E") (description ""))
       (property (name "Sheetname") (value "ui"))
@@ -1420,6 +1430,7 @@
       (fields
         (field (name "MPN") "SK6812MINI-E")
         (field (name "LCSC") "C5149201")
+        (field (name "Side") "back")
         (field (name "Note") "ring LED 11 of 12"))
       (libsource (lib "chorus-sat") (part "SK6812MINI-E") (description ""))
       (property (name "Sheetname") (value "ui"))
@@ -1432,6 +1443,7 @@
       (fields
         (field (name "MPN") "SK6812MINI-E")
         (field (name "LCSC") "C5149201")
+        (field (name "Side") "back")
         (field (name "Note") "ring LED 12 of 12"))
       (libsource (lib "chorus-sat") (part "SK6812MINI-E") (description ""))
       (property (name "Sheetname") (value "ui"))
