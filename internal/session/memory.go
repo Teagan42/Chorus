@@ -87,6 +87,16 @@ func denied(spec registry.ToolSpec, person string) bool {
 	return spec.Scope == registry.ScopePerson && person == "" && spec.UnknownSpeaker != "guest_fallback"
 }
 
+// actingFor is whom a call is made for: the speaker, but nobody for a
+// guest-scoped tool, which runs in guest context whoever speaks and so is
+// told no one's identity or memories (SPEC §5, ADR-0060).
+func actingFor(spec registry.ToolSpec, speaker string) string {
+	if spec.Scope == registry.ScopeGuest {
+		return ""
+	}
+	return speaker
+}
+
 // recall records what the model will be told it remembers, when that differs
 // from what the log already says it was told, and returns the state with it.
 // A guest recalls nothing. Recorded rather than fetched per ask, so a replay

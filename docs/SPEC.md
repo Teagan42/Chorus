@@ -372,6 +372,12 @@ vocabulary for:
 
 MCP-sourced tools get conservative default policies.
 
+Person scoping is one of three. A `household` tool runs for anyone, a guest
+included. A `person` tool needs an identified speaker, unless it declares that
+a guest falls back to guest context. A `guest` tool always runs in guest
+context: its executor is told nobody's identity, whoever spoke, so it can reach
+no one's memories (§5, ADR-0060).
+
 The model is offered every tool the daemon has an executor for, whether or not
 that executor's backend is configured: Home Assistant switched off answers
 `not_implemented`, which the model reasons about (§7). So the offered schema,

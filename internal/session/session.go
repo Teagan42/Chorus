@@ -613,7 +613,7 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 	}
 
 	s.mu.Lock()
-	caller := Caller{Person: s.speaker, ConversationID: s.convID, CallID: tc.ID, Satellite: s.satellite}
+	caller := Caller{Person: actingFor(spec, s.speaker), ConversationID: s.convID, CallID: tc.ID, Satellite: s.satellite}
 	s.mu.Unlock()
 	if denied(spec, caller.Person) {
 		// Before any confirmation: a guest is not asked to confirm what

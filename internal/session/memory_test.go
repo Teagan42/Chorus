@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/memory"
 	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/session"
 )
@@ -265,6 +266,66 @@ func TestAPersonScopedCallKnowsWhoMadeIt(t *testing.T) {
 	want := session.Caller{Person: "teagan", ConversationID: s.ConversationID(), CallID: "call_r1", Satellite: "kitchen"}
 	if got := <-callers; got != want {
 		t.Errorf("caller = %+v, want %+v", got, want)
+	}
+}
+
+// A guest-scoped tool runs in guest context whoever is speaking: it is told
+// nobody's identity, so it can reach nobody's memories (SPEC §5). No shipped
+// tool declares the scope yet; a forecast service is the shape of one.
+//
+// verifies SPEC §5
+func TestAGuestScopedToolRunsAsAGuestForEveryone(t *testing.T) {
+	specs := maps.Clone(registry.Specs)
+	specs["weather_forecast"] = registry.ToolSpec{
+		Name: "weather_forecast", OnInterrupt: registry.InterruptCancel,
+		Scope: registry.ScopeGuest, Timeout: registry.Specs["remember"].Timeout,
+	}
+	steps := []step{
+		{act: session.ToolCall{ID: "call_w1", Tool: "weather_forecast", Args: `{}`}},
+		{act: session.TurnEnd{FinishReason: "tool_calls", Completion: "{}"}},
+	}
+	callers := make(chan session.Caller, 1)
+	tool := session.ToolFunc(func(ctx context.Context, _ string) (string, error) {
+		c, _ := session.CallerFrom(ctx)
+		callers <- c
+		return `{"today":"sunny, 21C"}`, nil
+	})
+	r, _ := newMemoryRig(t, steps, map[string]session.Tool{"weather_forecast": tool}, specs)
+	s := r.open(t, "teagan")
+	wait(t, heard(s, "what's the weather like today"))
+
+	if c := callByID(t, r.state(t, s.ConversationID()), "call_w1"); c.Outcome != "ok" {
+		t.Errorf("call = %+v, want it run", c)
+	}
+	want := session.Caller{ConversationID: s.ConversationID(), CallID: "call_w1", Satellite: "kitchen"}
+	if got := <-callers; got != want {
+		t.Errorf("caller = %+v, want %+v: told nobody's identity", got, want)
+	}
+}
+
+// Declared guest-scoped, remember has nobody to remember for, even with
+// Teagan speaking: it keeps nothing, as it would for a guest (SPEC §5).
+//
+// verifies SPEC §5
+func TestAGuestScopedRememberKeepsNothingForTheSpeaker(t *testing.T) {
+	specs := maps.Clone(registry.Specs)
+	guest := specs["remember"]
+	guest.Scope, guest.UnknownSpeaker = registry.ScopeGuest, ""
+	specs["remember"] = guest
+	steps := []step{
+		{act: session.ToolCall{ID: "call_r1", Tool: "remember", Args: `{"fact":"Takes oat milk in coffee."}`}},
+		{act: session.TurnEnd{FinishReason: "tool_calls", Completion: "{}"}},
+	}
+	store := memory.NewMemStore()
+	r, _ := newMemoryRig(t, steps, memory.Tools(store, journal.FixedClock(epoch)), specs)
+	s := r.open(t, "teagan")
+	wait(t, heard(s, "remember that I take oat milk"))
+
+	if c := callByID(t, r.state(t, s.ConversationID()), "call_r1"); c.Outcome != "error" {
+		t.Errorf("call = %+v, want it refused for want of a person", c)
+	}
+	if got, err := store.Recall(context.Background(), "teagan", memory.RecallLimit); err != nil || len(got) != 0 {
+		t.Errorf("Teagan remembers %+v (err %v), want nothing kept", got, err)
 	}
 }
 
