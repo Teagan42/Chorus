@@ -289,13 +289,41 @@ var promotionConformance = map[string]func(*testing.T, curation.Store){
 		}
 	},
 
-	"a take that says nothing is refused": func(t *testing.T, s curation.Store) {
+	"a take that neither says nor calls anything is refused": func(t *testing.T, s curation.Store) {
 		p := zeppelinPromotion()
-		p.Speech = " "
+		p.Speech, p.Calls = " ", nil
 		if err := s.PutPromotion(context.Background(), p); err == nil {
-			t.Error("stored a chosen side with nothing to say")
+			t.Error("stored a chosen side that does nothing")
 		}
 	},
+
+	"a take that only calls is kept": func(t *testing.T, s curation.Store) {
+		ctx := context.Background()
+		p := garageCheckPromotion()
+		if err := s.PutPromotion(ctx, p); err != nil {
+			t.Fatalf("put: %v", err)
+		}
+		got, err := s.Promotions(ctx, p.ConversationID)
+		if err != nil {
+			t.Fatalf("promotions: %v", err)
+		}
+		if !reflect.DeepEqual(got[p.Seq], p) {
+			t.Errorf("promotion = %+v, want %+v", got[p.Seq], p)
+		}
+	},
+}
+
+// garageCheckPromotion is Teagan's garage question re-run: it checks the
+// contact sensor and says nothing until the sensor answers.
+func garageCheckPromotion() curation.Promotion {
+	return curation.Promotion{
+		ConversationID: "conv-0930-office",
+		Seq:            2,
+		Calls:          []curation.Call{{Tool: "ha_get_state", Args: `{"entity_id":"binary_sensor.garage_door_contact"}`}},
+		Versions:       journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@edited", ToolSchema: "tools@7"},
+		SystemPrompt:   "You are a voice assistant in a home.\nWhen there are several results, say how many, offer the first, and stop.",
+		PromotedAt:     time.Date(2025, 10, 9, 22, 47, 12, 0, time.UTC),
+	}
 }
 
 // zeppelinAnnotation is Alice's album list, labelled by the reviewer.

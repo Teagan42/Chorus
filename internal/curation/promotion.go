@@ -39,8 +39,9 @@ func (p Promotion) validate() error {
 	if p.Seq == 0 {
 		return fmt.Errorf("curation: promotion in %s without a turn", p.ConversationID)
 	}
-	if strings.TrimSpace(p.Speech) == "" {
-		return fmt.Errorf("curation: promotion %s/%d says nothing", p.ConversationID, p.Seq)
+	// A take that only calls is a chosen side; one that does nothing is not.
+	if strings.TrimSpace(p.Speech) == "" && len(p.Calls) == 0 {
+		return fmt.Errorf("curation: promotion %s/%d neither says nor calls anything", p.ConversationID, p.Seq)
 	}
 	return nil
 }
