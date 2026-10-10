@@ -186,6 +186,7 @@ Actor: `speaking`. `has_audio`: no. `training_signal`: yes. `speculative`: no. `
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `unspoken_text` | string | yes | Generated but never played. |
+| `call_id` | string |  | The speak call the text belonged to, so a reader can set aside a line nobody's turn chose, such as a canned one. Absent in logs written before ADR-0051. |
 | `reason` | string | yes | Why it was dropped. tts_unavailable and playback_unconfirmed are the voice or the device failing, not the person (ADR-0051). One of: `barge_in`, `preempted`, `session_closed`, `migrated`, `tts_unavailable`, `playback_unconfirmed`. |
 
 ## `speech_failed`
