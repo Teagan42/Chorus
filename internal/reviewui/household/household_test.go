@@ -3,14 +3,18 @@ package household_test
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"io"
 	"math"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/provider/kokoro"
+	"github.com/teagan42/chorus/internal/provider/speaches"
 	"github.com/teagan42/chorus/internal/reviewui/household"
 )
 
@@ -253,6 +257,37 @@ func TestSpeechNamesTheCallItPlayed(t *testing.T) {
 					t.Errorf("%s: %s names call %q, which no earlier speak is", id, l.Rec.AudioRef, f["call_id"])
 				}
 			}
+		}
+	}
+}
+
+// Every event names the ear and the voice it was heard and spoken by, as
+// chorusd records them from its providers (ADR-0032): the assistant speaks
+// in the Kokoro voice voice.json gives it.
+func TestTheDayNamesTheEarAndTheVoice(t *testing.T) {
+	b, err := os.ReadFile("voice.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct{ Voices map[string]string }
+	if err := json.Unmarshal(b, &s); err != nil {
+		t.Fatal(err)
+	}
+	want := household.Versions()
+	if tts := kokoro.DefaultModel + "/" + s.Voices["assistant"]; want.STT != speaches.DefaultModel || want.TTS != tts {
+		t.Errorf("the day ran under STT %q and TTS %q, want %q and %q", want.STT, want.TTS, speaches.DefaultModel, tts)
+	}
+	store, err := household.Journal(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := store.Events(context.Background(), household.ConvWeather)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Versions != want {
+			t.Fatalf("%s #%d ran under %+v, want %+v", e.Kind, e.Seq, e.Versions, want)
 		}
 	}
 }

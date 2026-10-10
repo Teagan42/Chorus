@@ -66,9 +66,13 @@ func Day() time.Time { return time.Date(2025, time.October, 9, 0, 0, 0, 0, time.
 // ReviewedAt is when the reviewer sits down: that evening.
 func ReviewedAt() time.Time { return Day().Add(22*time.Hour + 30*time.Minute) }
 
-// Versions is what every turn of the day ran under.
+// Versions is what every turn of the day ran under: Parakeet heard it and
+// Kokoro spoke it, named as chorusd names its providers (ADR-0032).
 func Versions() journal.Versions {
-	return journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7"}
+	return journal.Versions{
+		Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7",
+		STT: "istupakov/parakeet-tdt-0.6b-v2-onnx", TTS: "kokoro/af_heart",
+	}
 }
 
 // Line is one event of a log, At after midnight of Day.
