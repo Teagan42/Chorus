@@ -252,7 +252,6 @@ func (d *daemon) serve(ctx context.Context, conn net.Conn) {
 		log.Warn("audio link handshake failed", "err", err)
 		return
 	}
-	log.Info("satellite connected", "mic_channels", link.Hello().MicChannels)
 	defer func() { _ = link.Close() }()
 
 	if err := d.attach(ctx, sat, link, log); err != nil {
@@ -333,6 +332,8 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	}
 	d.link(sat.Name, lst)
 	defer d.unlink(sat.Name, lst)
+	// Logged once the link can take an announcement, not at the hello.
+	log.Info("satellite connected", "mic_channels", link.Hello().MicChannels)
 
 	err = link.Serve(linkCtx, handlers{speaker, lst})
 	cancel()
