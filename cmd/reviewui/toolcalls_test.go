@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/provider/ollama"
 )
 
@@ -93,5 +96,31 @@ func TestCurateShowsWhatEachSideCalls(t *testing.T) {
 	mustPost(t, s, turnURL(convZeppel, zeppelinAsk, "labels/wrong_tool"), nil)
 	if h := get(t, s, pairHref(annotatedZeppel, "all")); strings.Contains(h, "pair-actions__call") {
 		t.Error("a wrong-tool pair shows calls nobody said were right")
+	}
+}
+
+// "Wrong tool" takes the calls off both sides, so a pair accepted with them
+// asks again; taking it off puts them back and asks again too.
+//
+// verifies SPEC §9.2
+func TestWrongToolAsksForANewVerdict(t *testing.T) {
+	s, decisions := newHouseholdServer(t)
+	mustPost(t, s, turnURL(convZeppel, zeppelinAsk, "labels/misunderstood_intent"), url.Values{"should_have": {shouldHaveZeppel}})
+	for _, step := range []string{"adding", "removing"} {
+		mustPost(t, s, "/pairs/"+annotatedZeppel+"/accept", nil)
+		mustPost(t, s, turnURL(convZeppel, zeppelinAsk, "labels/wrong_tool"), nil)
+		if _, ok, _ := decisions.Get(context.Background(), annotatedZeppel); ok {
+			t.Errorf("%s wrong tool kept the verdict on the pair's old calls", step)
+		}
+	}
+}
+
+// harvest reads "wrong tool" by its stored name; the two must not drift.
+//
+// verifies SPEC §9.2
+func TestHarvestReadsTheWrongToolLabelCurationStores(t *testing.T) {
+	p := harvest.Pair{Source: harvest.SourceAnnotation, Labels: []string{string(curation.LabelWrongTool)}}
+	if _, _, withCalls := p.TextCalls(); withCalls {
+		t.Errorf("%q does not make a pair speech-only", curation.LabelWrongTool)
 	}
 }

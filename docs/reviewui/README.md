@@ -253,8 +253,9 @@ anyway is allowed and marks the pair unfixed, which Export holds back.
 Pairs come from three places, named on each row: `barge-in`, harvested from
 the log; `annotation`, a turn labelled with a fault and what it should have
 done; and `replay`, a promoted re-run. A reviewer's pair shows what made it
-under its chosen side. Changing an annotation's note asks for a new
-verdict, since the old one judged a different chosen side. Each side lists
+under its chosen side. Changing an annotation's note, or its *wrong tool /
+args* label, asks for a new verdict, since the old one judged a different
+pair. Each side lists
 the tool calls it carries under its speech, exactly as the export writes
 them, and a take that only calls is named by its calls in the list
 (ADR-0054).
