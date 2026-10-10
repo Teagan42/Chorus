@@ -21,7 +21,8 @@ not on the board.
 |---|---|---|
 | The mic never stops, even during playback (SPEC §3.1) | Cancel the satellite's own voice in hardware, against a reference that is sample-exact with what plays | XMOS XU316 runs AEC; playback passes through it, so its reference is the signal itself |
 | Barge-in truncates at the byte actually played (SPEC §3.2.1, ADR-0033) | One clock from the amplifier back to the ESP32's frame counter, and a fixed, measurable delay after it | The XU316 masters every audio clock; the amplifier's sense output returns to the ESP32 on `AMP_SENSE` |
-| Per-utterance speaker embeddings; the conversation follows the person (SPEC §4.5, §5) | A voiceprint enrolled at one satellite matches at every other, so every satellite hears the same way | Same XU316, mic layout and XMOS firmware as the Satellite1: an acoustic peer, not a new frontend |
+| Per-utterance speaker embeddings; the conversation follows the person (SPEC §4.5, §5) | A voiceprint enrolled at one satellite matches at every other, so every satellite hears the same way | Same XU316, mic part, cross and XMOS firmware as the Satellite1: an acoustic peer, not a new frontend |
+| Knows who said what, and the barge-in gate rejects the TV (SPEC §4.3, §5) | Tell where in the room a voice is | Eight mics on a 64 mm circle, wired for direction of arrival; the estimator is firmware work |
 | Duplex needs airtime, not bandwidth (SPEC §3.3.2) | A path that does not share 2.4 GHz with the household | W5500 Ethernet with 802.3af PoE; Wi-Fi stays as the other build |
 | Hardware mute is authoritative (CONTRIBUTING §7) | A switch firmware cannot override, and a state the device can still report | The switch cuts mic power and clock directly; the ESP32 only reads `MUTE_SENSE` |
 | Not a media player (SPEC §1) | An amplifier sized for speech, not music | TAS2780 on a 12 V rail from PoE: full power without a 20 V USB-PD contract |
@@ -42,7 +43,7 @@ flowchart LR
     end
 
     subgraph voice["Voice frontend"]
-        mics["4 x PDM MEMS mics"]
+        mics["8 x PDM MEMS mics<br/>64 mm circle"]
         xmos["XMOS XU316<br/>AEC / NS / AGC<br/>I2S master"]
         flash["QSPI flash<br/>XMOS firmware"]
         mics -->|PDM| xmos
@@ -55,13 +56,14 @@ flowchart LR
     end
 
     amp["TAS2780<br/>class-D + I/V sense"]
+    flash -.->|"mux: flash while<br/>XMOS in reset"| host
     spk(("speaker<br/>4 ohm"))
     eth["W5500<br/>Ethernet"]
     ui["SK6812 ring, buttons,<br/>mute switch, radar header"]
 
-    xmos -->|"I2S up: AEC'd + raw"| host
+    xmos -->|"I2S up: two processed channels"| host
     host -->|"I2S down: playback,<br/>the echo reference"| xmos
-    host -->|"SPI + reset"| xmos
+    host -->|"SPI via muxes,<br/>XMOS_RST"| xmos
     xmos -->|I2S/TDM| amp
     amp --> spk
     amp -->|"AMP_SENSE: sensed I/V"| host
@@ -99,11 +101,24 @@ logs, and the check refuses any other net there.
 
 ### XMOS XU316, with Satellite1's XMOS firmware
 
-The XU316 (`XU316-1024-QF60B`, 3.3 V I/O) does AEC, noise suppression and AGC
-and hands the ESP32 two channels: the echo-cancelled mix and a raw mic. That
-is the shape the wire protocol already carries (`0x02 mic`, `flags` 0 and 1)
-and the shape [SPEC §9.3](../SPEC.md#93-two-stage-wake-confirmation-phase-1)
-wants for the wake-word corpus.
+The XU316 (`XU316-1024-QF60B`, 3.3 V I/O) runs FutureProofHomes' XMOS
+firmware unmodified and hands the ESP32 two channels at 48 kHz, each 16 kHz
+sample repeated three times. **Both are processed**: slot 0 is AEC, interference
+cancelling, noise suppression and AGC; slot 1 is the same without AGC
+(`src/main.c`, `app_conf.h` in Satellite1-XMOS). Neither is a raw mic, so the
+`flags` 1 channel the wire protocol and
+[SPEC §9.3](../SPEC.md#93-two-stage-wake-confirmation-phase-1) call raw is
+processed audio on this board as on the Satellite1. A raw channel needs an XMOS
+firmware change, which its licence permits as a derivative.
+
+The firmware is under the XMOS Public Licence v1. Its only device condition
+is that it runs on XMOS silicon, which a genuine XU316 meets; distributing
+the board would mean keeping XMOS's notices and publishing any modified
+firmware's source. The Satellite1 schematic this frontend is drawn from is
+CERN-OHL-S-2.0, published as PDF only: the frontend is redrawn from it, and a
+board shared or sold beyond this household publishes its full source under
+the same licence. The board's name stays Chorus's own, never Satellite1's or
+FutureProofHomes'.
 
 Keeping the Satellite1's frontend matters more than any spec sheet. Speaker
 identification compares each utterance against centroids enrolled once
@@ -114,16 +129,102 @@ PEs keeps one acoustic tier, which SPEC §3.3 records as the current state.
 
 Its rails are 0.9 V core (0.855–0.945 V), 3.3 V I/O on the QF60B, and 1.8 V
 for the `VDDIOB18` pins; the PLL's 0.9 V is filtered off the core rail.
+`RST_N` pulls up to 1.8 V on the Satellite1, so reset and JTAG sit on the 1.8 V
+domain.
 
-### Microphones: four PDM MEMS positions
+Two parts of the Satellite1's XMOS sheet are not optional, and rev A's first
+draft missed both:
 
-Four mic footprints in the Satellite1's positions, populated with its part.
-The Satellite1's XMOS firmware uses two today; the other two cost little and
-are what a later firmware, or a move to an XVF3800-class beamformer with
-direction of arrival, needs without a new enclosure.
+- **Reset is active high from the ESP32.** GPIO4 drives the gate of an N-FET
+  (FDV301N) that pulls `RST_N` low, and the `satellite1` component writes 1
+  then 0 to reset. Wired straight to `RST_N`, the XMOS never leaves reset. The
+  net is `XMOS_RST`.
+- **The ESP32's SPI reaches the XMOS through two 2:1 muxes** switched by
+  `XMOS_RST`. While the XMOS runs, the ESP32 talks to its SPI slave; while
+  it is held in reset, the ESP32 reaches its QSPI flash directly, which is how
+  `memory_flasher` writes the XMOS firmware. Without them the XMOS cannot be
+  flashed from the ESP32.
 
-Positions are not a free choice: the XMOS pipeline is tuned to the reference
-geometry, so rev A copies it rather than improving it.
+The XU316's connections, from the firmware's `SATELLITE1.xn` and
+`platform_init.c`, which agree with the rev 6.1 schematic:
+
+| XU316 pin | Signal | Other end |
+|---|---|---|
+| X1D10 | I2S BCLK, 3.072 MHz, XU316 master | `I2S_BCLK`, TAS2780 SBCLK |
+| X1D01 | I2S LRCLK, 48 kHz | `I2S_LRCLK`, TAS2780 FSYNC |
+| X1D11 | MCLK, 24.576 MHz from the App PLL | `I2S_MCLK` through an unfitted 0 Ω |
+| X1D34 | I2S out: the two processed channels | `I2S_DIN` |
+| X1D13 | I2S in: playback, also the echo reference | `I2S_DOUT` |
+| X1D00 | I2S out: playback passthrough | TAS2780 SDIN |
+| X1D22 | PDM clock, 3.072 MHz, 100 Ω series | all eight mics, through the mute gate |
+| X1D16, X1D17 | PDM data 1, data 2 | MK3 + MK4, MK1 + MK2 |
+| X1D18, X1D19 | PDM data 3, data 4; test points on the Satellite1 | MK5 + MK6, MK7 + MK8 |
+| X0D01, X0D10, X0D04–07 | QSPI boot flash CS, CLK, D0–3 | W25Q64JVSSIQ, 3.3 V, and the muxes |
+| X0D00, X0D35, X0D36, X0D39 | SPI slave CS, CLK, MISO, MOSI, mode 3 | the muxes, then `XMOS_SPI_*` |
+| X0D32 | IRQ input | TAS2780 IRQZ |
+| `RST_N` | reset, 10 kΩ to 1.8 V | the N-FET on `XMOS_RST` |
+
+The sheet also carries a 24 MHz crystal and a TC2030 JTAG footprint. The
+Satellite1 drives its LED ring from both the XMOS (X1D09) and ESP32 GPIO21,
+and sends the passthrough to ESP32 GPIO40; rev A uses those GPIOs for the
+W5500 and copies neither net.
+
+### Microphones: eight PDM MEMS on a circle, for direction of arrival
+
+Eight CUI CMM-4030DT-261280-TR PDM mics, two per data line, evenly spaced on
+a circle about 64.2 mm across, all on the top side. Four of them are the
+Satellite1's cross, at the positions its rev 6.1 STEP model gives, so the
+stock XMOS firmware hears exactly what it hears there. The other four sit
+between them, on the two PDM data lines the Satellite1 leaves as test points.
+
+| Mic | Position (mm, y down) | SEL | Data line | Port bit |
+|---|---|---|---|---|
+| MK1 | (0, −32.08) | GND | data 2 | X1D17 |
+| MK2 | (+32.08, 0) | VDD | data 2 | X1D17 |
+| MK3 | (0, +32.08) | GND | data 1 | X1D16 |
+| MK4 | (−32.08, 0) | VDD | data 1 | X1D16 |
+| MK5 | (+22.68, −22.68) | GND | data 3 | X1D18 |
+| MK6 | (+22.68, +22.68) | VDD | data 3 | X1D18 |
+| MK7 | (−22.68, +22.68) | GND | data 4 | X1D19 |
+| MK8 | (−22.68, −22.68) | VDD | data 4 | X1D19 |
+
+MK1–MK4 keep the Satellite1's SEL straps exactly, so the firmware's mapping
+(`MIC_COUNT=2`, slots 4 and 5, an opposite pair) still picks the same
+physical mics. All eight share the one PDM clock and the mute gate.
+
+**Why eight, not the Satellite1's four.** Direction of arrival answers "where
+in the room is this voice", which helps the barge-in gate (SPEC §4.3) tell a
+person from the TV and helps attribution when a second person chimes in
+(SPEC §5). Its resolution is set by spacing. A pair resolves direction
+without ambiguity up to `c / 2d`: the cross's adjacent mics, 45.4 mm apart,
+alias above about 3.8 kHz, well inside speech. The circle's adjacent mics are
+24.6 mm apart and alias above about 7 kHz, close to the 8 kHz top of a
+16 kHz pipeline, while opposite mics keep the 64.2 mm aperture for low
+frequencies. Eight mics cost a few dollars and no new parts; four more
+footprints later would mean a new board.
+
+**What DoA needs beyond the board.** The stock firmware reads two mics and
+reports no direction, so the hardware is ready before the firmware is:
+
+- **On the XU316.** A derivative of the XMOS firmware, which its licence
+  permits, raises the mic count to eight on port 4D and runs a direction
+  estimator (GCC-PHAT or SRP-PHAT over the eight channels) beside the
+  existing pipeline. Whether the XU316 has the cycles for both is the first
+  thing to measure; AEC already runs on two tiles.
+- **Or on the host.** The XU316 sends raw channels over a wider I2S frame and
+  `chorus_bridge` forwards them; the orchestrator estimates direction where
+  the journal can record and replay it. Eight 16 kHz channels are about
+  2 Mbit/s: easy over Ethernet, not over the Wi-Fi SPEC §3.3.2 measured.
+- **Either way it is a wire change.** Direction arrives as a new frame or new
+  channels, which is a protocol version and its own ADR, as `played` was
+  (ADR-0033).
+
+An XVF3800, which does four-mic beamforming and DoA out of the box, stays the
+alternative if the XU316 cannot carry it: it is a different frontend, so
+voiceprints would need re-enrolling (ADR-0047).
+
+Positions of MK1–MK4 are not a free choice: the stock pipeline is tuned to
+that geometry, so rev A copies it and adds to it rather than moving it.
 
 ### TAS2780 amplifier, on a 12 V rail
 
@@ -135,10 +236,11 @@ properties earn it the slot here:
   takes that mode at 9 V or more). On a plain 5 V USB-C supply it runs its
   low-power mode, as the Satellite1 does below a 9 V contract.
 - **I/V sense on SDOUT.** The amplifier reports the current and voltage it
-  actually drives into the speaker. Routed to the XU316, it is an echo
-  reference that includes amplifier and driver behaviour; routed to the ESP32
-  (`AMP_SENSE`, on its second I2S peripheral and the same clocks), it is the
-  ground truth for the truncation point. See below.
+  actually drives into the speaker. Routed to the ESP32 (`AMP_SENSE`, on its
+  second I2S peripheral and the same clocks), it is the ground truth for the
+  truncation point. See below. This is new: the Satellite1 leaves SDOUT
+  unconnected, its echo reference is the ESP32's digital playback inside the
+  XMOS, and the `tas2780` driver does not configure the sense slots.
 
 A voice satellite is not a media player (SPEC §1), so the speaker is a 40–50 mm
 full-range 4 Ω driver in a sealed chamber, chosen for intelligibility at
@@ -178,6 +280,9 @@ flowchart LR
     mux -.->|"ST = PWR_SRC"| esp
 ```
 
+The Satellite1 runs the amplifier's PVDD straight from USB VBUS; VSYS does
+the same job here, from whichever input is live.
+
 The TPS2121 prefers PoE and reports which input won on `PWR_SRC`, which
 replaces the Satellite1's "wait for the PD contract, then pick an amplifier
 mode" with a pin read. USB-C still negotiates through the FUSB302B, on the
@@ -200,8 +305,9 @@ Rough budget on PoE, from datasheet typicals and to be measured at bring-up:
 ### Mute, LEDs, buttons, presence
 
 - **Mute** is a slide switch, not a button with firmware behind it. It opens
-  the mics' load switch (TPS22917) and gates the PDM clock with a single AND
-  gate, lights a red LED through a transistor on the switch net, and is read
+  the mics' load switch (TPS22917), as the Satellite1's latch cuts `VDD_MIC`,
+  and also gates the PDM clock with a single AND gate, which the Satellite1
+  does not, lights a red LED through a transistor on the switch net, and is read
   by the ESP32 on `MUTE_SENSE` so the device can send `0x05 mute` with the
   hardware bit set. No GPIO can unmute it.
 - **LED ring**: 12 SK6812-mini on the 5V0 rail, driven from `LED_DATA`
@@ -230,7 +336,8 @@ Rev A makes that constant a measurement instead of a datasheet line:
    from the speaker over a long answer.
 2. `AMP_SENSE` carries the TAS2780's sensed speaker current back to the ESP32
    on those same clocks. Cross-correlating it with the PCM that went out gives
-   the board's real end-to-end delay, per board, in samples.
+   the board's real end-to-end delay, per board, in samples. Nothing upstream
+   does this, so it is new work in the `tas2780` driver and in firmware.
 3. A test point on `AMP_SENSE`, `I2S_DOUT` and `I2S_LRCLK` lets a logic
    analyser confirm the same number without firmware.
 
@@ -249,8 +356,8 @@ net not in the map does not touch the ESP32.
 | `power_in` | RJ45 magjack with PoE centre taps, input bridges, AG9912-MTB, USB-C receptacle, FUSB302B, TPS2121, TVS on both inputs | `VSYS`, `PWR_SRC`, `PD_INT_N`, `I2C_*` |
 | `regulators` | TPS62933 3V3, 5V0 buck, TLV62569 0V9, TLV75518 1V8, PLL filter for the XU316 | `3V3`, `5V0`, `1V8`, `0V9`, `0V9_PLL` |
 | `mcu` | ESP32-S3-WROOM-1-N16R8, USB D+/D− to the receptacle, EN RC and reset button, action and volume buttons | every net in the pin map |
-| `voice_dsp` | XU316-1024-QF60B, 24 MHz crystal, QSPI flash, decoupling per the XMOS datasheet, xTAG debug header | `I2S_*`, `XMOS_*`, `PDM_CLK`, `PDM_DATA_*`, `AMP_TDM_*` |
-| `mics` | Four PDM MEMS mics, TPS22917 load switch, PDM clock gate, mute switch and its LED | `MUTE_SENSE`, `PDM_*` |
+| `voice_dsp` | XU316-1024-QF60B, 24 MHz crystal, W25Q64JVSSIQ QSPI flash, the two 2:1 SPI muxes, the FDV301N reset inverter, unfitted 0 Ω on MCLK, decoupling per the XMOS datasheet, TC2030 JTAG | `I2S_*`, `XMOS_*`, `PDM_CLK`, `PDM_DATA_*`, `AMP_TDM_*` |
+| `mics` | Eight CMM-4030DT PDM mics with the SEL straps above, TPS22917 load switch, PDM clock gate, mute switch and its LED | `MUTE_SENSE`, `PDM_*` |
 | `amp` | TAS2780, PVDD bulk and decoupling, output ferrites and caps, speaker connector, sense taps at the connector | `AMP_SENSE`, `AMP_TDM_*`, `I2C_*` |
 | `ethernet` | W5500, 25 MHz crystal, magjack data pairs (shared footprint with `power_in`) | `ETH_*` |
 | `ui` | SK6812 ring, 74AHCT1G125, radar header, test points | `LED_DATA`, `RADAR_*` |
@@ -262,8 +369,11 @@ net not in the map does not touch the ESP32.
 - **Round, about 90 mm**, mics and LEDs on the top face, speaker firing from
   the bottom into its own sealed chamber. Mic-to-speaker distance and the
   gasket between them do more for AEC than any firmware setting.
-- **Mic ports** gasketed to the enclosure, positions copied from the
-  Satellite1 layout.
+- **Mic ports** gasketed to the enclosure: MK1–MK4 at the Satellite1's
+  positions, MK5–MK8 between them. DoA reads arrival-time differences of
+  tens of microseconds, so what matters is where each port is, not PDM trace
+  length: place the footprints by coordinate and keep each port's gasket
+  path the same depth.
 - **Class-D output** kept short and away from the mics and the PDM lines;
   ferrites and caps per the TAS2780 EMI guidance, sense taps after them and
   at the speaker connector so the sense measures what the speaker receives.
@@ -276,10 +386,11 @@ net not in the map does not touch the ESP32.
 
 ## From here to a built board
 
-1. **Copy the frontend, do not redesign it.** Take the XU316 sheet, QSPI
-   flash, mic part and mic positions from FutureProofHomes'
-   `Satellite1-Hardware` sources, and the XU316 port assignments from the
-   XMOS firmware's board definition.
+1. **Redraw the frontend, do not redesign it.** `Satellite1-Hardware` has
+   schematic PDFs and STEP models, no KiCad source, so the XU316 sheet
+   (reset inverter and SPI muxes included), QSPI flash and mic positions are
+   redrawn from `hat/rev6.1hatSCH.pdf` and `hat/rev6.1hat3D.step`, with the
+   port map above.
 2. **Capture the schematic** in KiCad 9 under `hardware/chorus-sat/`, sheets
    as above, labels from `pins.yaml`. Espressif publishes a KiCad library
    with the module; the XU316, TAS2780 and W5500 come from their vendors'
@@ -302,26 +413,50 @@ net not in the map does not touch the ESP32.
    - the end-to-end delay from `AMP_SENSE`, recorded per board.
 6. **Firmware**: `esphome/chorus-sat.yaml` is `satellite1.yaml` with an
    `ethernet:` block in place of `wifi:`, a `PWR_SRC` read in place of the PD
-   contract logic, and the LED ring, buttons and mute sensor added.
+   contract logic, `i2s_mclk_pin` dropped (an I2S secondary needs no MCLK, and
+   ESP-IDF would drive the pin as an output), and the LED ring, buttons and
+   mute sensor added.
 
 ## Open questions
 
-What rev A cannot settle without the reference sources or a bench:
+What rev A still cannot settle without a datasheet or a bench:
 
-- **XMOS firmware licensing.** Whether FutureProofHomes' XU316 firmware may
-  run on a third-party board. If it may not, the fallback is the Voice PE's
-  XMOS firmware, whose ESP32 interface differs and whose pins would move.
-- **Mic geometry and part**, and the XU316 port map: read from the Satellite1
-  sources, not inferred.
-- **`I2S_MCLK` direction.** The Satellite1 config names the pin but not who
-  drives it; the reference schematic does.
+- **Whether the XU316 can run DoA beside AEC**, or the estimator moves to
+  the host.
+- **Which opposite pair the firmware hears**, MK2/MK4 or MK1/MK3. It depends
+  on which clock edge the CMM-4030DT gives each SEL setting; the datasheet or
+  a tap test on a board settles it. The straps are copied either way.
+- **Where the array sits on the board outline** relative to the speaker
+  axis, which MK5–MK8 inherit, and where each mic's acoustic port sits in its package: the STEP
+  model gives positions, not the outline.
+- **The 1.8 V reset and JTAG domain**, inferred from the Satellite1's pull-up;
+  check it against the XU316 datasheet before layout.
 - **Two I2S peripherals on shared clock pads.** `AMP_SENSE` assumes the
   ESP32's second I2S peripheral can take the same BCLK and LRCLK pads as the
   first through the GPIO matrix. Expected to work; prove it at bring-up.
-- **The TAS2780 sense slots**, and whether the Satellite1's XMOS firmware
-  already uses them as its echo reference.
+- **The TAS2780 sense slots**: which TDM slots carry I and V, configured by a
+  driver change nobody has written yet.
 - **Muted PDM lines.** With the mics' clock gated their data lines float;
   pull-downs plus the XMOS pipeline's DC blocking should settle to silence,
   and the bridge's mute frame tells the host either way.
 - **The PoE magjack**: a part with centre taps exposed, chosen against the
   assembler's stock.
+
+Settled since the first draft, from the sources below: the firmware licence,
+the XU316 port map, the mic part and geometry, and the MCLK direction (the
+XU316 drives it). The Voice PE fallback is gone: its firmware has the same
+licence and its ESP32 interface would move pins for no gain.
+
+## Sources
+
+Read directly at these commits:
+
+- [FutureProofHomes/Satellite1-XMOS](https://github.com/FutureProofHomes/Satellite1-XMOS/tree/bb411c71b153e6c973d65f70a935a48351bae62a):
+  `LICENSE.md`, `bsp_config/SATELLITE1/`, `platform/`, `src/main.c`.
+- [FutureProofHomes/Satellite1-Hardware](https://github.com/FutureProofHomes/Satellite1-Hardware/tree/2eb08ffaed8d9852d19b8acc86728d1af93d1c24):
+  `LICENSE`, `hat/rev6.1hatSCH.pdf`, `hat/rev6.1hat3D.step`.
+- [FutureProofHomes/Satellite1-ESPHome](https://github.com/FutureProofHomes/Satellite1-ESPHome/tree/46511ed57dae00f623bfc78aaac66c6619bc9d3b):
+  `esphome/components/satellite1/satellite1.cpp`, `config/common/core_board.yaml`.
+- [xmos/lib_sw_pll](https://github.com/xmos/lib_sw_pll/tree/7c50b750) for the
+  App PLL's output pin, and ESP-IDF v5.5.1 `esp_driver_i2s` for what a
+  secondary does with an MCLK pin.
