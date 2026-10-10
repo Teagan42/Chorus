@@ -189,11 +189,12 @@ func TestE2EDemoCuratesTheWeatherCutAndForgetsItOnReload(t *testing.T) {
 }
 
 // Replay with no model behind it: the default prompt reproduces the Zeppelin
-// morning exactly, and an edited one gets the brief answer the household's
-// model gave once told to lead with the count.
+// morning but for the search chorusd no longer offers, so Alice is told it
+// cannot look for her album; an edited prompt gets the brief answer the
+// household's model gave once told to lead with the gist.
 //
-// verifies SPEC §9.2
-func TestE2EDemoReplaysTheZeppelinMorningUnderAnEditedPrompt(t *testing.T) {
+// verifies SPEC §9.2, §14
+func TestE2EDemoReplaysWhatChorusdOffersAndAnEditedPrompt(t *testing.T) {
 	p := openDemo(t)
 
 	replay := replayHref(household.ConvZeppelin)
@@ -203,13 +204,18 @@ func TestE2EDemoReplaysTheZeppelinMorningUnderAnEditedPrompt(t *testing.T) {
 		t.Errorf("the demo asks for a model: %q", p.text(".alert"))
 	}
 
+	p.waitText("form", "the registry's schema is now tools@8")
 	p.click(`form button[type="submit"]`)
-	p.waitText(`#replay-result [aria-label="Outcome"]`, "0 of 3")
-	p.waitText("#turn-2", "same")
+	p.waitText(`#replay-result [aria-label="Outcome"]`, "1 of 3")
+	p.waitText("#turn-2", "I can't search for music yet")
+	p.waitText("#turn-2", "speech and calls changed")
 
+	weather := replayHref(household.ConvWeather)
+	p.route(`.app-header__steps a[href="#/replays"]`, "/replays")
+	p.route(fmt.Sprintf(`#replays a[href="#%s"]`, weather), weather)
 	p.editPrompt("When there are several results, say how many, offer the first, and stop.")
 	p.click(`form button[type="submit"]`)
-	p.waitText("#turn-2", "I found three albums. Want Led Zeppelin one?")
+	p.waitText("#turn-2", "Rain from three, high of fourteen. Take an umbrella.")
 	p.waitText("#turn-2", "speech changed")
 	p.waitText("#replay-result", "+ When there are several results, say how many")
 	p.shot("demo-replay")

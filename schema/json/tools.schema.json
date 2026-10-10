@@ -118,31 +118,6 @@
     "name": "ha_get_state"
   },
   {
-    "description": "Search the media library. Takes several seconds to return.",
-    "input_schema": {
-      "properties": {
-        "acknowledgement": {
-          "description": "A few words said aloud while this runs, e.g. \"Searching the library.\" They are spoken for you as it starts; do not also call speak for them.",
-          "type": "string"
-        },
-        "limit": {
-          "description": "Maximum results.",
-          "type": "integer"
-        },
-        "query": {
-          "description": "Free-text search.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "query",
-        "acknowledgement"
-      ],
-      "type": "object"
-    },
-    "name": "media_search"
-  },
-  {
     "description": "Keep a lasting fact about the person you are speaking with, to recall in later conversations. Use it when they ask you to remember something, or tell you a preference that will still hold tomorrow.",
     "input_schema": {
       "properties": {

@@ -38,7 +38,7 @@ func TestTheRegistrysToolSchemaReadsBackToItsOwnVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse the registry's own schema: %v", err)
 	}
-	want := engineOn(t, &roundTrip{}, Config{}).Versions()
+	want := engineOn(t, &roundTrip{}, Config{Specs: registry.Specs}).Versions()
 	if got := engineOn(t, &roundTrip{}, Config{Specs: specs}).Versions(); got != want {
 		t.Errorf("versions = %+v, want the registry's %+v", got, want)
 	}

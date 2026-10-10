@@ -55,6 +55,10 @@ type ToolSpec struct {
 	Slow                 bool
 	UnknownSpeaker       string
 
+	// Deferred is declared for its policy and docs, but nothing runs it
+	// yet, so the model is not offered it (SPEC §14).
+	Deferred bool
+
 	// ConfirmWhen holds the calls whose arguments match any entry for the
 	// person's yes, when the tool as a whole needs none (ADR-0038).
 	ConfirmWhen []ConfirmRule
@@ -203,6 +207,7 @@ var Specs = map[string]ToolSpec{
 		Timeout:              20000 * time.Millisecond,
 		RequiresConfirmation: false,
 		Slow:                 true,
+		Deferred:             true,
 	},
 	"remember": {
 		Name:             "remember",

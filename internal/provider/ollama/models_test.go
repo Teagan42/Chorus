@@ -26,6 +26,7 @@ import (
 
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/session"
 )
 
@@ -153,7 +154,16 @@ func TestARealModelSpeaksByCallingTheTool(t *testing.T) {
 //
 // verifies SPEC §4.1, §11
 func TestARealModelSaysSomethingWhileASlowToolWorks(t *testing.T) {
-	acts := turn(t, engine(t), "Recommend a movie like Indiana Jones starring Tom Holland.")
+	if *endpoint == "" {
+		t.Skip("no -ollama-url")
+	}
+	// media_search is deferred, so not offered by default, but it is still
+	// the declared slow tool the acknowledgement is measured on.
+	e, err := ollama.New(ollama.Config{BaseURL: *endpoint, Model: *model, Specs: registry.Specs})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	acts := turn(t, e, "Recommend a movie like Indiana Jones starring Tom Holland.")
 
 	var search *session.ToolCall
 	for _, a := range acts {

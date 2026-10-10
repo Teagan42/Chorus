@@ -289,7 +289,9 @@ Detection gate, stacked, ~300 ms from user speech to TTS stop:
 No semantic "was this addressed to me" check: it costs latency exactly where
 latency is viscerally felt, and a wrong stop is cheap (keep talking) while a
 slow stop feels broken. **Every rejected candidate barge-in is logged** as the
-tuning corpus for this gate.
+tuning corpus for this gate. Each candidate names its utterance's one blob and
+how many frames of it were judged, so a long overlap keeps its audio once
+(ADR-0060).
 
 The speaker stage's refusal stands once the voice pauses: an utterance that
 talked over speech, never stopped it, and is a voice the household does not
@@ -307,6 +309,10 @@ Per-tool `on_interrupt` policy, declared in the registry:
 - `cancel` (default)
 - `detach` — finish, keep the result (wasted but harmless work)
 - `uninterruptible` — must complete (side effects already committed)
+
+A tool's timeout (§7) is not an interruption either. The model is told
+`timed_out` and the turn goes on, but `detach` and `uninterruptible` work runs
+on past it, and its eventual result is kept as `detached` (ADR-0060).
 
 This is unretrofittable. It is why truncation fidelity matters — and why we take
 the position from `add_audio_output_callback` (§3.2.1) rather than estimating.
@@ -367,6 +373,21 @@ vocabulary for:
 - latency hints
 
 MCP-sourced tools get conservative default policies.
+
+Person scoping is one of three. A `household` tool runs for anyone, a guest
+included. A `person` tool needs an identified speaker, unless it declares that
+a guest falls back to guest context. A `guest` tool always runs in guest
+context: its executor is told nobody's identity, whoever spoke, so it can reach
+no one's memories (§5, ADR-0060).
+
+The model is offered every tool the daemon has an executor for, whether or not
+that executor's backend is configured: Home Assistant switched off answers
+`not_implemented`, which the model reasons about (§7). So the offered schema,
+and the tool-schema version every event records, belong to the build, and a
+re-run offers what the build offers, which is what the turn was offered
+unless the build has changed since. A tool declared `deferred`, as
+`media_search` is while media is deferred (§14), keeps its policy and its docs
+but is not offered (ADR-0060).
 
 **Confirmation** is orchestrator-enforced but model-authored. The orchestrator
 blocks execution and returns a synthetic `confirmation_required` tool result
@@ -480,7 +501,10 @@ With nobody enrolled, or no speaker ID, stage three passes every voice. Only
 on confirmation does the session become perceptible to the user. Rejections
 are logged with audio and auto-labeled as hard negatives, so the retraining
 corpus fills itself with precisely the negatives the model lacks — no manual
-labeling, no retraining needed to get immediate relief.
+labeling, no retraining needed to get immediate relief. A first utterance STT
+could not decode at all is rejected too, as `transcription_failed`: nothing
+confirmed the wake, but nothing judged the audio either, so it is no hard
+negative.
 
 The one exception is a wake that failed only the speaker check: that is likely
 the wake word from a guest, so it is held until a reviewer confirms it

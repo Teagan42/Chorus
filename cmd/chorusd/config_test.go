@@ -11,8 +11,11 @@ import (
 	"github.com/teagan42/chorus/internal/identity"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/memory"
 	"github.com/teagan42/chorus/internal/provider/kokoro"
+	"github.com/teagan42/chorus/internal/provider/ollama"
 	"github.com/teagan42/chorus/internal/provider/speaches"
+	"github.com/teagan42/chorus/internal/registry"
 )
 
 // complete is every variable the daemon reads, set. Tests unset from here.
@@ -193,6 +196,45 @@ func TestFullyConfiguredProvidersWireEverything(t *testing.T) {
 		if strings.Contains(logs.String(), off) {
 			t.Errorf("a fully configured daemon logged %q:\n%s", off, logs.String())
 		}
+	}
+}
+
+// The model is offered only what this daemon runs. With everything
+// configured, every tool it is shown has an executor, the supervisor's own
+// speak and end_session aside, and the tool schema the journal records is
+// that set's: media_search, which nothing runs, is not in it (ADR-0060).
+//
+// verifies SPEC §6, §8, §14
+func TestEveryToolTheModelIsOfferedHasAnExecutor(t *testing.T) {
+	cfg := configFromEnv(lookup(complete()))
+	p, err := buildProviders(cfg, nil, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("providers: %v", err)
+	}
+	r := newRig(t, inventory(), func(d *deps) {
+		d.tools = p.tools
+		d.Memories = memory.NewMemStore()
+	})
+	// A link is served only once the daemon has composed its tools.
+	r.join(t, kitchenIP)
+
+	if _, ok := registry.Offered()["media_search"]; ok {
+		t.Error("media_search is offered to the model, though nothing runs it")
+	}
+	for name := range registry.Offered() {
+		if name == "speak" || name == "end_session" {
+			continue
+		}
+		if _, ok := r.dm.tools[name]; !ok {
+			t.Errorf("%s is offered to the model, but nothing runs it", name)
+		}
+	}
+	offered, err := ollama.New(ollama.Config{BaseURL: cfg.OllamaURL, Model: cfg.OllamaModel, Specs: registry.Offered()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.versions.ToolSchema != offered.Versions().ToolSchema {
+		t.Errorf("tool schema = %s, want the offered set's %s", p.versions.ToolSchema, offered.Versions().ToolSchema)
 	}
 }
 

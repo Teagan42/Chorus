@@ -135,22 +135,22 @@ func TestE2EJourneyLabelATurnAndCurateWhatItShouldHaveDone(t *testing.T) {
 	}
 }
 
-// The reviewer re-runs Alice's morning under a prompt that leads with the
-// count, likes what the list turn would have said, and promotes it. It is
+// The reviewer re-runs Teagan's forecast under a prompt that leads with the
+// gist, likes what the cut turn would have said, and promotes it. It is
 // accepted in Curate and ships, saying which prompt wrote it.
 //
 // verifies SPEC §9.2
-func TestE2EJourneyPromoteTheBriefZeppelinAnswer(t *testing.T) {
+func TestE2EJourneyPromoteTheBriefForecast(t *testing.T) {
 	s, _ := householdReplayServer(t)
 	p := open(t, s)
 
-	p.visit("/replays/" + convZeppel)
+	p.visit("/replays/" + convWeather)
 	if p.has("#replay-result button") {
 		t.Error("a promotion is offered before anything was re-run")
 	}
 	p.editPrompt(strings.TrimSpace(briefPrompt))
 	p.click(`form button[type="submit"]`)
-	p.waitText("#turn-2", "I found three albums. Want Led Zeppelin one?")
+	p.waitText("#turn-2", briefWeather)
 	if n := p.count("#replay-result [id^=promote-] button"); n != 1 {
 		t.Errorf("%d promotions offered, want the one turn that changed", n)
 	}
@@ -160,7 +160,7 @@ func TestE2EJourneyPromoteTheBriefZeppelinAnswer(t *testing.T) {
 
 	p.follow("#promote-2 a")
 	p.waitText(".pair-actions", "replay output · re-run under qwen3-32b@1 · sys@edited")
-	if got := p.rowStatus(replayedZeppel); got != "accepted" {
+	if got := p.rowStatus(replayedWeather); got != "accepted" {
 		t.Errorf("the promoted pair is %q in the list, want accepted", got)
 	}
 

@@ -9,7 +9,8 @@ import "struct"
 #InterruptPolicy: "cancel" | "detach" | "uninterruptible"
 
 // #Scope gates who may invoke a tool. "person" requires speaker identification
-// to have succeeded (SPEC §5).
+// to have succeeded; "guest" runs in guest context whoever speaks, told
+// nobody's identity (SPEC §5, ADR-0060).
 #Scope: "household" | "person" | "guest"
 
 #JSONType: "string" | "number" | "integer" | "boolean" | "array" | "object"
@@ -56,6 +57,10 @@ import "struct"
 
 	// Latency hint lets the model decide whether to speak before results land.
 	latency: "fast" | "slow" | *"fast"
+
+	// A deferred tool is declared, so its policy and docs exist, but the
+	// model is not offered it: nothing runs it yet (SPEC §14, ADR-0060).
+	deferred: bool | *false
 
 	// A tool that cannot be cancelled must be confirmable: otherwise a barge-in
 	// strands a side effect the user has no way to stop.
@@ -171,6 +176,8 @@ tools: {
 		latency:      "slow"
 		timeout_ms:   20000
 		on_interrupt: "detach" // Cheap, harmless, and often still wanted.
+		// Media is deferred (SPEC §14): nothing searches a library yet.
+		deferred: true
 		params: [
 			{name: "query", type: "string", description: "Free-text search.", required: true},
 			{name: "limit", type: "integer", description: "Maximum results."},

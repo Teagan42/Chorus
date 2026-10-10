@@ -52,7 +52,7 @@ events: {
 		has_audio:       true
 		training_signal: true
 		fields: [
-			{name: "reason", type: "string", description: "Which gate rejected it.", required: true, enum: ["no_speech", "low_confidence", "unknown_speaker"]},
+			{name: "reason", type: "string", description: "Which gate rejected it. transcription_failed is the first utterance that could not be decoded, so nothing confirmed the wake: not a verdict on the audio, and no hard negative.", required: true, enum: ["no_speech", "low_confidence", "unknown_speaker", "transcription_failed"]},
 			{name: "second_audio_ref", type: "string", description: "The same span from the XMOS's second, lighter-processed output, so retraining can target either stream (SPEC §9.3). Empty when the device streams one channel."},
 		]
 	}
@@ -210,6 +210,8 @@ events: {
 		has_audio:   true
 		fields: [
 			{name: "tts_position_ms", type: "integer", description: "Playback offset at detection.", required: true},
+			{name: "speaker_stage_skipped", type: "boolean", description: "The gate's speaker-ID stage did not run, because nothing identifies speakers: the voice was never checked against the household (ADR-0031). Absent when the stage ran and passed, and in logs from before it was recorded."},
+			{name: "audio_frames", type: "integer", description: "How much of the audio the gate judged, in device frames from the blob's start. The candidate refers to its utterance's blob, which runs on past it and is written once the utterance ends, so a long overlap keeps its audio once. Absent in logs from before it was recorded, where the blob is the candidate's own."},
 		]
 	}
 	barge_in_rejected: {
@@ -218,6 +220,7 @@ events: {
 		has_audio:   true
 		fields: [
 			{name: "stage", type: "string", description: "Gate that rejected it.", required: true, enum: ["vad", "speaker_id", "partial_length"]},
+			{name: "audio_frames", type: "integer", description: "How much of the audio the gate judged, in device frames from the blob's start. The candidate refers to its utterance's blob, which runs on past it and is written once the utterance ends, so a long overlap keeps its audio once. Absent in logs from before it was recorded, where the blob is the candidate's own."},
 		]
 	}
 	session_closed: {

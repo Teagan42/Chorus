@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime"
 	"sync"
 	"testing"
@@ -125,6 +126,12 @@ type fakeSpeaker struct {
 	// broken is a TTS that refuses every stream.
 	broken bool
 
+	// settle, when set, holds a cut stream's Close until it closes, as a
+	// device holds it until it reports where it stopped. settling is told
+	// once a Close is waiting.
+	settle   chan struct{}
+	settling chan struct{}
+
 	mu      sync.Mutex
 	opened  []string
 	written chan string
@@ -174,6 +181,10 @@ func (s *fakeStream) Close() session.Playback {
 		select {
 		case <-s.sp.release:
 		case <-s.ctx.Done():
+			if s.sp.settle != nil {
+				s.sp.settling <- struct{}{}
+				<-s.sp.settle
+			}
 			// A test-chosen offset, not the clause a device cuts at
 			// (internal/satellite/chunk.go).
 			cut := min(s.sp.cut, len(s.text))
@@ -499,4 +510,79 @@ func (r *rig) awaitCall(t *testing.T, convID, id string) journal.Call {
 	}
 	t.Fatalf("call %q never produced a result", id)
 	return journal.Call{}
+}
+
+// awaitOutcome waits for a call to land one outcome, for a call whose first
+// result was not its last.
+func (r *rig) awaitOutcome(t *testing.T, convID, id, outcome string) journal.Call {
+	t.Helper()
+	deadline := time.Now().Add(patience)
+	var last journal.Call
+	for time.Now().Before(deadline) {
+		st, err := journal.Replay(context.Background(), r.store, convID, journal.Overrides{})
+		if err == nil {
+			for _, c := range st.Calls {
+				if c.ID == id {
+					last = c
+				}
+			}
+			if last.Outcome == outcome {
+				return last
+			}
+		}
+		runtime.Gosched()
+	}
+	t.Fatalf("call %q never reached %s; last %+v", id, outcome, last)
+	return journal.Call{}
+}
+
+// ---------------------------------------------------------------------- logs
+
+// logged is a slog handler that keeps what it is told, so a test can see an
+// error that has no caller to return to.
+type logged struct {
+	mu   sync.Mutex
+	recs []slog.Record
+}
+
+func (l *logged) Enabled(context.Context, slog.Level) bool { return true }
+func (l *logged) WithAttrs([]slog.Attr) slog.Handler       { return l }
+func (l *logged) WithGroup(string) slog.Handler            { return l }
+
+func (l *logged) Handle(_ context.Context, r slog.Record) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.recs = append(l.recs, r.Clone())
+	return nil
+}
+
+// carries reports whether a record logged err. Converges on a write the
+// implementation is already committed to; it is not a timing assumption.
+func (l *logged) carries(err error) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, r := range l.recs {
+		found := false
+		r.Attrs(func(a slog.Attr) bool {
+			e, ok := a.Value.Any().(error)
+			found = found || ok && errors.Is(e, err)
+			return !found
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+func (l *logged) await(t *testing.T, err error) {
+	t.Helper()
+	deadline := time.Now().Add(patience)
+	for time.Now().Before(deadline) {
+		if l.carries(err) {
+			return
+		}
+		runtime.Gosched()
+	}
+	t.Fatalf("%v was never logged", err)
 }

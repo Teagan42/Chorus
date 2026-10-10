@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/session"
 )
 
@@ -103,7 +104,8 @@ func TestTurnStreamsTheDecodedActions(t *testing.T) {
 // verifies SPEC §4.1, §14
 func TestTheRequestTellsTheModelHowToSpeak(t *testing.T) {
 	rt := &roundTrip{body: fixture(t, "reply.ndjson")}
-	e := engineOn(t, rt, Config{})
+	// Every declared tool: media_search, deferred, is the one slow tool.
+	e := engineOn(t, rt, Config{Specs: registry.Specs})
 	ch, err := e.Turn(context.Background(), session.Input{Text: "hello"})
 	if err != nil {
 		t.Fatalf("turn: %v", err)
@@ -163,6 +165,41 @@ func TestTheRequestTellsTheModelHowToSpeak(t *testing.T) {
 	// A no-param tool still needs an object schema, not a null one.
 	if s := byName["end_session"].Parameters; s.Type != "object" || s.Properties == nil {
 		t.Errorf("end_session schema = %+v", s)
+	}
+}
+
+// media_search is declared for its policy, but nothing runs it yet (SPEC
+// §14). Offered, the model calls it for "play some jazz" and is told
+// not_implemented every time; so by default it is not offered, and the
+// tools chorusd runs are, a backend it has not configured included.
+//
+// verifies SPEC §6, §14
+func TestADeferredToolIsNotOfferedByDefault(t *testing.T) {
+	rt := &roundTrip{body: fixture(t, "reply.ndjson")}
+	e := engineOn(t, rt, Config{})
+	ch, err := e.Turn(context.Background(), session.Input{Text: "play some quiet jazz in the study"})
+	if err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	drain(t, ch)
+
+	var got struct {
+		Tools []wireTool `json:"tools"`
+	}
+	if err := json.Unmarshal(rt.reqBody, &got); err != nil {
+		t.Fatal(err)
+	}
+	offered := map[string]bool{}
+	for _, tool := range got.Tools {
+		offered[tool.Function.Name] = true
+	}
+	if offered["media_search"] {
+		t.Error("media_search is offered, though nothing runs it")
+	}
+	for _, name := range []string{"speak", "end_session", "ha_call_service", "timer_start", "remember", "announce"} {
+		if !offered[name] {
+			t.Errorf("%s is not offered", name)
+		}
 	}
 }
 

@@ -114,14 +114,16 @@ func (c *Conversations) release(conversationID string, s owner) {
 }
 
 // Touch records activity so an open conversation does not expire mid-session.
-func (c *Conversations) Touch(personID string) {
-	if personID == "" {
-		return
-	}
+// Keyed on the conversation, not on who spoke: after a flip or a guest's
+// turn, the speaker is not the person it resumes for.
+func (c *Conversations) Touch(conversationID string) {
+	now := c.clock.Now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if _, ok := c.byKey[personID]; ok {
-		c.last[personID] = c.clock.Now()
+	for person, id := range c.byKey {
+		if id == conversationID {
+			c.last[person] = now
+		}
 	}
 }
 

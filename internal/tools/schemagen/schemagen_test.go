@@ -147,6 +147,34 @@ func TestParamsReachTheGeneratedRegistry(t *testing.T) {
 	}
 }
 
+// A deferred tool keeps its policy and its docs, but nothing runs it yet, so
+// the model's view leaves it out and the registry says why (SPEC §14).
+//
+// verifies SPEC §6, §14
+func TestADeferredToolIsDeclaredButNotOffered(t *testing.T) {
+	tools := fixtureTools()
+	ms := tools["media_search"]
+	ms.Deferred = true
+	tools["media_search"] = ms
+
+	src := renderToolsGo(tools)
+	parses(t, src)
+	if !strings.Contains(src, "Deferred: true") || strings.Count(src, "Deferred: true") != 1 {
+		t.Errorf("want Deferred: true on media_search alone in:\n%s", src)
+	}
+	for _, s := range LLMToolSchemas(tools) {
+		if s["name"] == "media_search" {
+			t.Error("the model's tool schemas offer a deferred tool")
+		}
+	}
+	if got := len(LLMToolSchemas(tools)); got != len(tools)-1 {
+		t.Errorf("got %d schemas, want every tool but the deferred one", got)
+	}
+	if doc := renderToolDocs(tools); !strings.Contains(doc, "Deferred: not offered to the model") {
+		t.Error("the docs do not say media_search is deferred")
+	}
+}
+
 func TestRenderEventsGoIsValidGo(t *testing.T) {
 	src := renderEventsGo(fixtureEvents())
 	parses(t, src)

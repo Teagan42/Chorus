@@ -89,6 +89,8 @@ Read one entity's current state and attributes from Home Assistant.
 
 Search the media library.
 
+Deferred: not offered to the model, since nothing runs it yet (SPEC §14).
+
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `query` | string | yes | Free-text search. |

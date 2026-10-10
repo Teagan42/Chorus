@@ -272,3 +272,94 @@ func TestPeopleTalkingOverEachOtherAreAllHeard(t *testing.T) {
 		}
 	}
 }
+
+// Alice chimes into Teagan's conversation in the kitchen, and attribution
+// flips to her. Her words keep Teagan's conversation alive, the one in use,
+// not the older one Alice left in the study: Teagan resumes from the office,
+// and Alice back in the study starts afresh.
+//
+// verifies SPEC §4.5, §5
+func TestAFlippedSpeakerKeepsTheConversationInUseAlive(t *testing.T) {
+	r := newRigWith(t, nil, nil, nil, func(c *session.Config) {
+		// Long enough that no backstop closes anything while the clock moves.
+		c.Silence = 10 * time.Minute
+	})
+	study, err := r.sup.Open(context.Background(), session.Wake{Satellite: "study", PersonID: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.clock.advance(time.Minute)
+	kitchen := r.open(t, "teagan")
+	r.clock.advance(90 * time.Second)
+	wait(t, heardFrom(kitchen, "alice", "is it going to rain this afternoon"))
+	r.clock.advance(90 * time.Second)
+
+	office := migrate(t, r, "office", "teagan")
+	if office.ConversationID() != kitchen.ConversationID() {
+		t.Errorf("office resumed %q, want the kitchen's %q", office.ConversationID(), kitchen.ConversationID())
+	}
+	back, err := r.sup.Open(context.Background(), session.Wake{Satellite: "study", PersonID: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Resumed() || back.ConversationID() == study.ConversationID() {
+		t.Errorf("alice resumed %q, quiet for four minutes; want a fresh conversation", back.ConversationID())
+	}
+}
+
+// Teagan walks from the kitchen to the office mid-forecast. The kitchen's
+// cut is recorded where its device says it stopped, and that takes the
+// device a moment: the close waits for it, so the log reads the cut, then
+// the kitchen's close, then the office's open, and never a cut that lands
+// in the office's session.
+//
+// verifies SPEC §4.4, §4.5, §8
+func TestAMigrationRecordsTheCutBeforeTheClose(t *testing.T) {
+	steps := []step{
+		{act: session.SpeechDelta{CallID: "s1", Text: "Tomorrow will be sunny with a high of", Last: true}},
+		{act: session.TurnEnd{FinishReason: "stop", Completion: "{}"}},
+	}
+	r := newRig(t, steps, nil)
+	r.speaker.hold = true
+	r.speaker.cut = len("Tomorrow will be sunny")
+	r.speaker.settle, r.speaker.settling = make(chan struct{}), make(chan struct{}, 1)
+
+	kitchen := r.open(t, "teagan")
+	errc := heard(kitchen, "what's the weather tomorrow")
+	r.speaker.wrote(t)
+
+	opened := make(chan *session.Session, 1)
+	go func() {
+		s, err := r.sup.Open(context.Background(), session.Wake{Satellite: "office", PersonID: "teagan"})
+		if err != nil {
+			t.Errorf("migrated wake: %v", err)
+		}
+		opened <- s
+	}()
+	select {
+	case <-r.speaker.settling:
+	case <-time.After(patience):
+		t.Fatal("the kitchen's speech was never cut")
+	}
+	close(r.speaker.settle)
+	select {
+	case <-opened:
+	case <-time.After(patience):
+		t.Fatal("the office never opened")
+	}
+	wait(t, errc)
+
+	var order []string
+	for _, e := range r.events(t, kitchen.ConversationID()) {
+		switch e.Kind {
+		case journal.KindSpeechTruncated, journal.KindSessionClosed:
+			order = append(order, string(e.Kind))
+		case journal.KindSessionOpened:
+			order = append(order, string(e.Kind)+" "+e.Fields["satellite"])
+		}
+	}
+	want := []string{"session_opened kitchen", "speech_truncated", "session_closed", "session_opened office"}
+	if !slices.Equal(order, want) {
+		t.Errorf("log = %q, want %q", order, want)
+	}
+}

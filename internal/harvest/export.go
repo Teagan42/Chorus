@@ -31,6 +31,7 @@ type meta struct {
 	Versions          versions `json:"versions"`
 	Seq               Seq      `json:"seq"`
 	BargeInPositionMS int      `json:"barge_in_position_ms"`
+	BargeInFrames     int      `json:"barge_in_frames,omitempty"`
 	RejectedHeard     string   `json:"rejected_heard"`
 	RejectedUnheard   string   `json:"rejected_unheard"`
 	Heard             string   `json:"heard"`
@@ -115,6 +116,7 @@ func toRow(p Pair) (row, error) {
 			Versions:          versions(p.Versions),
 			Seq:               p.Seq,
 			BargeInPositionMS: p.BargeInPositionMS,
+			BargeInFrames:     p.BargeInFrames,
 			RejectedHeard:     p.Rejected, RejectedUnheard: p.RejectedUnheard,
 			Heard: p.Heard, HeardSpeaker: p.HeardSpeaker,
 			AsSaid: p.AsSaid, AsSaidCut: p.AsSaidCut,

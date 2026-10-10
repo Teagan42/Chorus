@@ -502,6 +502,35 @@ func TestPairCarriesTheDACConfirmedCutFrames(t *testing.T) {
 	}
 }
 
+// The candidate that stopped speech refers to its utterance's blob, which
+// went on to be the correction, and says how much of it the gate judged.
+// The pair carries that bound beside the ref, so its barge-in clip is what
+// stopped speech, not the whole correction; a log from before the bound was
+// recorded has none, and its clip is whole.
+//
+// verifies SPEC §9.1
+func TestPairCarriesHowMuchOfTheBargeInBlobWasJudged(t *testing.T) {
+	cut := cutTurn()
+	cut[4] = record(journal.KindBargeInDetected, "blob://mic/3", "tts_position_ms", "420", "audio_frames", "8000")
+	store := conversation(t, versions(), concat([]journal.Record{opened("kitchen")}, cut, correctedTurn()))
+	p := onePair(t, scan(t, store))
+	if p.Audio.BargeIn != "blob://mic/3" || p.BargeInFrames != 8000 {
+		t.Errorf("barge-in = %q to frame %d, want the correction's blob to frame 8000", p.Audio.BargeIn, p.BargeInFrames)
+	}
+	var out strings.Builder
+	if err := harvest.Export(&out, []harvest.Pair{p}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"barge_in_frames":8000`) {
+		t.Errorf("the export drops the bound: %s", out.String())
+	}
+
+	legacy := conversation(t, versions(), concat([]journal.Record{opened("kitchen")}, cutTurn(), correctedTurn()))
+	if p := onePair(t, scan(t, legacy)); p.BargeInFrames != 0 {
+		t.Errorf("BargeInFrames = %d, want 0 for a candidate with a blob of its own", p.BargeInFrames)
+	}
+}
+
 // A live satellite journals when each turn's answer starts playing. The
 // start says when, not what, so the pair is the one the log without starts
 // yields: same sides, same audio, same cut.

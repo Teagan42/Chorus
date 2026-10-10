@@ -354,6 +354,52 @@ func TestADroppedLinkClosesTheSessionAndAReconnectResumesIt(t *testing.T) {
 	}
 }
 
+// Alan walks to the office while the kitchen is still reading him the
+// forecast, and wakes it. The kitchen's cut is journalled where the kitchen
+// says it stopped, before the kitchen's session closes and the office's
+// opens, so the cut belongs to the session that was speaking (SPEC §4.5).
+//
+// verifies SPEC §4.4, §4.5
+func TestAMigrationJournalsTheKitchensCutBeforeTheOfficeOpens(t *testing.T) {
+	forecast := "Sunny on Saturday, with rain moving in on Sunday afternoon."
+	r := newRig(t, inventory(), func(d *deps) {
+		d.engine = &scriptEngine{acts: []session.Action{
+			session.SpeechDelta{CallID: "call_w1", Text: forecast, Last: true},
+			session.TurnEnd{FinishReason: "stop", Completion: "{}"},
+		}}
+	})
+	kitchen := r.join(t, kitchenIP)
+	office := r.join(t, officeIP)
+	kitchen.SendWake(t, "hey_eddie")
+	r.utter(t, kitchen, r.line("what's the weather this weekend", alan))
+	kitchen.AwaitTTS(t, 2*len(forecast))
+	heard := kitchen.Play(t, 24)
+	r.store.awaitKind(t, journal.KindSpeechStarted, 1)
+
+	office.SendWake(t, "hey_eddie")
+	r.utter(t, office, r.line("and next weekend", alan))
+	r.store.awaitKind(t, journal.KindSessionOpened, 2)
+
+	var order []string
+	for _, e := range r.store.events() {
+		switch e.Kind {
+		case journal.KindSpeechTruncated:
+			order = append(order, "cut at "+e.Fields["frames_played"])
+		case journal.KindSessionClosed:
+			order = append(order, "closed "+e.Fields["satellite"]+": "+e.Fields["reason"])
+		case journal.KindSessionOpened:
+			order = append(order, "opened "+e.Fields["satellite"])
+		}
+	}
+	want := []string{
+		"opened kitchen", "cut at " + strconv.FormatUint(heard, 10),
+		"closed kitchen: migrated", "opened office",
+	}
+	if !slices.Equal(order, want) {
+		t.Errorf("log = %q, want %q", order, want)
+	}
+}
+
 // Shutdown is a cancel: every link closes, every session the devices carried
 // ends as device_lost, and run returns only once every goroutine it started
 // has exited (SPEC §4, CONTRIBUTING §6).

@@ -372,6 +372,43 @@ func TestBargeInWithoutSpeakerIdentificationGatesOnEnergyAndWords(t *testing.T) 
 	}
 }
 
+// A detection the speaker stage never judged says so, so the tuning corpus
+// can tell it from one a household voice passed (ADR-0031).
+//
+// verifies SPEC §4.3
+func TestADetectionRecordsWhetherTheSpeakerStageRan(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		skipped bool
+		want    string
+	}{
+		{"identification on", false, ""},
+		{"identification off", true, "true"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			steps := []step{
+				{act: session.SpeechDelta{CallID: "s1", Text: line, Last: true}},
+				{act: session.TurnEnd{FinishReason: "stop", Completion: "{}"}},
+			}
+			r := newRigWith(t, steps, nil, nil, func(cfg *session.Config) { cfg.Gate.SpeakerIDUnavailable = c.skipped })
+			r.speaker.hold = true
+
+			s := r.open(t, "alice")
+			errc := heard(s, "find zeppelin")
+			r.speaker.wrote(t)
+			if ok, err := s.BargeIn(t.Context(), interruption(420)); err != nil || !ok {
+				t.Fatalf("barge-in: ok=%v err=%v", ok, err)
+			}
+			wait(t, errc)
+
+			detected := r.eventOf(t, s.ConversationID(), journal.KindBargeInDetected)
+			if got := detected.Fields["speaker_stage_skipped"]; got != c.want {
+				t.Errorf("speaker_stage_skipped = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 // rejection is a candidate the gate must refuse, and the stage that does.
 type rejection struct {
 	name  string
@@ -385,4 +422,99 @@ func stagesOf(cases []rejection) []string {
 		out[i] = c.stage
 	}
 	return out
+}
+
+// A tool's timeout tells the model now, but it is not a barge-in: work the
+// registry says outlives an interruption outlives its timeout too, and what
+// it finally returns is kept, as nobody waits for it any more.
+//
+// verifies SPEC §4.4
+func TestATimedOutDetachCallFinishesAndKeepsTheResult(t *testing.T) {
+	steps := []step{
+		// timer_start declares on_interrupt: detach.
+		{act: session.ToolCall{ID: "c1", Tool: "timer_start", Args: `{"seconds":720,"label":"oven"}`}},
+		{act: session.TurnEnd{FinishReason: "tool_calls", Completion: "{}"}},
+	}
+	gate := newGateTool(`{"timer_id":"t_3f9c2a10"}`)
+	r := newRig(t, steps, map[string]session.Tool{"timer_start": gate})
+
+	s := r.open(t, "teagan")
+	errc := heard(s, "set an oven timer for twelve minutes")
+	gate.enter(t)
+	timeout := registry.Specs["timer_start"].Timeout
+	r.clock.awaitDeadline(t, timeout)
+	r.clock.advance(timeout)
+	// The model is told it timed out, and the turn goes on without it.
+	wait(t, errc)
+	if got := callByID(t, r.state(t, s.ConversationID()), "c1"); got.Outcome != "timed_out" {
+		t.Fatalf("outcome = %q, want timed_out once the timeout passed", got.Outcome)
+	}
+
+	close(gate.release)
+	got := r.awaitOutcome(t, s.ConversationID(), "c1", "detached")
+	if got.Result != `{"timer_id":"t_3f9c2a10"}` {
+		t.Errorf("call = %+v, want the late result kept", got)
+	}
+	if !gate.ran() {
+		t.Error("a detach-policy tool was cancelled by its timeout")
+	}
+}
+
+// verifies SPEC §4.4
+func TestATimedOutUninterruptibleCallIsNotCancelled(t *testing.T) {
+	specs := maps.Clone(registry.Specs)
+	specs["unlock_door"] = registry.ToolSpec{
+		Name: "unlock_door", OnInterrupt: registry.InterruptUninterruptible,
+		Scope: registry.ScopeHousehold, Timeout: registry.Specs["remember"].Timeout,
+		RequiresConfirmation: true,
+	}
+	steps := []step{
+		{act: session.ToolCall{ID: "c1", Tool: "unlock_door", Args: `{"confirmation":"cf_4c1e9a07"}`}},
+		{act: session.TurnEnd{FinishReason: "tool_calls", Completion: "{}"}},
+	}
+	gate := newGateTool(`{"unlocked":true}`)
+	r := newRigSpecs(t, steps, map[string]session.Tool{"unlock_door": gate}, specs)
+
+	s := r.open(t, "alice")
+	r.held(t, s.ConversationID(), "c0", "unlock_door", `{}`, "cf_4c1e9a07")
+	errc := heard(s, "yes, unlock the door")
+	gate.enter(t)
+	r.clock.awaitDeadline(t, specs["unlock_door"].Timeout)
+	r.clock.advance(specs["unlock_door"].Timeout)
+	wait(t, errc)
+
+	// Side effects are already committed: the timeout's return must not stop it.
+	close(gate.release)
+	if got := r.awaitOutcome(t, s.ConversationID(), "c1", "detached"); got.Result != `{"unlocked":true}` {
+		t.Errorf("call = %+v, want the late result kept", got)
+	}
+	if !gate.ran() {
+		t.Error("an uninterruptible tool was cancelled by its timeout")
+	}
+}
+
+// verifies SPEC §7
+func TestATimedOutCancelCallIsCancelled(t *testing.T) {
+	steps := []step{
+		// ha_get_state declares on_interrupt: cancel.
+		{act: session.ToolCall{ID: "c1", Tool: "ha_get_state", Args: `{"entity_id":"cover.garage_door"}`}},
+		{act: session.TurnEnd{FinishReason: "tool_calls", Completion: "{}"}},
+	}
+	gate := newGateTool(`{"state":"closed"}`)
+	r := newRig(t, steps, map[string]session.Tool{"ha_get_state": gate})
+
+	s := r.open(t, "alan")
+	errc := heard(s, "is the garage door closed")
+	gate.enter(t)
+	timeout := registry.Specs["ha_get_state"].Timeout
+	r.clock.awaitDeadline(t, timeout)
+	r.clock.advance(timeout)
+	wait(t, errc)
+
+	if got := callByID(t, r.state(t, s.ConversationID()), "c1"); got.Outcome != "timed_out" || got.Result != `{"error":"timed_out"}` {
+		t.Errorf("call = %+v, want timed_out", got)
+	}
+	if gate.ran() {
+		t.Error("a cancel-policy tool ran on past its timeout")
+	}
 }

@@ -733,7 +733,8 @@ func (f failsOn) Turn(ctx context.Context, in sess.Input) (<-chan sess.Action, e
 }
 
 // asksWhichPlaylist is the scripted engine after a prompt edit that makes
-// it confirm before playing to a room with two people in it.
+// it confirm before playing to a room with two people in it. Offered what
+// chorusd offers, it has no search to make.
 func asksWhichPlaylist() *scripted {
 	return &scripted{answers: map[string][]sess.Action{
 		"dim the living room lights": {
@@ -742,14 +743,11 @@ func asksWhichPlaylist() *scripted {
 			sess.TurnEnd{FinishReason: "stop", Completion: "{}"},
 		},
 		"and put on some jazz": {
-			sess.ToolCall{ID: "c2", Tool: "media_search", Args: `{"query":"jazz","media_type":"playlist","limit":3}`},
-			sess.SpeechDelta{CallID: "s2", Text: "Late Night Jazz or something quieter?", Mode: sess.ModeQueue, Last: true},
+			sess.SpeechDelta{CallID: "s2", Text: "Alice is here too. Shall I put some jazz on?", Mode: sess.ModeQueue, Last: true},
 			sess.TurnEnd{FinishReason: "stop", Completion: "{}"},
 		},
 		"something quieter": {
-			sess.ToolCall{ID: "c3", Tool: "media_search", Args: `{"query":"quiet jazz piano","media_type":"playlist","limit":3}`},
-			sess.ToolCall{ID: "c4", Tool: "ha_call_service", Args: `{"domain":"media_player","service":"play_media","entity_id":"media_player.living_room","data":{"media_content_id":"playlist:quiet-jazz-piano"}}`},
-			sess.SpeechDelta{CallID: "s3", Text: "Playing Quiet Jazz Piano.", Mode: sess.ModeQueue, Last: true},
+			sess.SpeechDelta{CallID: "s3", Text: "Sorry, I can't search for music yet, so I can't find anything quieter.", Mode: sess.ModeQueue, Last: true},
 			sess.TurnEnd{FinishReason: "stop", Completion: "{}"},
 		},
 	}}
@@ -765,10 +763,12 @@ func (p *page) editPrompt(line string) {
 	)
 }
 
-// The jazz evening, re-run under a prompt that asks before playing. Only the
-// turn the edit was for changes, and the page says so turn by turn.
+// The jazz evening, re-run under a prompt that asks before playing. The turn
+// the edit was for asks first, the quieter ask says it cannot search, both
+// lose the search chorusd no longer offers, and the page says so turn by
+// turn.
 //
-// verifies SPEC §9.2
+// verifies SPEC §9.2, §14
 func TestE2EJourneyReplayTheJazzEveningUnderAnEditedPrompt(t *testing.T) {
 	hh := asksWhichPlaylist()
 	s, _ := newHouseholdServer(t)
@@ -813,16 +813,16 @@ func TestE2EJourneyReplayTheJazzEveningUnderAnEditedPrompt(t *testing.T) {
 	p.shot("journey-replay-running")
 	release()
 
-	p.waitText("#replay-result", "Late Night Jazz or something quieter?")
+	p.waitText("#replay-result", "Alice is here too. Shall I put some jazz on?")
 	tags := map[string]string{}
 	p.eval(`Object.fromEntries([...document.querySelectorAll('#replay-result [id^="turn-"]')].map(r => [r.id, r.lastElementChild.querySelector(".sig-tag").textContent.trim()]))`, &tags)
-	for turn, w := range map[string]string{"turn-2": "same", "turn-9": "speech changed", "turn-17": "same"} {
+	for turn, w := range map[string]string{"turn-2": "same", "turn-9": "speech and calls changed", "turn-17": "speech and calls changed"} {
 		if tags[turn] != w {
 			t.Errorf("%s is tagged %q, want %q (all %v)", turn, tags[turn], w, tags)
 		}
 	}
 	stats := p.metrics(`#replay-result [aria-label="Outcome"]`)
-	if stats["Turns re-run"] != "3 of 3" || stats["Speech changed"] != "1 of 3" || stats["Tool calls changed"] != "0 of 3" {
+	if stats["Turns re-run"] != "3 of 3" || stats["Speech changed"] != "2 of 3" || stats["Tool calls changed"] != "2 of 3" {
 		t.Errorf("outcome = %v", stats)
 	}
 	p.waitText(".code-diff", "+ "+confirmPrompt)
@@ -888,7 +888,7 @@ func TestE2EJourneyReplayFailuresSaySoOnThePage(t *testing.T) {
 	// And it still runs once the prompt is back.
 	p.run(chromedp.Evaluate(fmt.Sprintf(`document.querySelector("#replay-prompt").value = %q`, ollama.DefaultPrompt), nil))
 	p.click(`form button[type="submit"]`)
-	p.waitText("#replay-result", "Late Night Jazz or something quieter?")
+	p.waitText("#replay-result", "Alice is here too. Shall I put some jazz on?")
 	if p.has("#replay-result .alert") {
 		t.Errorf("a clean run still shows an alert: %q", p.text("#replay-result .alert"))
 	}
@@ -921,7 +921,7 @@ func TestE2EJourneyRewordATool(t *testing.T) {
 	p := open(t, s)
 
 	p.visit(replayHref(convGarage))
-	p.waitText("form", "matches the recorded tool schema")
+	p.waitText("form", "the registry's schema is now tools@8")
 	p.editTools(fmt.Sprintf(`tools => { tools.find(t => t.function.name === "ha_get_state").function.description = %q }`, contactSensor))
 	p.click(`form button[type="submit"]`)
 	p.waitText("#turn-2", "binary_sensor.garage_door_contact")
@@ -958,41 +958,41 @@ func TestE2EJourneyRewordATool(t *testing.T) {
 	p.shot("journey-replay-tool-schema-malformed")
 }
 
-// Teagan's reviewer re-runs Alice's morning under the brief prompt, leaves
-// for Browse without promoting, and comes back: the run was kept. They try
-// the day's prompt too, then reopen the first run from the list and promote
-// its list turn, which lands accepted in Curate.
+// The reviewer re-runs Teagan's forecast under the brief prompt, leaves for
+// Browse without promoting, and comes back: the run was kept. They try the
+// day's prompt too, then reopen the first run from the list and promote its
+// forecast turn, which lands accepted in Curate.
 //
 // verifies SPEC §9.2
 func TestE2EJourneyComeBackToAKeptReRun(t *testing.T) {
 	s, decisions := householdReplayServer(t)
 	p := open(t, s)
 
-	p.visit(replayHref(convZeppel))
+	p.visit(replayHref(convWeather))
 	p.waitText("#replay-runs", "No re-runs kept yet.")
 	p.editPrompt(strings.TrimSpace(briefPrompt))
 	p.click(`form button[type="submit"]`)
-	p.waitText("#turn-2", "I found three albums. Want Led Zeppelin one?")
+	p.waitText("#turn-2", briefWeather)
 	p.waitText("#replay-runs", "shown")
 
 	p.visit("/conversations?day=2025-10-09")
-	p.visit(replayHref(convZeppel))
-	brief := fmt.Sprintf(`#replay-runs a[href="%s"]`, runHref(convZeppel, 1))
-	p.waitText(brief, "qwen3-32b@1 · sys@edited · tools@7")
+	p.visit(replayHref(convWeather))
+	brief := fmt.Sprintf(`#replay-runs a[href="%s"]`, runHref(convWeather, 1))
+	p.waitText(brief, "qwen3-32b@1 · sys@edited · tools@8")
 	p.waitText(brief, "1 change")
 	if p.has("#replay-result [id^=promote-] button") {
 		t.Error("the page offers a promotion before a kept run is opened")
 	}
 
 	p.click(`form button[type="submit"]`)
-	p.waitText("#replay-runs", "qwen3-32b@1 · sys@3 · tools@7")
+	p.waitText("#replay-runs", "qwen3-32b@1 · sys@3 · tools@8")
 	if n := p.count("#replay-runs .list__row:not(.list__row--head)"); n != 2 {
 		t.Errorf("%d kept re-runs listed, want both", n)
 	}
 	p.shot("journey-replay-kept-runs")
 
 	p.follow(brief)
-	if got := p.path(); got != runHref(convZeppel, 1) {
+	if got := p.path(); got != runHref(convWeather, 1) {
 		t.Errorf("landed on %s, want the kept run", got)
 	}
 	var prompt string
@@ -1000,17 +1000,17 @@ func TestE2EJourneyComeBackToAKeptReRun(t *testing.T) {
 	if !strings.HasSuffix(prompt, strings.TrimSpace(briefPrompt)) {
 		t.Errorf("the editor holds %q, want the prompt the run ran under", prompt)
 	}
-	p.waitText("#turn-2", "I found three albums. Want Led Zeppelin one?")
+	p.waitText("#turn-2", briefWeather)
 	p.click("#promote-2 button")
-	p.waitText("#promote-2", "promoted · qwen3-32b@1 · sys@edited · tools@7")
+	p.waitText("#promote-2", "promoted · qwen3-32b@1 · sys@edited · tools@8")
 	p.follow("#promote-2 a")
-	if got := p.rowStatus(replayedZeppel); got != "accepted" {
+	if got := p.rowStatus(replayedWeather); got != "accepted" {
 		t.Errorf("the promoted pair is %q in the list, want accepted", got)
 	}
-	runs, _ := decisions.Reruns(context.Background(), convZeppel)
-	promos, _ := decisions.Promotions(context.Background(), convZeppel)
-	if len(runs) != 2 || promos[zeppelinAsk].SystemPrompt != runs[1].SystemPrompt {
-		t.Errorf("kept %d runs; the promotion ran under %q", len(runs), promos[zeppelinAsk].SystemPrompt)
+	runs, _ := decisions.Reruns(context.Background(), convWeather)
+	promos, _ := decisions.Promotions(context.Background(), convWeather)
+	if len(runs) != 2 || promos[weatherAsk].SystemPrompt != runs[1].SystemPrompt {
+		t.Errorf("kept %d runs; the promotion ran under %q", len(runs), promos[weatherAsk].SystemPrompt)
 	}
 }
 

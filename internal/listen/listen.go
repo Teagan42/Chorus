@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -569,10 +568,12 @@ type utterance struct {
 	stopped time.Time
 
 	// Touched only by run. refused is set once the gate turned a candidate
-	// down, and bargedIn once one stopped speech.
-	bargedIn   bool
-	refused    bool
-	candidates int
+	// down, and bargedIn once one stopped speech. judged is how many bytes
+	// the gate was offered, and kept that the blob holds them.
+	bargedIn bool
+	refused  bool
+	judged   int
+	kept     bool
 
 	mu    sync.Mutex
 	pcm   []byte
@@ -624,6 +625,7 @@ func (u *utterance) snapshot() ([]byte, float64) {
 func (l *Listener) run(u *utterance) {
 	defer close(u.ticket)
 	defer u.cancel()
+	defer l.keepJudged(u)
 	if u.first {
 		defer l.confirmed()
 	}
@@ -660,18 +662,16 @@ func (l *Listener) candidate(u *utterance, r stt.Result) {
 
 	pcm, energy := u.snapshot()
 	out := l.resolve(pcm)
-	u.candidates++
-	ref, err := l.store(u.key()+"."+strconv.Itoa(u.candidates), pcm)
-	if err != nil {
-		l.warn("store candidate audio", err)
-		return
-	}
+	u.judged = len(pcm)
 	ok, err := sess.BargeIn(l.ctx, session.Candidate{
 		PositionMS: int(l.offset(played).Milliseconds()),
-		AudioRef:   ref,
-		SpeakerID:  out.PersonID,
-		Energy:     energy,
-		Partial:    r.Text,
+		// The utterance's own blob, written once it ends: one copy of its
+		// audio however many partials are judged, not one per partial.
+		AudioRef:    blob.RefFor(u.key()),
+		AudioFrames: len(pcm) / bytesPerFrame,
+		SpeakerID:   out.PersonID,
+		Energy:      energy,
+		Partial:     r.Text,
 	})
 	if err != nil {
 		l.warn("offer barge-in", err)
@@ -680,6 +680,19 @@ func (l *Listener) candidate(u *utterance, r stt.Result) {
 	// One interruption per utterance: speech is already stopping, and a
 	// second detection would journal a cut that did not happen.
 	u.bargedIn, u.refused = ok, u.refused || !ok
+}
+
+// keepJudged writes what the gate judged when the utterance ended without
+// being kept whole: the television dropped, a mute, the link closing, or a
+// decode that failed. Its candidates already name the blob.
+func (l *Listener) keepJudged(u *utterance) {
+	if u.judged == 0 || u.kept {
+		return
+	}
+	pcm, _ := u.snapshot()
+	if _, err := l.store(u.key(), pcm[:u.judged]); err != nil {
+		l.warn("store candidate audio", err)
+	}
 }
 
 // offset turns the DAC's cumulative frame count into how far into the speech
@@ -701,6 +714,12 @@ func (l *Listener) complete(u *utterance) {
 	res, err := u.stt.Finish(l.ctx)
 	if err != nil {
 		l.warn("finish utterance", err)
+		// Nothing decoded the words, so nothing confirmed the wake. A link
+		// that closed mid-decode is no verdict on it at all.
+		if u.first && l.ctx.Err() == nil {
+			pcm, _ := u.snapshot()
+			l.rejectWake(pcm, u.seconds(), "transcription_failed")
+		}
 		return
 	}
 	pcm, _ := u.snapshot()
@@ -724,6 +743,7 @@ func (l *Listener) complete(u *utterance) {
 		l.warn("store utterance audio", err)
 		return
 	}
+	u.kept = true
 	secondRef := l.storeSecond(u.key(), second)
 
 	select {

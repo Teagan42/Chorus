@@ -57,6 +57,8 @@ Actor: `listening`. `has_audio`: yes. `training_signal`: no. `speculative`: no. 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `tts_position_ms` | integer | yes | Playback offset at detection. |
+| `speaker_stage_skipped` | boolean |  | The gate's speaker-ID stage did not run, because nothing identifies speakers: the voice was never checked against the household (ADR-0031). Absent when the stage ran and passed, and in logs from before it was recorded. |
+| `audio_frames` | integer |  | How much of the audio the gate judged, in device frames from the blob's start. The candidate refers to its utterance's blob, which runs on past it and is written once the utterance ends, so a long overlap keeps its audio once. Absent in logs from before it was recorded, where the blob is the candidate's own. |
 
 ## `barge_in_rejected`
 
@@ -67,6 +69,7 @@ Actor: `listening`. `has_audio`: yes. `training_signal`: no. `speculative`: no. 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `stage` | string | yes | Gate that rejected it. One of: `vad`, `speaker_id`, `partial_length`. |
+| `audio_frames` | integer |  | How much of the audio the gate judged, in device frames from the blob's start. The candidate refers to its utterance's blob, which runs on past it and is written once the utterance ends, so a long overlap keeps its audio once. Absent in logs from before it was recorded, where the blob is the candidate's own. |
 
 ## `confirmation_given`
 
@@ -328,6 +331,6 @@ Actor: `device`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. `r
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `reason` | string | yes | Which gate rejected it. One of: `no_speech`, `low_confidence`, `unknown_speaker`. |
+| `reason` | string | yes | Which gate rejected it. transcription_failed is the first utterance that could not be decoded, so nothing confirmed the wake: not a verdict on the audio, and no hard negative. One of: `no_speech`, `low_confidence`, `unknown_speaker`, `transcription_failed`. |
 | `second_audio_ref` | string |  | The same span from the XMOS's second, lighter-processed output, so retraining can target either stream (SPEC §9.3). Empty when the device streams one channel. |
 

@@ -68,12 +68,16 @@ every screen says so:
 
 - verdicts and kept re-runs live in the tab and are gone on reload;
 - Replay asks `household.Model`, not Ollama: under the default prompt and
-  tools it answers each turn as the journal recorded it, and under an edited
-  prompt or tool schema as the model did once told to lead with the count,
-  offer the first, and stop, never calling a tool it was not offered;
+  the tools `chorusd` offers, `tools@8`, it answers each turn as the journal
+  recorded it under `tools@7`, except that with no `media_search` to call
+  Alice's album, Alan's jazz and his ask for something quieter are each
+  answered "I can't search for music yet", with nothing played;
+  under an edited prompt or tool schema it answers as the model did once
+  told to lead with the count, offer the first, and stop, never calling a
+  tool it was not offered;
 - the clock is fixed at 22:30 that Thursday, when the reviewer sits down.
 
-![The demo's Replay, under a prompt edited to lead with the count](demo-replay.png)
+![The demo's Replay, Teagan's forecast under a prompt edited to be brief](demo-replay.png)
 
 The audio is synthetic. `voice.json` scripts who says what and for how long,
 and `task household:voice` speaks it with Kokoro, the TTS `chorusd` uses, into
@@ -276,13 +280,17 @@ executing any of them. A whole re-run is bounded at three minutes. Each
 turn also lists what it was told it remembers, which the re-run is told too.
 
 The tool schema is the declarations the model is offered, in the shape
-`/api/chat` sends them, starting from the registry's: drop a tool, reword a
-description, change what a parameter takes. The edit is read back on the
-server before anything is asked, and one that does not read is refused on
-the page with the line it broke on. It is diffed against the registry's
-schema, trimmed to the lines near each change, and the re-run's tool-schema
-version is the server's, a hash of what the model was sent, so an
-unedited schema keeps the recorded version (ADR-0059).
+`/api/chat` sends them, starting from what `chorusd` offers: every tool in
+the registry but the deferred, so no `media_search` while media is deferred
+(ADR-0060). Drop a tool, reword a description, change what a parameter
+takes. The edit is read back on the server before anything is asked, and
+one that does not read is refused on the page with the line it broke on.
+It is diffed against what `chorusd` offers, trimmed to the lines near each
+change, and the re-run's tool-schema version is the server's, a hash of
+what the model was sent, so an unedited schema runs under `chorusd`'s
+version (ADR-0059). That is the recorded one unless the turn was recorded
+under an older schema; then the page says so beside the editor, and a turn
+that called a tool no longer offered is asked without it.
 
 ![Replay, a tool's description reworded](e2e/journey-replay-tool-schema.png)
 ![Replay, a tool schema that does not read](e2e/journey-replay-tool-schema-malformed.png)

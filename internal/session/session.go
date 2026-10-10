@@ -357,10 +357,8 @@ func (s *Session) Heard(ctx context.Context, t Transcript) error {
 	// voice that matched nobody makes it a guest's (§5). The reducer
 	// attributes the same way, so a replay asks as this turn did.
 	s.person = journal.Attribute(s.person, t.SpeakerID, t.SpeakerMatch)
-	// Read under the lock: another utterance's turn may be flipping it.
-	person := s.person
 	s.mu.Unlock()
-	s.sup.cfg.Conversations.Touch(person)
+	s.sup.cfg.Conversations.Touch(s.convID)
 	s.poke()
 	return s.turn(ctx, t)
 }
@@ -615,7 +613,7 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 	}
 
 	s.mu.Lock()
-	caller := Caller{Person: s.speaker, ConversationID: s.convID, CallID: tc.ID, Satellite: s.satellite}
+	caller := Caller{Person: actingFor(spec, s.speaker), ConversationID: s.convID, CallID: tc.ID, Satellite: s.satellite}
 	s.mu.Unlock()
 	if denied(spec, caller.Person) {
 		// Before any confirmation: a guest is not asked to confirm what
@@ -822,16 +820,24 @@ func (s *Session) runTool(parent context.Context, wg *sync.WaitGroup, tc ToolCal
 		}
 	}
 
+	lapsed := false
 	for {
 		select {
 		case r := <-results:
-			// Detached means the work outlived the barge-in. A result stamped
-			// on time is the model's to see, whichever branch select woke on.
-			record(r, r.late && spec.OnInterrupt == registry.InterruptDetach)
+			// Detached means the work outlived the barge-in or its timeout. A
+			// result stamped on time is the model's to see, whichever branch
+			// select woke on.
+			record(r, lapsed || (r.late && spec.OnInterrupt == registry.InterruptDetach))
 			return
 		case <-timeout:
 			s.result(tc.ID, "timed_out", `{"error":"timed_out"}`)
-			return
+			if !outlives(spec.OnInterrupt) {
+				return
+			}
+			// The model is told now; the work runs on as its policy says,
+			// and the turn stops waiting for it.
+			timeout, lapsed = nil, true
+			release()
 		case <-interrupted:
 			// nil the channel: a closed Done would spin this loop.
 			interrupted = nil
@@ -842,6 +848,12 @@ func (s *Session) runTool(parent context.Context, wg *sync.WaitGroup, tc ToolCal
 			}
 		}
 	}
+}
+
+// outlives reports a policy whose work is not stopped by the turn moving on
+// without it, whether a barge-in or a timeout moved it on.
+func outlives(p registry.InterruptPolicy) bool {
+	return p == registry.InterruptDetach || p == registry.InterruptUninterruptible
 }
 
 // policyContext maps the registry's on_interrupt onto cancellation.
@@ -868,15 +880,23 @@ func (s *Session) BargeIn(_ context.Context, c Candidate) (bool, error) {
 	cancel := s.turnCancel
 	s.mu.Unlock()
 
+	fields := map[string]string{}
+	if c.AudioFrames > 0 {
+		fields["audio_frames"] = strconv.Itoa(c.AudioFrames)
+	}
 	if stage, ok := s.sup.cfg.Gate.admit(c, speaker); !ok {
+		fields["stage"] = stage
 		return false, s.record(journal.Record{
-			Kind: journal.KindBargeInRejected, AudioRef: c.AudioRef,
-			Fields: map[string]string{"stage": stage},
+			Kind: journal.KindBargeInRejected, AudioRef: c.AudioRef, Fields: fields,
 		})
 	}
+	fields["tts_position_ms"] = strconv.Itoa(c.PositionMS)
+	if s.sup.cfg.Gate.SpeakerIDUnavailable {
+		// Nothing judged the voice, so it passed no speaker check (ADR-0031).
+		fields["speaker_stage_skipped"] = "true"
+	}
 	if err := s.record(journal.Record{
-		Kind: journal.KindBargeInDetected, AudioRef: c.AudioRef,
-		Fields: map[string]string{"tts_position_ms": strconv.Itoa(c.PositionMS)},
+		Kind: journal.KindBargeInDetected, AudioRef: c.AudioRef, Fields: fields,
 	}); err != nil {
 		return false, err
 	}
@@ -907,8 +927,11 @@ func (s *Session) end(reason, discard string) error {
 		s.mu.Lock()
 		s.over = true
 		s.mu.Unlock()
-		// Discards are recorded before the close that caused them.
+		// Discards are recorded before the close that caused them, and so is
+		// the cut of what was playing, once its device says where it
+		// stopped: a migrated wake opens only after this close.
 		s.speech.shut(discard)
+		s.speech.waitIdle()
 		err = s.record(journal.Record{
 			Kind:   journal.KindSessionClosed,
 			Fields: map[string]string{"reason": reason, "satellite": s.satellite},
@@ -981,13 +1004,19 @@ func (s *Session) record(r journal.Record) error {
 	return err
 }
 
-// fail keeps the first error of the current turn for Heard to return.
+// fail keeps the first error of the current turn for Heard to return. With
+// no turn running nobody would read it, as when the backstop closes, so it
+// is logged instead.
 func (s *Session) fail(err error) {
 	if err == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.turnCancel == nil {
+		s.sup.cfg.Log.Warn("record outside a turn", "conversation", s.convID, "err", err)
+		return
+	}
 	if s.turnErr == nil {
 		s.turnErr = err
 	}

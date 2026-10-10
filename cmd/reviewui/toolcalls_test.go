@@ -81,8 +81,8 @@ func TestAReRunThatOnlyCallsCanBePromoted(t *testing.T) {
 func TestAPromotionThatDoesNothingIsRefused(t *testing.T) {
 	s, decisions := householdReplayServer(t)
 	if _, err := decisions.AddRerun(context.Background(), curation.Rerun{
-		ConversationID: convGarage, Versions: journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@edited", ToolSchema: "tools@7"},
-		SystemPrompt: ollama.DefaultPrompt + briefPrompt, ToolSchema: ollama.ToolSchema(registry.Specs),
+		ConversationID: convGarage, Versions: journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@edited", ToolSchema: "tools@8"},
+		SystemPrompt: ollama.DefaultPrompt + briefPrompt, ToolSchema: ollama.ToolSchema(registry.Offered()),
 		Takes: []curation.Take{{Seq: 2, Finish: "stop"}}, RanAt: household.ReviewedAt(),
 	}); err != nil {
 		t.Fatal(err)

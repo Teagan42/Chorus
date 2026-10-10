@@ -8,7 +8,12 @@ type Candidate struct {
 	// cut is reproducible against (SPEC §8).
 	PositionMS int
 
-	AudioRef  string
+	AudioRef string
+	// AudioFrames is how much of AudioRef the gate judged: the blob is the
+	// whole utterance's, kept once however many partials are judged. Zero
+	// is all of it.
+	AudioFrames int
+
 	SpeakerID string
 	Energy    float64
 
