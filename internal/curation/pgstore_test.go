@@ -81,3 +81,21 @@ func TestPgStoreRefusesALabelOutsideTheVocabulary(t *testing.T) {
 		t.Error("the database accepted label \"rude\"")
 	}
 }
+
+// verifies SPEC §9.2
+func TestPgStoreRefusesATakeThatDoesNothing(t *testing.T) {
+	pool := openPg(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `TRUNCATE curation_promotions`); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	// Past the Go check, the CHECK constraint wants speech or a call.
+	insert := `INSERT INTO curation_promotions
+		VALUES ('conv-0930-office', 2, ' ', $1, 'qwen3-32b@1', 'sys@edited', 'tools@7', '', now())`
+	if _, err := pool.Exec(ctx, insert, `[]`); err == nil {
+		t.Error("the database accepted a take with no speech and no calls")
+	}
+	if _, err := pool.Exec(ctx, insert, `[{"tool":"ha_get_state","args":"{\"entity_id\":\"binary_sensor.garage_door_contact\"}"}]`); err != nil {
+		t.Errorf("the database refused a take that only calls: %v", err)
+	}
+}

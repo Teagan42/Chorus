@@ -46,6 +46,11 @@ func brief(text string) (rerun.Take, bool) {
 			Calls:  []rerun.Call{{Tool: "media_search", Args: `{"query":"jazz","media_type":"playlist","limit":3}`}},
 			Speech: []rerun.Speech{{Text: "Three jazz playlists. Playing Late Night Jazz."}},
 		}, true
+	case "is the garage door closed":
+		// Checks the sensor that answers, and says nothing until it has.
+		return rerun.Take{
+			Calls: []rerun.Call{{Tool: "ha_get_state", Args: `{"entity_id":"binary_sensor.garage_door_contact"}`}},
+		}, true
 	case "set a timer for the oven":
 		return rerun.Take{Speech: []rerun.Speech{{Text: "How long for the oven?"}}}, true
 	}

@@ -293,8 +293,13 @@ func pairRows(pairs []pair, sel, status string, oob bool) pairRowsView {
 			st.Text += " · fix chosen"
 			st.Tone = ui.ToneConv
 		}
+		chosen := p.Chosen
+		if _, calls, _ := p.H.TextCalls(); chosen == "" {
+			// A take that only calls is named by what it calls.
+			chosen = strings.Join(callLines(calls), " · ")
+		}
 		v.Rows = append(v.Rows, pairRow{
-			ID: p.ID, Rejected: p.Rejected, Chosen: p.Chosen,
+			ID: p.ID, Rejected: p.Rejected, Chosen: chosen,
 			Tag:    ui.SigTag{Text: string(p.Source), Tone: ui.TonePeople},
 			Status: st, On: p.ID == sel, Href: pairHref(p.ID, status),
 		})
@@ -373,6 +378,8 @@ func pairCap(p pair) string {
 
 func (s *server) pairView(p pair, mode ui.PairMode, draft string) ui.PairActions {
 	pa := ui.NewPairActions(p.Pair, mode, draft, "/pairs/"+p.ID, pairCap(p), nil)
+	rejected, chosen, _ := p.H.TextCalls()
+	pa.RejectedCalls, pa.ChosenCalls = callLines(rejected), callLines(chosen)
 	// A reviewer's pair says what made it where a barge-in names its prompt.
 	switch {
 	case p.Source == ui.SourceAnnotation && p.Chosen == p.H.Chosen:
@@ -383,6 +390,15 @@ func (s *server) pairView(p pair, mode ui.PairMode, draft string) ui.PairActions
 		pa.Provenance = "edited by you · " + p.Heard
 	}
 	return pa.WithDoneLinks(pairHref(p.ID, "all"), nil)
+}
+
+// callLines is each call as Curate shows it: the tool, then its arguments.
+func callLines(cs []journal.Call) []string {
+	var out []string
+	for _, c := range cs {
+		out = append(out, c.Tool+" "+c.Args)
+	}
+	return out
 }
 
 func (s *server) curate(w http.ResponseWriter, r *http.Request) {

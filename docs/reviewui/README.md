@@ -227,7 +227,9 @@ A turn whose re-run changed can be promoted. The re-run's take becomes the
 chosen side of a pair whose rejected side is what the turn recorded on its
 first ask, the take Replay set beside it, and it lands in Curate accepted, since promoting is the verdict. The take, the
 calls it would make, the versions it ran under and the edited prompt itself
-are stored, because the journal never held them (ADR-0052).
+are stored, because the journal never held them (ADR-0052). A take that only
+calls can be promoted too: the garage re-run that checks the contact sensor
+and says nothing until it answers is a chosen side (ADR-0054).
 
 ![Replay, a re-run promoted](e2e/journey-replay-promoted.png)
 
@@ -251,10 +253,15 @@ anyway is allowed and marks the pair unfixed, which Export holds back.
 Pairs come from three places, named on each row: `barge-in`, harvested from
 the log; `annotation`, a turn labelled with a fault and what it should have
 done; and `replay`, a promoted re-run. A reviewer's pair shows what made it
-under its chosen side. Changing an annotation's note asks for a new
-verdict, since the old one judged a different chosen side.
+under its chosen side. Changing an annotation's note, or its *wrong tool /
+args* label, asks for a new verdict, since the old one judged a different
+pair. Each side lists
+the tool calls it carries under its speech, exactly as the export writes
+them, and a take that only calls is named by its calls in the list
+(ADR-0054).
 
 ![Curate, a labelled turn's pair](e2e/journey-curate-annotation.png)
+![Curate, a re-run that only calls the contact sensor](e2e/journey-curate-calls-only.png)
 
 Verdicts are rows in the curation table, revisable where the journal is
 append-only; unreviewed is the absence of a row (ADR-0034). Labels and
@@ -274,7 +281,11 @@ the same shape but raw, every candidate with `meta.curated=false` and no
 chosen side, which a DPO loader cannot train on. An annotation's row carries
 its labels in `meta.labels`; a replay's carries the re-run's configuration
 and calls in `meta.chosen_versions` and `meta.chosen_calls`, and is
-attributed only when both sides are.
+attributed only when both sides are. Each side's message carries its
+`tool_calls` beside its content: a correction or a note keeps the turn's
+calls on both sides, a replay's chosen side calls what the re-run would, and
+a *wrong tool / args* note carries none and says `meta.speech_only`
+(ADR-0054).
 
 ## The UI kit
 

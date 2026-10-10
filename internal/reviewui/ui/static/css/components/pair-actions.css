@@ -10,5 +10,6 @@
 .pair-actions__cut { color: var(--people); font-weight: 600; }
 .pair-actions__unheard { color: var(--c-muted); }
 .pair-actions__heard { color: var(--people-text); }
+.pair-actions__call { display: block; font-family: var(--font-mono); font-size: 11px; color: var(--home-text); overflow-wrap: anywhere; }
 .pair-actions__prov { font-family: var(--font-mono); font-size: 11px; color: var(--tone-text, var(--c-muted)); }
 .pair-actions__editor { display: flex; flex-direction: column; gap: 12px; }

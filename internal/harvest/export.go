@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/teagan42/chorus/internal/journal"
@@ -54,6 +56,10 @@ type meta struct {
 	Labels         []string  `json:"labels,omitempty"`
 	ChosenVersions *versions `json:"chosen_versions,omitempty"`
 	ChosenCalls    []call    `json:"chosen_calls,omitempty"`
+
+	// SpeechOnly marks a pair whose sides carry no tool calls, because
+	// nobody said which calls were right (ADR-0054).
+	SpeechOnly bool `json:"speech_only,omitempty"`
 }
 
 // versions mirrors journal.Versions field for field, so the struct conversion
@@ -94,12 +100,15 @@ func Export(w io.Writer, pairs []Pair) error {
 }
 
 func toRow(p Pair) (row, error) {
-	if p.Curated && p.Chosen == "" {
+	rejectedCalls, chosenCalls, withCalls := p.TextCalls()
+	// Only a re-run's own calls can stand in for speech: an inherited call
+	// beside an empty note is no chosen side.
+	if p.Curated && p.Chosen == "" && (p.Source != SourceReplay || len(chosenCalls) == 0) {
 		return row{}, fmt.Errorf("curated with no chosen side")
 	}
 	r := row{
 		Prompt:   nonNilMessages(p.Prompt),
-		Rejected: []Message{{Role: "assistant", Content: p.Rejected + p.RejectedUnheard}},
+		Rejected: []Message{{Role: "assistant", Content: p.Rejected + p.RejectedUnheard, ToolCalls: toolCalls(rejectedCalls)}},
 		Meta: meta{
 			ID: p.ID, ConversationID: p.ConversationID, Source: p.Source,
 			Curated: p.Curated, Attributed: p.Attributed,
@@ -118,8 +127,9 @@ func toRow(p Pair) (row, error) {
 		},
 	}
 	if p.Curated {
-		r.Chosen = []Message{{Role: "assistant", Content: p.Chosen}}
+		r.Chosen = []Message{{Role: "assistant", Content: p.Chosen, ToolCalls: toolCalls(chosenCalls)}}
 	}
+	r.Meta.SpeechOnly = !withCalls
 	if p.ChosenVersions != (journal.Versions{}) {
 		v := versions(p.ChosenVersions)
 		r.Meta.ChosenVersions = &v
@@ -129,6 +139,52 @@ func toRow(p Pair) (row, error) {
 		r.Meta.ChosenCalls = calls(p.ChosenCalls)
 	}
 	return r, nil
+}
+
+// labelWrongTool is curation.LabelWrongTool: an annotation saying the calls
+// were wrong without saying which were right.
+const labelWrongTool = "wrong_tool"
+
+// TextCalls is each side's actions as pair text, or withCalls false when
+// nobody said which calls were right and the pair trains on speech alone. A
+// replay's chosen calls are the re-run's; a correction or a note is about
+// what was said, so its chosen side keeps the turn's calls (ADR-0054).
+func (p Pair) TextCalls() (rejected, chosen []journal.Call, withCalls bool) {
+	rejected = actions(p.Calls)
+	switch {
+	case p.Source == SourceReplay:
+		return rejected, p.ChosenCalls, true
+	case slices.Contains(p.Labels, labelWrongTool):
+		return nil, nil, false
+	default:
+		return rejected, rejected, true
+	}
+}
+
+// actions drops the speak calls, which are the content already (ADR-0003).
+func actions(cs []journal.Call) []journal.Call {
+	var out []journal.Call
+	for _, c := range cs {
+		if c.Tool != "speak" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func toolCalls(cs []journal.Call) []ToolCall {
+	var out []ToolCall
+	for _, c := range cs {
+		args := json.RawMessage(c.Args)
+		if strings.TrimSpace(c.Args) == "" {
+			args = json.RawMessage("{}")
+		} else if !json.Valid(args) {
+			// A model's malformed arguments are kept as it wrote them.
+			args, _ = json.Marshal(c.Args)
+		}
+		out = append(out, ToolCall{Type: "function", Function: Function{Name: c.Tool, Arguments: args}})
+	}
+	return out
 }
 
 func calls(cs []journal.Call) []call {

@@ -41,11 +41,26 @@ const ContextTurns = 4
 
 // Message is one role-tagged line of the prompt, in the chat shape training
 // loaders expect. Name carries the speaker id, since a household has more
-// than one voice (SPEC §5).
+// than one voice (SPEC §5). ToolCalls are what an assistant side did beside
+// what it said, as the model's template emits them together (SPEC §4.1).
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-	Name    string `json:"name,omitempty"`
+	Role      string     `json:"role"`
+	Content   string     `json:"content"`
+	Name      string     `json:"name,omitempty"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+}
+
+// ToolCall is one action in a message, in the OpenAI function-call shape
+// chat templates read. Speaking is the content, never a call (ADR-0003).
+type ToolCall struct {
+	Type     string   `json:"type"`
+	Function Function `json:"function"`
+}
+
+// Function is a call's tool and its arguments, as a JSON object.
+type Function struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
 }
 
 // Seq locates the events a candidate was cut from, so a reviewer can open

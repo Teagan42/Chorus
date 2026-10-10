@@ -152,9 +152,10 @@ func (s *server) annotate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// A verdict judged the pair the annotation made; a new chosen side, or
-	// no pair at all, needs a new one.
-	if before.Faulted() != after.Faulted() || before.ShouldHave != after.ShouldHave {
+	// A verdict judged the pair the annotation made; a new chosen side, no
+	// pair at all, or calls taken off or put back (ADR-0054) needs a new one.
+	if before.Faulted() != after.Faulted() || before.ShouldHave != after.ShouldHave ||
+		before.Has(curation.LabelWrongTool) != after.Has(curation.LabelWrongTool) {
 		if err := s.decisions.Delete(ctx, annotationPairID(conv, seq)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

@@ -9,8 +9,8 @@
 
 {{- if or (eq .Mode "view") (eq .Mode "guard")}}
 <dl class="pair-actions__pair">
-<dt>Rejected</dt><dd class="pair-actions__rejected">{{.Rejected}}{{with .RejectedUnheard}}<span class="pair-actions__cut" aria-label="cut">|</span><span class="pair-actions__unheard">{{.}}</span>{{end}}</dd>
-<dt>Chosen</dt><dd>{{.Chosen}}<span class="{{cls "pair-actions__prov" (tone .ProvTone)}}">{{.Provenance}}</span></dd>
+<dt>Rejected</dt><dd class="pair-actions__rejected">{{.Rejected}}{{with .RejectedUnheard}}<span class="pair-actions__cut" aria-label="cut">|</span><span class="pair-actions__unheard">{{.}}</span>{{end}}{{range .RejectedCalls}}<span class="pair-actions__call">{{.}}</span>{{end}}</dd>
+<dt>Chosen</dt><dd>{{with .Chosen}}<span>{{.}}</span>{{end}}{{range .ChosenCalls}}<span class="pair-actions__call">{{.}}</span>{{end}}<span class="{{cls "pair-actions__prov" (tone .ProvTone)}}">{{.Provenance}}</span></dd>
 </dl>{{end}}
 
 {{- if eq .Mode "view"}}
