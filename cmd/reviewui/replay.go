@@ -332,7 +332,8 @@ func (s *server) replayRun(w http.ResponseWriter, r *http.Request) {
 		default:
 			row.Tag = ui.SigTag{Text: "same", Tone: ui.ToneMuted}
 		}
-		if (c.Speech || c.Calls) && strings.TrimSpace(take.Said()) != "" {
+		// A take that only calls is a chosen side; one that does nothing is not.
+		if (c.Speech || c.Calls) && (strings.TrimSpace(take.Said()) != "" || len(take.Calls) > 0) {
 			row.Promote.Button = promoteButton(promote, t.Seq, take)
 		}
 		if c.Speech {
@@ -396,8 +397,8 @@ func (s *server) promote(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if speech == "" || model == "" || strings.TrimSpace(prompt) == "" {
-		http.Error(w, "a promotion needs what the re-run said, its model and its prompt", http.StatusBadRequest)
+	if (speech == "" && len(calls) == 0) || model == "" || strings.TrimSpace(prompt) == "" {
+		http.Error(w, "a promotion needs what the re-run said or called, its model and its prompt", http.StatusBadRequest)
 		return
 	}
 	rp, err := s.readReplayable(r.Context(), r.PathValue("id"))

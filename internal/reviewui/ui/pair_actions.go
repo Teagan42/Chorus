@@ -175,6 +175,10 @@ type PairActions struct {
 	Reasons         []PairReason
 	Guard           Alert
 	Done            DoneCard
+
+	// RejectedCalls and ChosenCalls are each side's tool calls, one
+	// "tool args" line apiece, as the export carries them.
+	RejectedCalls, ChosenCalls []string
 }
 
 // NewPairActions builds the view model for pair p in mode.

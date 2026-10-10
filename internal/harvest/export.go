@@ -100,7 +100,7 @@ func Export(w io.Writer, pairs []Pair) error {
 }
 
 func toRow(p Pair) (row, error) {
-	rejectedCalls, chosenCalls, withCalls := p.textCalls()
+	rejectedCalls, chosenCalls, withCalls := p.TextCalls()
 	// Only a re-run's own calls can stand in for speech: an inherited call
 	// beside an empty note is no chosen side.
 	if p.Curated && p.Chosen == "" && (p.Source != SourceReplay || len(chosenCalls) == 0) {
@@ -145,11 +145,11 @@ func toRow(p Pair) (row, error) {
 // were wrong without saying which were right.
 const labelWrongTool = "wrong_tool"
 
-// textCalls is each side's actions as pair text, or withCalls false when
+// TextCalls is each side's actions as pair text, or withCalls false when
 // nobody said which calls were right and the pair trains on speech alone. A
 // replay's chosen calls are the re-run's; a correction or a note is about
 // what was said, so its chosen side keeps the turn's calls (ADR-0054).
-func (p Pair) textCalls() (rejected, chosen []journal.Call, withCalls bool) {
+func (p Pair) TextCalls() (rejected, chosen []journal.Call, withCalls bool) {
 	rejected = actions(p.Calls)
 	switch {
 	case p.Source == SourceReplay:

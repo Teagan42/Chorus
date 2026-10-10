@@ -1,0 +1,97 @@
+package main
+
+import (
+	"net/url"
+	"strings"
+	"testing"
+
+	"github.com/teagan42/chorus/internal/provider/ollama"
+)
+
+const (
+	// replayedGarage is Teagan's "is the garage door closed", re-run.
+	replayedGarage = convGarage + "/2/replay"
+
+	// contactCheck is the call the brief re-run makes instead: the contact
+	// sensor, which answers, and nothing said until it has.
+	contactCheck = `[{"tool":"ha_get_state","args":"{\"entity_id\":\"binary_sensor.garage_door_contact\"}"}]`
+)
+
+// A re-run that only calls a different sensor can be promoted, and the pair
+// it makes says nothing on its chosen side and calls the contact sensor.
+//
+// verifies SPEC §9.2
+func TestAReRunThatOnlyCallsCanBePromoted(t *testing.T) {
+	s, _ := householdReplayServer(t)
+	run := mustPost(t, s, "/replays/"+convGarage, url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}})
+	if !strings.Contains(run, `hx-post="/replays/`+convGarage+`/turns/2/promote"`) {
+		t.Fatalf("the garage turn's call-only re-run offers no promotion:\n%s", run)
+	}
+	cell := mustPost(t, s, "/replays/"+convGarage+"/turns/2/promote", url.Values{
+		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt},
+		"speech": {""}, "calls": {contactCheck},
+	})
+	if !strings.Contains(cell, "promoted · qwen3-32b@1 · sys@edited") {
+		t.Errorf("the cell does not say it was promoted:\n%s", cell)
+	}
+
+	p, ok := find(mustPairs(t, s), replayedGarage)
+	if !ok || p.Status != "accepted" || p.Chosen != "" || p.Rejected != "I couldn't reach the garage door sensor." {
+		t.Fatalf("replay pair = %+v (found %v)", p.Pair, ok)
+	}
+	h := get(t, s, pairHref(replayedGarage, "all"))
+	for _, want := range []string{
+		`<span class="pair-actions__call">ha_get_state {&#34;entity_id&#34;:&#34;cover.garage_door&#34;}</span>`,
+		`<span class="pair-actions__call">ha_get_state {&#34;entity_id&#34;:&#34;binary_sensor.garage_door_contact&#34;}</span>`,
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("Curate does not show %s", want)
+		}
+	}
+
+	if !strings.Contains(h, `+ ha_get_state {&#34;entity_id&#34;:&#34;binary_sensor.garage_door_contact&#34;}`) {
+		t.Error("Curate's list names the calls-only chosen side by nothing")
+	}
+
+	line := exportRow(t, s, replayedGarage)
+	for _, want := range []string{
+		`"chosen":[{"role":"assistant","content":"","tool_calls":[{"type":"function","function":{"name":"ha_get_state","arguments":{"entity_id":"binary_sensor.garage_door_contact"}}}]}]`,
+		`"rejected":[{"role":"assistant","content":"I couldn't reach the garage door sensor.","tool_calls":[{"type":"function","function":{"name":"ha_get_state","arguments":{"entity_id":"cover.garage_door"}}}]}]`,
+	} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the garage row is missing %s:\n%s", want, line)
+		}
+	}
+}
+
+// A promotion that neither says nor calls anything is still refused.
+//
+// verifies SPEC §9.2
+func TestAPromotionThatDoesNothingIsRefused(t *testing.T) {
+	s, _ := householdReplayServer(t)
+	code, body := post(t, s, "/replays/"+convGarage+"/turns/2/promote", url.Values{
+		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}, "speech": {" "}, "calls": {"[]"},
+	})
+	if code != 400 || !strings.Contains(body, "said or called") {
+		t.Errorf("promote = %d %q, want 400 asking for speech or a call", code, body)
+	}
+}
+
+// Curate shows what each side calls, as the export writes it: a note keeps
+// the turn's search on both sides, and "wrong tool" leaves both bare.
+//
+// verifies SPEC §9.2
+func TestCurateShowsWhatEachSideCalls(t *testing.T) {
+	s, _ := newHouseholdServer(t)
+	mustPost(t, s, turnURL(convZeppel, zeppelinAsk, "labels/misunderstood_intent"), url.Values{"should_have": {shouldHaveZeppel}})
+	h := get(t, s, pairHref(annotatedZeppel, "all"))
+	search := `<span class="pair-actions__call">media_search {&#34;query&#34;:&#34;Led Zeppelin&#34;,&#34;media_type&#34;:&#34;album&#34;,&#34;limit&#34;:5}</span>`
+	if n := strings.Count(h, search); n != 2 {
+		t.Errorf("the search shows %d times, want once on each side", n)
+	}
+
+	mustPost(t, s, turnURL(convZeppel, zeppelinAsk, "labels/wrong_tool"), nil)
+	if h := get(t, s, pairHref(annotatedZeppel, "all")); strings.Contains(h, "pair-actions__call") {
+		t.Error("a wrong-tool pair shows calls nobody said were right")
+	}
+}

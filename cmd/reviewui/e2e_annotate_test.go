@@ -177,6 +177,47 @@ func TestE2EJourneyPromoteTheBriefZeppelinAnswer(t *testing.T) {
 	}
 }
 
+// The reviewer re-runs the garage question under the brief prompt. It checks
+// the contact sensor, which answers, and says nothing until it has. They
+// promote that, and Curate and the dataset both carry the call alone.
+//
+// verifies SPEC §9.2
+func TestE2EJourneyPromoteTheGarageSensorCheck(t *testing.T) {
+	s, _ := householdReplayServer(t)
+	p := open(t, s)
+
+	p.visit("/replays/" + convGarage)
+	p.editPrompt(strings.TrimSpace(briefPrompt))
+	p.click(`form button[type="submit"]`)
+	p.waitText("#turn-2", "binary_sensor.garage_door_contact")
+	p.click("#promote-2 button")
+	p.waitText("#promote-2", "promoted · qwen3-32b@1 · sys@edited")
+
+	p.follow("#promote-2 a")
+	p.waitText(".pair-actions", "binary_sensor.garage_door_contact")
+	p.waitText(".pair-actions", "cover.garage_door")
+	if got := p.rowStatus(replayedGarage); got != "accepted" {
+		t.Errorf("the promoted pair is %q in the list, want accepted", got)
+	}
+	p.shot("journey-curate-calls-only")
+
+	p.visit("/export")
+	p.waitText(".page-head", "Download 1 row")
+	rows := p.download()
+	if len(rows) != 1 {
+		t.Fatalf("the dataset has %d rows, want the promoted garage turn", len(rows))
+	}
+	chosen := rows[0]["chosen"].([]any)[0].(map[string]any)
+	calls, _ := chosen["tool_calls"].([]any)
+	if chosen["content"] != "" || len(calls) != 1 {
+		t.Fatalf("chosen = %v", chosen)
+	}
+	fn := calls[0].(map[string]any)["function"].(map[string]any)
+	if args := fn["arguments"].(map[string]any); fn["name"] != "ha_get_state" || args["entity_id"] != "binary_sensor.garage_door_contact" {
+		t.Errorf("chosen call = %v", fn)
+	}
+}
+
 // The labels wrap on a phone; neither the door's audit nor the re-run's
 // promotion pushes the page sideways.
 //
