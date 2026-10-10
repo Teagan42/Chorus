@@ -86,6 +86,7 @@ speaker:
     id: tts_speaker
     output_speaker: tts_source
 
-# Ducking is on the mixer source, not on the Speaker base class.
+# Ducking is on the mixer source, not on the Speaker base class, and it is
+# the other source that ducks: ducking tts_source would quieten the voice.
 chorus_bridge:
-  ducking_speaker: tts_source
+  ducking_speaker: media_source
