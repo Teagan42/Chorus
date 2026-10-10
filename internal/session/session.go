@@ -880,13 +880,17 @@ func (s *Session) BargeIn(_ context.Context, c Candidate) (bool, error) {
 	cancel := s.turnCancel
 	s.mu.Unlock()
 
+	fields := map[string]string{}
+	if c.AudioFrames > 0 {
+		fields["audio_frames"] = strconv.Itoa(c.AudioFrames)
+	}
 	if stage, ok := s.sup.cfg.Gate.admit(c, speaker); !ok {
+		fields["stage"] = stage
 		return false, s.record(journal.Record{
-			Kind: journal.KindBargeInRejected, AudioRef: c.AudioRef,
-			Fields: map[string]string{"stage": stage},
+			Kind: journal.KindBargeInRejected, AudioRef: c.AudioRef, Fields: fields,
 		})
 	}
-	fields := map[string]string{"tts_position_ms": strconv.Itoa(c.PositionMS)}
+	fields["tts_position_ms"] = strconv.Itoa(c.PositionMS)
 	if s.sup.cfg.Gate.SpeakerIDUnavailable {
 		// Nothing judged the voice, so it passed no speaker check (ADR-0031).
 		fields["speaker_stage_skipped"] = "true"

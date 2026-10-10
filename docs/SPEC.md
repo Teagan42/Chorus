@@ -289,7 +289,9 @@ Detection gate, stacked, ~300 ms from user speech to TTS stop:
 No semantic "was this addressed to me" check: it costs latency exactly where
 latency is viscerally felt, and a wrong stop is cheap (keep talking) while a
 slow stop feels broken. **Every rejected candidate barge-in is logged** as the
-tuning corpus for this gate.
+tuning corpus for this gate. Each candidate names its utterance's one blob and
+how many frames of it were judged, so a long overlap keeps its audio once
+(ADR-0060).
 
 The speaker stage's refusal stands once the voice pauses: an utterance that
 talked over speech, never stopped it, and is a voice the household does not

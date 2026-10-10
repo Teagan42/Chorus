@@ -151,6 +151,10 @@ type Pair struct {
 	// the stop's flight time, so this lags the real cut.
 	BargeInPositionMS int
 
+	// BargeInFrames is how much of Audio.BargeIn the gate judged, in device
+	// frames: the blob is the whole utterance's. Zero is all of it.
+	BargeInFrames int
+
 	// CutFrames is the DAC-confirmed truncation point: frames_played on the
 	// truncated speech event, relative to that clip's own audio. Zero when
 	// the barge-in only discarded queued clips and played none of the cut.
@@ -297,6 +301,7 @@ type bargeIn struct {
 	seq        uint64
 	positionMS int
 	audioRef   string
+	frames     int
 }
 
 // draft is a cut turn waiting on the turn that answers its correction.
@@ -388,7 +393,13 @@ func (w *walker) fold(e journal.Event) error {
 			w.result.Uncorrected++
 			w.cur.cut, w.cur.unheard, w.cur.cutSeq = false, nil, 0
 		}
-		w.cur.bargeIn = &bargeIn{seq: e.Seq, positionMS: ms, audioRef: e.AudioRef}
+		frames := 0
+		if f := e.Fields["audio_frames"]; f != "" {
+			if frames, err = strconv.Atoi(f); err != nil {
+				return fmt.Errorf("audio_frames %q: %w", f, err)
+			}
+		}
+		w.cur.bargeIn = &bargeIn{seq: e.Seq, positionMS: ms, audioRef: e.AudioRef, frames: frames}
 	case journal.KindSpeechSpoken:
 		if w.cur != nil {
 			w.cur.spoken = append(w.cur.spoken, e.Fields["text"])
@@ -545,6 +556,7 @@ func (w *walker) finish(d *draft, answer turn) Pair {
 		RecalledSummaries: r.summaries,
 		HeardAt:           r.heardAt,
 		BargeInPositionMS: r.bargeIn.positionMS,
+		BargeInFrames:     r.bargeIn.frames,
 		CutFrames:         r.cutFrames,
 		Seq: Seq{
 			Prompt: r.promptSeq, BargeIn: r.bargeIn.seq,

@@ -121,10 +121,15 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) logRow {
 		row.Text, row.Note = "closed: "+f["reason"], f["satellite"]
 	case journal.KindUtteranceTranscribed:
 		row.Who, row.Text = f["speaker_id"], f["text"]
-	case journal.KindBargeInDetected:
+	case journal.KindBargeInDetected, journal.KindBargeInRejected:
 		row.Text = "barge-in at " + f["tts_position_ms"] + " ms of playback"
-	case journal.KindBargeInRejected:
-		row.Text = "barge-in rejected at " + f["stage"]
+		if e.Kind == journal.KindBargeInRejected {
+			row.Text = "barge-in rejected at " + f["stage"]
+		}
+		// The blob is the whole utterance; the gate judged its prefix.
+		if row.Audio != "" && f["audio_frames"] != "" {
+			row.Audio += "&to=" + f["audio_frames"]
+		}
 	case journal.KindWakeRejected:
 		row.Text = "wake rejected: " + f["reason"]
 	case journal.KindPresenceChanged:

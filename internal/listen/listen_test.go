@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"slices"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -233,16 +234,19 @@ func TestSpeechDuringPlaybackStopsItAtTheDACPosition(t *testing.T) {
 	if cut.Fields["tts_position_ms"] != "1000" {
 		t.Errorf("tts_position_ms = %q, want 1000", cut.Fields["tts_position_ms"])
 	}
-	audio, ok := r.blobs.Bytes(cut.AudioRef)
-	if !ok || len(audio) == 0 {
-		t.Errorf("the candidate's audio %q is not stored", cut.AudioRef)
-	}
 	r.awaitKind(t, conv, journal.KindSpeechTruncated, 1)
 
 	r.pause(t, rigSilence)
 	heard := r.awaitKind(t, conv, journal.KindUtteranceTranscribed, 2)
 	if heard.Fields["text"] != "no the other one" {
 		t.Errorf("the correction was heard as %q", heard.Fields["text"])
+	}
+	// The candidate is the start of the correction it went on to be, kept
+	// once with it.
+	audio, ok := r.blobs.Bytes(cut.AudioRef)
+	frames, _ := strconv.Atoi(cut.Fields["audio_frames"])
+	if !ok || cut.AudioRef != heard.AudioRef || frames == 0 || len(audio) < frames*2 {
+		t.Errorf("the candidate's audio %q, %d frames judged, is not the correction's %q", cut.AudioRef, frames, heard.AudioRef)
 	}
 	if got := r.count(t, conv, journal.KindBargeInDetected); got != 1 {
 		t.Errorf("%d barge-ins detected for one interruption", got)
@@ -307,15 +311,70 @@ func TestATelevisionDuringPlaybackIsRejectedAtSpeakerID(t *testing.T) {
 	if rej.Fields["stage"] != "speaker_id" {
 		t.Errorf("stage = %q, want speaker_id", rej.Fields["stage"])
 	}
-	if _, ok := r.blobs.Bytes(rej.AudioRef); !ok {
-		t.Errorf("the rejected candidate's audio %q is not stored", rej.AudioRef)
-	}
 	r.settled(t)
 	if got := r.count(t, conv, journal.KindBargeInDetected); got != 0 {
 		t.Errorf("the television stopped speech: %d detected", got)
 	}
 	if !slices.Contains(s.Children(), "speaking") {
 		t.Error("speech did not continue past the rejection")
+	}
+	// Its audio is kept once the utterance ends, though it is never a turn.
+	r.pause(t, rigSilence)
+	await(t, "the rejected candidate's audio", func() bool {
+		_, ok := r.blobs.Bytes(rej.AudioRef)
+		return ok
+	})
+}
+
+// The television talks over the answer for partial after partial, and the
+// gate judges each. Every candidate refers to the one blob its utterance is
+// kept in, up to where it was judged, so the audio is stored once however
+// long the overlap runs: a fresh copy per partial grows with its square.
+//
+// verifies SPEC §4.3, §8
+func TestALongOverlapKeepsItsAudioOnce(t *testing.T) {
+	r := newRig(t, talking())
+	r.speaker.hold = true
+
+	r.dev.SendWake(t, "hey_eddie")
+	r.utter(t, r.line("find zeppelin", alan), 4*chunkBytes)
+	s := r.session(t)
+	conv := s.ConversationID()
+	r.speaker.wrote(t)
+	await(t, "the speaking child", func() bool { return slices.Contains(s.Children(), "speaking") })
+	before := len(r.blobs.Refs())
+
+	// One partial at a time: a newer partial replaces an unread one.
+	tv := r.line("and now the weather for the whole of the long weekend", stranger)
+	for n := 1; n <= 3; n++ {
+		r.speak(t, tv, rigPartials)
+		r.awaitKind(t, conv, journal.KindBargeInRejected, n)
+	}
+	r.pause(t, rigSilence)
+
+	var rejected []journal.Event
+	for _, e := range r.events(t, conv) {
+		if e.Kind == journal.KindBargeInRejected {
+			rejected = append(rejected, e)
+		}
+	}
+	ref, judged := rejected[0].AudioRef, 0
+	for _, e := range rejected {
+		frames, err := strconv.Atoi(e.Fields["audio_frames"])
+		if e.AudioRef != ref || err != nil || frames <= judged {
+			t.Fatalf("candidates = %+v, want one blob judged further each time", rejected)
+		}
+		judged = frames
+	}
+	await(t, "the overlap's audio to be kept", func() bool {
+		_, ok := r.blobs.Bytes(ref)
+		return ok
+	})
+	if audio, _ := r.blobs.Bytes(ref); len(audio) < judged*2 {
+		t.Errorf("the blob holds %d bytes, short of the %d frames judged", len(audio), judged)
+	}
+	if got := len(r.blobs.Refs()) - before; got != 1 {
+		t.Errorf("%d blobs kept for one overlap, want 1", got)
 	}
 }
 

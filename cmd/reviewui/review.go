@@ -104,7 +104,11 @@ func layout(p harvest.Pair, dur map[string]int) reviewLayout {
 	if l.rejEnd == 0 {
 		l.rejEnd = gapMS // an unsized, uncut turn still gets a visible region
 	}
-	l.bargeAt = max(0, l.cut-dur[p.Audio.BargeIn])
+	barge := dur[p.Audio.BargeIn]
+	if p.BargeInFrames > 0 {
+		barge = framesMS(p.BargeInFrames)
+	}
+	l.bargeAt = max(0, l.cut-barge)
 	l.corrAt = l.cut + gapMS
 	l.corrEnd = l.corrAt + dur[p.Audio.Correction]
 	l.asSaidAt = l.corrEnd + gapMS
@@ -191,6 +195,10 @@ func clips(p harvest.Pair) []clipView {
 		})
 	}
 	out = add(out, "barge-in", ui.TonePeople, p.Audio.BargeIn, "")
+	// The barge-in blob is the whole utterance; the gate judged its prefix.
+	if n := len(out); p.BargeInFrames > 0 && n > 0 && out[n-1].Label == "barge-in" {
+		out[n-1].Src += fmt.Sprintf("&to=%d", p.BargeInFrames)
+	}
 	out = add(out, "correction", ui.TonePeople, p.Audio.Correction, p.Heard)
 	for i, ref := range p.Audio.AsSaid {
 		label := "answer · as said"
