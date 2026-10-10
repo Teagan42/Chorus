@@ -302,13 +302,15 @@ func (s *Session) Heard(ctx context.Context, t Transcript) error {
 	}); err != nil {
 		return err
 	}
+	s.mu.Lock()
 	if t.SpeakerID != "" {
 		// A confident mismatch flips attribution inside the conversation (§5).
-		s.mu.Lock()
 		s.person = t.SpeakerID
-		s.mu.Unlock()
 	}
-	s.sup.cfg.Conversations.Touch(s.person)
+	// Read under the lock: another utterance's turn may be flipping it.
+	person := s.person
+	s.mu.Unlock()
+	s.sup.cfg.Conversations.Touch(person)
 	s.poke()
 	return s.turn(ctx, t)
 }

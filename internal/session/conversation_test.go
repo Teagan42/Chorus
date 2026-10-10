@@ -230,3 +230,45 @@ func TestADisplacedSessionsChildrenKeepTheLogGapless(t *testing.T) {
 		}
 	}
 }
+
+// A busy kitchen at breakfast: Teagan asks for the coffee, Alan for the porch
+// light and Alice for the weather, all before the first is answered. The
+// listener hands a session one utterance at a time, but Session keeps its
+// state under a lock so that nothing depends on that, and these tests hear
+// from their own goroutines. Attribution flips while another call is reading
+// who owns the conversation; every one of them is heard, and the race detector
+// sees no unguarded read of the speaker. The window is narrow, so the morning
+// repeats until a regression would show.
+//
+// verifies SPEC §5
+func TestPeopleTalkingOverEachOtherAreAllHeard(t *testing.T) {
+	steps := []step{{act: session.TurnEnd{FinishReason: "stop", Completion: "{}"}}}
+	asks := []struct{ who, text string }{
+		{"teagan", "start the coffee maker"},
+		{"alan", "is the porch light on"},
+		{"alice", "what's the weather today"},
+	}
+	for range 100 {
+		r := newRig(t, steps, nil)
+		s := r.open(t, "teagan")
+
+		var turns []<-chan error
+		for _, a := range asks {
+			turns = append(turns, heardFrom(s, a.who, a.text))
+		}
+		for _, turn := range turns {
+			wait(t, turn)
+		}
+
+		var who []string
+		for _, e := range r.events(t, s.ConversationID()) {
+			if e.Kind == journal.KindUtteranceTranscribed {
+				who = append(who, e.Fields["speaker_id"])
+			}
+		}
+		slices.Sort(who)
+		if !slices.Equal(who, []string{"alan", "alice", "teagan"}) {
+			t.Fatalf("utterances heard from %v, want alan, alice and teagan", who)
+		}
+	}
+}
