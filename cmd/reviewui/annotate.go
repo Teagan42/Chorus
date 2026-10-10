@@ -11,6 +11,7 @@ import (
 	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/reviewui/ui"
+	"github.com/teagan42/chorus/internal/triage"
 )
 
 // labelNames is SPEC §9.2's vocabulary as a reviewer reads it.
@@ -38,6 +39,9 @@ type turnAnnotation struct {
 	// Pair links the preference pair the annotation makes in Curate, when it
 	// says what went wrong and what should have happened instead.
 	Pair *ui.Button
+
+	// Again says the person asked this again: evidence the answer failed.
+	Again string
 }
 
 func turnPath(conv string, seq uint64) string {
@@ -46,6 +50,26 @@ func turnPath(conv string, seq uint64) string {
 
 func annotationPairID(conv string, seq uint64) string {
 	return fmt.Sprintf("%s/%d/%s", conv, seq, harvest.SourceAnnotation)
+}
+
+// againNote is what a turn's labels say of the repeat that followed it.
+func againNote(r triage.Signal) string {
+	return fmt.Sprintf("asked again at #%d: “%s”. A fault and what it should have said make a pair with the repeat as its evidence.", r.Seq, r.Utterance)
+}
+
+// askedAgain is the conversation's repeats, keyed by the turn each repeated.
+func (s *server) askedAgain(ctx context.Context, conv string) (map[uint64]triage.Signal, error) {
+	sigs, err := triage.Scan(ctx, s.journal, conv)
+	if err != nil {
+		return nil, err
+	}
+	out := map[uint64]triage.Signal{}
+	for _, sig := range sigs {
+		if sig.Kind == triage.KindRepeated {
+			out[sig.First] = sig
+		}
+	}
+	return out, nil
 }
 
 func annotationView(conv string, seq uint64, a curation.Annotation) turnAnnotation {
@@ -144,6 +168,11 @@ func (s *server) annotate(w http.ResponseWriter, r *http.Request) {
 		}
 		after = before.Toggle(l)
 	}
+	again, err := s.askedAgain(ctx, conv)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if _, drafted := r.PostForm["should_have"]; drafted {
 		after.ShouldHave = strings.TrimSpace(r.PostForm.Get("should_have"))
 	}
@@ -161,6 +190,10 @@ func (s *server) annotate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	v := annotationView(conv, seq, after)
+	if r, ok := again[seq]; ok {
+		v.Again = againNote(r)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	s.render(w, "turn-annotation", annotationView(conv, seq, after))
+	s.render(w, "turn-annotation", v)
 }

@@ -33,6 +33,9 @@ type logRow struct {
 	Signal    *ui.SigTag
 	SignalWhy string
 
+	// Again opens the labels of the turn a repeat asked again.
+	Again *ui.Button
+
 	// Annotation is the turn's labels, under the utterance that opens it.
 	Annotation *turnAnnotation
 }
@@ -336,8 +339,12 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bySeq := map[uint64]triage.Signal{}
+	again := map[uint64]triage.Signal{}
 	for _, sig := range append(positives, sigs...) {
 		bySeq[sig.Seq] = sig
+		if sig.Kind == triage.KindRepeated {
+			again[sig.First] = sig
+		}
 	}
 	c := summarize(id, events, sigs)
 	rows := make([]logRow, 0, len(events)+len(house))
@@ -355,11 +362,17 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 				a = curation.Annotation{ConversationID: id, Seq: e.Seq}
 			}
 			v := annotationView(id, e.Seq, a)
+			if r, ok := again[e.Seq]; ok {
+				v.Again = againNote(r)
+			}
 			row.Annotation = &v
 		}
 		if sig, ok := bySeq[e.Seq]; ok {
 			tag := signalTags[sig.Kind]
 			row.Signal, row.SignalWhy = &tag, sig.Detail
+			if sig.Kind == triage.KindRepeated {
+				row.Again = &ui.Button{Label: "Label the first answer ›", Href: fmt.Sprintf("#turn-%d-labels", sig.First)}
+			}
 		}
 		rows = append(rows, row)
 	}

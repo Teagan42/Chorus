@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -64,5 +65,55 @@ func TestTriageKeepsTheWeakPositivesInTheirOwnPile(t *testing.T) {
 	row := h[strings.Index(h, `id="seq-8"`):]
 	if !strings.Contains(row[:strings.Index(row, "</div>")], "weak positive") {
 		t.Error("the shopping list's completion does not say it is a weak positive")
+	}
+}
+
+// Alan's oven ask, the twelve minutes he had to say again, and what the
+// reviewer says the first answer should have been.
+const (
+	ovenAsk  = 2
+	pairOven = convTimer + "/2/annotation"
+	fixOven  = "How long should the oven timer run?"
+)
+
+// Alan asked for the oven timer twice. The repeat's row offers the first
+// answer's labels, which say it was asked again; labelled and given what it
+// should have said, that turn is a pair whose evidence is the repeat, heard
+// and seen, through to its exported row.
+//
+// verifies SPEC §9.1, §9.2
+func TestARepeatedAskIsTheEvidenceOnThePairItsFirstAnswerMakes(t *testing.T) {
+	s, _ := newHouseholdServer(t)
+	h := get(t, s, conversationHref(convTimer))
+	repeat := h[strings.Index(h, `id="seq-7"`):]
+	if !strings.Contains(repeat[:strings.Index(repeat, `id="turn-7-labels"`)], `href="#turn-2-labels"`) {
+		t.Error("the repeat's row does not offer the first answer's labels")
+	}
+	first := h[strings.Index(h, `id="turn-2-labels"`):]
+	if !strings.Contains(first[:strings.Index(first, `id="seq-3"`)], "asked again at #7: “set a timer for twelve minutes”") {
+		t.Error("the first answer's labels do not say it was asked again")
+	}
+
+	mustPost(t, s, turnURL(convTimer, ovenAsk, "labels/misunderstood_intent"), nil)
+	body := mustPost(t, s, turnURL(convTimer, ovenAsk, "note"), url.Values{"should_have": {fixOven}})
+	if !strings.Contains(body, "asked again at #7") || !strings.Contains(body, "In Curate ›") {
+		t.Errorf("the swapped labels lost the repeat or the pair:\n%s", body)
+	}
+	h = get(t, s, pairHref(pairOven, "all"))
+	if !strings.Contains(h, "labelled “misunderstood intent” · asked again: “set a timer for twelve minutes”") {
+		t.Error("Curate does not show the repeat as the pair's evidence")
+	}
+
+	mustPost(t, s, "/pairs/"+pairOven+"/accept", nil)
+	line := exportRow(t, s, pairOven)
+	for _, want := range []string{
+		`"heard":"labelled “misunderstood intent” · asked again: “set a timer for twelve minutes”"`,
+		`"correction":7`,
+		`"correction":"blob://mic/timer-twelve"`,
+		`"chosen":[{"role":"assistant","content":"` + fixOven + `"`,
+	} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the oven pair's row is missing %s:\n%s", want, line)
+		}
 	}
 }

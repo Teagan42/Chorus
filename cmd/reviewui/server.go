@@ -21,6 +21,7 @@ import (
 	"github.com/teagan42/chorus/internal/rerun"
 	"github.com/teagan42/chorus/internal/reviewui/audio"
 	"github.com/teagan42/chorus/internal/reviewui/ui"
+	"github.com/teagan42/chorus/internal/triage"
 )
 
 //go:embed pages/*.tmpl
@@ -174,11 +175,26 @@ func (s *server) reviewersPairs(ctx context.Context, conv string, turns []harves
 	if err != nil {
 		return nil, err
 	}
+	var again map[uint64]triage.Signal
+	if len(annos) > 0 {
+		if again, err = s.askedAgain(ctx, conv); err != nil {
+			return nil, err
+		}
+	}
+	askAudio := map[uint64]string{}
+	for _, t := range turns {
+		askAudio[t.Seq] = t.AskAudio
+	}
 	var out []harvest.Pair
 	for _, t := range turns {
 		if a := annos[t.Seq]; a.Faulted() {
 			h := t.Pair(conv, harvest.SourceAnnotation, a.ShouldHave)
 			h.Heard = labelled(a)
+			// The ask said again is the evidence, as a correction is a cut's.
+			if r, ok := again[t.Seq]; ok {
+				h.Heard += " · asked again: “" + r.Utterance + "”"
+				h.Seq.Correction, h.Audio.Correction = r.Seq, askAudio[r.Seq]
+			}
 			for _, l := range a.Labels {
 				h.Labels = append(h.Labels, string(l))
 			}
