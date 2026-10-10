@@ -1,8 +1,9 @@
 // Package household is one made-up household's Thursday, 9 October 2025, as
 // chorusd would have journaled it: three people, three satellites, every
-// signal Triage knows, a timer going off and one called off, a television the
-// barge-in gate refused, a door that waits for a yes, and one conversation
-// from the night before. The review UI's browser tests walk a reviewer through this day, and
+// signal Triage knows, music searches that say a few words while they look,
+// a timer going off and one called off, a television the barge-in gate
+// refused, a door that waits for a yes, and one conversation from the night
+// before. The review UI's browser tests walk a reviewer through this day, and
 // the hosted demo serves it, so both show the same household.
 //
 // The audio is synthetic: voice.json says who says what and for how long,
@@ -61,8 +62,8 @@ const PastaTimer = "t_9d2b4f60"
 // The harvested pairs, by the seq of each cut.
 const (
 	PairWeather  = ConvWeather + "/8"
-	PairZeppelin = ConvZeppelin + "/8"
-	PairJazz     = ConvJazz + "/17"
+	PairZeppelin = ConvZeppelin + "/11"
+	PairJazz     = ConvJazz + "/20"
 )
 
 // Day is midnight of the day under review.
@@ -114,6 +115,17 @@ func started(call string, wait int) journal.Record {
 
 const speakArgs = `{"mode":"queue","streamed":true}`
 
+// ackArgs is the speak call the session records for a slow call's
+// acknowledgement, as chorusd marshals it (ADR-0039).
+func ackArgs(call, text string) string {
+	b, _ := json.Marshal(struct {
+		Text         string `json:"text"`
+		Mode         string `json:"mode"`
+		Acknowledges string `json:"acknowledges"`
+	}{text, "queue", call})
+	return string(b)
+}
+
 const doorArgs = `{"domain":"lock","service":"unlock","entity_id":"lock.front_door"}`
 
 // Logs is every conversation's log, keyed by conversation id.
@@ -141,14 +153,19 @@ func Logs() map[string][]Line {
 		ConvZeppelin: {
 			{at(8, 53, 20), rec(journal.KindSessionOpened, "", "satellite", "kitchen", "speaker_id", "alice", "resumed", "false")},
 			{at(8, 53, 20.3), rec(journal.KindUtteranceTranscribed, "blob://mic/zeppelin-ask", "text", "play something by zeppelin", "speaker_id", "alice")},
-			{at(8, 53, 20.4), rec(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c1", "args_json", `{"query":"Led Zeppelin","limit":5}`)},
-			{at(8, 53, 20.55), rec(journal.KindToolResult, "", "call_id", "c1", "outcome", "ok", "result_json", `{"results":["Led Zeppelin","Led Zeppelin II","Led Zeppelin IV"]}`)},
-			{at(8, 53, 20.6), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s1", "args_json", speakArgs)},
-			{at(8, 53, 20.7), started("s1", 650)},
-			{at(8, 53, 21.5), rec(journal.KindBargeInDetected, "blob://mic/zeppelin-bargein", "tts_position_ms", "800")},
-			{at(8, 53, 21.6), rec(journal.KindSpeechTruncated, "blob://tts/zeppelin-list", "spoken_text", "I found three", "unspoken_text", " albums by that artist: Led Zeppelin, Led Zeppelin II and Led Zeppelin IV.", "frames_played", "12800", "call_id", "s1", "reason", "barge_in")},
-			{at(8, 53, 21.6), rec(journal.KindToolResult, "", "call_id", "s1", "outcome", "cancelled")},
-			{at(8, 53, 21.7), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
+			// The search is slow, so it says what to say while it looks, and
+			// the session says it as the search starts (ADR-0039).
+			{at(8, 53, 20.4), rec(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c1", "args_json", `{"query":"Led Zeppelin","limit":5,"acknowledgement":"Let me find that."}`)},
+			{at(8, 53, 20.4), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "c1_ack", "args_json", ackArgs("c1", "Let me find that."))},
+			{at(8, 53, 20.5), started("c1_ack", 450)},
+			{at(8, 53, 21.5), rec(journal.KindSpeechSpoken, "blob://tts/zeppelin-ack", "text", "Let me find that.", "frames_played", "16000", "call_id", "c1_ack")},
+			{at(8, 53, 21.5), rec(journal.KindToolResult, "", "call_id", "c1_ack", "outcome", "ok")},
+			{at(8, 53, 21.6), rec(journal.KindToolResult, "", "call_id", "c1", "outcome", "ok", "result_json", `{"results":["Led Zeppelin","Led Zeppelin II","Led Zeppelin IV"]}`)},
+			{at(8, 53, 21.65), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s1", "args_json", speakArgs)},
+			{at(8, 53, 22.55), rec(journal.KindBargeInDetected, "blob://mic/zeppelin-bargein", "tts_position_ms", "800")},
+			{at(8, 53, 22.65), rec(journal.KindSpeechTruncated, "blob://tts/zeppelin-list", "spoken_text", "I found three", "unspoken_text", " albums by that artist: Led Zeppelin, Led Zeppelin II and Led Zeppelin IV.", "frames_played", "12800", "call_id", "s1", "reason", "barge_in")},
+			{at(8, 53, 22.65), rec(journal.KindToolResult, "", "call_id", "s1", "outcome", "cancelled")},
+			{at(8, 53, 22.75), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
 			{at(8, 53, 23.2), rec(journal.KindUtteranceTranscribed, "blob://mic/zeppelin-first", "text", "just the first one", "speaker_id", "alice")},
 			{at(8, 53, 23.3), rec(journal.KindToolCalled, "", "tool", "ha_call_service", "call_id", "c2", "args_json", `{"domain":"media_player","service":"play_media","entity_id":"media_player.kitchen","data":{"media_content_id":"album:led-zeppelin-i"}}`)},
 			{at(8, 53, 23.4), rec(journal.KindToolResult, "", "call_id", "c2", "outcome", "ok")},
@@ -249,26 +266,32 @@ func Logs() map[string][]Line {
 			{at(18, 40, 2.35), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
 			// Alan, from the sofa: a second voice in Alice's conversation.
 			{at(18, 40, 4.5), rec(journal.KindUtteranceTranscribed, "blob://mic/jazz-ask", "text", "and put on some jazz", "speaker_id", "alan")},
-			{at(18, 40, 4.6), rec(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c2", "args_json", `{"query":"jazz","limit":3}`)},
-			{at(18, 40, 4.75), rec(journal.KindToolResult, "", "call_id", "c2", "outcome", "ok", "result_json", `{"results":["Late Night Jazz","Jazz Classics","Coffee Table Jazz"]}`)},
-			{at(18, 40, 4.8), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s2", "args_json", speakArgs)},
-			{at(18, 40, 4.9), started("s2", 650)},
+			{at(18, 40, 4.6), rec(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c2", "args_json", `{"query":"jazz","limit":3,"acknowledgement":"Finding some jazz."}`)},
+			{at(18, 40, 4.6), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "c2_ack", "args_json", ackArgs("c2", "Finding some jazz."))},
+			{at(18, 40, 4.7), started("c2_ack", 450)},
+			{at(18, 40, 5.8), rec(journal.KindSpeechSpoken, "blob://tts/jazz-ack", "text", "Finding some jazz.", "frames_played", "17600", "call_id", "c2_ack")},
+			{at(18, 40, 5.8), rec(journal.KindToolResult, "", "call_id", "c2_ack", "outcome", "ok")},
+			{at(18, 40, 5.85), rec(journal.KindToolResult, "", "call_id", "c2", "outcome", "ok", "result_json", `{"results":["Late Night Jazz","Jazz Classics","Coffee Table Jazz"]}`)},
+			{at(18, 40, 5.9), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s2", "args_json", speakArgs)},
 			// He cuts it while the model is still streaming: no completion, so
 			// the pair cannot be attributed to a model.
-			{at(18, 40, 6.0), rec(journal.KindBargeInDetected, "blob://mic/jazz-bargein", "tts_position_ms", "1100")},
-			{at(18, 40, 6.1), rec(journal.KindSpeechTruncated, "blob://tts/jazz-playlist", "spoken_text", "Playing Late Night Jazz", "unspoken_text", " from Spotify, starting with Take Five.", "frames_played", "17600", "call_id", "s2", "reason", "barge_in")},
-			{at(18, 40, 6.1), rec(journal.KindSpeechDiscarded, "", "unspoken_text", "Say skip to hear the next one.", "reason", "barge_in")},
-			{at(18, 40, 6.1), rec(journal.KindToolResult, "", "call_id", "s2", "outcome", "cancelled")},
-			{at(18, 40, 7.3), rec(journal.KindUtteranceTranscribed, "blob://mic/jazz-quieter", "text", "something quieter", "speaker_id", "alan")},
-			{at(18, 40, 7.35), rec(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c3", "args_json", `{"query":"quiet jazz piano","limit":3}`)},
-			{at(18, 40, 7.45), rec(journal.KindToolResult, "", "call_id", "c3", "outcome", "ok")},
-			{at(18, 40, 7.5), rec(journal.KindToolCalled, "", "tool", "ha_call_service", "call_id", "c4", "args_json", `{"domain":"media_player","service":"play_media","entity_id":"media_player.living_room","data":{"media_content_id":"playlist:quiet-jazz-piano"}}`)},
-			{at(18, 40, 7.55), rec(journal.KindToolResult, "", "call_id", "c4", "outcome", "ok")},
-			{at(18, 40, 7.6), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s3", "args_json", speakArgs)},
-			{at(18, 40, 7.7), started("s3", 650)},
-			{at(18, 40, 9.2), rec(journal.KindSpeechSpoken, "blob://tts/jazz-quiet", "text", "Playing Quiet Jazz Piano.", "frames_played", "24000", "call_id", "s3")},
-			{at(18, 40, 9.3), rec(journal.KindToolResult, "", "call_id", "s3", "outcome", "ok")},
-			{at(18, 40, 9.4), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
+			{at(18, 40, 7.1), rec(journal.KindBargeInDetected, "blob://mic/jazz-bargein", "tts_position_ms", "1100")},
+			{at(18, 40, 7.2), rec(journal.KindSpeechTruncated, "blob://tts/jazz-playlist", "spoken_text", "Playing Late Night Jazz", "unspoken_text", " from Spotify, starting with Take Five.", "frames_played", "17600", "call_id", "s2", "reason", "barge_in")},
+			{at(18, 40, 7.2), rec(journal.KindSpeechDiscarded, "", "unspoken_text", "Say skip to hear the next one.", "reason", "barge_in")},
+			{at(18, 40, 7.2), rec(journal.KindToolResult, "", "call_id", "s2", "outcome", "cancelled")},
+			{at(18, 40, 8.3), rec(journal.KindUtteranceTranscribed, "blob://mic/jazz-quieter", "text", "something quieter", "speaker_id", "alan")},
+			{at(18, 40, 8.35), rec(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c3", "args_json", `{"query":"quiet jazz piano","limit":3,"acknowledgement":"Looking for something quieter."}`)},
+			{at(18, 40, 8.35), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "c3_ack", "args_json", ackArgs("c3", "Looking for something quieter."))},
+			{at(18, 40, 8.45), started("c3_ack", 400)},
+			{at(18, 40, 10.05), rec(journal.KindSpeechSpoken, "blob://tts/jazz-quieter-ack", "text", "Looking for something quieter.", "frames_played", "25600", "call_id", "c3_ack")},
+			{at(18, 40, 10.05), rec(journal.KindToolResult, "", "call_id", "c3_ack", "outcome", "ok")},
+			{at(18, 40, 10.1), rec(journal.KindToolResult, "", "call_id", "c3", "outcome", "ok")},
+			{at(18, 40, 10.15), rec(journal.KindToolCalled, "", "tool", "ha_call_service", "call_id", "c4", "args_json", `{"domain":"media_player","service":"play_media","entity_id":"media_player.living_room","data":{"media_content_id":"playlist:quiet-jazz-piano"}}`)},
+			{at(18, 40, 10.2), rec(journal.KindToolResult, "", "call_id", "c4", "outcome", "ok")},
+			{at(18, 40, 10.25), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s3", "args_json", speakArgs)},
+			{at(18, 40, 11.85), rec(journal.KindSpeechSpoken, "blob://tts/jazz-quiet", "text", "Playing Quiet Jazz Piano.", "frames_played", "24000", "call_id", "s3")},
+			{at(18, 40, 11.95), rec(journal.KindToolResult, "", "call_id", "s3", "outcome", "ok")},
+			{at(18, 40, 12.05), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
 			{at(18, 41, 0), rec(journal.KindSessionClosed, "", "reason", "model_ended", "satellite", "living_room")},
 		},
 		ConvList: {

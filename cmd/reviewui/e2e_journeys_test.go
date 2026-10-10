@@ -644,11 +644,11 @@ func TestE2EJourneyBrowseFollowsThePersonAndWalksTheDays(t *testing.T) {
 	p.follow(fmt.Sprintf(`#conversations a[href="%s"]`, conversationHref(convZeppel)))
 	p.waitText(".page-head", "alice · kitchen → living_room")
 	p.waitText("section[aria-label=Journal]", "closed: migrated")
-	p.waitText("#seq-20", "opened on living_room")
-	p.waitText("#seq-20", "resumed")
+	p.waitText("#seq-23", "opened on living_room")
+	p.waitText("#seq-23", "resumed")
 	var heard float64
 	p.eval(`new Promise((ok, no) => {
-		const a = document.querySelector('#seq-8 audio');
+		const a = document.querySelector('#seq-11 audio');
 		a.addEventListener("loadedmetadata", () => ok(a.duration), {once: true});
 		a.addEventListener("error", () => no(new Error("cannot decode " + a.src)), {once: true});
 		a.preload = "metadata"; a.load();
@@ -787,7 +787,7 @@ func TestE2EJourneyReplayTheJazzEveningUnderAnEditedPrompt(t *testing.T) {
 	}
 
 	p.follow(fmt.Sprintf(`#replays a[href="%s"]`, replayHref(convJazz)))
-	if got := p.metrics(`[aria-label="Recorded"]`)["Journal replay"]; got != "replay() reads back all 30 events" {
+	if got := p.metrics(`[aria-label="Recorded"]`)["Journal replay"]; got != "replay() reads back all 36 events" {
 		t.Errorf("journal replay check = %q", got)
 	}
 	if n := p.count(`#replay-result [id^="turn-"]`); n != 3 {
@@ -816,7 +816,7 @@ func TestE2EJourneyReplayTheJazzEveningUnderAnEditedPrompt(t *testing.T) {
 	p.waitText("#replay-result", "Alice is here too. Shall I put some jazz on?")
 	tags := map[string]string{}
 	p.eval(`Object.fromEntries([...document.querySelectorAll('#replay-result [id^="turn-"]')].map(r => [r.id, r.lastElementChild.querySelector(".sig-tag").textContent.trim()]))`, &tags)
-	for turn, w := range map[string]string{"turn-2": "same", "turn-11": "speech and calls changed", "turn-20": "speech and calls changed"} {
+	for turn, w := range map[string]string{"turn-2": "same", "turn-11": "speech and calls changed", "turn-23": "speech and calls changed"} {
 		if tags[turn] != w {
 			t.Errorf("%s is tagged %q, want %q (all %v)", turn, tags[turn], w, tags)
 		}
@@ -866,8 +866,8 @@ func TestE2EJourneyReplayFailuresSaySoOnThePage(t *testing.T) {
 	if got := p.metrics(`#replay-result [aria-label="Outcome"]`)["Turns re-run"]; got != "1 of 3" {
 		t.Errorf("turns re-run = %q, want 1 of 3", got)
 	}
-	if n := p.count(`#replay-result .list__detail`); n == 0 || !strings.Contains(p.text("#turn-20"), "not re-run") {
-		t.Errorf("the turn after the failure should say it was not re-run: %q", p.text("#turn-20"))
+	if n := p.count(`#replay-result .list__detail`); n == 0 || !strings.Contains(p.text("#turn-23"), "not re-run") {
+		t.Errorf("the turn after the failure should say it was not re-run: %q", p.text("#turn-23"))
 	}
 	p.shot("journey-replay-died")
 

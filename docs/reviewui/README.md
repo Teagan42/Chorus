@@ -50,8 +50,9 @@ of the UI must pass the `Host` header through.
 [teagan42.github.io/Chorus/demo](https://teagan42.github.io/Chorus/demo/)
 is this UI running in a visitor's browser over one made-up household's
 Thursday: Teagan, Alice and Alan, the kitchen, office and living room, three
-barge-ins, a garage sensor that times out, an oven timer asked for twice, a
-pasta timer called off, the television the barge-in gate refused, a front
+barge-ins, three music searches that each say a few words while they look,
+a garage sensor that times out, an oven timer asked for twice, a pasta timer
+called off, the television the barge-in gate refused, a front
 door that kept Teagan waiting, and Alice carrying her music to the living
 room. It is the same day the browser
 tests walk (`internal/reviewui/household`), so what the demo shows is what CI

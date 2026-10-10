@@ -113,7 +113,7 @@ func TestE2EDemoBootsUnderThePagesPathAndPlaysTheDay(t *testing.T) {
 	zeppelin := "/conversations/" + household.ConvZeppelin
 	p.route(fmt.Sprintf(`#conversations a[href="#%s"]`, zeppelin), zeppelin)
 	p.waitText(".page-head", "alice · kitchen → living_room")
-	p.waitText("#seq-20", "opened on living_room")
+	p.waitText("#seq-23", "opened on living_room")
 	var srcs []string
 	p.eval(`[...document.querySelectorAll("audio")].map(a => a.src)`, &srcs)
 	if len(srcs) == 0 {
@@ -124,10 +124,10 @@ func TestE2EDemoBootsUnderThePagesPathAndPlaysTheDay(t *testing.T) {
 			t.Errorf("clip %q is not served from the tab; a static host has no /audio", s)
 		}
 	}
-	closeTo(t, "the cut answer", p.durations("#seq-8"), []float64{0.8})
+	closeTo(t, "the cut answer", p.durations("#seq-11"), []float64{0.8})
 	var loud float64
 	p.eval(`(async () => {
-		const a = document.querySelector("#seq-8 audio");
+		const a = document.querySelector("#seq-11 audio");
 		const pcm = await new AudioContext().decodeAudioData(await (await fetch(a.src)).arrayBuffer());
 		const x = pcm.getChannelData(0);
 		return Math.sqrt(x.reduce((s, v) => s + v * v, 0) / x.length);

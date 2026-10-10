@@ -479,10 +479,10 @@ func TestAPromotionOfNoKeptChangedTakeIsRefused(t *testing.T) {
 	}
 	mustPost(t, s, "/replays/"+convZeppel, url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}})
 	for target, want := range map[string]int{
-		"/replays/" + convZeppel + "/runs/1/turns/7/promote":   http.StatusNotFound,   // the barge-in, not a turn
+		"/replays/" + convZeppel + "/runs/1/turns/10/promote":  http.StatusNotFound,   // the barge-in, not a turn
 		"/replays/" + convZeppel + "/runs/one/turns/2/promote": http.StatusNotFound,   // not a run id
 		"/replays/" + convGarage + "/runs/1/turns/2/promote":   http.StatusNotFound,   // another conversation's run
-		"/replays/" + convZeppel + "/runs/1/turns/11/promote":  http.StatusBadRequest, // answered as recorded
+		"/replays/" + convZeppel + "/runs/1/turns/14/promote":  http.StatusBadRequest, // answered as recorded
 	} {
 		if code, _ := post(t, s, target, nil); code != want {
 			t.Errorf("POST %s = %d, want %d", target, code, want)

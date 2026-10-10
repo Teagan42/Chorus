@@ -112,6 +112,10 @@ func TestModelAnswersBrieflyUnderAnEditedPrompt(t *testing.T) {
 	if zep.Said() != "I found three albums. Want Led Zeppelin one?" || len(zep.Calls) != 1 || zep.Calls[0].Tool != "media_search" {
 		t.Errorf("zeppelin under the edit, offered media_search = %+v", zep)
 	}
+	// Offered a slow tool, it is required to say what to say while it works.
+	if o, err := registry.Split(zep.Calls[0].Args); err != nil || o.Acknowledgement == "" {
+		t.Errorf("the brief search %s carries no acknowledgement (%v)", zep.Calls[0].Args, err)
+	}
 }
 
 // Offered a reworded ha_get_state, the model checks the garage's contact
