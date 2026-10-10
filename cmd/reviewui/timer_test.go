@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/curation"
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/reviewui/household"
+	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/reviewui/household"
 )
 
 // Twelve minutes after Alan set it, the oven goes off in an empty kitchen.

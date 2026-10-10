@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // Teagan is told about the oat milk and Alice's wifi password, each with the

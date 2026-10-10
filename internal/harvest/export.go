@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // row is one JSONL line in the DPO message shape. Chosen is absent until

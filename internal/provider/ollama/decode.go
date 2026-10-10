@@ -8,7 +8,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // toolSpeak is the one tool that is speech rather than an action. The model

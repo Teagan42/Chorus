@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/blob"
-	"github.com/teaganglenn/chorus/internal/reviewui/audio"
+	"github.com/teagan42/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/reviewui/audio"
 )
 
 // store writes one second of ramp PCM under mic/1 and returns the store.

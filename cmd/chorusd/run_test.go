@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/blob"
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/bridge/bridgetest"
-	"github.com/teaganglenn/chorus/internal/config"
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/listen"
-	"github.com/teaganglenn/chorus/internal/pb"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/bridge/bridgetest"
+	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/pb"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // The inventory every rig runs with. Addresses are the native API's, as

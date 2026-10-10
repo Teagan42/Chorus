@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/identity"
+	"github.com/teagan42/chorus/internal/identity"
 )
 
 func write(t *testing.T, body string) string {

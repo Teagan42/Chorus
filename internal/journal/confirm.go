@@ -1,6 +1,6 @@
 package journal
 
-import "github.com/teaganglenn/chorus/internal/registry"
+import "github.com/teagan42/chorus/internal/registry"
 
 // Why a nonce was not accepted, as confirmation_requested records it.
 const (

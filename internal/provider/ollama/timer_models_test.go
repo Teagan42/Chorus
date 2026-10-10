@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // Asked for the oven timer, a real model starts one for twelve minutes and

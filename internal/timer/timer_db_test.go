@@ -10,8 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/timer"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/timer"
 )
 
 func openPg(t *testing.T) *pgxpool.Pool {

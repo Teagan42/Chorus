@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/memory"
 )
 
 // breakfast is when Teagan told the kitchen about the oat milk.

@@ -6,7 +6,7 @@ package stt
 import (
 	"context"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/bridge"
 )
 
 // Transcriber decodes one complete utterance. The audio is the device's own

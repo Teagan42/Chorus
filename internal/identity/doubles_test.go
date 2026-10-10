@@ -6,7 +6,7 @@ import (
 	"math"
 	"math/rand/v2"
 
-	"github.com/teaganglenn/chorus/internal/identity"
+	"github.com/teagan42/chorus/internal/identity"
 )
 
 // dim is small so a test can read a vector. The package never assumes 192.

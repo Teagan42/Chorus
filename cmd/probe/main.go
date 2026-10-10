@@ -14,10 +14,10 @@ import (
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/teaganglenn/chorus/internal/config"
-	"github.com/teaganglenn/chorus/internal/esphome"
-	"github.com/teaganglenn/chorus/internal/msgid"
-	"github.com/teaganglenn/chorus/internal/pb"
+	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/esphome"
+	"github.com/teagan42/chorus/internal/msgid"
+	"github.com/teagan42/chorus/internal/pb"
 )
 
 // version is set by the release build (-X main.version=...).

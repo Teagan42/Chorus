@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/harvest"
-	"github.com/teaganglenn/chorus/internal/reviewui/audio"
-	"github.com/teaganglenn/chorus/internal/reviewui/ui"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/harvest"
+	"github.com/teagan42/chorus/internal/reviewui/audio"
+	"github.com/teagan42/chorus/internal/reviewui/ui"
 )
 
 // clipView is one playable clip: the label, the WAV URL, and the transcript

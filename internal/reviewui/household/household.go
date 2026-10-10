@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/blob"
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // The conversations, named for what happens in them.

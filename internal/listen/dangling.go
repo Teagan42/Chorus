@@ -6,7 +6,7 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/teaganglenn/chorus/internal/stt"
+	"github.com/teagan42/chorus/internal/stt"
 )
 
 // Dangling is a Judge that will not call a turn finished while its words end

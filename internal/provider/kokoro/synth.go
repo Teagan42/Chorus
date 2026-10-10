@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/satellite"
+	"github.com/teagan42/chorus/internal/satellite"
 )
 
 // DefaultVoice is the endpoint's own default, named here so the version

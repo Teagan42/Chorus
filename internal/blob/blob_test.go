@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/blob"
 )
 
 // stores exercises every implementation against the same contract, so a test

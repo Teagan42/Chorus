@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // Alan asks the kitchen satellite for a film like Indiana Jones starring Tom

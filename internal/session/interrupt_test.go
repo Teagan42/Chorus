@@ -7,9 +7,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/registry"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/registry"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 const line = "I found three albums by that artist"

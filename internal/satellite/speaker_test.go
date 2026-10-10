@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/blob"
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/bridge/bridgetest"
-	"github.com/teaganglenn/chorus/internal/satellite"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/bridge/bridgetest"
+	"github.com/teagan42/chorus/internal/satellite"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // framesPerByte scales the fake synthesiser so a delta's audio is long enough

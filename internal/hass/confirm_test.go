@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 const disarm = `{"domain":"alarm_control_panel","service":"alarm_disarm","entity_id":"alarm_control_panel.house","data":{"code":"4512"}}`

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/teaganglenn/chorus/internal/reviewui/ui"
+	"github.com/teagan42/chorus/internal/reviewui/ui"
 )
 
 const ctx = "persona v14 · schema v6 · qwen3-32b"

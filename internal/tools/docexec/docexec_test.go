@@ -108,7 +108,7 @@ func backoff(n int) time.Duration { return time.Duration(n) * time.Second }
 // A fragment citing a chorus symbol must resolve, or docs can claim an API
 // that does not exist.
 func TestRunBlockGoResolvesModuleImports(t *testing.T) {
-	good := Block{File: "x.md", Line: 1, Lang: "go", Code: `import "github.com/teaganglenn/chorus/internal/config"
+	good := Block{File: "x.md", Line: 1, Lang: "go", Code: `import "github.com/teagan42/chorus/internal/config"
 
 func load() (*config.Config, error) { return config.Load("devices.yaml") }
 `}
@@ -116,7 +116,7 @@ func load() (*config.Config, error) { return config.Load("devices.yaml") }
 		t.Errorf("valid module import rejected: %v", err)
 	}
 
-	bad := Block{File: "x.md", Line: 1, Lang: "go", Code: `import "github.com/teaganglenn/chorus/internal/config"
+	bad := Block{File: "x.md", Line: 1, Lang: "go", Code: `import "github.com/teagan42/chorus/internal/config"
 
 func load() { config.NoSuchFunction() }
 `}

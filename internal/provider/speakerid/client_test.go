@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/provider/speakerid"
+	"github.com/teagan42/chorus/internal/provider/speakerid"
 )
 
 // roundTrip serves a canned reply in-process and keeps the request that asked

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/provider/ollama"
 )
 
 func newDemo(t *testing.T) *server {

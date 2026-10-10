@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/blob"
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // Synth turns text into the device's playback format: 16 kHz, signed 16-bit,

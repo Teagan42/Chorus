@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/hass"
+	"github.com/teagan42/chorus/internal/hass"
 )
 
 // HA takes the target as top-level service data, beside the service's own

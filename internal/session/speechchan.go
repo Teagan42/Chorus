@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // speechChannel is the Speaking child. One utterance plays at a time; the rest

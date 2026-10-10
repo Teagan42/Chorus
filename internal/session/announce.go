@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // Announcement sources, as announcement_made records them.

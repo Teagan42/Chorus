@@ -12,8 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/teaganglenn/chorus/internal/curation"
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // openPg connects and migrates both schemas reviewui serves from. An

@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/teaganglenn/chorus/internal/registry"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/registry"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // MaxEntities bounds one ha_find_entities answer. A real home has hundreds of

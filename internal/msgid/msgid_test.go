@@ -5,7 +5,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/teaganglenn/chorus/internal/pb"
+	"github.com/teagan42/chorus/internal/pb"
 )
 
 // The id table is derived from descriptors at init. If codegen ever drops the

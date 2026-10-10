@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // Fixtures are real /api/chat streams captured from Ollama against the

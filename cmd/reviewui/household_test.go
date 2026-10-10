@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/blob"
-	"github.com/teaganglenn/chorus/internal/curation"
-	"github.com/teaganglenn/chorus/internal/harvest"
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/reviewui/household"
-	"github.com/teaganglenn/chorus/internal/triage"
+	"github.com/teagan42/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/harvest"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/reviewui/household"
+	"github.com/teagan42/chorus/internal/triage"
 )
 
 // The household's Thursday (internal/reviewui/household): three people,

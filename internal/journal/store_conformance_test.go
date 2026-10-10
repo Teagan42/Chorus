@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // newStore builds an empty store. Postgres reuses one database, so a factory

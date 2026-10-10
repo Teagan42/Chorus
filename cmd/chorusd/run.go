@@ -10,16 +10,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/announce"
-	"github.com/teaganglenn/chorus/internal/blob"
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/config"
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/listen"
-	"github.com/teaganglenn/chorus/internal/memory"
-	"github.com/teaganglenn/chorus/internal/satellite"
-	"github.com/teaganglenn/chorus/internal/session"
-	"github.com/teaganglenn/chorus/internal/timer"
+	"github.com/teagan42/chorus/internal/announce"
+	"github.com/teagan42/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/satellite"
+	"github.com/teagan42/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/timer"
 )
 
 // helloTimeout bounds the opening handshake, so a connection from something

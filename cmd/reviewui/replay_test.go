@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/curation"
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/provider/ollama"
-	sess "github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/provider/ollama"
+	sess "github.com/teagan42/chorus/internal/session"
 )
 
 // cutFirstPrompt is the edit a reviewer makes after the Zeppelin barge-in:

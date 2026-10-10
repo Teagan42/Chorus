@@ -3,7 +3,7 @@ package ollama
 import (
 	"encoding/json"
 
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // dialogue renders the conversation the session derived from the log as

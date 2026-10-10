@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"slices"
 
-	"github.com/teaganglenn/chorus/internal/reviewui/ui"
-	"github.com/teaganglenn/chorus/internal/triage"
+	"github.com/teagan42/chorus/internal/reviewui/ui"
+	"github.com/teagan42/chorus/internal/triage"
 )
 
 // triageTabs are the signal filters, in the order the mock lists them.

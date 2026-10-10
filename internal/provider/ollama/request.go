@@ -3,7 +3,7 @@ package ollama
 import (
 	"sort"
 
-	"github.com/teaganglenn/chorus/internal/registry"
+	"github.com/teagan42/chorus/internal/registry"
 )
 
 // DefaultPrompt is the persona and protocol the model is given. SPEC §13 keeps

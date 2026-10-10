@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/memory"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // topics is an embedding model small enough to reason about: one dimension

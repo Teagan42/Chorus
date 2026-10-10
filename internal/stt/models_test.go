@@ -29,9 +29,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/provider/speaches"
-	"github.com/teaganglenn/chorus/internal/stt"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/provider/speaches"
+	"github.com/teagan42/chorus/internal/stt"
 )
 
 var (

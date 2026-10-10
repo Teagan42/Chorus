@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/provider/ollama"
-	"github.com/teaganglenn/chorus/internal/rerun"
-	"github.com/teaganglenn/chorus/internal/reviewui/ui"
-	sess "github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/rerun"
+	"github.com/teagan42/chorus/internal/reviewui/ui"
+	sess "github.com/teagan42/chorus/internal/session"
 )
 
 // engineFactory builds the turn engine a re-run asks: the model and system

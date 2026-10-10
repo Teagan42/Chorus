@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/reviewui/ui"
-	"github.com/teaganglenn/chorus/internal/reviewui/ui/demo"
+	"github.com/teagan42/chorus/internal/reviewui/ui"
+	"github.com/teagan42/chorus/internal/reviewui/ui/demo"
 )
 
 func render(t *testing.T, name string, data any) string {

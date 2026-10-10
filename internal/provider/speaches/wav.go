@@ -3,7 +3,7 @@ package speaches
 import (
 	"encoding/binary"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/bridge"
 )
 
 // wavHeaderSize is the canonical 44-byte RIFF/WAVE header: one fmt chunk, one

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/identity"
+	"github.com/teagan42/chorus/internal/identity"
 )
 
 // The centroid is the normalised mean: three takes that lean the same way

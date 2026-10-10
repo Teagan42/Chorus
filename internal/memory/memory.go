@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // RecallLimit is how many memories a turn is given: everything, until a

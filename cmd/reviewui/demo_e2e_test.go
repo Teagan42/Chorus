@@ -15,7 +15,7 @@ import (
 
 	"github.com/chromedp/chromedp"
 
-	"github.com/teaganglenn/chorus/internal/reviewui/household"
+	"github.com/teagan42/chorus/internal/reviewui/household"
 )
 
 // The hosted demo, as GitHub Pages serves it: the site internal/tools/demosite

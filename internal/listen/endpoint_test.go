@@ -3,7 +3,7 @@ package listen_test
 import (
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/listen"
 )
 
 // An utterance starts on the first chunk at or above the threshold and ends

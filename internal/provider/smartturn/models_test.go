@@ -32,10 +32,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/listen"
-	"github.com/teaganglenn/chorus/internal/provider/smartturn"
-	"github.com/teaganglenn/chorus/internal/provider/speaches"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/provider/smartturn"
+	"github.com/teagan42/chorus/internal/provider/speaches"
 )
 
 var (

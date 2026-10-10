@@ -40,9 +40,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/identity"
-	"github.com/teaganglenn/chorus/internal/provider/speakerid"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/identity"
+	"github.com/teagan42/chorus/internal/provider/speakerid"
 )
 
 var (

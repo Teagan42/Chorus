@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/curation"
 )
 
 // newStore builds an empty store. Postgres reuses one database, so its

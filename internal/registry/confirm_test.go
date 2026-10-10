@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/registry"
+	"github.com/teagan42/chorus/internal/registry"
 )
 
 // The household's own calls through Home Assistant: the front door and the
