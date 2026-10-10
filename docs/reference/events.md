@@ -57,6 +57,7 @@ Actor: `listening`. `has_audio`: yes. `training_signal`: no. `speculative`: no. 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `tts_position_ms` | integer | yes | Playback offset at detection. |
+| `speaker_stage_skipped` | boolean |  | The gate's speaker-ID stage did not run, because nothing identifies speakers: the voice was never checked against the household (ADR-0031). Absent when the stage ran and passed, and in logs from before it was recorded. |
 
 ## `barge_in_rejected`
 
