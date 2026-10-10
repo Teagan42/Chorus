@@ -1,4 +1,4 @@
-# 0048. A voice that matched nobody is a guest, and the voice the gate refused is not a turn
+# 0049. A voice that matched nobody is a guest, and the voice the gate refused is not a turn
 
 - **Status:** accepted
 - **Source:** SPEC §4.3, §5 · ADR-0004, ADR-0031, ADR-0040

@@ -284,7 +284,7 @@ tuning corpus for this gate.
 
 The speaker stage's refusal stands once the voice pauses: an utterance that
 talked over speech, never stopped it, and is a voice the household does not
-know is not answered as a turn (ADR-0048). A household voice the other stages
+know is not answered as a turn (ADR-0049). A household voice the other stages
 refused is still heard.
 
 ### 4.4 Interrupted-turn semantics
@@ -327,7 +327,7 @@ Unknown or low-confidence speaker → guest context, person-scoped tools gated, 
 interrogation. That holds per utterance: a guest who chimes into someone's
 conversation is a guest for that turn, told none of the other person's
 memories, while a voice nothing could judge stays with the current speaker
-(ADR-0048). The embedding is stored on every trace record regardless, which
+(ADR-0049). The embedding is stored on every trace record regardless, which
 gives implicit clustering for free later.
 
 Memory: explicit `remember` / `forget` tools plus an auto rolling summary per
@@ -562,7 +562,7 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
 ### Phase 2
 
 - ~~Review UI~~ **Done — ADR-0034, [the review UI guide](reviewui/README.md).**
-- ~~Memory~~ **Done — ADR-0040, ADR-0043, ADR-0044, ADR-0048.** Summaries are
+- ~~Memory~~ **Done — ADR-0040, ADR-0043, ADR-0044, ADR-0049.** Summaries are
   kept per conversation, not as one rolling summary per person.
 - MCP provider
 - ~~Confirmation gates~~ **Done — ADR-0038, ADR-0041.** Garage, gate and door

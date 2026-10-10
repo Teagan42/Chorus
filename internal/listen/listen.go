@@ -751,7 +751,7 @@ func (l *Listener) complete(u *utterance) {
 // more now it has ended, is a voice the household does not know. That is
 // the television the gate refused, and its rejected candidates are already
 // in the log with their audio; answering it as a turn would undo the refusal
-// a pause later (ADR-0048).
+// a pause later (ADR-0049).
 //
 // A household voice the gate turned down for a short partial or a quiet
 // start is still heard: the refusal was about stopping speech, not about

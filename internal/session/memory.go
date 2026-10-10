@@ -94,7 +94,7 @@ func denied(spec registry.ToolSpec, person string) bool {
 //
 // A guest who follows someone the log says was told something is recorded
 // as told nothing, or the guest's turn would inherit that person's memories
-// from the log (ADR-0048).
+// from the log (ADR-0049).
 func (s *Session) recall(ctx context.Context, st journal.State, words string) (journal.State, error) {
 	if s.sup.cfg.Memories == nil {
 		return st, nil

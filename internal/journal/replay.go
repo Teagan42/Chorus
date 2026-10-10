@@ -276,7 +276,7 @@ func Reduce(s State, e Event) (State, error) {
 // A match names its person. A voice that was judged and matched nobody,
 // below the threshold or too close between two people, is a guest's: handing
 // it to whoever spoke before would tell a dinner guest that person's
-// memories and let them forget them (ADR-0048). A voice nothing judged keeps
+// memories and let them forget them (ADR-0049). A voice nothing judged keeps
 // the current speaker: no identifier, or an embedder that failed this once,
 // is no evidence of someone else, and logs from before the match was
 // recorded attribute exactly as they always did.
