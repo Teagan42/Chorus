@@ -41,6 +41,9 @@ jobs:
 
       - run: task docs:test
 
+      # The tools that speak the demo's clips; stand-in engines, no model.
+      - run: task household:voice:test
+
       # The review UI screenshots on the site are of this commit, not of
       # whenever someone last committed them.
       - run: task docs:shots

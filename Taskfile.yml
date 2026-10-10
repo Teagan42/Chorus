@@ -278,8 +278,22 @@ tasks:
     cmds: ["python3 -m http.server --directory site --bind 127.0.0.1 8090"]
 
   household:voice:
-    desc: Re-speak the household fixture's clips from voice.json with Kokoro (fetches the model once)
-    cmds: ["uv run --group voice python internal/tools/householdvoice/voice.py"]
+    desc: Re-speak the household fixture's clips from voice.json with Kokoro (fetches the model once). -- --who alice for one person's
+    cmds: ["uv run --group voice python internal/tools/householdvoice/voice.py {{.CLI_ARGS}}"]
+
+  household:voice:clone:
+    desc: Re-speak named people's clips in voices Chatterbox clones from a recording of them, e.g. -- --voice alan=alan.wav. First run fetches torch and the weights.
+    cmds:
+      # A standalone script with its own environment, like smartturn:corpus,
+      # so torch never enters the workspace lockfile.
+      - uv run --script internal/tools/householdvoice/clone.py {{.CLI_ARGS}}
+
+  household:voice:test:
+    desc: The household voice generators' own tests and lint, with stand-in engines. Python, so not part of `task test`.
+    cmds:
+      - uv run --group voice ruff check internal/tools/householdvoice
+      - uv run --group voice ruff format --check internal/tools/householdvoice
+      - uv run --group voice pytest internal/tools/householdvoice
 
   # -------------------------------------------------------------- spec tracing
   spec:
