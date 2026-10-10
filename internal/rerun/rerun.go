@@ -73,6 +73,9 @@ type Turn struct {
 	// was: when the utterance was logged.
 	Summaries []journal.Summary
 	HeardAt   time.Time
+
+	// Room is where the satellite that heard it stands, from the log.
+	Room string
 }
 
 // Turns splits a conversation's log at each transcribed utterance. The
@@ -105,6 +108,7 @@ func Turns(events []journal.Event) ([]Turn, error) {
 			out = append(out, Turn{
 				Seq: e.Seq, Speaker: state.Speaker, Text: f["text"], Versions: e.Versions,
 				Memories: state.Recalled, Summaries: state.RecalledSummaries, HeardAt: state.HeardAt,
+				Room: state.Room,
 			})
 			asked, later = false, map[string]bool{}
 			continue
@@ -168,7 +172,7 @@ func (f *Failed) Error() string { return "the model failed mid-answer: " + f.Rea
 // returns a *Failed alongside the partial take when the turn ended in error.
 func Run(ctx context.Context, eng session.Engine, conversationID string, t Turn) (Take, error) {
 	actions, err := eng.Turn(ctx, session.Input{
-		ConversationID: conversationID, Speaker: t.Speaker, Text: t.Text,
+		ConversationID: conversationID, Speaker: t.Speaker, Room: t.Room, Text: t.Text,
 		Memories: t.Memories, Summaries: t.Summaries, Now: t.HeardAt,
 	})
 	if err != nil {

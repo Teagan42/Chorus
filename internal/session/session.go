@@ -63,6 +63,12 @@ type Config struct {
 	Gate    Gate
 	Silence time.Duration
 
+	// Rooms is where each satellite stands, by its name, as the inventory
+	// says: recorded when a session opens there, and told to every turn so
+	// "the lights" can mean this room's (SPEC §5). A satellite it does not
+	// name is in no room.
+	Rooms map[string]string
+
 	// Memories recalls what each turn's speaker is remembered by. Nil
 	// remembers nothing, and the model is told nothing (SPEC §5).
 	Memories Memories
@@ -247,6 +253,9 @@ func (sup *Supervisor) open(ctx context.Context, w Wake, announced bool) (*Sessi
 	if announced {
 		fields["announced"] = "true"
 	}
+	if room := sup.cfg.Rooms[w.Satellite]; room != "" {
+		fields["room"] = room
+	}
 	if err := s.record(journal.Record{Kind: journal.KindSessionOpened, Fields: fields}); err != nil {
 		sup.cfg.Conversations.release(convID, s)
 		s.cancel()
@@ -345,6 +354,7 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 		acted, err := s.ask(turnCtx, Input{
 			ConversationID: s.convID,
 			Speaker:        st.Speaker,
+			Room:           st.Room,
 			Text:           t.Text,
 			Dialogue:       st.Dialogue,
 			Memories:       st.Recalled,

@@ -214,6 +214,46 @@ func TestTheSpeakerIsNamedOutsideTheTranscript(t *testing.T) {
 	}
 }
 
+// The room is the satellite's, told beside who is speaking and never in
+// their words: "turn the lights off" heard in the kitchen means the
+// kitchen's, and a model that is not told so has to guess or ask.
+//
+// verifies SPEC §5
+func TestTheRoomIsToldOutsideTheTranscript(t *testing.T) {
+	for _, tc := range []struct {
+		room string
+		want string
+	}{
+		{room: "kitchen", want: "satellite in the kitchen"},
+		{room: "", want: ""},
+	} {
+		rt := &roundTrip{body: fixture(t, "reply.ndjson")}
+		e := engineOn(t, rt, Config{})
+		ch, err := e.Turn(context.Background(), session.Input{Speaker: "teagan", Room: tc.room, Text: "turn the lights off"})
+		if err != nil {
+			t.Fatalf("turn: %v", err)
+		}
+		drain(t, ch)
+
+		var got struct {
+			Messages []message `json:"messages"`
+		}
+		if err := json.Unmarshal(rt.reqBody, &got); err != nil {
+			t.Fatal(err)
+		}
+		sys, user := got.Messages[0].Content, got.Messages[len(got.Messages)-1]
+		if user.Content != "turn the lights off" {
+			t.Errorf("room %q: transcript was altered: %+v", tc.room, user)
+		}
+		if tc.want != "" && !strings.Contains(sys, tc.want) {
+			t.Errorf("room %q: system prompt does not say where it is speaking from:\n%s", tc.room, sys)
+		}
+		if tc.want == "" && strings.Contains(sys, "speaking through") {
+			t.Errorf("no room, yet the system prompt names one:\n%s", sys)
+		}
+	}
+}
+
 // A turn that never started is the error return's job. The status alone does
 // not say what went wrong: an unsupported think field is a 400 that only the
 // body names.

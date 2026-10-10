@@ -187,6 +187,26 @@ func TestTheSpeakerIsWhoeverTheTurnHeard(t *testing.T) {
 	}
 }
 
+// A rerun is asked from the room the turn was heard in, as the log recorded
+// it, so "turn off the lights" is the same question it was that morning.
+//
+// verifies SPEC §5, §9.2
+func TestARerunIsToldTheRoomTheTurnWasHeardIn(t *testing.T) {
+	recs := garageRecords()
+	recs[0] = record(journal.KindSessionOpened, "satellite", "kitchen", "speaker_id", "teagan", "resumed", "false", "room", "kitchen")
+	ts := turns(t, logOf(t, recs))
+	if ts[0].Room != "kitchen" {
+		t.Fatalf("turn room = %q, want kitchen", ts[0].Room)
+	}
+	eng := &scripted{}
+	if _, err := rerun.Run(context.Background(), eng, "conv-garage", ts[0]); err != nil {
+		t.Fatal(err)
+	}
+	if got := eng.asked[0].Room; got != "kitchen" {
+		t.Errorf("rerun asked from room %q, want kitchen", got)
+	}
+}
+
 // verifies SPEC §9.2
 func TestARerunUnderTheRecordedBehaviourChangesNothing(t *testing.T) {
 	ts := turns(t, garageLog(t))

@@ -30,6 +30,10 @@ type State struct {
 	BargeInAt      []time.Duration
 	Calls          []Call
 
+	// Room is where the satellite the conversation is on stands, as the
+	// last session_opened recorded it: what a turn is told (SPEC §5).
+	Room string
+
 	// Dialogue is the conversation as the model is told it on its next ask:
 	// what was heard, what was said, and every call and result, in order.
 	Dialogue []Entry
@@ -142,6 +146,7 @@ func Reduce(s State, e Event) (State, error) {
 	case KindSessionOpened:
 		s.Open = true
 		s.Satellite = e.Fields["satellite"]
+		s.Room = e.Fields["room"]
 		s.Speaker = e.Fields["speaker_id"]
 		s.Participants = participate(s.Participants, s.Speaker)
 		s.Announced = s.Announced || e.Fields["announced"] == "true"
@@ -255,6 +260,8 @@ func Reduce(s State, e Event) (State, error) {
 		s.Timers = t
 	case KindBargeInRejected, KindWakeRejected:
 		// Tuning corpus only; a rejected candidate changes no state.
+	case KindPresenceChanged:
+		// The room's, in a device log: no conversation's state (ADR-0050).
 	case KindSpeechStarted:
 		// Timing only: what was heard is the spoken or truncated event that
 		// closes the same speech (ADR-0035).
@@ -289,6 +296,7 @@ var handled = map[Kind]bool{
 	KindConversationSummarized: true,
 	KindMemoryRecalled:         true,
 	KindModelCompleted:         true,
+	KindPresenceChanged:        true,
 	KindSessionClosed:          true,
 	KindSessionOpened:          true,
 	KindSpeechDiscarded:        true,

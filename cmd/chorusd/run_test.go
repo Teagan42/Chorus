@@ -228,6 +228,31 @@ func TestAKnownSatelliteIsHeard(t *testing.T) {
 	}
 }
 
+// The inventory's room reaches the model: a satellite named for its board
+// stands in the living room, and "dim the lights" heard there is asked with
+// that room, recorded on the session so a replay is asked the same (SPEC §5).
+//
+// verifies SPEC §5
+func TestTheModelIsToldTheRoomTheInventoryNames(t *testing.T) {
+	inv := &config.Config{Satellites: []config.Satellite{
+		{Name: "satellite1-4b2c10", Address: kitchenIP + ":6053", PSK: goodPSK, Room: "living_room", Profile: "satellite1"},
+	}}
+	r := newRig(t, inv)
+	dev := r.join(t, kitchenIP)
+
+	dev.SendWake(t, "hey_eddie")
+	r.utter(t, dev, r.line("dim the lights", alan))
+
+	opened := r.store.awaitKind(t, journal.KindSessionOpened, 1)
+	if opened.Fields["satellite"] != "satellite1-4b2c10" || opened.Fields["room"] != "living_room" {
+		t.Errorf("session_opened = %v, want satellite1-4b2c10 in the living_room", opened.Fields)
+	}
+	await(t, "the turn", func() bool { return len(r.engine.heard()) == 1 })
+	if in := r.engine.heard()[0]; in.Room != "living_room" || in.Text != "dim the lights" {
+		t.Errorf("the model was given %+v, want dim the lights from the living_room", in)
+	}
+}
+
 // The link's lifetime owns the listener: when the device drops, its session
 // closes as device_lost. The conversation does not end with it -- the same
 // person on a fresh link resumes it (SPEC §4.5), which is what the one
