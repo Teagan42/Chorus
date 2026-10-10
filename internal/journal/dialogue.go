@@ -107,11 +107,12 @@ func (s State) cutBy(id, reason string) []Entry {
 }
 
 // played settles what a speak call was heard to say. A log written before
-// speech events named their call gets the words where they were heard.
+// speech events named their call gets the words where they were heard. A
+// call that already played is one an interjection paused, resuming.
 func (s State) played(id, text string, cut bool) []Entry {
 	if i := s.said(id); i >= 0 {
 		out := cloneEntries(s.Dialogue)
-		if out[i].Held {
+		if out[i].Held || !out[i].Pending {
 			text = out[i].Text + text
 		}
 		out[i].Text, out[i].Cut, out[i].Pending, out[i].Held = text, cut, false, false

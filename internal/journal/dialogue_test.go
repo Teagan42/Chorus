@@ -291,6 +291,25 @@ func TestABargeInDuringAnInterjectionCutsTheCallItPaused(t *testing.T) {
 	}
 }
 
+// The kitchen had played all of the forecast generated so far when the
+// interjection landed, so nothing was paused mid-word: the forecast was
+// heard to there, and what the model went on to say plays after.
+//
+// verifies SPEC §4.2
+func TestSpeechAfterAnInterjectionContinuesALineHeardToItsEnd(t *testing.T) {
+	events := interjected()
+	events[len(events)-1] = ev(journal.KindSpeechSpoken, map[string]string{"text": "Tomorrow will be cloudy in the morning,", "frames_played": "24000", "call_id": "call_s1"})
+	s := reduceAll(t, append(events,
+		ev(journal.KindSpeechSpoken, map[string]string{"text": "Sorry, the garage door is open.", "frames_played": "36800", "call_id": "call_s2"}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "call_s2", "outcome": "ok"}),
+		ev(journal.KindSpeechSpoken, map[string]string{"text": " with rain from three.", "frames_played": "56000", "call_id": "call_s1"}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "call_s1", "outcome": "ok"}),
+	))
+	if got := s.Dialogue[1]; got.Text != "Tomorrow will be cloudy in the morning, with rain from three." || got.Cut || got.Pending {
+		t.Errorf("forecast = %+v, want both halves, heard", got)
+	}
+}
+
 // The voice fails before the held rest can resume, with nothing of it left
 // to discard. What Teagan heard before the interjection stays in the
 // dialogue: the call's result ends the playing, not the hearing.
