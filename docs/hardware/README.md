@@ -22,7 +22,7 @@ not on the board.
 | The mic never stops, even during playback (SPEC §3.1) | Cancel the satellite's own voice in hardware, against a reference that is sample-exact with what plays | XMOS XU316 runs AEC; playback passes through it, so its reference is the signal itself |
 | Barge-in truncates at the byte actually played (SPEC §3.2.1, ADR-0033) | One clock from the amplifier back to the ESP32's frame counter, and a fixed, measurable delay after it | The XU316 masters every audio clock; the amplifier's sense output returns to the ESP32 on `AMP_SENSE` |
 | Per-utterance speaker embeddings; the conversation follows the person (SPEC §4.5, §5) | A voiceprint enrolled at one satellite matches at every other, so every satellite hears the same way | Same XU316, mic part, cross and XMOS firmware as the Satellite1: an acoustic peer, not a new frontend |
-| Knows who said what, and the barge-in gate rejects the TV (SPEC §4.3, §5) | Tell where in the room a voice is | Eight mics on a 64 mm circle, wired for direction of arrival; the estimator is firmware work |
+| Knows who said what, and the barge-in gate rejects the TV (SPEC §4.3, §5) | Tell where in the room a voice is | Eight mics on a 64 mm circle; the XU316 sends them raw with its playback reference, and the host estimates direction ([ADR-0053](../adr/0053-direction-of-arrival-is-estimated-on-the-host-from-the-raw-array-and-the-reference.md)) |
 | Duplex needs airtime, not bandwidth (SPEC §3.3.2) | A path that does not share 2.4 GHz with the household | W5500 Ethernet with 802.3af PoE; Wi-Fi stays as the other build |
 | Hardware mute is authoritative (CONTRIBUTING §7) | A switch firmware cannot override, and a state the device can still report | The switch cuts mic power and clock directly; the ESP32 only reads `MUTE_SENSE` |
 | Not a media player (SPEC §1) | An amplifier sized for speech, not music | TAS2780 on a 12 V rail from PoE: full power without a 20 V USB-PD contract |
@@ -202,21 +202,39 @@ alias above about 3.8 kHz, well inside speech. The circle's adjacent mics are
 frequencies. Eight mics cost a few dollars and no new parts; four more
 footprints later would mean a new board.
 
-**What DoA needs beyond the board.** The stock firmware reads two mics and
-reports no direction, so the hardware is ready before the firmware is:
+**Where direction is estimated: on the host ([ADR-0053](../adr/0053-direction-of-arrival-is-estimated-on-the-host-from-the-raw-array-and-the-reference.md)).** The barge-in gate
+needs direction while the satellite is talking, which is when every mic hears
+the speaker loudest. The XU316's echo canceller handles at most two mics, and
+those two already take about 275 KB and 96 MIPS of a 512 KB tile. It cannot
+clean eight. The host can: it gets the eight raw mics and the XU316's own
+16 kHz copy of the playback, both on one sample clock, and cancels or masks
+the echo before it estimates.
 
-- **On the XU316.** A derivative of the XMOS firmware, which its licence
-  permits, raises the mic count to eight on port 4D and runs a direction
-  estimator (GCC-PHAT or SRP-PHAT over the eight channels) beside the
-  existing pipeline. Whether the XU316 has the cycles for both is the first
-  thing to measure; AEC already runs on two tiles.
-- **Or on the host.** The XU316 sends raw channels over a wider I2S frame and
-  `chorus_bridge` forwards them; the orchestrator estimates direction where
-  the journal can record and replay it. Eight 16 kHz channels are about
-  2 Mbit/s: easy over Ethernet, not over the Wi-Fi SPEC §3.3.2 measured.
-- **Either way it is a wire change.** Direction arrives as a new frame or new
-  channels, which is a protocol version and its own ADR, as `played` was
-  (ADR-0033).
+None of this needs a new wire. The I2S link to the ESP32 already carries 192
+bits per 16 kHz sample period, two-thirds of it repeated samples. Repacked at
+16 bits per channel, the same link holds:
+
+- the two processed channels;
+- the eight mics;
+- the reference.
+
+That fills 176 bits. What changes is the firmware on both chips:
+
+- **XU316:** a derivative of the Satellite1 firmware, which its licence
+  permits.
+  - It decimates eight mics instead of two: `MIC_COUNT=8`, all eight mapped.
+    The PDM receiver gets its own thread, because the interrupt mode the
+    stock build uses cannot carry eight.
+  - It runs at 800 MHz, which the -C32 grade allows.
+  - The pipeline's channel count is decoupled from the mic count, so AEC and
+    IC still see two.
+  - The I2S output is repacked with a sync tag, as sln_voice's FFVA example
+    does at six channels.
+- **ESP32:** `chorus_bridge` unpacks the frame.
+  - Processed channel 0 goes to `micro_wake_word` and the uplink, as today.
+  - The mics, processed channel 0 and the reference go out as `array` frames when the host asks for
+    them (about 3.1 Mbit/s in all). That is easy over Ethernet; the Wi-Fi
+    build never asks.
 
 An XVF3800, which does four-mic beamforming and DoA out of the box, stays the
 alternative if the XU316 cannot carry it: it is a different frontend, so
@@ -477,8 +495,12 @@ Stock to check before layout, not after:
 
 What rev A still cannot settle without a datasheet or a bench:
 
-- **Whether the XU316 can run DoA beside AEC**, or the estimator moves to
-  the host.
+- **Eight mics on tile 1.** The PDM receiver's second thread and about
+  25 KB more RAM have to fit beside the I2S master and AEC. No Satellite1
+  build report states the free RAM per tile. Build with `DEBUG_PRINT_ENABLE=1`
+  and read it before writing the derivative.
+- **The W5500's sustained TCP rate** with the array on: about 3.1 Mbit/s up
+  while TTS comes down.
 - **Which opposite pair the firmware hears**, MK2/MK4 or MK1/MK3. It depends
   on which clock edge the CMM-4030DT gives each SEL setting; the datasheet or
   a tap test on a board settles it. The straps are copied either way.
