@@ -15,8 +15,12 @@ import (
 // ToolSchema is the declarations the model is offered, indented for a
 // reviewer to edit. ParseToolSchema reads it back (SPEC §9.2).
 func ToolSchema(specs map[string]registry.ToolSpec) string {
-	b, _ := json.MarshalIndent(wireTools(specs), "", "  ") // strings and slices of them cannot fail to encode
-	return string(b)
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false) // a <name> placeholder reads as written
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(wireTools(specs)) // strings and slices of them cannot fail to encode
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // paramTypes are the JSON Schema types a parameter may have on the wire.

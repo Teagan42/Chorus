@@ -47,6 +47,18 @@ func TestTheRegistrysToolSchemaReadsBackToItsOwnVersion(t *testing.T) {
 	}
 }
 
+// The editor shows a description as the reviewer typed it: binary_sensor.<name>
+// is not written <name> back at them.
+//
+// verifies SPEC §9.2
+func TestTheToolSchemaReadsAsWritten(t *testing.T) {
+	specs := map[string]registry.ToolSpec{"ha_get_state": {Name: "ha_get_state", ModelDescription: contactSensor}}
+	got := ToolSchema(specs)
+	if !strings.Contains(got, "binary_sensor.<name>_contact") || strings.HasSuffix(got, "\n") {
+		t.Errorf("the schema reads %q", got)
+	}
+}
+
 // The reviewer drops media_search and rewords ha_get_state: the model is
 // offered exactly that, and the tool-schema version moves with it.
 //
