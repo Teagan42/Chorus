@@ -313,6 +313,7 @@ func (s Schematic) Check() error {
 		errs = append(errs, checkNet(name, nets[name], rails)...)
 	}
 	errs = append(errs, s.checkModule(nets, refs)...)
+	errs = append(errs, s.checkFootprints()...)
 	return errors.Join(errs...)
 }
 
