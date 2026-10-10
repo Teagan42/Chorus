@@ -72,7 +72,7 @@ func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.StripPrefix("/static/", ui.Static()))
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, ui.Routes[ui.StepCurate], http.StatusSeeOther)
+		http.Redirect(w, r, ui.Routes[ui.StepBrowse], http.StatusSeeOther)
 	})
 	mux.HandleFunc("GET "+ui.Routes[ui.StepCurate], s.curate)
 	mux.HandleFunc("GET "+ui.Routes[ui.StepReview], s.review)

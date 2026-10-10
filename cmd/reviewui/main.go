@@ -78,7 +78,7 @@ func run(ctx context.Context, addr string) error {
 		defer cancel()
 		_ = srv.Shutdown(shutdown)
 	}()
-	log.Printf("Curate on http://localhost%s%s", addr, "/curate/pairs")
+	log.Printf("Browse on http://localhost%s%s", addr, "/conversations")
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}

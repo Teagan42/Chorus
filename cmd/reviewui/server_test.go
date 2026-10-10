@@ -217,6 +217,19 @@ func TestAnUnknownPairOrActionIsRefused(t *testing.T) {
 	}
 }
 
+// The bare address lands on Browse, where the brand link and the guide say
+// a reviewer starts.
+//
+// verifies SPEC §9.2
+func TestTheRootLandsOnBrowse(t *testing.T) {
+	s, _ := newTestServer(t)
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	if loc := w.Header().Get("Location"); w.Code != http.StatusSeeOther || loc != "/conversations" {
+		t.Errorf("GET / = %d to %q, want 303 to /conversations", w.Code, loc)
+	}
+}
+
 // A page on another site, open in Teagan's browser, posts to the review box
 // on the household's network. Every write is refused and stores nothing;
 // the same posts from the UI's own pages, or from curl, still land.
