@@ -826,75 +826,42 @@ func TestBrowseFlagsTheSessionWithARepeat(t *testing.T) {
 	}
 }
 
-// withSlow adds conv-4: Teagan in the hallway asks whether the front door is
-// locked and waits 2.84 s for the answer to start, then asks for the porch
-// light and hears it inside the budget. Only the first answer is slow.
-func withSlow(t *testing.T, store *journal.MemStore) *journal.MemStore {
-	t.Helper()
-	clk := &stepClock{}
-	j := journal.New(store, clk, journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@3", ToolSchema: "tools@7"})
-	start := time.Unix(1_760_008_400, 0)
-	for _, r := range []struct {
-		sec float64
-		rec journal.Record
-	}{
-		{0, journal.Record{Kind: journal.KindSessionOpened, Fields: map[string]string{"satellite": "hallway", "speaker_id": "teagan", "resumed": "false"}}},
-		{0.4, journal.Record{Kind: journal.KindUtteranceTranscribed, AudioRef: "blob://mic/30", Fields: map[string]string{"text": "is the front door locked", "speaker_id": "teagan"}}},
-		{1.1, journal.Record{Kind: journal.KindToolCalled, Fields: map[string]string{"tool": "ha_get_state", "call_id": "c1", "args_json": `{"entity_id":"lock.front_door"}`}}},
-		{2.3, journal.Record{Kind: journal.KindToolResult, Fields: map[string]string{"call_id": "c1", "outcome": "ok", "result_json": `{"state":"locked"}`}}},
-		{2.4, journal.Record{Kind: journal.KindToolCalled, Fields: map[string]string{"tool": "speak", "call_id": "s1", "args_json": `{"mode":"queue","streamed":true}`}}},
-		{3.0, journal.Record{Kind: journal.KindSpeechStarted, Fields: map[string]string{"call_id": "s1", "wait_ms": "2840"}}},
-		{4.6, journal.Record{Kind: journal.KindSpeechSpoken, AudioRef: "blob://tts/s30", Fields: map[string]string{"text": "The front door is locked.", "frames_played": "25600"}}},
-		{4.7, journal.Record{Kind: journal.KindModelCompleted, Fields: map[string]string{"completion_json": "{}", "finish_reason": "stop"}}},
-		{9.2, journal.Record{Kind: journal.KindUtteranceTranscribed, AudioRef: "blob://mic/31", Fields: map[string]string{"text": "turn on the porch light", "speaker_id": "teagan"}}},
-		{9.5, journal.Record{Kind: journal.KindToolCalled, Fields: map[string]string{"tool": "ha_call_service", "call_id": "c2", "args_json": `{"domain":"light","service":"turn_on","entity_id":"light.porch"}`}}},
-		{9.6, journal.Record{Kind: journal.KindToolCalled, Fields: map[string]string{"tool": "speak", "call_id": "s2", "args_json": `{"mode":"queue","streamed":true}`}}},
-		{9.8, journal.Record{Kind: journal.KindSpeechStarted, Fields: map[string]string{"call_id": "s2", "wait_ms": "560"}}},
-		{11.0, journal.Record{Kind: journal.KindSpeechSpoken, AudioRef: "blob://tts/s31", Fields: map[string]string{"text": "Porch light is on.", "frames_played": "19200"}}},
-		{11.1, journal.Record{Kind: journal.KindModelCompleted, Fields: map[string]string{"completion_json": "{}", "finish_reason": "stop"}}},
-	} {
-		clk.now = start.Add(time.Duration(r.sec * float64(time.Second)))
-		if _, err := j.Append(context.Background(), "conv-4", r.rec); err != nil {
-			t.Fatalf("append %s: %v", r.rec.Kind, err)
-		}
-	}
-	return store
-}
-
-func newSlowServer(t *testing.T) *server {
-	t.Helper()
-	store := withSlow(t, withRepeat(t, withFailure(t, bargeInLog(t))))
-	return newServer(store, curation.NewMemStore(), fixtureBlobs(t), func() time.Time { return time.Unix(1_760_010_000, 0).UTC() })
-}
-
+// Teagan waited for the front door while the model weighed what it was
+// told and held the unlock, and for the garage sensor to time out. The
+// shopping list, answered inside the budget, is not slow.
+//
 // verifies SPEC §11, §9.2
 func TestTriageQueuesASlowAnswerAtItsFirstFrame(t *testing.T) {
-	h := get(t, newSlowServer(t), "/queue?tab=slow")
+	s, _ := newHouseholdServer(t)
+	h := get(t, s, "/queue?tab=slow")
 	for _, want := range []string{
-		`href="/queue?tab=slow">Slow <span class="tabs__count">1</span>`,
-		"is the front door locked",
-		"first audio 2.8 s after the ask · target 0.7 s",
-		`href="/conversations/conv-4#seq-6"`,
-		"teagan · hallway",
+		`href="/queue?tab=slow">Slow <span class="tabs__count">2</span>`,
+		"unlock the front door",
+		"first audio 1.7 s after the ask · target 0.7 s",
+		`href="/conversations/` + convDoor + `#seq-8"`,
+		"teagan · kitchen",
+		"is the garage door closed",
+		`href="/conversations/` + convGarage + `#seq-6"`,
 	} {
 		if !strings.Contains(h, want) {
 			t.Errorf("slow tab is missing %q", want)
 		}
 	}
-	if strings.Contains(h, "turn on the porch light") {
+	if strings.Contains(h, "add oat milk to the shopping list") {
 		t.Error("an answer inside the budget should not be in the slow tab")
 	}
 }
 
 // verifies SPEC §11, §8
 func TestTheLogShowsWhenEachAnswerStarted(t *testing.T) {
-	h := get(t, newSlowServer(t), "/conversations/conv-4")
+	s, _ := newHouseholdServer(t)
+	h := get(t, s, conversationHref(convDoor))
 	for _, want := range []string{
 		"speech started",
-		"first audio 2.84 s after the ask",
-		"first audio 0.56 s after the ask",
+		"first audio 1.70 s after the ask",
+		"first audio 0.60 s after the ask",
 		"call s1",
-		"first audio 2.8 s after the ask · target 0.7 s", // the slow signal on its row
+		"first audio 1.7 s after the ask · target 0.7 s", // the slow signal on its row
 	} {
 		if !strings.Contains(h, want) {
 			t.Errorf("conversation log is missing %q", want)
@@ -904,8 +871,9 @@ func TestTheLogShowsWhenEachAnswerStarted(t *testing.T) {
 
 // verifies SPEC §9.2
 func TestBrowseFlagsTheSessionWithASlowAnswer(t *testing.T) {
-	h := get(t, newSlowServer(t), "/conversations")
-	if !strings.Contains(h, `class="day-lanes__session is-flagged tone-voice" href="/conversations/conv-4"`) {
-		t.Error("the hallway session with the slow answer should be flagged")
+	s, _ := newHouseholdServer(t)
+	h := get(t, s, "/conversations")
+	if !strings.Contains(h, `class="day-lanes__session is-flagged tone-voice" href="/conversations/`+convDoor+`"`) {
+		t.Error("the kitchen session with the slow answer should be flagged")
 	}
 }

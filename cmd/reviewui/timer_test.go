@@ -73,11 +73,11 @@ func TestTheOvenGoingOffSaysWhyItWasSaid(t *testing.T) {
 func TestTheTimerIsShownSetInTheConversationThatSetIt(t *testing.T) {
 	s, _ := newHouseholdServer(t)
 	h := get(t, s, conversationHref(convTimer))
-	call, set, result := strings.Index(h, `id="seq-8"`), strings.Index(h, `id="house-1"`), strings.Index(h, `id="seq-9"`)
+	call, set, result := strings.Index(h, `id="seq-9"`), strings.Index(h, `id="house-1"`), strings.Index(h, `id="seq-10"`)
 	if call < 0 || set < 0 || result < 0 || call >= set || set >= result {
 		t.Fatalf("timer_start at %d, timer_started at %d, its result at %d: want them in that order", call, set, result)
 	}
-	for _, want := range []string{"set the oven timer for 12m0s on kitchen", "goes off 2025-10-09T12:22:07.1Z", "house #1"} {
+	for _, want := range []string{"set the oven timer for 12m0s on kitchen", "goes off 2025-10-09T12:22:06.55Z", "house #1"} {
 		if !strings.Contains(h, want) {
 			t.Errorf("the timer's conversation is missing %q", want)
 		}

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/reviewui/household"
@@ -179,5 +180,79 @@ func TestTheKitchensRejectedWakeKeepsBothChannels(t *testing.T) {
 	}
 	if a, b := pcm(t, "wake/kitchen-dishwasher"), pcm(t, "wake/kitchen-dishwasher-second"); len(a) != len(b) {
 		t.Errorf("the two channels hold %d and %d frames of the same span", len(a), len(b))
+	}
+}
+
+// Every answer the household heard says when it was first heard, once per
+// turn, naming the turn's first speak call and how long its person waited:
+// since the transcript, plus the endpointer's pause before it (ADR-0035).
+// An announcement answers nobody, so it records no start.
+//
+// verifies SPEC §11
+func TestEveryAnswerSaysWhenItWasFirstHeard(t *testing.T) {
+	for id, lines := range household.Logs() {
+		var (
+			asked     time.Duration
+			first     string
+			started   []household.Line
+			announced bool
+		)
+		check := func() {
+			switch {
+			case first == "" && len(started) > 0:
+				t.Errorf("%s: a turn nobody answered aloud records %d starts", id, len(started))
+			case first == "":
+			case len(started) != 1:
+				t.Errorf("%s: the turn %s answered records %d starts, want 1", id, first, len(started))
+			default:
+				f := started[0].Rec.Fields
+				if f["call_id"] != first {
+					t.Errorf("%s: first audio names %s, want the turn's first speak call %s", id, f["call_id"], first)
+				}
+				want := (started[0].At - asked + household.Trailing).Round(time.Millisecond).Milliseconds()
+				if f["wait_ms"] != strconv.FormatInt(want, 10) {
+					t.Errorf("%s: %s waited %s ms, but its log says %d", id, first, f["wait_ms"], want)
+				}
+			}
+		}
+		for _, l := range lines {
+			switch l.Rec.Kind {
+			case journal.KindSessionOpened:
+				announced = l.Rec.Fields["announced"] == "true"
+			case journal.KindUtteranceTranscribed:
+				check()
+				asked, first, started = l.At, "", nil
+			case journal.KindToolCalled:
+				if l.Rec.Fields["tool"] == "speak" && first == "" && !announced {
+					first = l.Rec.Fields["call_id"]
+				}
+			case journal.KindSpeechStarted:
+				started = append(started, l)
+			case journal.KindSpeechSpoken, journal.KindSpeechTruncated:
+				if !announced && len(started) == 0 {
+					t.Errorf("%s: %s is heard before its first frame is", id, l.Rec.AudioRef)
+				}
+			}
+		}
+		check()
+	}
+}
+
+// Speech names the speak call it played, as the Speaking child records it,
+// so the dialogue a re-run is told puts it where the model said it.
+func TestSpeechNamesTheCallItPlayed(t *testing.T) {
+	for id, lines := range household.Logs() {
+		speaks := map[string]bool{}
+		for _, l := range lines {
+			f := l.Rec.Fields
+			switch l.Rec.Kind {
+			case journal.KindToolCalled:
+				speaks[f["call_id"]] = f["tool"] == "speak"
+			case journal.KindSpeechSpoken, journal.KindSpeechTruncated:
+				if !speaks[f["call_id"]] {
+					t.Errorf("%s: %s names call %q, which no earlier speak is", id, l.Rec.AudioRef, f["call_id"])
+				}
+			}
+		}
 	}
 }

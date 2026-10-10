@@ -21,12 +21,12 @@ const (
 	// zeppelinAsk is Alice's "play something by zeppelin", the turn whose
 	// list she cut off; doorYes is Teagan's "yes" to the held unlock.
 	zeppelinAsk = 2
-	doorYes     = 11
+	doorYes     = 12
 
 	// weatherAsk is Teagan's "what's the weather today", the turn the brief
 	// prompt shortens; umbrellaAsk is her follow-up, which it leaves alone.
 	weatherAsk  = 2
-	umbrellaAsk = 10
+	umbrellaAsk = 11
 
 	// A reviewer's pairs, keyed conversation/turn/source.
 	annotatedZeppel = convZeppel + "/2/annotation"
@@ -104,7 +104,7 @@ func TestTheConversationPageShowsWhatTheModelWasToldAndTheYes(t *testing.T) {
 		"held ha_call_service for the person&#39;s yes",
 		"nonce " + household.DoorNonce + " · c1",
 		"ha_call_service ran on a yes",
-		"redeemed after #11, teagan: “yes”",
+		"redeemed after #12, teagan: “yes”",
 		"Teagan let book club in: the front door was unlocked after a yes.",
 		"kept for teagan",
 	} {
@@ -138,7 +138,7 @@ func TestASummaryDoesNotStretchTheConversation(t *testing.T) {
 func TestEveryTurnOffersTheEightLabelsAndANote(t *testing.T) {
 	s, _ := newHouseholdServer(t)
 	h := get(t, s, "/conversations/"+convDoor)
-	for _, seq := range []string{"2", "11"} {
+	for _, seq := range []string{"2", "12"} {
 		if !strings.Contains(h, `id="turn-`+seq+`-labels"`) {
 			t.Errorf("turn #%s has no labels", seq)
 		}
@@ -479,10 +479,10 @@ func TestAPromotionOfNoKeptChangedTakeIsRefused(t *testing.T) {
 	}
 	mustPost(t, s, "/replays/"+convZeppel, url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}})
 	for target, want := range map[string]int{
-		"/replays/" + convZeppel + "/runs/1/turns/4/promote":   http.StatusNotFound,   // the barge-in, not a turn
+		"/replays/" + convZeppel + "/runs/1/turns/7/promote":   http.StatusNotFound,   // the barge-in, not a turn
 		"/replays/" + convZeppel + "/runs/one/turns/2/promote": http.StatusNotFound,   // not a run id
 		"/replays/" + convGarage + "/runs/1/turns/2/promote":   http.StatusNotFound,   // another conversation's run
-		"/replays/" + convZeppel + "/runs/1/turns/10/promote":  http.StatusBadRequest, // answered as recorded
+		"/replays/" + convZeppel + "/runs/1/turns/11/promote":  http.StatusBadRequest, // answered as recorded
 	} {
 		if code, _ := post(t, s, target, nil); code != want {
 			t.Errorf("POST %s = %d, want %d", target, code, want)

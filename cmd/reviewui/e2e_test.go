@@ -408,22 +408,24 @@ func TestE2ETriageRepeatedOpensTheSecondAsk(t *testing.T) {
 	p.waitText("#seq-6", "asked again 6.2 s after")
 }
 
-// Teagan waited 2.84 s for the front door. The slow tab holds that answer
-// and not the porch light behind it, and opens the log at the frame the
-// household first heard.
+// Teagan waited 1.7 s for the front door, and out the garage sensor's
+// timeout. The slow tab holds those answers and not the shopping list,
+// and opens the door's log at the frame the household first heard.
 //
 // verifies SPEC §11, §9.2
 func TestE2ETriageSlowOpensTheFirstFrame(t *testing.T) {
-	p := open(t, newSlowServer(t))
+	s, _ := newHouseholdServer(t)
+	p := open(t, s)
 	p.visit("/queue")
 	p.follow(`#queue-tabs a[href$="tab=slow"]`)
-	p.waitText("#queue", "is the front door locked")
-	if q := p.text("#queue"); strings.Contains(q, "porch light") || strings.Contains(q, "zeppelin") {
-		t.Errorf("the slow tab lists more than the slow answer: %q", q)
+	p.waitText("#queue", "unlock the front door")
+	p.waitText("#queue", "is the garage door closed")
+	if q := p.text("#queue"); strings.Contains(q, "oat milk") || strings.Contains(q, "zeppelin") {
+		t.Errorf("the slow tab lists more than the slow answers: %q", q)
 	}
 	p.shot("triage-slow")
 
-	p.follow(`#queue a[href^="/conversations/conv-4"]`)
+	p.follow(`#queue a[href^="` + conversationHref(convDoor) + `"]`)
 	var target struct {
 		ID      string
 		Visible bool
@@ -434,11 +436,11 @@ func TestE2ETriageSlowOpensTheFirstFrame(t *testing.T) {
 		const r = e.getBoundingClientRect();
 		return {ID: e.id, Visible: r.top >= 0 && r.bottom <= window.innerHeight};
 	})()`, &target)
-	if target.ID != "seq-6" || !target.Visible {
-		t.Errorf("target = %+v, want the first frame #seq-6 in view", target)
+	if target.ID != "seq-8" || !target.Visible {
+		t.Errorf("target = %+v, want the first frame #seq-8 in view", target)
 	}
-	p.waitText("#seq-6", "first audio 2.84 s after the ask")
-	p.waitText("#seq-12", "first audio 0.56 s after the ask")
+	p.waitText("#seq-8", "first audio 1.70 s after the ask")
+	p.waitText("#seq-17", "first audio 0.60 s after the ask")
 	p.shot("conversation-first-audio")
 }
 

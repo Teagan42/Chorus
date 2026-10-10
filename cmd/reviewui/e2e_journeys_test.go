@@ -190,7 +190,7 @@ func TestE2EJourneyTriageToReviewFixesAndAcceptsTheWeatherCut(t *testing.T) {
 	if got := p.badge(); got != 3 {
 		t.Errorf("header badge = %d, want 3 unreviewed pairs", got)
 	}
-	want := map[string]int{"All": 6, "Barge-in pairs": 3, "Repeated": 1, "Slow": 0, "Failures": 1, "Speaker flips": 1, "Weak positives": 10}
+	want := map[string]int{"All": 8, "Barge-in pairs": 3, "Repeated": 1, "Slow": 2, "Failures": 1, "Speaker flips": 1, "Weak positives": 10}
 	if got := p.counts("#queue-tabs"); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("queue tabs = %v, want %v", got, want)
 	}
@@ -538,8 +538,8 @@ func TestE2EJourneyEverySignalOpensWhereItHappened(t *testing.T) {
 		tab, conv, anchor, why string
 	}{
 		{"failure", convGarage, "seq-4", "ha_get_state timed_out"},
-		{"speaker-flip", convJazz, "seq-9", "alice → alan"},
-		{"repeated", convTimer, "seq-7", "asked again 6.2 s after “set a timer for the oven” · no tool call on the first ask"},
+		{"speaker-flip", convJazz, "seq-10", "alice → alan"},
+		{"repeated", convTimer, "seq-8", "asked again 6.2 s after “set a timer for the oven” · no tool call on the first ask"},
 	} {
 		p.visit("/queue?tab=" + c.tab)
 		p.follow(`#queue a.list__row`)
@@ -600,10 +600,10 @@ func TestE2EJourneyBrowseFollowsThePersonAndWalksTheDays(t *testing.T) {
 	if n := p.count(".day-lanes__session"); n != 9 {
 		t.Errorf("%d sessions on the lanes, want 9", n)
 	}
-	// Flagged: every session that raised a signal. Zeppelin's living-room
-	// half, the door and the shopping list raised none.
-	if n := p.count(".day-lanes__session.is-flagged"); n != 5 {
-		t.Errorf("%d flagged sessions, want 5", n)
+	// Flagged: every session that raised a signal, the door its slow answer.
+	// Zeppelin's living-room half and the shopping list raised none.
+	if n := p.count(".day-lanes__session.is-flagged"); n != 6 {
+		t.Errorf("%d flagged sessions, want 6", n)
 	}
 	if n := p.count(".day-lanes__reject"); n != 2 {
 		t.Errorf("%d rejected wakes, want the dishwasher and the podcast", n)
@@ -644,11 +644,11 @@ func TestE2EJourneyBrowseFollowsThePersonAndWalksTheDays(t *testing.T) {
 	p.follow(fmt.Sprintf(`#conversations a[href="%s"]`, conversationHref(convZeppel)))
 	p.waitText(".page-head", "alice · kitchen → living_room")
 	p.waitText("section[aria-label=Journal]", "closed: migrated")
-	p.waitText("#seq-18", "opened on living_room")
-	p.waitText("#seq-18", "resumed")
+	p.waitText("#seq-20", "opened on living_room")
+	p.waitText("#seq-20", "resumed")
 	var heard float64
 	p.eval(`new Promise((ok, no) => {
-		const a = document.querySelector('#seq-7 audio');
+		const a = document.querySelector('#seq-8 audio');
 		a.addEventListener("loadedmetadata", () => ok(a.duration), {once: true});
 		a.addEventListener("error", () => no(new Error("cannot decode " + a.src)), {once: true});
 		a.preload = "metadata"; a.load();
@@ -706,11 +706,11 @@ func TestE2EJourneyTheOvenTimerGoesOffInTheKitchen(t *testing.T) {
 
 	p.visit(conversationHref(convTimer))
 	p.waitText("#house-1", "set the oven timer for 12m0s on kitchen")
-	p.waitText("#house-1", "goes off 2025-10-09T12:22:07.1Z")
+	p.waitText("#house-1", "goes off 2025-10-09T12:22:06.55Z")
 	var order []string
 	p.eval(`[...document.querySelectorAll("section[aria-label=Journal] > div")].map(e => e.id)`, &order)
-	if i := slices.Index(order, "house-1"); i < 1 || order[i-1] != "seq-8" {
-		t.Errorf("rows = %v, want the timer set just after the call that set it, seq-8", order)
+	if i := slices.Index(order, "house-1"); i < 1 || order[i-1] != "seq-9" {
+		t.Errorf("rows = %v, want the timer set just after the call that set it, seq-9", order)
 	}
 	p.shot("journey-oven-timer-set")
 }
@@ -787,14 +787,14 @@ func TestE2EJourneyReplayTheJazzEveningUnderAnEditedPrompt(t *testing.T) {
 	}
 
 	p.follow(fmt.Sprintf(`#replays a[href="%s"]`, replayHref(convJazz)))
-	if got := p.metrics(`[aria-label="Recorded"]`)["Journal replay"]; got != "replay() reads back all 26 events" {
+	if got := p.metrics(`[aria-label="Recorded"]`)["Journal replay"]; got != "replay() reads back all 29 events" {
 		t.Errorf("journal replay check = %q", got)
 	}
 	if n := p.count(`#replay-result [id^="turn-"]`); n != 3 {
 		t.Errorf("%d turns on the page, want dim, jazz, quieter", n)
 	}
-	p.waitText("#turn-9", "Playing Late Night Jazz")
-	p.waitText("#turn-9", "Say skip to hear the next one.")
+	p.waitText("#turn-10", "Playing Late Night Jazz")
+	p.waitText("#turn-10", "Say skip to hear the next one.")
 
 	// Hold the model so the in-flight state is visible.
 	hh.gate = make(chan struct{})
@@ -816,7 +816,7 @@ func TestE2EJourneyReplayTheJazzEveningUnderAnEditedPrompt(t *testing.T) {
 	p.waitText("#replay-result", "Alice is here too. Shall I put some jazz on?")
 	tags := map[string]string{}
 	p.eval(`Object.fromEntries([...document.querySelectorAll('#replay-result [id^="turn-"]')].map(r => [r.id, r.lastElementChild.querySelector(".sig-tag").textContent.trim()]))`, &tags)
-	for turn, w := range map[string]string{"turn-2": "same", "turn-9": "speech and calls changed", "turn-17": "speech and calls changed"} {
+	for turn, w := range map[string]string{"turn-2": "same", "turn-10": "speech and calls changed", "turn-19": "speech and calls changed"} {
 		if tags[turn] != w {
 			t.Errorf("%s is tagged %q, want %q (all %v)", turn, tags[turn], w, tags)
 		}
@@ -861,13 +861,13 @@ func TestE2EJourneyReplayFailuresSaySoOnThePage(t *testing.T) {
 	// The model dies on Alan's ask: the first turn ran, the rest did not.
 	engine = "dies"
 	p.click(`form button[type="submit"]`)
-	p.waitText("#replay-result .alert", "Re-run stopped at #9.")
+	p.waitText("#replay-result .alert", "Re-run stopped at #10.")
 	p.waitText("#replay-result .alert", "model runner has unexpectedly stopped")
 	if got := p.metrics(`#replay-result [aria-label="Outcome"]`)["Turns re-run"]; got != "1 of 3" {
 		t.Errorf("turns re-run = %q, want 1 of 3", got)
 	}
-	if n := p.count(`#replay-result .list__detail`); n == 0 || !strings.Contains(p.text("#turn-17"), "not re-run") {
-		t.Errorf("the turn after the failure should say it was not re-run: %q", p.text("#turn-17"))
+	if n := p.count(`#replay-result .list__detail`); n == 0 || !strings.Contains(p.text("#turn-19"), "not re-run") {
+		t.Errorf("the turn after the failure should say it was not re-run: %q", p.text("#turn-19"))
 	}
 	p.shot("journey-replay-died")
 

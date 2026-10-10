@@ -111,6 +111,7 @@ func TestHouseholdDay(t *testing.T) {
 		triage.KindFailure:     {convGarage},
 		triage.KindRepeated:    {convTimer},
 		triage.KindSpeakerFlip: {convJazz},
+		triage.KindSlow:        {convGarage, convDoor},
 	}
 	for k, convs := range want {
 		got := map[string]bool{}
