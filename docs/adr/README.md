@@ -65,6 +65,7 @@ decision rather than by clause: facets of one choice share one record.
 | [0054](0054-a-pair-carries-what-each-side-called-beside-what-it-said.md) | Refines 0052: each side of a pair carries its tool calls beside its speech; a promoted re-run may be calls alone, and a *wrong tool* note trains on speech | §4.1, §9.2 |
 | [0055](0055-the-satellite-is-a-bought-satellite1-kit-and-chorus-draws-only-the-board-under-it.md) | Supersedes 0047: the satellite is a bought FutureProofHomes Satellite1 kit; Chorus draws only the main board under its HAT, PoE Ethernet on pads the kit leaves free, checked pad by pad against the HAT's J7 | §3.3, §3.3.2, §5 |
 | [0056](0056-an-interjection-pauses-the-voice-and-the-session-drives-the-ring.md) | `interject` pauses the playing line where the DAC stopped and resumes it after, journalled as `interjected`; each session's state is shown on the LED ring over the native API, by its effects | §3.2.1, §3.3.1, §4.2 |
+| [0059](0059-every-re-run-is-kept-beside-the-journal-and-its-tool-schema-is-the-reviewers-to-edit.md) | Refines 0052: every re-run is kept beside the journal and promoted from there; the tool schema a re-run is offered is edited beside its prompt and versioned from the edit | §8, §9.2 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.

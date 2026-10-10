@@ -442,7 +442,9 @@ Explicit labels for the ambiguous cases: *transcript wrong*, *misunderstood
 intent*, *wrong tool / wrong args*, *should have spoken and didn't*, *spoke when
 it shouldn't*, *too slow*, *wrong person attributed*, *good — exemplar*. Plus
 free-text "what it should have done" and edit-and-replay (change prompt or tool
-schema, re-run the trace, diff the outcome).
+schema, re-run the trace, diff the outcome). Every re-run is kept beside the
+journal, never in it, with what it ran under, so any of its takes can be
+promoted to a pair later (ADR-0059).
 
 Review UI: Go + htmx over Postgres, in the monorepo. **Inline per-turn audio
 playback is non-negotiable** — a voice assistant cannot be judged from
