@@ -102,8 +102,13 @@ chose it, and never embeds anything.
 - **Words are embedded as said, with no task prefix.** Some models (nomic's
   among them) rank better given `search_query:` and `search_document:`
   prefixes. That is a per-model choice, not made here.
-- **Ranking is unmeasured on a real model.** The models tier asks
+- **Measured on the household's Ollama, once.** The models tier asks
   `nomic-embed-text` to bring back four memories, each the oldest of two
-  dozen, from questions that share few words with them. It also checks
-  that qwen3:14b answers with the garage code it was given. It has not run
-  where this was written, which has no Ollama endpoint.
+  dozen, from questions that share few words with them ("can Alan have the
+  satay" for the peanut allergy). It did, once the model had loaded; its
+  first, cold request ran past the one-minute bound this ADR first set. The
+  same run asked qwen3:14b for the garage code it was given. In one run of
+  five it reasoned that it needed no tool to say what it already knew, and
+  wrote `speak` and the code as plain content, which nobody hears. The
+  prompt now says an answer already known is still a speak call. That
+  clause has not yet been measured.
