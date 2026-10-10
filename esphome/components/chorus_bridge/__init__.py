@@ -18,7 +18,7 @@ from esphome.types import ConfigType
 # socket and ring_buffer are not pulled in by microphone or speaker.
 AUTO_LOAD = ["audio", "ring_buffer", "socket"]
 DEPENDENCIES = ["microphone", "network"]
-CODEOWNERS = ["@teaganglenn"]
+CODEOWNERS = ["@Teagan42"]
 
 CONF_DUCKING_SPEAKER = "ducking_speaker"
 CONF_HOST = "host"
