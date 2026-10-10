@@ -52,7 +52,7 @@ events: {
 		has_audio:       true
 		training_signal: true
 		fields: [
-			{name: "reason", type: "string", description: "Which gate rejected it.", required: true, enum: ["no_speech", "low_confidence", "unknown_speaker"]},
+			{name: "reason", type: "string", description: "Which gate rejected it. transcription_failed is the first utterance that could not be decoded, so nothing confirmed the wake: not a verdict on the audio, and no hard negative.", required: true, enum: ["no_speech", "low_confidence", "unknown_speaker", "transcription_failed"]},
 			{name: "second_audio_ref", type: "string", description: "The same span from the XMOS's second, lighter-processed output, so retraining can target either stream (SPEC §9.3). Empty when the device streams one channel."},
 		]
 	}
