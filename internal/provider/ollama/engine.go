@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/teaganglenn/chorus/internal/journal"
 	"github.com/teaganglenn/chorus/internal/registry"
@@ -67,6 +68,10 @@ type Config struct {
 	// SPEC §4.1 describes for templates that emit content beside tool_calls.
 	// Off unless a model is known to qualify -- see decoder.
 	SpeakInlineContent bool
+
+	// Location is the household's time zone: what "it is 8 AM" and
+	// "yesterday" are told in. Nil is the daemon's local zone.
+	Location *time.Location
 }
 
 // Engine turns one ask into one streamed /api/chat turn. The request carries
@@ -104,6 +109,9 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.KeepAlive == "" {
 		cfg.KeepAlive = DefaultKeepAlive
 	}
+	if cfg.Location == nil {
+		cfg.Location = time.Local
+	}
 
 	tools := wireTools(cfg.Specs)
 	schema, err := json.Marshal(tools)
@@ -116,8 +124,10 @@ func New(cfg Config) (*Engine, error) {
 		tools: tools,
 		dec:   decoder{speakInlineContent: cfg.SpeakInlineContent},
 		versions: journal.Versions{
-			Model:      cfg.Model,
-			Prompt:     fingerprint([]byte(cfg.Prompt)),
+			Model: cfg.Model,
+			// Both prompts: a conversation_summarized is attributed to the
+			// same versions as the turns, and its words come from the other.
+			Prompt:     fingerprint([]byte(cfg.Prompt + "\x00" + SummaryPrompt)),
 			ToolSchema: fingerprint(schema),
 		},
 	}, nil
@@ -190,7 +200,9 @@ func (e *Engine) messages(in session.Input) []message {
 		// (SPEC §5). /api/chat has no per-message name field to put it in.
 		sys += "\n\nYou are speaking with " + in.Speaker + "."
 	}
+	sys += now(in.Now, e.cfg.Location)
 	sys += remembered(in.Speaker, in.Memories)
+	sys += lately(in.Summaries, e.cfg.Location)
 	out := []message{{Role: "system", Content: sys}}
 	if len(in.Dialogue) == 0 {
 		// Asked a turn on its own, as Replay's re-runs are.

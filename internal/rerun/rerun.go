@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/teaganglenn/chorus/internal/journal"
 	"github.com/teaganglenn/chorus/internal/session"
@@ -66,6 +67,12 @@ type Turn struct {
 	// it recorded before its first ask, or the last one before it, since an
 	// unchanged memory is not recorded again (SPEC §5).
 	Memories []journal.Memory
+
+	// Summaries are the speaker's earlier conversations the turn was told
+	// of, from the same memory_recalled, and HeardAt the time it was told it
+	// was: when the utterance was logged.
+	Summaries []journal.Summary
+	HeardAt   time.Time
 }
 
 // Turns splits a conversation's log at each transcribed utterance. The
@@ -95,7 +102,10 @@ func Turns(events []journal.Event) ([]Turn, error) {
 		}
 		f := e.Fields
 		if e.Kind == journal.KindUtteranceTranscribed {
-			out = append(out, Turn{Seq: e.Seq, Speaker: state.Speaker, Text: f["text"], Versions: e.Versions, Memories: state.Recalled})
+			out = append(out, Turn{
+				Seq: e.Seq, Speaker: state.Speaker, Text: f["text"], Versions: e.Versions,
+				Memories: state.Recalled, Summaries: state.RecalledSummaries, HeardAt: state.HeardAt,
+			})
 			asked, later = false, map[string]bool{}
 			continue
 		}
@@ -106,7 +116,7 @@ func Turns(events []journal.Event) ([]Turn, error) {
 		switch e.Kind {
 		case journal.KindMemoryRecalled:
 			if !asked {
-				t.Memories = state.Recalled
+				t.Memories, t.Summaries = state.Recalled, state.RecalledSummaries
 			}
 		case journal.KindSpeechSpoken:
 			if !later[f["call_id"]] {
@@ -154,7 +164,10 @@ func (f *Failed) Error() string { return "the model failed mid-answer: " + f.Rea
 // drains the stream to the end, as the engine contract requires, and
 // returns a *Failed alongside the partial take when the turn ended in error.
 func Run(ctx context.Context, eng session.Engine, conversationID string, t Turn) (Take, error) {
-	actions, err := eng.Turn(ctx, session.Input{ConversationID: conversationID, Speaker: t.Speaker, Text: t.Text, Memories: t.Memories})
+	actions, err := eng.Turn(ctx, session.Input{
+		ConversationID: conversationID, Speaker: t.Speaker, Text: t.Text,
+		Memories: t.Memories, Summaries: t.Summaries, Now: t.HeardAt,
+	})
 	if err != nil {
 		return Take{}, err
 	}

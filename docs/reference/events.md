@@ -10,6 +10,7 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | `barge_in_rejected` | listening | yes |  | Candidate interruption failed the detection gate. Tuning corpus for SPEC §4.3. |
 | `confirmation_given` | session |  |  | A held call came back with its nonce after the person answered, and ran. What they said is the utterance the nonce was redeemed after (SPEC §6). |
 | `confirmation_requested` | session |  |  | A call that needs the person's yes was held, and the model was handed a nonce to call again with once they agree (SPEC §6). |
+| `conversation_summarized` | session |  |  | The conversation ended and the model summarized it for the identified people in it, to be told in their later conversations. Recorded in full, as a completion is, because replay cannot regenerate it (SPEC §5, §8). |
 | `memory_recalled` | session |  |  | What the model is told it remembers, from this turn on: the speaker's own memories and what others shared. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5). |
 | `model_completed` | thinking |  |  | Model finished a completion. Recorded in full, not just the request, because replay cannot regenerate it (SPEC §8). |
 | `session_closed` | session |  |  | Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). |
@@ -67,6 +68,18 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 | `presented` | string |  | The nonce the call carried, which this refusal spends: a nonce gets one try. Empty when it carried none. |
 | `refused` | string |  | Why the nonce the call carried was not accepted. Empty when it carried none. One of: `unknown`, `used`, `args_changed`, `not_answered`, `expired`. |
 
+## `conversation_summarized`
+
+The conversation ended and the model summarized it for the identified people in it, to be told in their later conversations. Recorded in full, as a completion is, because replay cannot regenerate it (SPEC §5, §8).
+
+Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: yes.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `people_json` | string | yes | Whom the summary is kept for: every identified person who spoke, as a JSON array of ids. |
+| `summary` | string |  | What the model wrote. Empty when it failed. |
+| `error` | string |  | Why there is no summary, or why it was not kept. Empty when it was. |
+
 ## `memory_recalled`
 
 What the model is told it remembers, from this turn on: the speaker's own memories and what others shared. Recorded when it changes, so a replay asks the model with what it was given (SPEC §5).
@@ -77,6 +90,7 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 |---|---|---|---|
 | `person` | string | yes | Whose memories these are: the identified speaker. |
 | `memories_json` | string | yes | The memories as a JSON array of {id, person, fact, shareable}, newest first. An empty array means nothing is remembered. |
+| `summaries_json` | string |  | The person's recent conversations as a JSON array of {conversation_id, at, text}, newest first. Empty in logs from before conversations were summarized. |
 
 ## `model_completed`
 

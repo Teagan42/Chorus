@@ -146,6 +146,137 @@ var storeConformance = map[string]func(*testing.T, memory.Store){
 	},
 }
 
+// friday is when the household's week of conversations ends: Teagan asks
+// "what did I ask yesterday" from the kitchen.
+var friday = time.Date(2026, 10, 9, 8, 15, 0, 0, time.UTC)
+
+// teagansWeek is what Teagan talked about this past week and a bit, newest
+// first, and two conversations Alan was in.
+func teagansWeek() []memory.Summary {
+	return []memory.Summary{
+		{ConversationID: "conv-garage-0812", Person: "teagan", Text: "Teagan asked whether the garage door was closed; it was open, and Chorus closed it.", At: friday.Add(-14 * time.Hour)},
+		{ConversationID: "conv-kitchen-0731", Person: "teagan", Text: "Teagan set a ten minute timer for the eggs.", At: friday.Add(-25 * time.Hour)},
+		{ConversationID: "conv-office-0702", Person: "teagan", Text: "Teagan asked for the weather in Portland; rain all afternoon.", At: friday.Add(-3 * 24 * time.Hour)},
+		{ConversationID: "conv-front-door-0611", Person: "teagan", Text: "Teagan asked whether the package had come; it had not.", At: friday.Add(-6 * 24 * time.Hour)},
+		{ConversationID: "conv-kitchen-0530", Person: "teagan", Text: "Teagan asked for the oven to preheat to 200.", At: friday.Add(-9 * 24 * time.Hour)},
+		{ConversationID: "conv-garage-0812", Person: "alan", Text: "Alan asked about the garage door with Teagan; it was closed.", At: friday.Add(-14 * time.Hour)},
+		{ConversationID: "conv-living-room-0820", Person: "alan", Text: "Alan turned the living room lights down.", At: friday.Add(-13 * time.Hour)},
+	}
+}
+
+func keepAll(t *testing.T, s memory.Store, ss []memory.Summary) {
+	t.Helper()
+	for _, sum := range ss {
+		if err := s.Summarized(context.Background(), sum); err != nil {
+			t.Fatalf("keep %s for %s: %v", sum.ConversationID, sum.Person, err)
+		}
+	}
+}
+
+func conversations(ss []memory.Summary) []string {
+	out := []string{}
+	for _, s := range ss {
+		out = append(out, s.ConversationID)
+	}
+	return out
+}
+
+var summaryConformance = map[string]func(*testing.T, memory.Store){
+	"a person recalls only their own conversations, newest first": func(t *testing.T, s memory.Store) {
+		keepAll(t, s, teagansWeek())
+		got, err := s.Summaries(context.Background(), "teagan", "conv-kitchen-0815", friday.Add(-memory.SummaryWindow), memory.SummaryLimit)
+		if err != nil {
+			t.Fatalf("summaries: %v", err)
+		}
+		// Last week's oven is too old; Alan's lights were never Teagan's.
+		want := []string{"conv-garage-0812", "conv-kitchen-0731", "conv-office-0702", "conv-front-door-0611"}
+		if !reflect.DeepEqual(conversations(got), want) {
+			t.Errorf("teagan recalls %v, want %v", conversations(got), want)
+		}
+		if len(got) > 0 && !reflect.DeepEqual(got[0], teagansWeek()[0]) {
+			t.Errorf("round-tripped %+v, want %+v", got[0], teagansWeek()[0])
+		}
+
+		alan, err := s.Summaries(context.Background(), "alan", "", friday.Add(-memory.SummaryWindow), memory.SummaryLimit)
+		if err != nil {
+			t.Fatalf("summaries: %v", err)
+		}
+		if want := []string{"conv-living-room-0820", "conv-garage-0812"}; !reflect.DeepEqual(conversations(alan), want) {
+			t.Errorf("alan recalls %v, want %v", conversations(alan), want)
+		}
+	},
+
+	"the conversation in progress is not recalled to itself": func(t *testing.T, s memory.Store) {
+		keepAll(t, s, teagansWeek())
+		got, err := s.Summaries(context.Background(), "teagan", "conv-garage-0812", friday.Add(-memory.SummaryWindow), 1)
+		if err != nil {
+			t.Fatalf("summaries: %v", err)
+		}
+		if want := []string{"conv-kitchen-0731"}; !reflect.DeepEqual(conversations(got), want) {
+			t.Errorf("recalled %v, want %v", conversations(got), want)
+		}
+	},
+
+	"a resumed conversation's newer summary replaces the older, never the reverse": func(t *testing.T, s memory.Store) {
+		first := teagansWeek()[0]
+		resumed := first
+		resumed.Text = "Teagan asked whether the garage door was closed; Chorus closed it, then turned the garage lights off."
+		resumed.At = first.At.Add(4 * time.Minute)
+		// The resumed conversation's summary landed first, and the slower
+		// one from before the resume lands after it.
+		keepAll(t, s, []memory.Summary{resumed, first})
+		got, err := s.Summaries(context.Background(), "teagan", "", friday.Add(-memory.SummaryWindow), memory.SummaryLimit)
+		if err != nil {
+			t.Fatalf("summaries: %v", err)
+		}
+		if len(got) != 1 || !reflect.DeepEqual(got[0], resumed) {
+			t.Errorf("kept %+v, want only the resumed conversation's", got)
+		}
+	},
+
+	"keeping a summary prunes the person's month-old ones": func(t *testing.T, s memory.Store) {
+		garage := teagansWeek()[0]
+		monthBefore := garage.At.Add(-memory.SummaryKeep - time.Hour)
+		old := memory.Summary{ConversationID: "conv-kitchen-0901", Person: "teagan", Text: "Teagan asked for a grocery list.", At: monthBefore}
+		alans := memory.Summary{ConversationID: "conv-garage-0901", Person: "alan", Text: "Alan asked when the bins go out.", At: monthBefore}
+		keepAll(t, s, []memory.Summary{old, alans, garage})
+		ever := friday.Add(-365 * 24 * time.Hour)
+		got, err := s.Summaries(context.Background(), "teagan", "", ever, memory.SummaryLimit)
+		if err != nil {
+			t.Fatalf("summaries: %v", err)
+		}
+		if want := []string{"conv-garage-0812"}; !reflect.DeepEqual(conversations(got), want) {
+			t.Errorf("teagan keeps %v, want the month-old one pruned", conversations(got))
+		}
+		// Teagan's summary is no reason to prune Alan's.
+		got, err = s.Summaries(context.Background(), "alan", "", ever, memory.SummaryLimit)
+		if err != nil {
+			t.Fatalf("summaries: %v", err)
+		}
+		if want := []string{"conv-garage-0901"}; !reflect.DeepEqual(conversations(got), want) {
+			t.Errorf("alan keeps %v, want his untouched until he keeps another", conversations(got))
+		}
+	},
+
+	"a summary needs a conversation, a person and some words": func(t *testing.T, s memory.Store) {
+		for _, bad := range []memory.Summary{
+			{Person: "teagan", Text: "Teagan set a timer.", At: friday},
+			{ConversationID: "conv-kitchen-0731", Text: "Somebody set a timer.", At: friday},
+			{ConversationID: "conv-kitchen-0731", Person: "teagan", Text: "  ", At: friday},
+		} {
+			if err := s.Summarized(context.Background(), bad); err == nil {
+				t.Errorf("kept %+v", bad)
+			}
+		}
+	},
+}
+
+func init() {
+	for name, run := range summaryConformance {
+		storeConformance[name] = run
+	}
+}
+
 func runStoreConformance(t *testing.T, fresh func(*testing.T) memory.Store) {
 	t.Helper()
 	for name, run := range storeConformance {

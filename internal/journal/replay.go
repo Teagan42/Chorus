@@ -3,6 +3,7 @@ package journal
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -39,8 +40,21 @@ type State struct {
 
 	// Recalled is what the model is told it remembers, and RecalledFor whose
 	// memories they are: the last memory_recalled, newest first (SPEC §5).
-	Recalled    []Memory
-	RecalledFor string
+	// RecalledSummaries are that person's recent conversations from it.
+	Recalled          []Memory
+	RecalledFor       string
+	RecalledSummaries []Summary
+
+	// HeardAt is when the last utterance was logged: the time a turn is
+	// told it is, so a replay is told the same.
+	HeardAt time.Time
+
+	// Participants are the identified people who spoke, in the order they
+	// first did: whom the conversation's summary is kept for (SPEC §5).
+	Participants []string
+
+	// Summary is what the model wrote when the conversation last ended.
+	Summary string
 
 	LastSeq     uint64
 	Speculative int
@@ -118,6 +132,7 @@ func Reduce(s State, e Event) (State, error) {
 		s.Open = true
 		s.Satellite = e.Fields["satellite"]
 		s.Speaker = e.Fields["speaker_id"]
+		s.Participants = participate(s.Participants, s.Speaker)
 		// A resumed wake reopens the log the migration closed, so the reason the
 		// previous session ended no longer describes this conversation (§4.5).
 		s.CloseReason = ""
@@ -126,10 +141,14 @@ func Reduce(s State, e Event) (State, error) {
 		s.CloseReason = e.Fields["reason"]
 	case KindUtteranceTranscribed:
 		s.Heard = append(s.Heard, e.Fields["text"])
-		s.Dialogue = appendEntry(s.Dialogue, Entry{Kind: EntryHeard, Text: e.Fields["text"]})
 		if id := e.Fields["speaker_id"]; id != "" {
 			s.Speaker = id
 		}
+		// Attributed as the session attributes it: an utterance nobody was
+		// matched to is still the current speaker's (SPEC §5).
+		s.Dialogue = appendEntry(s.Dialogue, Entry{Kind: EntryHeard, Text: e.Fields["text"], Speaker: s.Speaker})
+		s.HeardAt = e.At.UTC()
+		s.Participants = participate(s.Participants, e.Fields["speaker_id"])
 		s.Confirmations = s.answered(e.Fields["text"], e.Fields["speaker_id"])
 	case KindModelCompleted:
 		s.Completions = append(s.Completions, e.Fields["completion_json"])
@@ -138,7 +157,13 @@ func Reduce(s State, e Event) (State, error) {
 		if err != nil {
 			return s, err
 		}
-		s.Recalled, s.RecalledFor = ms, e.Fields["person"]
+		ss, err := decodeSummaries(e.Fields["summaries_json"])
+		if err != nil {
+			return s, err
+		}
+		s.Recalled, s.RecalledFor, s.RecalledSummaries = ms, e.Fields["person"], ss
+	case KindConversationSummarized:
+		s.Summary = e.Fields["summary"]
 	case KindToolCalled:
 		s.Dialogue = s.called(e.Fields["call_id"], e.Fields["tool"], e.Fields["args_json"])
 		s.Calls = append(s.Calls, Call{
@@ -199,6 +224,14 @@ func Reduce(s State, e Event) (State, error) {
 	return s, nil
 }
 
+// participate adds an identified speaker the first time they speak.
+func participate(people []string, id string) []string {
+	if id == "" || slices.Contains(people, id) {
+		return people
+	}
+	return append(slices.Clip(people), id)
+}
+
 func indexOfCall(calls []Call, id string) int {
 	for i, c := range calls {
 		if c.ID == id {
@@ -210,22 +243,23 @@ func indexOfCall(calls []Call, id string) int {
 
 // handled is the reducer's exhaustiveness claim, asserted against AllKinds.
 var handled = map[Kind]bool{
-	KindBargeInDetected:       true,
-	KindBargeInRejected:       true,
-	KindConfirmationGiven:     true,
-	KindConfirmationRequested: true,
-	KindMemoryRecalled:        true,
-	KindModelCompleted:        true,
-	KindSessionClosed:         true,
-	KindSessionOpened:         true,
-	KindSpeechDiscarded:       true,
-	KindSpeechSpoken:          true,
-	KindSpeechStarted:         true,
-	KindSpeechTruncated:       true,
-	KindToolCalled:            true,
-	KindToolResult:            true,
-	KindUtteranceTranscribed:  true,
-	KindWakeRejected:          true,
+	KindBargeInDetected:        true,
+	KindBargeInRejected:        true,
+	KindConfirmationGiven:      true,
+	KindConfirmationRequested:  true,
+	KindConversationSummarized: true,
+	KindMemoryRecalled:         true,
+	KindModelCompleted:         true,
+	KindSessionClosed:          true,
+	KindSessionOpened:          true,
+	KindSpeechDiscarded:        true,
+	KindSpeechSpoken:           true,
+	KindSpeechStarted:          true,
+	KindSpeechTruncated:        true,
+	KindToolCalled:             true,
+	KindToolResult:             true,
+	KindUtteranceTranscribed:   true,
+	KindWakeRejected:           true,
 }
 
 // Handled reports whether the reducer folds this kind. A new generated kind

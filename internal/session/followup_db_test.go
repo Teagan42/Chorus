@@ -75,7 +75,7 @@ func TestTheFollowUpIsToldTheDialogueFromPostgres(t *testing.T) {
 		t.Fatalf("replay: %v", err)
 	}
 	wantDialogue := []journal.Entry{
-		{Kind: journal.EntryHeard, Text: "is the garage door closed"},
+		{Kind: journal.EntryHeard, Text: "is the garage door closed", Speaker: "teagan"},
 		{Kind: journal.EntrySaid, CallID: "call_s1", Text: "Let me check."},
 		{Kind: journal.EntryCall, CallID: "call_c1", Tool: "ha_get_state", Args: `{"entity_id":"cover.garage_door"}`},
 		want,

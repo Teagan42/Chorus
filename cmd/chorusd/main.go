@@ -21,6 +21,9 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+	// The household's zone comes from TZ, and the distroless image is not
+	// relied on to carry the database that names it.
+	_ "time/tzdata"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -106,7 +109,9 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 	}
 	log.Info("chorusd listening", "version", version, "addr", ln.Addr().String(),
 		"satellites", len(inv.Satellites), "model", prov.versions.Model,
-		"stt", prov.versions.STT, "tts", prov.versions.TTS)
+		"stt", prov.versions.STT, "tts", prov.versions.TTS,
+		// What every turn is told the time in; UTC in a container without TZ.
+		"zone", time.Local.String())
 
 	return run(ctx, inv, deps{
 		Listener:  ln,

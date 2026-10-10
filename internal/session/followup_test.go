@@ -169,11 +169,11 @@ func TestTheNextUtteranceCarriesTheConversationSoFar(t *testing.T) {
 	asks := r.engine.asks()
 	got := asks[len(asks)-1].Dialogue
 	want := []journal.Entry{
-		{Kind: journal.EntryHeard, Text: "turn off the kitchen lights"},
+		{Kind: journal.EntryHeard, Text: "turn off the kitchen lights", Speaker: "teagan"},
 		{Kind: journal.EntryCall, CallID: "call_c1", Tool: "ha_call_service", Args: `{"domain":"light","service":"turn_off","entity_id":"light.kitchen"}`},
 		{Kind: journal.EntryResult, CallID: "call_c1", Tool: "ha_call_service", Outcome: "ok", Result: `{"changed":["light.kitchen"]}`},
 		{Kind: journal.EntrySaid, CallID: "call_s1", Text: "Kitchen lights are off."},
-		{Kind: journal.EntryHeard, Text: "and the porch light too"},
+		{Kind: journal.EntryHeard, Text: "and the porch light too", Speaker: "teagan"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("second utterance's dialogue =\n%+v\nwant\n%+v", got, want)

@@ -111,14 +111,17 @@ func (c Config) validate() error {
 // providers is the model stack and the tools, resolved for one process and
 // shared by every satellite's supervisor.
 type providers struct {
-	engine    session.Engine
-	versions  journal.Versions
-	synth     satellite.Synth
-	stt       stt.Transcriber
-	speakers  listen.Speakers
-	judge     listen.Judge
-	household []string
-	tools     map[string]session.Tool
+	engine session.Engine
+	// summarizer writes what each conversation was about when it ends: the
+	// turn engine's own model, asked without tools (SPEC §5).
+	summarizer session.Summarizer
+	versions   journal.Versions
+	synth      satellite.Synth
+	stt        stt.Transcriber
+	speakers   listen.Speakers
+	judge      listen.Judge
+	household  []string
+	tools      map[string]session.Tool
 }
 
 // buildProviders constructs the providers without touching the network: a
@@ -145,7 +148,7 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger) (pro
 	versions := engine.Versions()
 	versions.STT, versions.TTS = transcriber.Version(), synth.Version()
 	p := providers{
-		engine: engine, versions: versions, synth: synth, stt: transcriber,
+		engine: engine, summarizer: engine, versions: versions, synth: synth, stt: transcriber,
 		tools: map[string]session.Tool{},
 	}
 

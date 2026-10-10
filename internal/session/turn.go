@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"time"
 
 	"github.com/teaganglenn/chorus/internal/journal"
 )
@@ -80,6 +81,15 @@ type Input struct {
 	// Memories are what the model is told it remembers, as the log recorded
 	// them for this speaker, newest first. Empty for a guest (SPEC §5).
 	Memories []journal.Memory
+
+	// Summaries are the speaker's recent conversations, newest first, as the
+	// log recorded them for this turn. Empty for a guest (SPEC §5).
+	Summaries []journal.Summary
+
+	// Now is when the utterance was heard, by the log: what the model is told
+	// the time is, so asking again from the log tells it the same. Zero for
+	// an engine asked a turn on its own.
+	Now time.Time
 }
 
 // Tool is one executable registry entry. Failures come back as errors and

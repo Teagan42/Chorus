@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/teaganglenn/chorus/internal/journal"
 )
@@ -113,6 +114,12 @@ type Pair struct {
 	// (SPEC §5).
 	Recalled []journal.Memory
 
+	// RecalledSummaries are the person's earlier conversations the rejected
+	// turn was told of, and HeardAt the time it was told it was: an answer
+	// about yesterday is only right against both (SPEC §5).
+	RecalledSummaries []journal.Summary
+	HeardAt           time.Time
+
 	// BargeInPositionMS is how far into playback the interruption landed,
 	// as the listener snapshotted it at detection. The DAC keeps playing for
 	// the stop's flight time, so this lags the real cut.
@@ -178,6 +185,8 @@ type turn struct {
 	spokenAudio []string
 	calls       []journal.Call
 	recalled    []journal.Memory
+	summaries   []journal.Summary
+	heardAt     time.Time
 
 	versions  journal.Versions
 	completed bool
@@ -218,9 +227,10 @@ type walker struct {
 	answering      *draft
 	result         Result
 
-	// recalled is the last memory_recalled. A turn whose memories had not
-	// changed recorded none, and was told these.
-	recalled []journal.Memory
+	// recalled and summaries are the last memory_recalled. A turn whose
+	// memories had not changed recorded none, and was told these.
+	recalled  []journal.Memory
+	summaries []journal.Summary
 }
 
 func (w *walker) fold(e journal.Event) error {
@@ -233,16 +243,22 @@ func (w *walker) fold(e journal.Event) error {
 		w.cur = &turn{
 			promptSeq: e.Seq, heard: e.Fields["text"],
 			speaker: e.Fields["speaker_id"], heardAudio: e.AudioRef,
-			recalled: w.recalled,
+			recalled: w.recalled, summaries: w.summaries, heardAt: e.At.UTC(),
 		}
 	case journal.KindMemoryRecalled:
 		var ms []journal.Memory
 		if err := json.Unmarshal([]byte(e.Fields["memories_json"]), &ms); err != nil {
 			return fmt.Errorf("memories_json: %w", err)
 		}
-		w.recalled = ms
+		var ss []journal.Summary
+		if raw := e.Fields["summaries_json"]; raw != "" {
+			if err := json.Unmarshal([]byte(raw), &ss); err != nil {
+				return fmt.Errorf("summaries_json: %w", err)
+			}
+		}
+		w.recalled, w.summaries = ms, ss
 		if w.cur != nil {
-			w.cur.recalled = ms
+			w.cur.recalled, w.cur.summaries = ms, ss
 		}
 	case journal.KindSessionClosed:
 		if w.cur != nil && e.Fields["reason"] != "migrated" {
@@ -312,10 +328,11 @@ func (w *walker) fold(e journal.Event) error {
 			w.cur.completed = true
 		}
 	case journal.KindSessionOpened, journal.KindBargeInRejected, journal.KindWakeRejected, journal.KindSpeechStarted,
-		journal.KindConfirmationRequested, journal.KindConfirmationGiven:
+		journal.KindConfirmationRequested, journal.KindConfirmationGiven, journal.KindConversationSummarized:
 		// A resumed open continues the same log; rejections tune the gate; a
 		// start is when speech was heard, and the pair is what (ADR-0035). A
-		// held call's outcome is its tool_result; the nonce is the audit's.
+		// held call's outcome is its tool_result; the nonce is the audit's. A
+		// summary is the conversation's, written after its last turn.
 	default:
 		return fmt.Errorf("unhandled event kind %q", e.Kind)
 	}
@@ -389,6 +406,8 @@ func (w *walker) finish(d *draft, answer turn) Pair {
 		Attributed:        r.completed && complete(r.versions),
 		Calls:             r.calls,
 		Recalled:          r.recalled,
+		RecalledSummaries: r.summaries,
+		HeardAt:           r.heardAt,
 		BargeInPositionMS: r.bargeIn.positionMS,
 		CutFrames:         r.cutFrames,
 		Seq: Seq{

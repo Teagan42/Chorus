@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/teaganglenn/chorus/internal/harvest"
 	"github.com/teaganglenn/chorus/internal/journal"
@@ -75,5 +76,51 @@ func TestATurnWithNoRecallOfItsOwnWasToldTheLastOne(t *testing.T) {
 	}
 	if bytes.Contains(buf.Bytes(), []byte(`"recalled"`)) {
 		t.Errorf("export names recalled with nothing remembered: %s", buf.Bytes())
+	}
+}
+
+// What Alice played yesterday evening, as the model summarized it.
+var alicesEvening = []journal.Summary{
+	{ConversationID: "conv-living-room-1904", At: time.Date(2025, 10, 8, 19, 4, 0, 0, time.UTC), Text: "Alice asked for Led Zeppelin's first album and listened to side one."},
+}
+
+// The cut turn was told what Alice played last night and what time it was.
+// "The same as yesterday" means nothing without both, so the pair carries
+// them and the export says so; a summary written after the conversation is
+// nobody's turn.
+//
+// verifies SPEC §5, §9.1
+func TestAPairCarriesTheConversationsAndTimeTheRejectedTurnWasTold(t *testing.T) {
+	cut := cutTurn()
+	withSummaries := record(journal.KindMemoryRecalled, "", "person", "alice",
+		"memories_json", journal.EncodeMemories(nil), "summaries_json", journal.EncodeSummaries(alicesEvening))
+	summarized := record(journal.KindConversationSummarized, "", "people_json", `["alice"]`,
+		"summary", "Alice asked for the first Led Zeppelin album again and picked side one.")
+	p := onePair(t, scan(t, conversation(t, versions(), concat(
+		[]journal.Record{opened("kitchen"), cut[0], withSummaries}, cut[1:], correctedTurn(),
+		[]journal.Record{closed("model_ended"), summarized},
+	))))
+	if !reflect.DeepEqual(p.RecalledSummaries, alicesEvening) {
+		t.Errorf("pair recalled %+v, want last night's album", p.RecalledSummaries)
+	}
+	if want := time.Unix(1_760_000_000, 0).UTC(); !p.HeardAt.Equal(want) {
+		t.Errorf("pair heard at %v, want %v", p.HeardAt, want)
+	}
+
+	var buf bytes.Buffer
+	if err := harvest.Export(&buf, []harvest.Pair{p}); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	var row struct {
+		Meta struct {
+			Conversations []journal.Summary `json:"recalled_conversations"`
+			HeardAt       string            `json:"heard_at"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &row); err != nil {
+		t.Fatalf("decode %s: %v", buf.Bytes(), err)
+	}
+	if !reflect.DeepEqual(row.Meta.Conversations, alicesEvening) || row.Meta.HeardAt != "2025-10-09T08:53:20Z" {
+		t.Errorf("exported %+v at %q", row.Meta.Conversations, row.Meta.HeardAt)
 	}
 }

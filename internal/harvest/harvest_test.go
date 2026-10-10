@@ -152,6 +152,7 @@ func TestBargeInYieldsACandidateWithTheCorrectionAndWhatFollowed(t *testing.T) {
 			{ID: "c1", Tool: "media_search", Args: `{"query":"zeppelin"}`, Outcome: "ok", Result: `{"hits":3}`},
 			{ID: "s1", Tool: "speak", Args: `{"mode":"queue","streamed":true}`, Outcome: "cancelled"},
 		},
+		HeardAt:           time.Unix(1_760_000_000, 0).UTC(),
 		BargeInPositionMS: 420,
 		CutFrames:         2080,
 		Seq:               harvest.Seq{Prompt: 2, BargeIn: 6, Cut: 7, Correction: 10},

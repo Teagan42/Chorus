@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -17,6 +18,8 @@ var migrations embed.FS
 type PgStore struct {
 	db journal.Querier
 }
+
+var _ Store = (*PgStore)(nil)
 
 // NewPgStore wraps an established connection or pool. Migrate must have run.
 func NewPgStore(db journal.Querier) *PgStore { return &PgStore{db: db} }
@@ -71,4 +74,50 @@ func (p *PgStore) Recall(ctx context.Context, person string, limit int) ([]Memor
 		return nil, fmt.Errorf("recall %s: %w", person, err)
 	}
 	return ms, nil
+}
+
+// Summarized keeps s, unless a newer summary of the conversation is kept, and
+// prunes the person's summaries older than SummaryKeep before it.
+func (p *PgStore) Summarized(ctx context.Context, s Summary) error {
+	if err := s.validate(); err != nil {
+		return err
+	}
+	_, err := p.db.Exec(ctx, `
+		WITH pruned AS (
+			DELETE FROM conversation_summaries
+			WHERE person = $2 AND heard_at < $5 AND conversation_id <> $1
+		)
+		INSERT INTO conversation_summaries (conversation_id, person, summary, heard_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (conversation_id, person) DO UPDATE
+		SET summary = EXCLUDED.summary, heard_at = EXCLUDED.heard_at
+		WHERE conversation_summaries.heard_at <= EXCLUDED.heard_at`,
+		s.ConversationID, s.Person, s.Text, s.At, s.At.Add(-SummaryKeep))
+	if err != nil {
+		return fmt.Errorf("keep %s's summary of %s: %w", s.Person, s.ConversationID, err)
+	}
+	return nil
+}
+
+// Summaries returns the person's recent summaries, newest first.
+func (p *PgStore) Summaries(ctx context.Context, person, except string, since time.Time, limit int) ([]Summary, error) {
+	rows, err := p.db.Query(ctx, `
+		SELECT conversation_id, person, summary, heard_at
+		FROM conversation_summaries
+		WHERE person = $1 AND conversation_id <> $2 AND heard_at >= $3
+		ORDER BY heard_at DESC, conversation_id COLLATE "C"
+		LIMIT $4`, person, except, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("recall %s's conversations: %w", person, err)
+	}
+	ss, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Summary, error) {
+		var s Summary
+		err := row.Scan(&s.ConversationID, &s.Person, &s.Text, &s.At)
+		s.At = s.At.UTC()
+		return s, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("recall %s's conversations: %w", person, err)
+	}
+	return ss, nil
 }
