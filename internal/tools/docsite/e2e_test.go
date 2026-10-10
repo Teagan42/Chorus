@@ -243,6 +243,32 @@ func TestE2EReviewUIGuideScreenshotsLoadAndZoom(t *testing.T) {
 	p.shot("site-reviewui-zoom")
 }
 
+func TestE2EHardwareDesignDrawsItsDiagramsAndLinksThePinMap(t *testing.T) {
+	p := open(t, 1280, 900)
+	p.visit("hardware/")
+	p.waitFor("both diagrams drawn",
+		`(() => { const ms = [...document.querySelectorAll("article div.mermaid")]; return ms.length === 2 && ms.every(m => m.getBoundingClientRect().height > 100) })()`)
+	// The pin map is not a page: it is the source the schematic's labels come
+	// from, so the reader lands on it at the commit the site was built from.
+	var hrefs []string
+	p.eval(`[...document.querySelectorAll("article a")].map(a => a.href).filter(h => h.includes("pins.yaml"))`, &hrefs)
+	if len(hrefs) == 0 {
+		t.Fatal("the hardware design no longer links its pin map")
+	}
+	for _, h := range hrefs {
+		if !strings.HasPrefix(h, "https://github.com/Teagan42/Chorus/") || !strings.HasSuffix(h, "/hardware/chorus-sat/pins.yaml") {
+			t.Errorf("pin map linked as %q, want the source on GitHub", h)
+		}
+	}
+	var adr string
+	p.eval(`document.querySelector('article a[href*="adr/0047-"]').href`, &adr)
+	if !strings.HasSuffix(adr, "/Chorus/adr/0047-the-satellite-board-keeps-the-reference-voice-frontend-and-adds-a-wire/") {
+		t.Errorf("ADR-0047 linked as %q, want its page on the site", adr)
+	}
+	p.run(chromedp.ScrollIntoView("article .mermaid", chromedp.ByQuery))
+	p.shot("site-hardware")
+}
+
 func TestE2EDarkModeFollowsTheToggle(t *testing.T) {
 	p := open(t, 1280, 900)
 	p.visit("SPEC/")
@@ -278,7 +304,7 @@ func TestE2EContributingEditsTheRealFile(t *testing.T) {
 
 func TestE2EPhoneWidthHasNoSidewaysScroll(t *testing.T) {
 	p := open(t, 390, 844)
-	for _, path := range []string{"", "reviewui/", "adr/0035-the-first-played-frame-is-an-event/"} {
+	for _, path := range []string{"", "reviewui/", "hardware/", "adr/0035-the-first-played-frame-is-an-event/"} {
 		p.visit(path)
 		var overflow bool
 		p.eval(`document.documentElement.scrollWidth > document.documentElement.clientWidth`, &overflow)
