@@ -91,15 +91,23 @@ func denied(spec registry.ToolSpec, person string) bool {
 // from what the log already says it was told, and returns the state with it.
 // A guest recalls nothing. Recorded rather than fetched per ask, so a replay
 // asks with exactly what this turn was given, as of when it was heard.
+//
+// A guest who follows someone the log says was told something is recorded
+// as told nothing, or the guest's turn would inherit that person's memories
+// from the log (ADR-0048).
 func (s *Session) recall(ctx context.Context, st journal.State, words string) (journal.State, error) {
-	if s.sup.cfg.Memories == nil || st.Speaker == "" {
+	if s.sup.cfg.Memories == nil {
 		return st, nil
 	}
-	got, err := s.sup.cfg.Memories.Recall(ctx, Ask{
-		Person: st.Speaker, ConversationID: s.convID, Now: st.HeardAt, Words: words,
-	})
-	if err != nil {
-		return st, err
+	var got Recollection
+	if st.Speaker != "" {
+		var err error
+		got, err = s.sup.cfg.Memories.Recall(ctx, Ask{
+			Person: st.Speaker, ConversationID: s.convID, Now: st.HeardAt, Words: words,
+		})
+		if err != nil {
+			return st, err
+		}
 	}
 	if st.RecalledFor == st.Speaker && slices.Equal(got.Memories, st.Recalled) &&
 		slices.EqualFunc(got.Summaries, st.RecalledSummaries, sameSummary) &&

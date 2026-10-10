@@ -152,6 +152,11 @@ type Transcript struct {
 	SpeakerID string
 	AudioRef  string
 
+	// SpeakerMatch is how the voice matched the household, as identity
+	// reports it: below_threshold and ambiguous make the turn a guest's,
+	// whoever spoke before (journal.Attribute). Empty when nothing judged it.
+	SpeakerMatch string
+
 	// Ended is when the person stopped speaking, by the listener's clock:
 	// where the household's wait for an answer starts (SPEC §11). Zero when
 	// the listener has no clock.
@@ -302,6 +307,9 @@ func (s *Session) State(ctx context.Context) (journal.State, error) {
 // Heard journals an utterance and runs a turn over it.
 func (s *Session) Heard(ctx context.Context, t Transcript) error {
 	fields := map[string]string{"text": t.Text, "speaker_id": t.SpeakerID}
+	if t.SpeakerMatch != "" {
+		fields["speaker_match"] = t.SpeakerMatch
+	}
 	if len(t.Embedding) > 0 {
 		// Fails only on a non-finite value, which the matcher refuses upstream.
 		b, err := json.Marshal(t.Embedding)
@@ -319,10 +327,10 @@ func (s *Session) Heard(ctx context.Context, t Transcript) error {
 		return err
 	}
 	s.mu.Lock()
-	if t.SpeakerID != "" {
-		// A confident mismatch flips attribution inside the conversation (§5).
-		s.person = t.SpeakerID
-	}
+	// A confident mismatch flips attribution inside the conversation, and a
+	// voice that matched nobody makes it a guest's (§5). The reducer
+	// attributes the same way, so a replay asks as this turn did.
+	s.person = journal.Attribute(s.person, t.SpeakerID, t.SpeakerMatch)
 	// Read under the lock: another utterance's turn may be flipping it.
 	person := s.person
 	s.mu.Unlock()
