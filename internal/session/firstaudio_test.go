@@ -56,7 +56,9 @@ func (s *dacStream) Write(text string) error {
 
 func (s *dacStream) Close() session.Playback {
 	if !s.playing {
-		return session.Playback{Unspoken: s.text, Truncated: true}
+		// The device never reported a frame, as the satellite says when its
+		// drain runs out (internal/satellite).
+		return session.Playback{Unspoken: s.text, Truncated: true, Failure: session.ErrPlaybackUnconfirmed}
 	}
 	return session.Playback{Spoken: s.text, Frames: int64(len(s.text)) * 160, AudioRef: "blob://tts/" + s.callID}
 }

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -23,9 +24,14 @@ type speechChannel struct {
 	pending []*utterance
 	live    int
 
-	// cut latches the interruption until the next turn. Without it, a delta
-	// racing the barge-in starts playing speech nobody may hear.
-	cut bool
+	// cut latches the interruption until the next turn, with its reason:
+	// a barge-in, the session's end, or the voice failing. Without it, a
+	// delta racing the barge-in starts playing speech nobody may hear.
+	cut string
+
+	// cannedSaid is set once this turn has said a canned line. One apology
+	// is enough, and a voice that failed the first cannot say a second.
+	cannedSaid bool
 
 	// closed latches the session's end: nothing more plays, an announcement
 	// included, which a cut alone does not stop.
@@ -66,6 +72,10 @@ type utterance struct {
 	announces bool
 	heard     chan<- bool
 
+	// canned marks a canned line, which a failure of its own does not
+	// apologise for again (ADR-0051).
+	canned bool
+
 	// closed tells the watcher of a Starter that playback is over, and
 	// watched closes once it has stopped watching. Nil when the stream
 	// cannot see its DAC.
@@ -85,10 +95,53 @@ func newSpeechChannel(s *Session) *speechChannel {
 func (c *speechChannel) deliver(d SpeechDelta) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.cut {
+	if c.cut != "" {
 		return false
 	}
-	return c.deliverLocked(d, false, nil)
+	return c.deliverLocked(d, false, nil, false)
+}
+
+// cutReason is why the channel was cut, for speech that arrives after it.
+func (c *speechChannel) cutReason() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cutReasonLocked()
+}
+
+func (c *speechChannel) cutReasonLocked() string {
+	if c.cut == "" {
+		// Not cut: the turn was, by the barge-in that cancels it.
+		return "barge_in"
+	}
+	return c.cut
+}
+
+// claimCanned spends this turn's canned line and names its speak call, or
+// returns empty when one has been said or nothing more will play.
+func (c *speechChannel) claimCanned() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.claimCannedLocked()
+}
+
+func (c *speechChannel) claimCannedLocked() string {
+	if c.closed || c.cannedSaid {
+		return ""
+	}
+	c.cannedSaid = true
+	return "cn_" + newID()[:8]
+}
+
+// canned queues a canned line whole. It plays past a cut, as the voice's
+// own failure cuts the turn; only the session's end refuses it.
+func (c *speechChannel) canned(callID, text string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cannedLocked(callID, text)
+}
+
+func (c *speechChannel) cannedLocked(callID, text string) bool {
+	return c.deliverLocked(SpeechDelta{CallID: callID, Text: text, Mode: ModeQueue, Last: true}, false, nil, true)
 }
 
 // announce queues an announcement whole. A barge-in cut the turn, and this
@@ -96,7 +149,7 @@ func (c *speechChannel) deliver(d SpeechDelta) bool {
 func (c *speechChannel) announce(callID, text string, heard chan<- bool) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.deliverLocked(SpeechDelta{CallID: callID, Text: text, Mode: ModeQueue, Last: true}, true, heard)
+	return c.deliverLocked(SpeechDelta{CallID: callID, Text: text, Mode: ModeQueue, Last: true}, true, heard, false)
 }
 
 // tell reports whether an announcement was heard, once, never blocking.
@@ -110,13 +163,13 @@ func tell(heard chan<- bool, ok bool) {
 	}
 }
 
-func (c *speechChannel) deliverLocked(d SpeechDelta, announces bool, heard chan<- bool) bool {
+func (c *speechChannel) deliverLocked(d SpeechDelta, announces bool, heard chan<- bool, canned bool) bool {
 	if c.closed || c.dead[d.CallID] {
 		return false
 	}
 	u := c.find(d.CallID)
 	if u == nil {
-		u = &utterance{callID: d.CallID, last: make(chan struct{}), announces: announces, heard: heard}
+		u = &utterance{callID: d.CallID, last: make(chan struct{}), announces: announces, heard: heard, canned: canned}
 		c.live++
 		switch mode(d.Mode) {
 		case ModePreempt:
@@ -154,7 +207,7 @@ func (c *speechChannel) deliverLocked(d SpeechDelta, announces bool, heard chan<
 func (c *speechChannel) resume(asked time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.cut = false
+	c.cut, c.cannedSaid = "", false
 	c.dead = map[string]bool{}
 	c.asked, c.heard = asked, false
 }
@@ -164,7 +217,7 @@ func (c *speechChannel) resume(asked time.Time) {
 func (c *speechChannel) interrupt(reason string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.cut = true
+	c.cut = reason
 	c.cutLocked(reason)
 	c.dropLocked(reason)
 }
@@ -174,7 +227,7 @@ func (c *speechChannel) interrupt(reason string) {
 func (c *speechChannel) shut(reason string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.cut, c.closed = true, true
+	c.cut, c.closed = reason, true
 	c.cutLocked(reason)
 	c.dropLocked(reason)
 }
@@ -241,12 +294,22 @@ func (c *speechChannel) startNextLocked() {
 	u.ctx, u.cancel = context.WithCancel(c.s.ctx)
 	stream, err := c.s.sup.cfg.Speaker.Open(u.ctx, u.callID)
 	if err != nil {
-		c.s.fail(fmt.Errorf("open tts %s: %w", u.callID, err))
-		c.s.result(u.callID, "error", `{"error":"tts_unavailable"}`)
+		// The voice failed before a word of this was heard: never played,
+		// and never mistaken for a cut (ADR-0051).
+		c.dead[u.callID] = true
 		tell(u.heard, false)
 		u.cancel()
 		c.live--
+		reason := ErrVoiceUnavailable.Error()
+		id := c.claimForLocked(u, reason)
+		c.recordFailure(u.callID, reason, fmt.Errorf("open: %w", err), id)
+		if text := strings.Join(u.buf, ""); text != "" {
+			c.discardedLocked(text, reason)
+		}
+		c.s.result(u.callID, "error", failedResult(reason))
+		c.failedLocked(u, reason, id)
 		c.idle.Broadcast()
+		c.startNextLocked()
 		return
 	}
 	// Register the child before the first write: the write is observable, so
@@ -311,18 +374,30 @@ func (c *speechChannel) play(u *utterance) {
 	}
 
 	// Read the reason under the mutex: ending naturally races a cut being
-	// applied, which writes it.
+	// applied, which writes it. Cut short with no cut asked for is the voice
+	// or the device failing, never the person (ADR-0051).
 	c.mu.Lock()
-	reason := u.reason
+	reason, id := u.reason, ""
+	failed := reason == "" && pb.Truncated
+	if failed {
+		reason = failureReason(pb.Failure)
+		id = c.claimForLocked(u, reason)
+	}
 	c.mu.Unlock()
 
 	// Recorded before the next utterance may start, so the log order is the
-	// order the queue was heard in.
-	c.record(u.callID, reason, pb)
+	// order the queue was heard in, and the failure ahead of what it cut.
+	if failed {
+		c.recordFailure(u.callID, reason, pb.Failure, id)
+	}
+	c.record(u.callID, reason, failed, pb)
 	tell(u.heard, !pb.Truncated || pb.Spoken != "")
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if failed {
+		c.failedLocked(u, reason, id)
+	}
 	c.s.leave("speaking")
 	c.current = nil
 	c.live--
@@ -332,32 +407,29 @@ func (c *speechChannel) play(u *utterance) {
 
 // record writes what the DAC actually played. The spoken half is kept and
 // marked interrupted; the unspoken half is a different event (SPEC §4.4).
-func (c *speechChannel) record(callID, reason string, pb Playback) {
+// Either names why it was cut, and a failed call's result says it failed.
+func (c *speechChannel) record(callID, reason string, failed bool, pb Playback) {
 	frames := strconv.FormatInt(pb.Frames, 10)
-	if reason == "" {
-		reason = "barge_in"
+	outcome, result := "cancelled", ""
+	if failed {
+		outcome, result = "error", failedResult(reason)
 	}
 	switch {
 	case pb.Truncated && pb.Spoken == "":
 		// Nothing was heard, so there is no split to record.
 		if pb.Unspoken != "" {
-			c.s.fail(c.s.record(journal.Record{
-				Kind: journal.KindSpeechDiscarded,
-				Fields: map[string]string{
-					"unspoken_text": pb.Unspoken, "reason": reason,
-				},
-			}))
+			c.discardedLocked(pb.Unspoken, reason)
 		}
-		c.s.result(callID, "cancelled", "")
+		c.s.result(callID, outcome, result)
 	case pb.Truncated:
 		c.s.fail(c.s.record(journal.Record{
 			Kind: journal.KindSpeechTruncated, AudioRef: pb.AudioRef,
 			Fields: map[string]string{
 				"spoken_text": pb.Spoken, "unspoken_text": pb.Unspoken,
-				"frames_played": frames, "call_id": callID,
+				"frames_played": frames, "call_id": callID, "reason": reason,
 			},
 		}))
-		c.s.result(callID, "cancelled", "")
+		c.s.result(callID, outcome, result)
 	case pb.Spoken != "":
 		c.s.fail(c.s.record(journal.Record{
 			Kind: journal.KindSpeechSpoken, AudioRef: pb.AudioRef,
@@ -367,6 +439,69 @@ func (c *speechChannel) record(callID, reason string, pb Playback) {
 	default:
 		c.s.result(callID, "ok", "")
 	}
+}
+
+// failureReason names a failed playback for the journal. One the stream
+// did not explain is still the voice's: nobody cut it.
+func failureReason(err error) string {
+	if errors.Is(err, ErrPlaybackUnconfirmed) {
+		return ErrPlaybackUnconfirmed.Error()
+	}
+	return ErrVoiceUnavailable.Error()
+}
+
+// failedResult is a failed speak call's result, as an Open that failed
+// has always reported it.
+func failedResult(reason string) string { return `{"error":"` + reason + `"}` }
+
+// claimForLocked spends the turn's canned line on a voice failure, unless
+// the failure was an announcement's or the canned line's own.
+func (c *speechChannel) claimForLocked(u *utterance, reason string) string {
+	if reason != ErrVoiceUnavailable.Error() || u.announces || u.canned {
+		return ""
+	}
+	return c.claimCannedLocked()
+}
+
+// recordFailure journals why a speak call's audio failed. Safe with or
+// without the channel's lock: it touches only the journal.
+func (c *speechChannel) recordFailure(callID, reason string, err error, cannedID string) {
+	fields := map[string]string{"call_id": callID, "reason": reason}
+	if err != nil {
+		fields["error"] = err.Error()
+	}
+	if cannedID != "" {
+		fields["canned_call_id"] = cannedID
+	}
+	c.s.sup.cfg.Log.Warn("speech failed", "conversation", c.s.convID, "call", callID, "reason", reason, "err", err)
+	c.s.fail(c.s.record(journal.Record{Kind: journal.KindSpeechFailed, Fields: fields}))
+}
+
+// failedLocked ends the turn's speech once the voice has failed: what is
+// queued behind would fail the same way, and gaps where words went missing
+// say something nobody meant. The canned line plays past the cut. An
+// announcement is no part of the turn, and a device that stopped reporting
+// may still be playing, so neither cuts it.
+func (c *speechChannel) failedLocked(u *utterance, reason, cannedID string) {
+	if u.announces || reason != ErrVoiceUnavailable.Error() {
+		return
+	}
+	if c.cut == "" {
+		c.cut = reason
+	}
+	c.dropLocked(reason)
+	if cannedID != "" {
+		c.s.sayCannedLocked(cannedID, c.s.sup.cfg.Canned.Voice)
+	}
+}
+
+// discardedLocked journals speech nobody heard. Safe with or without the
+// channel's lock: it touches only the journal.
+func (c *speechChannel) discardedLocked(text, reason string) {
+	c.s.fail(c.s.record(journal.Record{
+		Kind:   journal.KindSpeechDiscarded,
+		Fields: map[string]string{"unspoken_text": text, "reason": reason},
+	}))
 }
 
 // busy reports whether anything is queued or playing.

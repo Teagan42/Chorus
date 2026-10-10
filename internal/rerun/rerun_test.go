@@ -417,3 +417,22 @@ func TestAnAnnouncementIsNotPartOfTheTurnItInterrupts(t *testing.T) {
 		t.Errorf("speech = %+v, want the turn's own two", ts[0].Recorded.Speech)
 	}
 }
+
+// Ollama was down for Teagan's ask, so the kitchen said its canned line. That
+// is not what the model said: a re-run against a model that is up is
+// compared with nothing, not with an apology (ADR-0051).
+//
+// verifies SPEC §7, §9.2
+func TestTheApologyForAModelThatWasDownIsNotItsSpeech(t *testing.T) {
+	ts := turns(t, logOf(t, []journal.Record{
+		record(journal.KindSessionOpened, "satellite", "kitchen", "speaker_id", "teagan", "resumed", "false"),
+		record(journal.KindUtteranceTranscribed, "text", "turn off the kitchen lights", "speaker_id", "teagan"),
+		record(journal.KindModelFailed, "reason", "unavailable", "error", "ollama chat: dial tcp 10.0.0.20:11434: connect: connection refused", "canned_call_id", "cn_77d0"),
+		record(journal.KindToolCalled, "tool", "speak", "call_id", "cn_77d0", "args_json", `{"text":"Sorry, I can't think straight right now.","mode":"queue","canned":true}`),
+		record(journal.KindSpeechSpoken, "text", "Sorry, I can't think straight right now.", "frames_played", "40000", "call_id", "cn_77d0"),
+		record(journal.KindToolResult, "call_id", "cn_77d0", "outcome", "ok"),
+	}))
+	if len(ts) != 1 || len(ts[0].Recorded.Speech) != 0 || len(ts[0].Recorded.Calls) != 0 {
+		t.Errorf("turns = %+v, want one turn that said and did nothing of its own", ts)
+	}
+}

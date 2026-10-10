@@ -121,6 +121,11 @@ func Turns(events []journal.Event) ([]Turn, error) {
 		case journal.KindAnnouncementMade:
 			// Said for a timer or another room, not by the turn's model.
 			later[f["call_id"]] = true
+		case journal.KindModelFailed, journal.KindSpeechFailed:
+			// The canned line is the orchestrator's, not the model's (ADR-0051).
+			if id := f["canned_call_id"]; id != "" {
+				later[id] = true
+			}
 		case journal.KindMemoryRecalled:
 			if !asked {
 				t.Memories, t.Summaries = state.Recalled, state.RecalledSummaries

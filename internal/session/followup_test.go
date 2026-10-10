@@ -307,7 +307,7 @@ func TestTheNextAskIsToldWhereTheAnswerWasCut(t *testing.T) {
 
 	asks := r.engine.asks()
 	got := asks[len(asks)-1].Dialogue[1]
-	want := journal.Entry{Kind: journal.EntrySaid, CallID: "call_s1", Text: "I found three", Cut: true}
+	want := journal.Entry{Kind: journal.EntrySaid, CallID: "call_s1", Text: "I found three", Cut: true, CutBy: "barge_in"}
 	if got != want {
 		t.Errorf("cut answer told as %+v, want %+v", got, want)
 	}

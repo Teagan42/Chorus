@@ -508,3 +508,37 @@ func TestATimerNobodyHeardIsAFailure(t *testing.T) {
 		t.Errorf("context = %q / %q / %q", s.Utterance, s.Speaker, s.Satellite)
 	}
 }
+
+// Ollama refused the connection: no completion was ever recorded to raise
+// on, so the failure itself is the signal, with what the engine said.
+//
+// verifies SPEC §7
+func TestAModelThatNeverAnsweredIsAFailure(t *testing.T) {
+	sig := one(t, scan(t,
+		opened("kitchen", "teagan"),
+		heard("turn off the kitchen lights", "teagan"),
+		record(journal.KindModelFailed, "", "reason", "unavailable", "error", "dial tcp 10.0.0.20:11434: connect: connection refused", "canned_call_id", "cn_77d0"),
+		called("speak", "cn_77d0"),
+		result("cn_77d0", "ok"),
+	))
+	if sig.Kind != triage.KindFailure || sig.Utterance != "turn off the kitchen lights" ||
+		sig.Detail != "model unavailable: dial tcp 10.0.0.20:11434: connect: connection refused" {
+		t.Errorf("signal = %+v", sig)
+	}
+}
+
+// A stalled or broken stream already raised on its completion; its
+// model_failed does not raise a second signal for the same turn.
+//
+// verifies SPEC §7
+func TestAStalledModelIsOneFailureNotTwo(t *testing.T) {
+	sig := one(t, scan(t,
+		opened("office", "alan"),
+		heard("what's on the calendar today", "alan"),
+		completed("error"),
+		record(journal.KindModelFailed, "", "reason", "timed_out", "error", "nothing from the model for 1m30s", "canned_call_id", "cn_1b2c"),
+	))
+	if sig.Detail != "model finished with error" {
+		t.Errorf("signal = %+v", sig)
+	}
+}

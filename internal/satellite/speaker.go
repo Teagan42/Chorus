@@ -282,6 +282,9 @@ type stream struct {
 	// overflowed is set once a segment could not be queued. Every segment after
 	// it is recorded but never synthesised.
 	overflowed bool
+	// failed is why the feeder stopped short of a cut: the synthesiser, or the
+	// store the audio is kept in, failed. Reported, never as a barge-in.
+	failed error
 }
 
 // Write queues a delta. It never blocks on synthesis or on the radio: the
@@ -324,6 +327,15 @@ func (s *stream) Write(text string) error {
 	return nil
 }
 
+// fail keeps the first reason the feeder stopped.
+func (s *stream) fail(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.failed == nil {
+		s.failed = err
+	}
+}
+
 func (s *stream) overflowErr() error {
 	return fmt.Errorf("satellite: %s has %d segments awaiting synthesis", s.callID, deltaQueue)
 }
@@ -364,8 +376,10 @@ func (s *stream) send(i int) bool {
 
 	pcm, err := s.sat.cfg.Synth.Synthesize(s.ctx, text)
 	if err != nil {
-		// Not reported as an error: Close's contract is a truncation point, and
-		// what the DAC played so far is still the honest answer.
+		// Not returned as an error: Close's contract is a truncation point, and
+		// what the DAC played so far is still the honest answer. Kept as the
+		// reason, unless a barge-in cancelled the synthesis (ADR-0051).
+		s.fail(fmt.Errorf("synthesize %q: %w", text, err))
 		return false
 	}
 
@@ -373,6 +387,7 @@ func (s *stream) send(i int) bool {
 	// the DAC reached it: Frames marks where the ear stopped, so a reader can
 	// trim, and the untrimmed tail is the unspoken half of the pair (SPEC §9.1).
 	if _, err := s.audio.Write(pcm); err != nil {
+		s.fail(fmt.Errorf("keep audio: %w", err))
 		return false
 	}
 
@@ -447,6 +462,7 @@ func (s *stream) Close() session.Playback {
 	s.mu.Lock()
 	segs := append([]segment(nil), s.segs...)
 	total := s.total
+	failed := s.failed
 	s.mu.Unlock()
 
 	// Read after the device has answered the stop, never before: the DAC keeps
@@ -465,18 +481,32 @@ func (s *stream) Close() session.Playback {
 		// the frame count the journal carries is this utterance's own audio.
 		return session.Playback{Spoken: allText(segs), AudioRef: ref, Frames: int64(total)}
 	}
+	var failure error
 	if !cut {
-		// Truncated without a barge-in: the drain deadline expired. Discard
-		// what the device still holds, or it plays over the next utterance.
-		// No settle after this one -- the device reported nothing for the whole
-		// drain window, so there is nothing in flight to wait for.
+		// Truncated without a barge-in: the synthesiser failed, or the drain
+		// deadline expired. Discard what the device still holds, or it plays
+		// over the next utterance. No settle after this one -- either the
+		// device has drained what it was sent, or it reported nothing for the
+		// whole drain window, so there is nothing in flight to wait for.
 		_, _ = s.sat.cfg.Link.Stop()
+		failure = failureOf(failed)
 	}
 	spoken, unspoken := split(segs, played)
 	return session.Playback{
 		Spoken: spoken, Unspoken: unspoken, AudioRef: ref,
-		Frames: int64(played), Truncated: true,
+		Frames: int64(played), Truncated: true, Failure: failure,
 	}
+}
+
+// failureOf names why an uncut utterance stopped short: the voice, when the
+// feeder stopped on an error, else a device that never confirmed the end.
+// Neither is the person interrupting, and the session must not record either
+// as one (ADR-0051).
+func failureOf(failed error) error {
+	if failed != nil {
+		return fmt.Errorf("%w: %w", session.ErrVoiceUnavailable, failed)
+	}
+	return session.ErrPlaybackUnconfirmed
 }
 
 // keepAudio publishes the utterance's audio, or discards it when no event will

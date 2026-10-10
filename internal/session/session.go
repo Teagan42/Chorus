@@ -93,6 +93,14 @@ type Config struct {
 	// Rounds caps how many times one utterance asks the model: the first ask,
 	// and one more after each set of tool results. Zero is DefaultRounds.
 	Rounds int
+
+	// ModelTimeout is how long an ask may go without the model emitting
+	// anything before it is given up on. Zero is DefaultModelTimeout.
+	ModelTimeout time.Duration
+
+	// Canned is what is said when the model or the voice fails. Empty lines
+	// take DefaultCanned's (SPEC §7).
+	Canned Canned
 }
 
 // Supervisor opens sessions. It holds no per-session state.
@@ -122,6 +130,15 @@ func New(cfg Config) (*Supervisor, error) {
 	}
 	if cfg.Rounds == 0 {
 		cfg.Rounds = DefaultRounds
+	}
+	if cfg.ModelTimeout == 0 {
+		cfg.ModelTimeout = DefaultModelTimeout
+	}
+	if cfg.Canned.Model == "" {
+		cfg.Canned.Model = DefaultCanned.Model
+	}
+	if cfg.Canned.Voice == "" {
+		cfg.Canned.Voice = DefaultCanned.Voice
 	}
 	if cfg.Summarizer != nil && cfg.Memories == nil {
 		return nil, errors.New("session: a summarizer needs memories to keep summaries in")
@@ -376,6 +393,12 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 			Summaries:      st.RecalledSummaries,
 			Now:            st.HeardAt,
 		})
+		if f, ok := isModelFailure(err); ok {
+			// No model is left to reason with, so no follow-up either: the
+			// canned line is the turn's answer (SPEC §7).
+			s.modelFailed(f)
+			break
+		}
 		if err != nil {
 			return err
 		}
@@ -399,9 +422,19 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 // action as it arrives, and waits for the calls it made. It reports whether
 // the model called anything that answers and did not also end the session,
 // which is what earns a follow-up.
+//
+// The model streams on a context of its own under the turn's: the deadline
+// cancels the model, never the calls it already made, which run on the
+// turn's. An ask the model let down returns a *modelFailure.
 func (s *Session) ask(turnCtx context.Context, in Input) (bool, error) {
-	actions, err := s.sup.cfg.Engine.Turn(turnCtx, in)
+	modelCtx, cancelModel := context.WithCancel(turnCtx)
+	defer cancelModel()
+	dog := s.watch(cancelModel)
+	actions, err := s.sup.cfg.Engine.Turn(modelCtx, in)
 	if err != nil {
+		if f := s.failure(turnCtx.Err() != nil, dog.stop(), false, err.Error()); f != nil {
+			return false, f
+		}
 		return false, fmt.Errorf("turn %s: %w", s.convID, err)
 	}
 	// Inline speech has no id of its own, and each ask's is a new utterance.
@@ -411,9 +444,13 @@ func (s *Session) ask(turnCtx context.Context, in Input) (bool, error) {
 
 	var wg sync.WaitGroup
 	acted, ended := false, false
+	// finished is a turn the model ended itself; broke one whose stream
+	// ended in error, with why.
+	finished, broke, brokeWhy := false, false, ""
 	open := map[string]bool{}
 	dropped := map[string]string{}
 	for a := range actions {
+		dog.heard()
 		switch act := a.(type) {
 		case SpeechDelta:
 			s.deliverSpeech(turnCtx, act, open, dropped)
@@ -429,13 +466,21 @@ func (s *Session) ask(turnCtx context.Context, in Input) (bool, error) {
 					"finish_reason":   act.FinishReason,
 				},
 			}))
+			broke, brokeWhy = act.FinishReason == FinishError, act.Error
+			finished = !broke
 		}
 	}
+	stalled := dog.stop() && !finished
 	// Whatever the model was still generating when it was cut off.
 	for _, id := range slices.Sorted(maps.Keys(dropped)) {
 		s.discardSpeech(id, dropped[id])
 	}
 	wg.Wait()
+	if broke || stalled {
+		if f := s.failure(turnCtx.Err() != nil, stalled, true, brokeWhy); f != nil {
+			return false, f
+		}
+	}
 	// The model ended the conversation: whatever else it called alongside,
 	// there is nobody left to answer. The session only closes once the
 	// farewell drains, so the closing context alone would let one more ask
@@ -498,13 +543,14 @@ func streamedArgs(d SpeechDelta) string {
 	return string(b)
 }
 
-// discardSpeech records text the model generated for a turn that was cut off.
+// discardSpeech records text the model generated for a turn that was cut
+// off, for whatever reason the speech channel was cut.
 func (s *Session) discardSpeech(callID, text string) {
 	if text != "" {
 		s.fail(s.record(journal.Record{
 			Kind: journal.KindSpeechDiscarded,
 			Fields: map[string]string{
-				"unspoken_text": text, "reason": "barge_in",
+				"unspoken_text": text, "reason": s.speech.cutReason(),
 			},
 		}))
 	}

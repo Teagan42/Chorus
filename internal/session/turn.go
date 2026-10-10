@@ -48,7 +48,14 @@ type ToolCall struct {
 type TurnEnd struct {
 	FinishReason string
 	Completion   string
+
+	// Error is why the stream broke, when FinishReason is FinishError.
+	Error string
 }
+
+// FinishError is the finish reason of a turn whose stream broke before the
+// model finished: the engine's, or the ask being given up on (ADR-0051).
+const FinishError = "error"
 
 func (SpeechDelta) action() {}
 func (ToolCall) action()    {}
