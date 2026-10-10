@@ -1109,6 +1109,45 @@ func TestDrainDeadlineReportsTruncationRatherThanHanging(t *testing.T) {
 	}
 }
 
+// The model sends a speak call whole, so its stream is closed while the
+// kitchen is still playing it, and a cut lands during the drain. It is a
+// cut all the same: the stop is answered, and the position on that answer
+// is where the ear stopped, not the last routine report (ADR-0033).
+//
+// verifies SPEC §4.4
+func TestACutWhileTheDeviceDrainsIsTheStopsAnswer(t *testing.T) {
+	r := newRig(t, func(c *satellite.Config) { c.Settle = rigSettle })
+	st, cancel := r.open(t, "call-1")
+
+	for _, delta := range []string{"Hello ", "there ", "world."} {
+		if err := st.Write(delta); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	r.dev.AwaitTTS(t, len("Hello there world.")*framesPerByte*2)
+	done := closeAsync(st)
+	r.dev.AwaitFinish(t, 1)
+	r.play(t, 2*framesPerByte)
+	// The DAC gets into "there " while the stop is in flight.
+	r.dev.PlayDuringStop(5 * framesPerByte)
+
+	cancel()
+	pb := await(t, done)
+
+	if want := int64(7 * framesPerByte); pb.Frames != want {
+		t.Errorf("Frames = %d, want %d: the stop's answer is the cut", pb.Frames, want)
+	}
+	if pb.Spoken != "Hello there " || pb.Unspoken != "world." {
+		t.Errorf("split = (%q, %q), want (%q, %q)", pb.Spoken, pb.Unspoken, "Hello there ", "world.")
+	}
+	if !pb.Truncated || pb.Failure != nil {
+		t.Errorf("Truncated = %v, Failure = %v: want a cut, which is no failure", pb.Truncated, pb.Failure)
+	}
+	if n := r.dev.Stops(); n != 1 {
+		t.Errorf("%d stops, want 1", n)
+	}
+}
+
 func TestNewRejectsIncompleteWiring(t *testing.T) {
 	link, _ := bridgetest.Dial(t, 1)
 	for name, cfg := range map[string]satellite.Config{
