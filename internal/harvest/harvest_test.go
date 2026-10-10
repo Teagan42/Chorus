@@ -533,7 +533,7 @@ func TestTheFirstPlayedFrameDoesNotChangeThePair(t *testing.T) {
 // The oven goes off in the kitchen while Alice waits on a search, and is said
 // ahead of the answer she then cuts off. The oven's words were nobody's
 // choice, so the rejected side is the answer alone, and the oven's speak
-// call is not among the turn's calls (ADR-0044).
+// call is not among the turn's calls (ADR-0045).
 //
 // verifies SPEC §9.1
 func TestAnAnnouncementInTheMiddleOfACutTurnIsNoPartOfThePair(t *testing.T) {

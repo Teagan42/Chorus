@@ -233,7 +233,7 @@ type walker struct {
 	summaries []journal.Summary
 
 	// announced are the speak calls that said an announcement. Nobody's
-	// turn chose those words, so they are no side of a pair (ADR-0044).
+	// turn chose those words, so they are no side of a pair (ADR-0045).
 	announced map[string]bool
 }
 

@@ -53,7 +53,7 @@ func setOven(t *testing.T, r *rig, dev *bridgetest.Device) int {
 // Alan sets the oven timer in the kitchen and walks away; the conversation
 // ends. Twelve minutes later, with nobody talking to it, the kitchen says
 // the timer is done in a session of its own, and the house log says it was
-// heard there (SPEC §4, ADR-0044).
+// heard there (SPEC §4, ADR-0045).
 //
 // verifies SPEC §4, §8
 func TestTheOvenTimerGoesOffInTheKitchen(t *testing.T) {

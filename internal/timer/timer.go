@@ -1,6 +1,6 @@
 // Package timer keeps the household's timers in journal.HouseTimers; the
 // scheduler's state is that log reduced. A timer goes off where it was set
-// (ADR-0044).
+// (ADR-0045).
 package timer
 
 import (

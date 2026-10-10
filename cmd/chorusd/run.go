@@ -88,7 +88,7 @@ type daemon struct {
 	memories session.Memories
 
 	// links is each connected satellite's Listening child, by name: where
-	// an announcement for that satellite is said (ADR-0044).
+	// an announcement for that satellite is said (ADR-0045).
 	linksMu sync.Mutex
 	links   map[string]*listen.Listener
 
@@ -137,7 +137,7 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 		dm.summarizer = nil
 	}
 	// Timers live in the journal, so a household always has them: armed
-	// from the house log before the first satellite connects (ADR-0044).
+	// from the house log before the first satellite connects (ADR-0045).
 	timers, err := timer.Start(ctx, timer.Config{
 		Journal: dm.journal, Store: d.Store, Clock: d.Clock, Timers: d.Timers,
 		Announcer: dm, Log: d.Log,

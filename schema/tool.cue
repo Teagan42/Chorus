@@ -124,7 +124,7 @@ tools: {
 	}
 
 	// Timers belong to the house: anyone may set one, and it goes off on the
-	// satellite it was set on, conversation or no (ADR-0044). Setting and
+	// satellite it was set on, conversation or no (ADR-0045). Setting and
 	// cancelling are done the moment they are called, so a barge-in keeps
 	// the result rather than leaving the model unsure what the house did.
 	timer_start: {

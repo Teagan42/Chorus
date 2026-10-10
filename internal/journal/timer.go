@@ -9,7 +9,7 @@ import (
 
 // HouseTimers is the log every timer is kept in. A timer outlives the
 // session that set it, and the daemon, which replays this log at startup
-// (ADR-0044).
+// (ADR-0045).
 const HouseTimers = "house:timers"
 
 // TimerStatus is where a timer is in its life.

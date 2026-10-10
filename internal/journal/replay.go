@@ -64,7 +64,7 @@ type State struct {
 	Announcements []Announcement
 
 	// Timers are every timer the log set, in the order they were set, and
-	// what became of each. Only HouseTimers holds any (ADR-0044).
+	// what became of each. Only HouseTimers holds any (ADR-0045).
 	Timers []Timer
 
 	LastSeq     uint64

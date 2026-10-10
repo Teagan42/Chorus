@@ -209,10 +209,10 @@ events: {
 	}
 
 	// Timers belong to the house, not the conversation that set them: they
-	// outlive its session, and the daemon (ADR-0044).
+	// outlive its session, and the daemon (ADR-0045).
 	timer_started: {
 		name:        "timer_started", actor: "tool"
-		description: "A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0044)."
+		description: "A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0045)."
 		fields: [
 			{name: "timer_id", type: "string", description: "What timer_cancel takes, e.g. t_3f9c2a10.", required: true},
 			{name: "seconds", type: "integer", description: "How long it was set for.", required: true},

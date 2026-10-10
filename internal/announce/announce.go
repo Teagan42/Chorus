@@ -1,5 +1,5 @@
 // Package announce says things on satellites nobody woke: the announce tool,
-// and the seam a timer going off is said through (SPEC §4, ADR-0044).
+// and the seam a timer going off is said through (SPEC §4, ADR-0045).
 package announce
 
 import (
