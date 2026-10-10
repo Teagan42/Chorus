@@ -68,11 +68,17 @@ every screen says so:
 The audio is synthetic. `voice.json` scripts who says what and for how long,
 and `task household:voice` speaks it with Kokoro, the TTS `chorusd` uses, into
 16 kHz device PCM. A cut answer is spoken in two halves so the cut lands on
-the word the journal recorded.
+the word the journal recorded. `task household:voice:clone` gives the people
+you name a voice cloned with Chatterbox from a reference recording of them,
+fitted to the same lengths; it runs on your machine, and the clips it writes
+are committed and public, so clone only voices whose owners said yes.
 
 ```sh norun
 task demo:serve        # build into site/demo, serve http://127.0.0.1:8090/demo/
 task household:voice   # re-speak the clips after editing voice.json
+task household:voice -- --who alice --who assistant   # only theirs
+task household:voice:clone -- --voice teagan=teagan.wav --voice alan=alan.wav
+task household:voice:test   # the generators' own tests, with stand-in engines
 ```
 
 The docs workflow builds the demo on every PR and publishes it with the site.
