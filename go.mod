@@ -1,4 +1,4 @@
-module github.com/teaganglenn/chorus
+module github.com/teagan42/chorus
 
 go 1.27.0
 
