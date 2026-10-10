@@ -61,6 +61,7 @@ decision rather than by clause: facets of one choice share one record.
 | [0050](0050-the-satellite-says-where-it-is-what-it-heard-and-who-is-in-the-room.md) | Each turn is told the satellite's room, the second mic channel is kept beside the first, and the room's presence is journalled to the device log | §3.3.1, §5, §8, §9.3 |
 | [0051](0051-a-failed-model-or-voice-is-said-and-kept-and-never-a-barge-in.md) | A model that is down, breaks or goes quiet past its deadline, and a voice that fails, are journalled and apologised for in one canned line; a voice failure is never a barge-in | §4.5, §7, §9.1 |
 | [0052](0052-labels-and-promoted-re-runs-live-beside-the-journal-and-make-pairs-on-read.md) | Refines 0034: SPEC §9.2's labels and promoted re-runs live beside the journal; a labelled turn and a promoted take become pairs on read | §8, §9.2 |
+| [0054](0054-a-pair-carries-what-each-side-called-beside-what-it-said.md) | Refines 0052: each side of a pair carries its tool calls beside its speech; a promoted re-run may be calls alone, and a *wrong tool* note trains on speech | §4.1, §9.2 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
