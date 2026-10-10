@@ -578,6 +578,23 @@ func TestTriageQueuesEverySignalNewestFirst(t *testing.T) {
 	}
 }
 
+// Triage tells the time on the server's clock, as Browse and Replay do, not
+// in whatever zone the process happened to start in.
+//
+// verifies SPEC §9.2
+func TestTriageTellsTheTimeOnTheServersClock(t *testing.T) {
+	pacific := time.FixedZone("PDT", -7*60*60)
+	now := func() time.Time { return time.Unix(1_760_010_000, 0).In(pacific) }
+	s := newServer(withFailure(t, bargeInLog(t)), curation.NewMemStore(), fixtureBlobs(t), now)
+	// Alice's barge-in was at 08:53 UTC, before two in the morning in Pacific.
+	if h := get(t, s, "/queue"); !strings.Contains(h, "Oct 9 01:53") {
+		t.Error("Triage does not show the barge-in at 01:53 on the server's clock")
+	}
+	if h := get(t, s, "/replays"); !strings.Contains(h, "9 Oct 01:53") {
+		t.Error("Replay does not show the conversation at 01:53 on the server's clock")
+	}
+}
+
 // verifies SPEC §9.2
 func TestTriageTabsFilterBySignal(t *testing.T) {
 	s := newTriageServer(t)

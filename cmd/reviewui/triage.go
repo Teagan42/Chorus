@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/teagan42/chorus/internal/reviewui/ui"
 	"github.com/teagan42/chorus/internal/triage"
@@ -64,12 +65,12 @@ func (s *server) signals(r *http.Request, u *unread) ([]triage.Signal, int, erro
 
 // signalRow lays a signal out for the kit's list: a barge-in opens its pair,
 // anything else its conversation at the event that raised it.
-func signalRow(sig triage.Signal) ui.ListRow {
+func signalRow(sig triage.Signal, loc *time.Location) ui.ListRow {
 	row := ui.ListRow{
 		Tag: signalTags[sig.Kind], Title: sig.Utterance, Detail: sig.Detail,
 		Who:    sig.Speaker + " · " + sig.Satellite,
 		Figure: fmt.Sprintf("%s #%d", sig.ConversationID, sig.Seq),
-		When:   sig.At.Local().Format("Jan 2 15:04"),
+		When:   sig.At.In(loc).Format("Jan 2 15:04"),
 	}
 	row.Href = conversationHref(sig.ConversationID) + fmt.Sprintf("#seq-%d", sig.Seq)
 	if sig.PairID != "" {
@@ -102,7 +103,7 @@ func (s *server) triage(w http.ResponseWriter, r *http.Request) {
 			if t.kind == "" || sig.Kind == t.kind {
 				n++
 				if t.id == tab {
-					list.Rows = append(list.Rows, signalRow(sig))
+					list.Rows = append(list.Rows, signalRow(sig, s.now().Location()))
 				}
 			}
 		}
