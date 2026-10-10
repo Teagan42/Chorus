@@ -921,8 +921,11 @@ func (s *Session) end(reason, discard string) error {
 		s.mu.Lock()
 		s.over = true
 		s.mu.Unlock()
-		// Discards are recorded before the close that caused them.
+		// Discards are recorded before the close that caused them, and so is
+		// the cut of what was playing, once its device says where it
+		// stopped: a migrated wake opens only after this close.
 		s.speech.shut(discard)
+		s.speech.waitIdle()
 		err = s.record(journal.Record{
 			Kind:   journal.KindSessionClosed,
 			Fields: map[string]string{"reason": reason, "satellite": s.satellite},

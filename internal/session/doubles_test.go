@@ -126,6 +126,12 @@ type fakeSpeaker struct {
 	// broken is a TTS that refuses every stream.
 	broken bool
 
+	// settle, when set, holds a cut stream's Close until it closes, as a
+	// device holds it until it reports where it stopped. settling is told
+	// once a Close is waiting.
+	settle   chan struct{}
+	settling chan struct{}
+
 	mu      sync.Mutex
 	opened  []string
 	written chan string
@@ -175,6 +181,10 @@ func (s *fakeStream) Close() session.Playback {
 		select {
 		case <-s.sp.release:
 		case <-s.ctx.Done():
+			if s.sp.settle != nil {
+				s.sp.settling <- struct{}{}
+				<-s.sp.settle
+			}
 			// A test-chosen offset, not the clause a device cuts at
 			// (internal/satellite/chunk.go).
 			cut := min(s.sp.cut, len(s.text))
