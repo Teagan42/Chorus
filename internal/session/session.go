@@ -185,11 +185,24 @@ type Session struct {
 
 	speech    *speechChannel
 	closeOnce sync.Once
+
+	// annMu orders announcements against the close that follows one nobody
+	// was asked to answer: answerable once any asked for an answer, ending
+	// once that close has begun (SPEC §4).
+	annMu      sync.Mutex
+	answerable bool
+	ending     bool
 }
 
 // Open starts a session for a confirmed wake word, resuming the person's
 // conversation when they have moved to another satellite (SPEC §4.5).
 func (sup *Supervisor) Open(ctx context.Context, w Wake) (*Session, error) {
+	return sup.open(ctx, w, false)
+}
+
+// open is the one way a session starts: woken, or announcing with no wake
+// word, which is a fresh conversation nobody is yet the person of (SPEC §4).
+func (sup *Supervisor) open(ctx context.Context, w Wake, announced bool) (*Session, error) {
 	// Held for the whole handoff: the displaced session has to close before this
 	// one opens, or replay ends on the session that lost the race.
 	seat := sup.cfg.Conversations.seat(w.PersonID)
@@ -204,6 +217,8 @@ func (sup *Supervisor) Open(ctx context.Context, w Wake) (*Session, error) {
 		done:     make(chan struct{}),
 		activity: make(chan struct{}, 1),
 		children: map[string]int{},
+		// A wake word is the person asking to be heard.
+		answerable: !announced,
 	}
 	// WithoutCancel: a session outlives the request that woke it, and only the
 	// supervisor ends its children (CONTRIBUTING §6).
@@ -228,6 +243,9 @@ func (sup *Supervisor) Open(ctx context.Context, w Wake) (*Session, error) {
 	}
 	if w.Confidence > 0 {
 		fields["wake_confidence"] = strconv.FormatFloat(w.Confidence, 'f', -1, 64)
+	}
+	if announced {
+		fields["announced"] = "true"
 	}
 	if err := s.record(journal.Record{Kind: journal.KindSessionOpened, Fields: fields}); err != nil {
 		sup.cfg.Conversations.release(convID, s)
@@ -516,7 +534,7 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 	}
 
 	s.mu.Lock()
-	caller := Caller{Person: s.speaker, ConversationID: s.convID, CallID: tc.ID}
+	caller := Caller{Person: s.speaker, ConversationID: s.convID, CallID: tc.ID, Satellite: s.satellite}
 	s.mu.Unlock()
 	if denied(spec, caller.Person) {
 		// Before any confirmation: a guest is not asked to confirm what
@@ -805,7 +823,7 @@ func (s *Session) end(reason, discard string) error {
 	var err error
 	s.closeOnce.Do(func() {
 		// Discards are recorded before the close that caused them.
-		s.speech.interrupt(discard)
+		s.speech.shut(discard)
 		err = s.record(journal.Record{
 			Kind:   journal.KindSessionClosed,
 			Fields: map[string]string{"reason": reason, "satellite": s.satellite},

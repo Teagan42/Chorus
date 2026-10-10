@@ -27,6 +27,10 @@ type speechChannel struct {
 	// racing the barge-in starts playing speech nobody may hear.
 	cut bool
 
+	// closed latches the session's end: nothing more plays, an announcement
+	// included, which a cut alone does not stop.
+	closed bool
+
 	// asked is when this turn's ask ended, and heard whether its first frame
 	// has been journalled. One start per turn (ADR-0035).
 	asked time.Time
@@ -57,6 +61,10 @@ type utterance struct {
 	// reason records why a cut happened, for the discard event.
 	reason string
 
+	// announces marks an announcement, which is not the answer to any ask:
+	// its first frame is not the turn's (ADR-0035).
+	announces bool
+
 	// closed tells the watcher of a Starter that playback is over, and
 	// watched closes once it has stopped watching. Nil when the stream
 	// cannot see its DAC.
@@ -76,13 +84,27 @@ func newSpeechChannel(s *Session) *speechChannel {
 func (c *speechChannel) deliver(d SpeechDelta) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.cut {
+		return false
+	}
+	return c.deliverLocked(d, false)
+}
 
-	if c.cut || c.dead[d.CallID] {
+// announce queues an announcement whole. A barge-in cut the turn, and this
+// is no part of the turn; only the session's end refuses it.
+func (c *speechChannel) announce(callID, text string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.deliverLocked(SpeechDelta{CallID: callID, Text: text, Mode: ModeQueue, Last: true}, true)
+}
+
+func (c *speechChannel) deliverLocked(d SpeechDelta, announces bool) bool {
+	if c.closed || c.dead[d.CallID] {
 		return false
 	}
 	u := c.find(d.CallID)
 	if u == nil {
-		u = &utterance{callID: d.CallID, last: make(chan struct{})}
+		u = &utterance{callID: d.CallID, last: make(chan struct{}), announces: announces}
 		c.live++
 		switch mode(d.Mode) {
 		case ModePreempt:
@@ -131,6 +153,16 @@ func (c *speechChannel) interrupt(reason string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cut = true
+	c.cutLocked(reason)
+	c.dropLocked(reason)
+}
+
+// shut is the interruption the session's end makes, after which nothing
+// plays again.
+func (c *speechChannel) shut(reason string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cut, c.closed = true, true
 	c.cutLocked(reason)
 	c.dropLocked(reason)
 }
@@ -208,7 +240,7 @@ func (c *speechChannel) startNextLocked() {
 		close(u.last)
 	}
 	c.current = u
-	if st, ok := stream.(Starter); ok {
+	if st, ok := stream.(Starter); ok && !u.announces {
 		u.closed, u.watched = make(chan struct{}), make(chan struct{})
 		go c.watch(u, st.Started())
 	}
@@ -313,6 +345,13 @@ func (c *speechChannel) record(callID, reason string, pb Playback) {
 	default:
 		c.s.result(callID, "ok", "")
 	}
+}
+
+// busy reports whether anything is queued or playing.
+func (c *speechChannel) busy() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.live > 0
 }
 
 // waitIdle blocks until nothing is queued or playing.

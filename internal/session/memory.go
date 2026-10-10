@@ -60,6 +60,10 @@ type Caller struct {
 	Person         string
 	ConversationID string
 	CallID         string
+
+	// Satellite is the device the call was made on: where a timer it sets
+	// goes off, and the room an announcement is not repeated in.
+	Satellite string
 }
 
 type callerKey struct{}
