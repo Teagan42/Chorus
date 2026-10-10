@@ -232,8 +232,8 @@ That fills 176 bits. What changes is the firmware on both chips:
     does at six channels.
 - **ESP32:** `chorus_bridge` unpacks the frame.
   - Processed channel 0 goes to `micro_wake_word` and the uplink, as today.
-  - The mics and reference go out as `array` frames when the host asks for
-    them (about 2.8 Mbit/s in all). That is easy over Ethernet; the Wi-Fi
+  - The mics, processed channel 0 and the reference go out as `array` frames when the host asks for
+    them (about 3.1 Mbit/s in all). That is easy over Ethernet; the Wi-Fi
     build never asks.
 
 An XVF3800, which does four-mic beamforming and DoA out of the box, stays the
@@ -499,7 +499,7 @@ What rev A still cannot settle without a datasheet or a bench:
   25 KB more RAM have to fit beside the I2S master and AEC. No Satellite1
   build report states the free RAM per tile. Build with `DEBUG_PRINT_ENABLE=1`
   and read it before writing the derivative.
-- **The W5500's sustained TCP rate** with the array on: about 2.8 Mbit/s up
+- **The W5500's sustained TCP rate** with the array on: about 3.1 Mbit/s up
   while TTS comes down.
 - **Which opposite pair the firmware hears**, MK2/MK4 or MK1/MK3. It depends
   on which clock edge the CMM-4030DT gives each SEL setting; the datasheet or

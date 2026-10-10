@@ -68,8 +68,15 @@ would be a guess about timing, which ADR-0033 already refused once.
 ```text
 first_sample:u64   index of this frame's first sample on the 16 kHz clock,
                    counted from the hello, so a dropped chunk is a gap
-samples[]          s16le, interleaved: mics in hello order, then the reference
+samples[]          s16le, interleaved: mics in hello order, then processed
+                   channel 0, then the reference
 ```
+
+Processed channel 0 rides in the array frame as well as in its own `mic`
+frames, which carry no index. That way the voice activity the estimator gates on
+and the utterance window kept beside it (below) are indexed on the same
+samples as the mics. A dropped `mic` chunk then cannot shift which raw
+samples a speech decision applies to.
 
 - The hello gains trailing bytes:
   - `array_mics:u8`;
@@ -77,8 +84,8 @@ samples[]          s16le, interleaved: mics in hello order, then the reference
 
   The device states its geometry just as it states its format.
 - `mic_enable` gains `flags` bit 1, which asks for array frames. The host
-  opts in per link, and only on one whose uplink can carry about 2.8 Mbit/s.
-- A 32 ms frame is 9,224 bytes, well inside the 64 KiB payload limit.
+  opts in per link, and only on one whose uplink can carry about 3.1 Mbit/s.
+- A 32 ms frame is 10,248 bytes, well inside the 64 KiB payload limit.
 
 **The protocol version stays 2.** Every part of this is additive:
 
@@ -101,7 +108,7 @@ meaning; this change alters none.
   the same event under its own name.
 - The first estimator is SRP-PHAT over the eight mics. It down-weights the
   time-frequency bins the reference dominates, and it uses only frames that
-  the processed channel's voice activity marks as speech. If masking leaves
+  the processed channel 0 in the same frame marks as speech. If masking leaves
   the bench test biased toward the speaker, the next step is full
   multichannel echo cancellation on the host, from the same frame.
 - What consumes the direction gets its own ADR. The first consumer is the
@@ -140,7 +147,7 @@ one. One pair is a line, not a circle: it cannot tell front from back.
 
 ## Forecloses
 
-- **Direction on a satellite whose uplink cannot carry 2.8 Mbit/s.** Rev A
+- **Direction on a satellite whose uplink cannot carry 3.1 Mbit/s.** Rev A
   measures direction over Ethernet only. Its Wi-Fi build, and any
   Satellite1, never asks for array frames, because airtime is already the
   limit there (SPEC §3.3.2). Getting a direction on Wi-Fi would take the
