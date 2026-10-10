@@ -372,6 +372,14 @@ vocabulary for:
 
 MCP-sourced tools get conservative default policies.
 
+The model is offered every tool the daemon has an executor for, whether or not
+that executor's backend is configured: Home Assistant switched off answers
+`not_implemented`, which the model reasons about (§7). So the offered schema,
+and the tool-schema version every event records, belong to the build, and a
+re-run offers what the turn was offered. A tool declared `deferred`, as
+`media_search` is while media is deferred (§14), keeps its policy and its docs
+but is not offered (ADR-0060).
+
 **Confirmation** is orchestrator-enforced but model-authored. The orchestrator
 blocks execution and returns a synthetic `confirmation_required` tool result
 carrying a nonce; the model phrases the confirmation itself and re-calls with

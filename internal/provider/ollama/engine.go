@@ -52,8 +52,9 @@ type Config struct {
 	// recorded against every event, which is the point (SPEC §13).
 	Prompt string
 
-	// Specs defaults to registry.Specs, the generated declaration the
-	// orchestrator also enforces policy from, so the two cannot drift.
+	// Specs defaults to registry.Offered: the generated declaration the
+	// orchestrator also enforces policy from, so the two cannot drift, less
+	// the deferred tools nothing runs (ADR-0060).
 	Specs map[string]registry.ToolSpec
 
 	// Think controls the model's reasoning. Nil sends nothing, which is the
@@ -104,7 +105,7 @@ func New(cfg Config) (*Engine, error) {
 		cfg.Prompt = DefaultPrompt
 	}
 	if cfg.Specs == nil {
-		cfg.Specs = registry.Specs
+		cfg.Specs = registry.Offered()
 	}
 	if cfg.KeepAlive == "" {
 		cfg.KeepAlive = DefaultKeepAlive
