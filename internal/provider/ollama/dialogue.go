@@ -68,14 +68,35 @@ func calling(out []message, id, name string, args json.RawMessage) []message {
 // heard is a speak call's result: whether the person heard it all, was cut
 // off after the words in the call, or is still hearing it.
 func heard(e journal.Entry) string {
+	var r string
 	switch {
 	case e.Cut:
-		return `{"interrupted":true,"note":"the person cut you off and heard only the text in this call"}`
+		r = `{"interrupted":true,"note":"the person cut you off and heard only the text in this call"}`
 	case e.Pending:
-		return `{"playing":true}`
+		r = `{"playing":true}`
 	default:
-		return `{"heard":true}`
+		r = `{"heard":true}`
 	}
+	if e.Announces == nil {
+		return r
+	}
+	return r[:len(r)-1] + `,"announcement":` + announcement(e.Announces) + "}"
+}
+
+// announcement says why something nobody here asked for was said, and
+// whether an answer was asked for. Without it, "yes please" answers no
+// question (SPEC §4).
+func announcement(a *journal.Announcement) string {
+	why := struct {
+		Source            string `json:"source"`
+		TimerID           string `json:"timer_id,omitempty"`
+		RequestedBy       string `json:"requested_by,omitempty"`
+		From              string `json:"from,omitempty"`
+		StartConversation bool   `json:"answer_expected,omitempty"`
+	}{a.Source, a.TimerID, a.RequestedBy, a.FromSatellite, a.StartConversation}
+	// Strings and a bool: marshalling cannot fail.
+	b, _ := json.Marshal(why)
+	return string(b)
 }
 
 // result is what a call came back with. A success is the tool's own JSON;
