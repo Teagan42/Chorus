@@ -113,7 +113,7 @@ Say something to the user. Runs concurrently with other tools; the model chooses
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `text` | string | yes | What to say. |
-| `mode` | string |  | queue appends after current speech; preempt cancels it; interject ducks and cuts in. One of: `queue`, `preempt`, `interject`. |
+| `mode` | string |  | queue appends after current speech; preempt cancels it; interject pauses it, cuts in, then resumes it. One of: `queue`, `preempt`, `interject`. |
 
 ## `timer_cancel`
 

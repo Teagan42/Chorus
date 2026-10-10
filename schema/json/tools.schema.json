@@ -167,7 +167,7 @@
     "input_schema": {
       "properties": {
         "mode": {
-          "description": "queue appends after current speech; preempt cancels it; interject ducks and cuts in.",
+          "description": "queue appends after current speech; preempt cancels it; interject pauses it, cuts in, then resumes it.",
           "enum": [
             "queue",
             "preempt",
