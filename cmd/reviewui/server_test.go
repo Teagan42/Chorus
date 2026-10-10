@@ -667,6 +667,42 @@ func TestConversationPageReplaysTheLogWithItsAudio(t *testing.T) {
 	}
 }
 
+// A screen reader names each player by whose clip it is, not "audio" five
+// times over, and each session on the lane by what flagged it.
+//
+// verifies SPEC §9.2
+func TestEveryPlayerAndSessionSaysWhatItIs(t *testing.T) {
+	s := newBrowseServer(t)
+	for _, c := range []struct {
+		path  string
+		wants []string
+	}{
+		{"/conversations/conv-1", []string{
+			`aria-label="#2 utterance transcribed · alice"`,
+			`aria-label="#5 speech truncated · speaking"`,
+		}},
+		{"/review", []string{
+			`aria-label="rejected · heard · assistant"`,
+			`aria-label="barge-in · alice"`,
+			`aria-label="correction · alice"`,
+		}},
+		{"/conversations", []string{
+			`aria-label="kitchen 08:53 · barge-in pair"`,
+			`aria-label="office 09:53 · failure"`,
+		}},
+	} {
+		h := get(t, s, c.path)
+		if n, named := strings.Count(h, "<audio "), strings.Count(h, "<audio aria-label="); n != named {
+			t.Errorf("%s: %d of %d players have no name", c.path, n-named, n)
+		}
+		for _, want := range c.wants {
+			if !strings.Contains(h, want) {
+				t.Errorf("%s is missing %s", c.path, want)
+			}
+		}
+	}
+}
+
 // verifies SPEC §9.2
 func TestTriageFailureRowsOpenTheirConversationAtTheEvent(t *testing.T) {
 	h := get(t, newTriageServer(t), "/queue?tab=failure")

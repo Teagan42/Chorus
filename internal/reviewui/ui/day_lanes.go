@@ -1,5 +1,7 @@
 package ui
 
+import "math"
+
 // Session is one conversation placed on its satellite's lane. Flag adds a
 // coloured top edge: People barge-in, Home tool failure, Voice slow/repeated.
 type Session struct {
@@ -44,6 +46,13 @@ func (d DayLanes) P(h float64) float64 { return Linear{float64(d.From), float64(
 
 // W is the width of an hour span.
 func (d DayLanes) W(span [2]float64) float64 { return d.P(span[1]) - d.P(span[0]) }
+
+// Clock reads a decimal hour as HH:MM, for what a screen reader says of a
+// tick or band the lane only draws.
+func (d DayLanes) Clock(h float64) string {
+	m := int(math.Round(h * 60))
+	return twoDigit(m/60) + ":" + twoDigit(m%60)
+}
 
 // Hours are the ruler labels, every 3 hours.
 func (d DayLanes) Hours() []Tick {

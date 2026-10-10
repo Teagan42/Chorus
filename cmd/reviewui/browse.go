@@ -101,17 +101,12 @@ func summarize(id string, events []journal.Event, sigs []triage.Signal) convSumm
 	return c
 }
 
-// sessionFlag is the session's colour on the lane: the barge-in first, since it is
-// the training signal, then a failure, a repeated ask, a slow answer, a flip.
-func sessionFlag(sigs []triage.Signal) ui.Tone {
+// topSignal is the session's most important signal: the barge-in first, since
+// it is the training signal, then a failure, a repeated ask, a slow answer, a flip.
+func topSignal(sigs []triage.Signal) triage.Kind {
 	rank := map[triage.Kind]int{
 		triage.KindBargeIn: 5, triage.KindFailure: 4, triage.KindRepeated: 3,
 		triage.KindSlow: 2, triage.KindSpeakerFlip: 1,
-	}
-	tones := map[triage.Kind]ui.Tone{
-		triage.KindBargeIn: ui.TonePeople, triage.KindFailure: ui.ToneHome,
-		triage.KindRepeated: ui.ToneVoice, triage.KindSlow: ui.ToneVoice,
-		triage.KindSpeakerFlip: ui.TonePeople,
 	}
 	best := triage.Kind("")
 	for _, s := range sigs {
@@ -119,7 +114,17 @@ func sessionFlag(sigs []triage.Signal) ui.Tone {
 			best = s.Kind
 		}
 	}
-	return tones[best]
+	return best
+}
+
+// sessionFlag is the session's colour on the lane, its top signal's.
+func sessionFlag(sigs []triage.Signal) ui.Tone {
+	tones := map[triage.Kind]ui.Tone{
+		triage.KindBargeIn: ui.TonePeople, triage.KindFailure: ui.ToneHome,
+		triage.KindRepeated: ui.ToneVoice, triage.KindSlow: ui.ToneVoice,
+		triage.KindSpeakerFlip: ui.TonePeople,
+	}
+	return tones[topSignal(sigs)]
 }
 
 // plural counts a noun the way a reader expects: "1 turn", "2 turns".
@@ -281,6 +286,9 @@ func (s *server) browse(w http.ResponseWriter, r *http.Request) {
 		for i, ses := range c.sessions {
 			if on(ses.at) {
 				label := fmt.Sprintf("%s %s", ses.satellite, ses.at.In(loc).Format("15:04"))
+				if kind := topSignal(ses.signals); kind != "" {
+					label += " · " + signalTags[kind].Text
+				}
 				l := lane(ses.satellite)
 				l.Sessions = append(l.Sessions, ui.Session{
 					Hour: hour(ses.at.In(loc)), Flag: sessionFlag(ses.signals), Href: conversationHref(c.id), Label: label,
