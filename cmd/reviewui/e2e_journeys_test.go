@@ -22,6 +22,7 @@ import (
 
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/reviewui/household"
 	sess "github.com/teagan42/chorus/internal/session"
 )
@@ -844,8 +845,8 @@ func TestE2EJourneyReplayFailuresSaySoOnThePage(t *testing.T) {
 	hh := asksWhichPlaylist()
 	s, _ := newHouseholdServer(t)
 	engine := "ok"
-	s.engineFor = func(model, prompt string) (sess.Engine, journal.Versions, error) {
-		eng, v, err := hh.engineFor(model, prompt)
+	s.engineFor = func(model, prompt string, tools map[string]registry.ToolSpec) (sess.Engine, journal.Versions, error) {
+		eng, v, err := hh.engineFor(model, prompt, tools)
 		switch engine {
 		case "dies":
 			return failsOn{hh, "and put on some jazz"}, v, err

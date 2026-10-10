@@ -14,14 +14,15 @@ import (
 	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/rerun"
 	"github.com/teagan42/chorus/internal/reviewui/ui"
 	sess "github.com/teagan42/chorus/internal/session"
 )
 
-// engineFactory builds the turn engine a re-run asks: the model and system
-// prompt as the reviewer edited them, and the versions that makes.
-type engineFactory func(model, prompt string) (sess.Engine, journal.Versions, error)
+// engineFactory builds the turn engine a re-run asks: the model, system
+// prompt and tools as the reviewer edited them, and the versions that makes.
+type engineFactory func(model, prompt string, tools map[string]registry.ToolSpec) (sess.Engine, journal.Versions, error)
 
 // ollamaEngines builds Replay's engines on the configured endpoint, or none
 // when it is not configured. The model must be configured too: it is the one
@@ -30,8 +31,8 @@ func ollamaEngines(baseURL, model string) engineFactory {
 	if baseURL == "" || model == "" {
 		return nil
 	}
-	return func(model, prompt string) (sess.Engine, journal.Versions, error) {
-		e, err := ollama.New(ollama.Config{BaseURL: baseURL, Model: model, Prompt: prompt})
+	return func(model, prompt string, tools map[string]registry.ToolSpec) (sess.Engine, journal.Versions, error) {
+		e, err := ollama.New(ollama.Config{BaseURL: baseURL, Model: model, Prompt: prompt, Specs: tools})
 		if err != nil {
 			return nil, journal.Versions{}, err
 		}
@@ -182,7 +183,7 @@ func replayPairID(conv string, seq uint64) string {
 
 func promotedCell(conv string, seq uint64, p curation.Promotion) promoteCell {
 	return promoteCell{
-		Seq: seq, Promoted: p.Versions.Model + " · " + p.Versions.Prompt,
+		Seq: seq, Promoted: p.Versions.Model + " · " + p.Versions.Prompt + " · " + p.Versions.ToolSchema,
 		Href: pairHref(replayPairID(conv, seq), "all"),
 	}
 }
@@ -190,10 +191,11 @@ func promotedCell(conv string, seq uint64, p curation.Promotion) promoteCell {
 // replayResult is the swappable half of the page: recorded turns before a
 // run, the comparison after one.
 type replayResult struct {
-	Stats *ui.MetricStrip
-	Diff  *ui.CodeDiff
-	Alert *ui.Alert
-	Rows  []replayRow
+	Stats    *ui.MetricStrip
+	Diff     *ui.CodeDiff
+	ToolDiff *ui.CodeDiff
+	Alert    *ui.Alert
+	Rows     []replayRow
 }
 
 func (s *server) recordedRows(rp replayable) []replayRow {
@@ -229,17 +231,21 @@ func (s *server) replayPage(w http.ResponseWriter, r *http.Request) {
 	if rp.replay != nil {
 		check = ui.Metric{Label: "Journal replay", Value: "replay() fails", Note: rp.replay.Error(), Tone: ui.TonePeople}
 	}
-	promptNote, connect := "", (*ui.Alert)(nil)
+	promptNote, toolsNote, connect := "", "", (*ui.Alert)(nil)
 	if s.engineFor == nil {
 		connect = &ui.Alert{
 			Title: "No model to ask.",
 			Body:  "Set OLLAMA_URL and OLLAMA_MODEL for reviewui, the same endpoint chorusd uses, to re-run these turns.",
 			Tone:  ui.ToneConv,
 		}
-	} else if _, v, err := s.engineFor(recorded.Model, ollama.DefaultPrompt); err == nil {
+	} else if _, v, err := s.engineFor(recorded.Model, ollama.DefaultPrompt, registry.Specs); err == nil {
 		promptNote = "the default prompt (" + v.Prompt + ") matches the recorded prompt"
 		if v.Prompt != recorded.Prompt {
 			promptNote = fmt.Sprintf("recorded under %s; the default prompt is now %s, so this starts from the default", recorded.Prompt, v.Prompt)
+		}
+		toolsNote = "the registry's schema (" + v.ToolSchema + ") matches the recorded tool schema"
+		if v.ToolSchema != recorded.ToolSchema {
+			toolsNote = fmt.Sprintf("recorded under %s; the registry's schema is now %s, so this starts from the registry's", recorded.ToolSchema, v.ToolSchema)
 		}
 	}
 
@@ -264,6 +270,11 @@ func (s *server) replayPage(w http.ResponseWriter, r *http.Request) {
 			Value: ollama.DefaultPrompt,
 		},
 		"PromptNote": promptNote,
+		"Tools": ui.Field{
+			Kind: ui.FieldTextarea, ID: "replay-tools", Name: "tools", Label: "Tool schema", Rows: 12,
+			Value: ollama.ToolSchema(registry.Specs),
+		},
+		"ToolsNote": toolsNote,
 		"Run": ui.Button{
 			Label: "Re-run every turn", Type: "submit", Primary: true, Disabled: s.engineFor == nil,
 		},
@@ -293,14 +304,26 @@ func (s *server) replayRun(w http.ResponseWriter, r *http.Request) {
 	// A refusal is still swapped in: htmx drops a 4xx body, and a button
 	// that silently does nothing is the worst answer.
 	model, prompt := strings.TrimSpace(r.PostForm.Get("model")), r.PostForm.Get("prompt")
-	if model == "" || strings.TrimSpace(prompt) == "" {
+	schema := ollama.ToolSchema(registry.Specs)
+	if r.PostForm.Has("tools") {
+		schema = r.PostForm.Get("tools")
+	}
+	if model == "" || strings.TrimSpace(prompt) == "" || strings.TrimSpace(schema) == "" {
 		s.render(w, "replay-result", replayResult{
-			Alert: &ui.Alert{Title: "Nothing to run.", Body: "A re-run needs a model and a system prompt.", Tone: ui.ToneConv},
+			Alert: &ui.Alert{Title: "Nothing to run.", Body: "A re-run needs a model, a system prompt and a tool schema.", Tone: ui.ToneConv},
 			Rows:  s.recordedRows(rp),
 		})
 		return
 	}
-	eng, v, err := s.engineFor(model, prompt)
+	tools, err := ollama.ParseToolSchema(schema)
+	if err != nil {
+		s.render(w, "replay-result", replayResult{
+			Alert: &ui.Alert{Title: "The tool schema does not read.", Body: err.Error(), Note: "nothing was asked", Tone: ui.ToneConv},
+			Rows:  s.recordedRows(rp),
+		})
+		return
+	}
+	eng, v, err := s.engineFor(model, prompt, tools)
 	if err != nil {
 		s.render(w, "replay-result", replayResult{
 			Alert: &ui.Alert{Title: "Cannot build the engine.", Body: err.Error(), Tone: ui.ToneConv},
@@ -354,15 +377,19 @@ func (s *server) replayRun(w http.ResponseWriter, r *http.Request) {
 		{Label: "Turns re-run", Value: fmt.Sprintf("%d of %d", ran, len(rp.turns))},
 		{Label: "Speech changed", Value: fmt.Sprintf("%d of %d", speech, ran), Tone: when(speech > 0, ui.ToneVoice)},
 		{Label: "Tool calls changed", Value: fmt.Sprintf("%d of %d", calls, ran), Tone: when(calls > 0, ui.ToneHome)},
-		{Label: "Ran under", Value: v.Model + " · " + v.Prompt, Note: "tools are compared, never executed"},
+		{Label: "Ran under", Value: v.Model + " · " + v.Prompt + " · " + v.ToolSchema, Note: "tools are compared, never executed"},
 	}}
 	if d := lineDiff(ollama.DefaultPrompt, prompt); d != nil {
 		res.Diff = &ui.CodeDiff{Label: "Prompt diff", Lines: d}
 	}
+	// Both sides written the same way, so a reindented edit is not a change.
+	if d := lineDiff(ollama.ToolSchema(registry.Specs), ollama.ToolSchema(tools)); d != nil {
+		res.ToolDiff = &ui.CodeDiff{Label: "Tool schema diff", Lines: hunks(d, 3)}
+	}
 	s.render(w, "replay-result", res)
 }
 
-// promoteButton posts the take back with the model and prompt that made it,
+// promoteButton posts the take back with the model, prompt and tools that made it,
 // so the stored pair says where its chosen side came from.
 func promoteButton(base string, seq uint64, take rerun.Take) *ui.Button {
 	calls := make([]curation.Call, 0, len(take.Calls))
@@ -374,7 +401,7 @@ func promoteButton(base string, seq uint64, take rerun.Take) *ui.Button {
 	cell := fmt.Sprintf("#promote-%d", seq)
 	return &ui.Button{Label: "Promote", Hx: ui.Hx{
 		Post: base + strconv.FormatUint(seq, 10) + "/promote", Target: cell, Swap: "outerHTML",
-		Include: "#replay-model, #replay-prompt", Vals: string(vals),
+		Include: "#replay-model, #replay-prompt, #replay-tools", Vals: string(vals),
 	}}
 }
 
@@ -397,6 +424,10 @@ func (s *server) promote(w http.ResponseWriter, r *http.Request) {
 	}
 	f := r.PostForm
 	speech, model, prompt := strings.TrimSpace(f.Get("speech")), strings.TrimSpace(f.Get("model")), f.Get("prompt")
+	schema := ollama.ToolSchema(registry.Specs)
+	if f.Has("tools") {
+		schema = f.Get("tools")
+	}
 	var calls []curation.Call
 	if raw := f.Get("calls"); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &calls); err != nil {
@@ -417,15 +448,20 @@ func (s *server) promote(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	// The versions are the server's to say, from the model and prompt sent.
-	_, v, err := s.engineFor(model, prompt)
+	tools, err := ollama.ParseToolSchema(schema)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// The versions are the server's to say, from the model, prompt and tools sent.
+	_, v, err := s.engineFor(model, prompt, tools)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	p := curation.Promotion{
 		ConversationID: rp.id, Seq: seq, Speech: speech, Calls: calls,
-		Versions: v, SystemPrompt: prompt, PromotedAt: s.now(),
+		Versions: v, SystemPrompt: prompt, ToolSchema: ollama.ToolSchema(tools), PromotedAt: s.now(),
 	}
 	s.mu.Lock()
 	err = s.decisions.PutPromotion(r.Context(), p)
@@ -442,6 +478,29 @@ func (s *server) promote(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	s.render(w, "replay-promote", promotedCell(rp.id, seq, p))
+}
+
+// hunks keeps each change and n lines either side, marking what it leaves
+// out: the registry's schema is hundreds of lines, and an edit is a few.
+func hunks(d []ui.DiffLine, n int) []ui.DiffLine {
+	near := make([]bool, len(d))
+	for i, l := range d {
+		if l.Kind != " " {
+			for j := max(0, i-n); j <= min(len(d)-1, i+n); j++ {
+				near[j] = true
+			}
+		}
+	}
+	var out []ui.DiffLine
+	for i, l := range d {
+		switch {
+		case near[i]:
+			out = append(out, l)
+		case i == 0 || near[i-1]:
+			out = append(out, ui.DiffLine{Kind: " ", Text: "…"})
+		}
+	}
+	return out
 }
 
 func when(ok bool, t ui.Tone) ui.Tone {

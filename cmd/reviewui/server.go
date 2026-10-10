@@ -188,7 +188,7 @@ func (s *server) reviewersPairs(ctx context.Context, conv string, turns []harves
 			if r, ok := asked[t.Seq]; ok {
 				rejectFirstAsk(&h, r)
 			}
-			h.Heard = "re-run under " + p.Versions.Model + " · " + p.Versions.Prompt
+			h.Heard = "re-run under " + p.Versions.Model + " · " + p.Versions.Prompt + " · " + p.Versions.ToolSchema
 			h.ChosenVersions = p.Versions
 			for _, c := range p.Calls {
 				h.ChosenCalls = append(h.ChosenCalls, journal.Call{Tool: c.Tool, Args: c.Args})

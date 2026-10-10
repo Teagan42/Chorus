@@ -328,6 +328,32 @@ func TestPromotingAReRunMakesAnAcceptedReplayPair(t *testing.T) {
 	}
 }
 
+// A take re-run without media_search is promoted with the version the server
+// computes from the cut schema, and the declarations it was offered.
+//
+// verifies SPEC §9.2
+func TestAPromotionCarriesTheToolSchemaItRanUnder(t *testing.T) {
+	s, decisions := householdReplayServer(t)
+	cell := mustPost(t, s, "/replays/"+convZeppel+"/turns/2/promote", url.Values{
+		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt}, "tools": {withoutTool(t, "media_search")},
+		"speech": {shouldHaveZeppel},
+	})
+	if !strings.Contains(cell, "promoted · qwen3-32b@1 · sys@3 · tools@edited") {
+		t.Errorf("the cell does not say what it ran under:\n%s", cell)
+	}
+	promos, err := decisions.Promotions(context.Background(), convZeppel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := promos[zeppelinAsk]; p.Versions.ToolSchema != "tools@edited" || strings.Contains(p.ToolSchema, "media_search") || !strings.Contains(p.ToolSchema, "ha_get_state") {
+		t.Errorf("stored promotion ran under %+v, offered %d bytes of tools", p.Versions, len(p.ToolSchema))
+	}
+	line := exportRow(t, s, replayedZeppel)
+	if !strings.Contains(line, `"tool_schema":"tools@edited"`) {
+		t.Errorf("the replay row does not name the cut schema:\n%s", line)
+	}
+}
+
 // convGarageCheck is Teagan asking about the garage from the office: the
 // first ask checks the sensor, the follow-up answers with what it said.
 const convGarageCheck = "conv-1930-office"

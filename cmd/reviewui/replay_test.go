@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/registry"
 	sess "github.com/teagan42/chorus/internal/session"
 )
 
@@ -25,18 +28,41 @@ const cutFirstPrompt = ollama.DefaultPrompt + "\n\nWhen there are several result
 // keeps what each re-run was built with.
 type scripted struct {
 	built   []string // model + "|" + prompt, per engine built
+	offered []map[string]registry.ToolSpec
 	answers map[string][]sess.Action
 	fail    error
 	gate    chan struct{} // when set, a turn waits on it before answering
 }
 
-func (h *scripted) engineFor(model, prompt string) (sess.Engine, journal.Versions, error) {
+func (h *scripted) engineFor(model, prompt string, tools map[string]registry.ToolSpec) (sess.Engine, journal.Versions, error) {
 	h.built = append(h.built, model+"|"+prompt)
-	v := journal.Versions{Model: model, Prompt: "sys@edited", ToolSchema: "tools@7"}
+	h.offered = append(h.offered, tools)
+	v := journal.Versions{Model: model, Prompt: "sys@edited", ToolSchema: "tools@edited"}
 	if prompt == ollama.DefaultPrompt {
 		v.Prompt = "sys@3"
 	}
+	if ollama.ToolSchema(tools) == ollama.ToolSchema(registry.Specs) {
+		v.ToolSchema = "tools@7"
+	}
 	return h, v, nil
+}
+
+// withoutTool is the registry's schema as Replay's editor shows it, with
+// one tool's declaration cut out.
+func withoutTool(t *testing.T, name string) string {
+	t.Helper()
+	var tools []map[string]any
+	if err := json.Unmarshal([]byte(ollama.ToolSchema(registry.Specs)), &tools); err != nil {
+		t.Fatal(err)
+	}
+	tools = slices.DeleteFunc(tools, func(tool map[string]any) bool {
+		return tool["function"].(map[string]any)["name"] == name
+	})
+	b, err := json.MarshalIndent(tools, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func (h *scripted) Turn(ctx context.Context, in sess.Input) (<-chan sess.Action, error) {
@@ -134,6 +160,8 @@ func TestReplayPageShowsEachRecordedTurnAndProvesTheLogReplays(t *testing.T) {
 		"Speak only by calling the speak tool.",
 		`value="qwen3-32b@1"`,
 		`hx-post="/replays/conv-1"`,
+		`id="replay-tools"`, "&#34;name&#34;: &#34;media_search&#34;", // the tools it is offered, to edit
+		"matches the recorded tool schema",
 	)
 	w := httptest.NewRecorder()
 	newReplayServer(t, nil).routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/replays/conv-9", nil))
@@ -186,9 +214,52 @@ func TestReplayRunsEveryTurnUnderTheEditedPromptAndDiffsIt(t *testing.T) {
 func TestAnEmptiedPromptIsRefusedOnThePage(t *testing.T) {
 	hh := leadsWithTheCount()
 	h := runReplay(t, newReplayServer(t, hh), "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {"  \n"}})
-	missing(t, "Replay result", h, "A re-run needs a model and a system prompt.", "play something by zeppelin")
+	missing(t, "Replay result", h, "A re-run needs a model, a system prompt and a tool schema.", "play something by zeppelin")
 	if len(hh.built) != 0 {
 		t.Error("an empty prompt should not reach the model")
+	}
+}
+
+// The reviewer cuts media_search from what the model is offered: the re-run
+// is built with every other tool, runs under a new tool-schema version, and
+// the page shows the cut as a diff.
+//
+// verifies SPEC §9.2
+func TestReplayRunsUnderAnEditedToolSchemaAndDiffsIt(t *testing.T) {
+	hh := leadsWithTheCount()
+	h := runReplay(t, newReplayServer(t, hh), "conv-1", url.Values{
+		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt}, "tools": {withoutTool(t, "media_search")},
+	})
+	offered := hh.offered[len(hh.offered)-1]
+	if _, ok := offered["media_search"]; ok || len(offered) != len(registry.Specs)-1 {
+		t.Errorf("the engine was offered %d tools, media_search %v", len(offered), ok)
+	}
+	missing(t, "Replay result", h,
+		"qwen3-32b@1 · sys@3 · tools@edited", // what it ran under
+		`aria-label="Tool schema diff"`,
+		`<span class="code-diff__line is-del">−       &#34;name&#34;: &#34;media_search&#34;,</span>`, // the cut, as a deleted line
+	)
+	if strings.Contains(h, `aria-label="Prompt diff"`) {
+		t.Error("an unedited prompt shows a diff")
+	}
+	if strings.Contains(h, "&#34;name&#34;: &#34;speak&#34;") {
+		t.Error("the tool-schema diff lists tools far from the cut")
+	}
+}
+
+// A schema that does not read is refused on the page with where it broke,
+// and the model is never asked.
+//
+// verifies SPEC §9.2
+func TestAMalformedToolSchemaIsRefusedOnThePage(t *testing.T) {
+	hh := leadsWithTheCount()
+	h := runReplay(t, newReplayServer(t, hh), "conv-1", url.Values{
+		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt},
+		"tools": {strings.Replace(ollama.ToolSchema(registry.Specs), `"type": "function"`, `"type": "function",,`, 1)},
+	})
+	missing(t, "Replay result", h, "The tool schema does not read.", "tool schema line 3", "play something by zeppelin")
+	if len(hh.built) != 0 {
+		t.Error("a schema that does not read reached the model")
 	}
 }
 
@@ -257,15 +328,22 @@ func TestReplayAsksTheEndpointChorusdUses(t *testing.T) {
 		t.Error("a half-configured endpoint should offer no engine")
 	}
 	build := ollamaEngines("http://ollama.lan:11434", "qwen3:32b")
-	_, recorded, err := build("qwen3:32b", ollama.DefaultPrompt)
+	_, recorded, err := build("qwen3:32b", ollama.DefaultPrompt, registry.Specs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, edited, err := build("qwen3:14b", cutFirstPrompt)
+	_, edited, err := build("qwen3:14b", cutFirstPrompt, registry.Specs)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if edited.Model != "qwen3:14b" || edited.Prompt == recorded.Prompt || edited.ToolSchema != recorded.ToolSchema {
 		t.Errorf("edited versions %+v against recorded %+v: want a new model and prompt, the same tools", edited, recorded)
+	}
+	noSearch, err := ollama.ParseToolSchema(withoutTool(t, "media_search"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, cut, _ := build("qwen3:32b", ollama.DefaultPrompt, noSearch); cut.ToolSchema == recorded.ToolSchema || cut.Prompt != recorded.Prompt {
+		t.Errorf("cut versions %+v against recorded %+v: want new tools, the same prompt", cut, recorded)
 	}
 }

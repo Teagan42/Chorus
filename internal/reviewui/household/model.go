@@ -7,15 +7,17 @@ import (
 
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/rerun"
 	sess "github.com/teagan42/chorus/internal/session"
 )
 
 // Model stands in for the household's model wherever no real one may be
-// asked, as on the hosted demo. Under the default prompt it answers each
-// turn as the journal recorded it, which is what a deterministic model would
-// do. Under any edited prompt it answers as the household's model did once
-// told to be brief: lead with the count, offer the first, stop.
+// asked, as on the hosted demo. Under the default prompt and tools it
+// answers each turn as the journal recorded it, which is what a
+// deterministic model would do. Under any edited prompt or tool schema it
+// answers as the household's model did once told to be brief: lead with the
+// count, offer the first, stop. It never calls a tool it was not offered.
 type Model struct {
 	store journal.Store
 
@@ -57,14 +59,18 @@ func brief(text string) (rerun.Take, bool) {
 	return rerun.Take{}, false
 }
 
-// Engines builds Replay's engine for a model and prompt, as reviewui's
-// engine factory does against Ollama.
-func (m *Model) Engines(model, prompt string) (sess.Engine, journal.Versions, error) {
-	v := journal.Versions{Model: model, Prompt: "sys@edited", ToolSchema: Versions().ToolSchema}
-	if prompt == ollama.DefaultPrompt {
-		v.Prompt = Versions().Prompt
+// Engines builds Replay's engine for a model, prompt and tools, as
+// reviewui's engine factory does against Ollama.
+func (m *Model) Engines(model, prompt string, tools map[string]registry.ToolSpec) (sess.Engine, journal.Versions, error) {
+	v := journal.Versions{Model: model, Prompt: Versions().Prompt, ToolSchema: Versions().ToolSchema}
+	if prompt != ollama.DefaultPrompt {
+		v.Prompt = "sys@edited"
 	}
-	return engine{m: m, edited: prompt != ollama.DefaultPrompt}, v, nil
+	if ollama.ToolSchema(tools) != ollama.ToolSchema(registry.Specs) {
+		v.ToolSchema = "tools@edited"
+	}
+	edited := v.Prompt != Versions().Prompt || v.ToolSchema != Versions().ToolSchema
+	return engine{m: m, edited: edited, offered: tools}, v, nil
 }
 
 func (m *Model) load(ctx context.Context) error {
@@ -100,8 +106,9 @@ func (m *Model) load(ctx context.Context) error {
 }
 
 type engine struct {
-	m      *Model
-	edited bool
+	m       *Model
+	edited  bool
+	offered map[string]registry.ToolSpec
 }
 
 func (e engine) Turn(ctx context.Context, in sess.Input) (<-chan sess.Action, error) {
@@ -117,11 +124,15 @@ func (e engine) Turn(ctx context.Context, in sess.Input) (<-chan sess.Action, er
 	}
 	var out []sess.Action
 	for i, c := range take.Calls {
-		out = append(out, sess.ToolCall{ID: fmt.Sprintf("call_%d", i+1), Tool: c.Tool, Args: c.Args})
+		if _, ok := e.offered[c.Tool]; ok {
+			out = append(out, sess.ToolCall{ID: fmt.Sprintf("call_%d", i+1), Tool: c.Tool, Args: c.Args})
+		}
 	}
 	// A replayed take has no playback, so it says the unheard part too.
 	for i, s := range take.Speech {
-		out = append(out, sess.SpeechDelta{CallID: fmt.Sprintf("speak_%d", i+1), Text: s.Text + s.Unheard, Mode: sess.ModeQueue, Last: true})
+		if _, ok := e.offered["speak"]; ok {
+			out = append(out, sess.SpeechDelta{CallID: fmt.Sprintf("speak_%d", i+1), Text: s.Text + s.Unheard, Mode: sess.ModeQueue, Last: true})
+		}
 	}
 	out = append(out, sess.TurnEnd{FinishReason: "stop", Completion: "{}"})
 	ch := make(chan sess.Action, len(out))
