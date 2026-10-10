@@ -211,6 +211,7 @@ events: {
 		fields: [
 			{name: "tts_position_ms", type: "integer", description: "Playback offset at detection.", required: true},
 			{name: "speaker_stage_skipped", type: "boolean", description: "The gate's speaker-ID stage did not run, because nothing identifies speakers: the voice was never checked against the household (ADR-0031). Absent when the stage ran and passed, and in logs from before it was recorded."},
+			{name: "audio_frames", type: "integer", description: "How much of the audio the gate judged, in device frames from the blob's start. The candidate refers to its utterance's blob, which runs on past it and is written once the utterance ends, so a long overlap keeps its audio once. Absent in logs from before it was recorded, where the blob is the candidate's own."},
 		]
 	}
 	barge_in_rejected: {
@@ -219,6 +220,7 @@ events: {
 		has_audio:   true
 		fields: [
 			{name: "stage", type: "string", description: "Gate that rejected it.", required: true, enum: ["vad", "speaker_id", "partial_length"]},
+			{name: "audio_frames", type: "integer", description: "How much of the audio the gate judged, in device frames from the blob's start. The candidate refers to its utterance's blob, which runs on past it and is written once the utterance ends, so a long overlap keeps its audio once. Absent in logs from before it was recorded, where the blob is the candidate's own."},
 		]
 	}
 	session_closed: {
