@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/hass"
-	"github.com/teaganglenn/chorus/internal/registry"
+	"github.com/teagan42/chorus/internal/hass"
+	"github.com/teagan42/chorus/internal/registry"
 )
 
 // The CUE declaration and the Go implementation are two files that name the

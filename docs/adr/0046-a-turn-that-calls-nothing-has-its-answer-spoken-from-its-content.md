@@ -18,7 +18,7 @@ already known is still a speak call did not stop it. Now the decoder
 speaks that content when the turn ends.
 
 ```go
-import "github.com/teaganglenn/chorus/internal/session"
+import "github.com/teagan42/chorus/internal/session"
 
 // What the session receives from the turn that wrote "speak\nThe garage
 // door code is 4512." and called nothing: one implicit utterance, then the

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // SummaryPrompt is what the model is told when a conversation ends and it

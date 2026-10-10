@@ -12,10 +12,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/memory"
-	"github.com/teaganglenn/chorus/internal/provider/ollama"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 var embedModel = flag.String("embed-model", "nomic-embed-text", "embedding model recall ranks with")

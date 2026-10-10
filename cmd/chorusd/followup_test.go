@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/hass"
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/hass"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // homeAssistant answers the REST calls the ha_* tools make, in-process: the

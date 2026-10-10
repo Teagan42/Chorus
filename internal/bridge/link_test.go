@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/bridge"
 )
 
 // patience bounds a wait on an observable the implementation is committed to

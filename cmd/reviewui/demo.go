@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 
-	"github.com/teaganglenn/chorus/internal/curation"
-	"github.com/teaganglenn/chorus/internal/reviewui/household"
-	"github.com/teaganglenn/chorus/internal/reviewui/ui"
+	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/reviewui/household"
+	"github.com/teagan42/chorus/internal/reviewui/ui"
 )
 
 // demoNotice is what the hosted demo says above every screen.

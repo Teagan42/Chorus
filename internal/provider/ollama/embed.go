@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/teaganglenn/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/memory"
 )
 
 // maxEmbedBody bounds one /api/embed response: a batch of vectors is a few

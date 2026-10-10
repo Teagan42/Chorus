@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/hass"
-	"github.com/teaganglenn/chorus/internal/identity"
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/listen"
-	"github.com/teaganglenn/chorus/internal/provider/kokoro"
-	"github.com/teaganglenn/chorus/internal/provider/speaches"
+	"github.com/teagan42/chorus/internal/hass"
+	"github.com/teagan42/chorus/internal/identity"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/provider/kokoro"
+	"github.com/teagan42/chorus/internal/provider/speaches"
 )
 
 // complete is every variable the daemon reads, set. Tests unset from here.

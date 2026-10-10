@@ -17,7 +17,7 @@ keeping `task test` hermetic. Unreviewed is the absence of a row, which keeps
 work across requests on a stateless page.
 
 ```go
-import "github.com/teaganglenn/chorus/internal/curation"
+import "github.com/teagan42/chorus/internal/curation"
 
 // A verdict names the pair it judges; unreviewed is the absence of one.
 func verdictFor(d curation.Decision) string { return d.PairID }

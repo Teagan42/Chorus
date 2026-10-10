@@ -13,8 +13,8 @@ import (
 	"github.com/flynn/noise"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/teaganglenn/chorus/internal/msgid"
-	"github.com/teaganglenn/chorus/internal/pb"
+	"github.com/teagan42/chorus/internal/msgid"
+	"github.com/teagan42/chorus/internal/pb"
 )
 
 // fakeAPI is a fake satellite that completes the handshake and then speaks the

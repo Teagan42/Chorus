@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/identity"
+	"github.com/teagan42/chorus/internal/identity"
 )
 
 // A take of an enrolled voice comes back as that person, with the cosine the

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/reviewui/household"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/reviewui/household"
 )
 
 // cited is every audio-bearing event in the day, by blob ref.

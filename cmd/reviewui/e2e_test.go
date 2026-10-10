@@ -27,9 +27,9 @@ import (
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 
-	"github.com/teaganglenn/chorus/internal/blob"
-	"github.com/teaganglenn/chorus/internal/curation"
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // chromeEnv names the browser binary. Unset skips the tier, the way an unset

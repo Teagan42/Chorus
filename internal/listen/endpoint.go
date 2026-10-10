@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"math"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/bridge"
 )
 
 const bytesPerFrame = bridge.BitsPerSample / 8

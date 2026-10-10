@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/rerun"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/rerun"
 )
 
 // Teagan's garage door turns, told what Teagan remembers: the first turn

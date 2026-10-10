@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/announce"
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
-	"github.com/teaganglenn/chorus/internal/timer"
+	"github.com/teagan42/chorus/internal/announce"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/timer"
 )
 
 // patience bounds a wait that only expires when the implementation is wrong.

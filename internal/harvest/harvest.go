@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // Source names where a candidate came from. Only barge-ins are harvested

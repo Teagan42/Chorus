@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/listen"
 )
 
 // DefaultModel is the checkpoint the sidecar pins (ADR-0036). Anything

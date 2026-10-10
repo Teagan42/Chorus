@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/listen"
-	"github.com/teaganglenn/chorus/internal/stt"
+	"github.com/teagan42/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/stt"
 )
 
 // What a household says to a satellite, and whether the words alone show the

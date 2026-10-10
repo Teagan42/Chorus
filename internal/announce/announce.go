@@ -10,8 +10,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/teaganglenn/chorus/internal/config"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // ErrNotConnected is a satellite with no live link to say anything on.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // Mode selects how a speak call joins the speech channel (SPEC §4.2).

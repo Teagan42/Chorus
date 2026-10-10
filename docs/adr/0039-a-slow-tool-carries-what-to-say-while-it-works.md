@@ -14,7 +14,7 @@ Now the words are a required argument of the slow tool itself, and the
 session speaks them as the call starts.
 
 ```go
-import "github.com/teaganglenn/chorus/internal/registry"
+import "github.com/teagan42/chorus/internal/registry"
 
 // The library gets the query; the person hears the rest.
 func searchArgs() (string, string) {

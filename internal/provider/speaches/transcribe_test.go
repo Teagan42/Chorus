@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/provider/speaches"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/provider/speaches"
 )
 
 // roundTrip serves a canned response in-process and keeps the request that

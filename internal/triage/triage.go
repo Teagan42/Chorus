@@ -12,8 +12,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/teaganglenn/chorus/internal/harvest"
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/harvest"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // Kind names what made a conversation worth triage.

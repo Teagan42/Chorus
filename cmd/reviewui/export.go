@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/teaganglenn/chorus/internal/harvest"
-	"github.com/teaganglenn/chorus/internal/reviewui/ui"
+	"github.com/teagan42/chorus/internal/harvest"
+	"github.com/teagan42/chorus/internal/reviewui/ui"
 )
 
 // exportable is the one rule of the dataset: accepted, fixed, and attributed

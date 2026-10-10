@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/hass"
+	"github.com/teagan42/chorus/internal/hass"
 )
 
 // patience bounds a wait that only expires when the implementation is wrong.

@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // convSeq keeps each subtest on conversation ids nothing else wrote, so one

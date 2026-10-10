@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/blob"
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/bridge/bridgetest"
-	"github.com/teaganglenn/chorus/internal/identity"
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/listen"
-	"github.com/teaganglenn/chorus/internal/session"
-	"github.com/teaganglenn/chorus/internal/stt"
+	"github.com/teagan42/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/bridge/bridgetest"
+	"github.com/teagan42/chorus/internal/identity"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/stt"
 )
 
 // patience bounds a wait that only expires when the implementation is wrong.

@@ -15,7 +15,7 @@ since the person stopped speaking, both read from the injected clock
 "too slow" label (§9.2) are judged against.
 
 ```go
-import "github.com/teaganglenn/chorus/internal/journal"
+import "github.com/teagan42/chorus/internal/journal"
 
 // The wait a reader judges a turn by is a field of the event, not a
 // difference between two events' wall clocks.

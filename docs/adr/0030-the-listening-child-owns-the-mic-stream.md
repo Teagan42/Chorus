@@ -35,7 +35,7 @@ guest conversation and lose migration, where opening after the first
 utterance's embedding has resolved resumes the right one.
 
 ```go
-import "github.com/teaganglenn/chorus/internal/listen"
+import "github.com/teagan42/chorus/internal/listen"
 
 // A rejected wake belongs to the device, not to a conversation it never
 // opened: the audio stream is the device's (SPEC §4.5).

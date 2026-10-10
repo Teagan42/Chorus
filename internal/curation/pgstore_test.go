@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/teaganglenn/chorus/internal/curation"
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // openPg skips without a database, unless the DSN was set explicitly, which

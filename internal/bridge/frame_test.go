@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/bridge"
 )
 
 func TestFrameRoundTrip(t *testing.T) {

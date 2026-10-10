@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/bridge/bridgetest"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/bridge/bridgetest"
 )
 
 const patience = 5 * time.Second

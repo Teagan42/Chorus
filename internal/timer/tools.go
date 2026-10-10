@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // view is a timer as the model is told it: seconds left, since a UTC

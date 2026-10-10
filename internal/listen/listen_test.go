@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/listen"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 const line = "I found three albums by that artist"

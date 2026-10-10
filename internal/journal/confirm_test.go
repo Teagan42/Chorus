@@ -3,7 +3,7 @@ package journal_test
 import (
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // The front door, as the model asks to unlock it, and as the session records

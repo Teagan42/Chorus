@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/announce"
-	"github.com/teaganglenn/chorus/internal/config"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/announce"
+	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // The house: a kitchen satellite and a Voice PE in the office, and the

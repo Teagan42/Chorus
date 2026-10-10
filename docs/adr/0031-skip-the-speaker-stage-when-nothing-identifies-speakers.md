@@ -34,7 +34,7 @@ resolver was configured, which is the same condition under which the
 listener attributes speakers at all.
 
 ```go
-import "github.com/teaganglenn/chorus/internal/session"
+import "github.com/teagan42/chorus/internal/session"
 
 // The zero value runs the stage, so a gate nobody configured stays strict;
 // the composition root opts out, never the candidate.

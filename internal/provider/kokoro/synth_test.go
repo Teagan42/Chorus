@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/provider/kokoro"
+	"github.com/teagan42/chorus/internal/provider/kokoro"
 )
 
 // speech is what the endpoint returns: raw little-endian samples at 24 kHz,

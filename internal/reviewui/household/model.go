@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/provider/ollama"
-	"github.com/teaganglenn/chorus/internal/rerun"
-	sess "github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/rerun"
+	sess "github.com/teagan42/chorus/internal/session"
 )
 
 // Model stands in for the household's model wherever no real one may be

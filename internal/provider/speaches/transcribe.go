@@ -28,8 +28,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/stt"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/stt"
 )
 
 // DefaultModel is the ONNX export speaches' Parakeet executor is written

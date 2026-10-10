@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 //go:embed migrations/*.sql

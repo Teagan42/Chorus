@@ -52,8 +52,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/hass"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/hass"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 var (

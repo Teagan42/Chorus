@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // toolSpeak is how the model talks; the session records it as a call so the

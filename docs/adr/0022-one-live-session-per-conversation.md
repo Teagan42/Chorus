@@ -25,7 +25,7 @@ by a resumed `session_opened`, in that order. The session did end; the
 conversation did not, and the next open says so.
 
 ```go
-import "github.com/teaganglenn/chorus/internal/journal"
+import "github.com/teagan42/chorus/internal/journal"
 
 // Close before open, in one log: a reducer folding them the other way round
 // ends on the session that lost the conversation.

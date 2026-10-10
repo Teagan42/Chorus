@@ -18,8 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/teaganglenn/chorus/cmd/reviewui/web"
-	"github.com/teaganglenn/chorus/internal/reviewui/ui"
+	"github.com/teagan42/chorus/cmd/reviewui/web"
+	"github.com/teagan42/chorus/internal/reviewui/ui"
 )
 
 // wasmName is what the shell fetches; gzipped here because a static host may

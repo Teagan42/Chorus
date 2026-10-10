@@ -14,8 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/teaganglenn/chorus/internal/harvest"
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/harvest"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // version is set by the release build (-X main.version=...).

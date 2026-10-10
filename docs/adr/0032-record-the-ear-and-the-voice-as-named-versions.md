@@ -12,7 +12,7 @@ transcripts and a replay could not say what the household actually heard. Two
 slots are added, stamped on every event like the other three.
 
 ```go
-import "github.com/teaganglenn/chorus/internal/journal"
+import "github.com/teagan42/chorus/internal/journal"
 
 // The ear is a model id; the voice is model/voice as one string. Neither is
 // hashed: both are already stable names, unlike a prompt body.

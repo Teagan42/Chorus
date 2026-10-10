@@ -37,7 +37,7 @@ the blob references for every clip ride along, because a reviewer cannot
 judge a voice assistant from transcripts (ADR-0019).
 
 ```go
-import "github.com/teaganglenn/chorus/internal/harvest"
+import "github.com/teagan42/chorus/internal/harvest"
 
 // A raw candidate has no chosen side; the Curate step sets both.
 func raw(p harvest.Pair) bool { return p.Chosen == "" && !p.Curated }

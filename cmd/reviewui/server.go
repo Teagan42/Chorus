@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/blob"
-	"github.com/teaganglenn/chorus/internal/curation"
-	"github.com/teaganglenn/chorus/internal/harvest"
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/reviewui/audio"
-	"github.com/teaganglenn/chorus/internal/reviewui/ui"
+	"github.com/teagan42/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/harvest"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/reviewui/audio"
+	"github.com/teagan42/chorus/internal/reviewui/ui"
 )
 
 //go:embed pages/*.tmpl

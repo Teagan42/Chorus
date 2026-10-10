@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/announce"
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/announce"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // DefaultGrace is how late a timer may still be said. One due longer ago,

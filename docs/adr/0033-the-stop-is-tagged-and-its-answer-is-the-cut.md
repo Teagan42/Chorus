@@ -29,7 +29,7 @@ the report echoing its tag and for nothing else; the settle deadline remains
 only for a link that fails under the stop. Protocol version is 2.
 
 ```go
-import "github.com/teaganglenn/chorus/internal/bridge"
+import "github.com/teagan42/chorus/internal/bridge"
 
 // The cut is on the one report that answers the stop; a routine report
 // carries no tag and may predate it.

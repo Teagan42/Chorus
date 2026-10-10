@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/reviewui/ui"
-	"github.com/teaganglenn/chorus/internal/triage"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/reviewui/ui"
+	"github.com/teagan42/chorus/internal/triage"
 )
 
 // logRow is one journal event as the conversation page shows it.

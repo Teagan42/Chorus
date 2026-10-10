@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/identity"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/identity"
 )
 
 // DefaultModel is TitaNet-L, one of the two models SPEC §10 names, under

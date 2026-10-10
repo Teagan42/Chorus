@@ -16,8 +16,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/memory"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // What Teagan is told when asking for the garage code, with an embedding

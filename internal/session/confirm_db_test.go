@@ -6,8 +6,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // Teagan's front door with the journal in Postgres, as chorusd runs it: the

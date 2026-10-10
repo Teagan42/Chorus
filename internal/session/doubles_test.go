@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/registry"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/registry"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // patience bounds a wait that only expires when the implementation is wrong.

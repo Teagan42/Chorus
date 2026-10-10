@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/bridge"
 )
 
 // tone is amplitude*sin at hz, sampled at synthRate for d seconds.

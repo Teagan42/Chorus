@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/memory"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // Teagan tells the kitchen about the oat milk with the journal and memory in

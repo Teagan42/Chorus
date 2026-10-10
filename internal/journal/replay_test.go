@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // conversationRecords is one interrupted turn with a tool call. Shared with

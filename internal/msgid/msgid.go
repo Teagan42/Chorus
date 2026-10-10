@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
-	"github.com/teaganglenn/chorus/internal/pb"
+	"github.com/teagan42/chorus/internal/pb"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 

@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // errNobody is a call no identified person made. The session refuses those

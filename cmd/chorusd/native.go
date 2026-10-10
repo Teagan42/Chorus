@@ -8,9 +8,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/teaganglenn/chorus/internal/config"
-	"github.com/teaganglenn/chorus/internal/esphome"
-	"github.com/teaganglenn/chorus/internal/pb"
+	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/esphome"
+	"github.com/teagan42/chorus/internal/pb"
 )
 
 // The native API is control only (SPEC §3.1) and nothing on the host drives

@@ -12,8 +12,8 @@ call is dispatched, and a garage, a gate or a door waits for a yes.
 
 ```go
 import (
-	"github.com/teaganglenn/chorus/internal/registry"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/registry"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // The same call, held for the garage and not for the blinds.

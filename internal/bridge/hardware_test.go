@@ -19,9 +19,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/bridge"
-	"github.com/teaganglenn/chorus/internal/config"
-	"github.com/teaganglenn/chorus/internal/esphome"
+	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/esphome"
 )
 
 var (

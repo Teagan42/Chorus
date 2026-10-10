@@ -20,10 +20,10 @@ import (
 
 	"github.com/chromedp/chromedp"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/provider/ollama"
-	"github.com/teaganglenn/chorus/internal/reviewui/household"
-	sess "github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/reviewui/household"
+	sess "github.com/teagan42/chorus/internal/session"
 )
 
 // ------------------------------------------------------------------ helpers

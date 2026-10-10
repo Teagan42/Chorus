@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/provider/ollama"
-	"github.com/teaganglenn/chorus/internal/rerun"
-	"github.com/teaganglenn/chorus/internal/reviewui/household"
-	sess "github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/rerun"
+	"github.com/teagan42/chorus/internal/reviewui/household"
+	sess "github.com/teagan42/chorus/internal/session"
 )
 
 func run(t *testing.T, m *household.Model, prompt, conv, text string) rerun.Take {

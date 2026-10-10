@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/triage"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/triage"
 )
 
 func record(kind journal.Kind, audio string, fields ...string) journal.Record {

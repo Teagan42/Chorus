@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/journal"
 )
 
 // Teagan's oat milk, and the wifi password Alice told the house about.

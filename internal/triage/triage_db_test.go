@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/triage"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/triage"
 )
 
 // pgStore is the journal in Postgres with conv's rows cleared, skipping when

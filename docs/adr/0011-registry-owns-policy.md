@@ -14,7 +14,7 @@ conservative defaults.
 already committed, so it must complete).
 
 ```go
-import "github.com/teaganglenn/chorus/internal/registry"
+import "github.com/teagan42/chorus/internal/registry"
 
 // Declared-slow tools let the model speak before results land.
 func slowToolDetaches() bool {

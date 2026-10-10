@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/stt"
+	"github.com/teagan42/chorus/internal/stt"
 )
 
 // patience bounds a wait that should already be over. It is a failure-path

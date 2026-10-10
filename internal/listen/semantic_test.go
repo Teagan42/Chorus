@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/teaganglenn/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/listen"
 )
 
 // ms is that much device audio, in bytes.

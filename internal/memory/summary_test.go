@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/memory"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // Teagan and Alan talked about the garage door together, with a visitor

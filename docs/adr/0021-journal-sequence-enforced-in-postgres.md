@@ -18,7 +18,7 @@ rejects a gap, and `PRIMARY KEY (conversation_id, seq)` rejects a writer that
 raced past that check. The loser retries at the new `LastSeq`.
 
 ```go
-import "github.com/teaganglenn/chorus/internal/journal"
+import "github.com/teagan42/chorus/internal/journal"
 
 // Both backends satisfy one contract, so replay does not care which holds
 // the log. The conformance suite runs against exactly this list.

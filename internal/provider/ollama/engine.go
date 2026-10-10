@@ -22,9 +22,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/registry"
-	"github.com/teaganglenn/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/registry"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // DefaultKeepAlive holds the model resident between turns. Measured: a cold

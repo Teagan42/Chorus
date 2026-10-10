@@ -15,7 +15,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/teaganglenn/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/memory"
 )
 
 // What Teagan is told on Friday morning: the last week's conversations,

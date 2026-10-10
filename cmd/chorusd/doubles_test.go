@@ -15,10 +15,10 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/teaganglenn/chorus/internal/identity"
-	"github.com/teaganglenn/chorus/internal/journal"
-	"github.com/teaganglenn/chorus/internal/session"
-	"github.com/teaganglenn/chorus/internal/stt"
+	"github.com/teagan42/chorus/internal/identity"
+	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/stt"
 )
 
 // patience bounds a wait that only expires when the implementation is wrong.
