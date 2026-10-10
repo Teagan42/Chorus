@@ -338,8 +338,12 @@ Unknown or low-confidence speaker → guest context, person-scoped tools gated, 
 interrogation. That holds per utterance: a guest who chimes into someone's
 conversation is a guest for that turn, told none of the other person's
 memories, while a voice nothing could judge stays with the current speaker
-(ADR-0049). The embedding is stored on every trace record regardless, which
-gives implicit clustering for free later.
+(ADR-0049). A guest cannot open a session, though, once anyone is enrolled:
+§9.3's third stage rejects their wake as `unknown_speaker`. Guest context is
+reached only in a session already open, one a household member woke or an
+announcement that asked for an answer. Whether a guest should be able to wake
+the house is open (ADR-0030). The embedding is stored on every trace record
+regardless, which gives implicit clustering for free later.
 
 Memory: explicit `remember` / `forget` tools plus an auto rolling summary per
 person, both injected by relevance. Person context is global across satellites;
@@ -466,11 +470,14 @@ two before any LED or chime:
 2. confirm the segment contains speech at all
 3. confirm the speaker embedding matches a household member
 
-A cough fails all three. Only on confirmation does the session become
-perceptible to the user. Rejections are logged with audio and auto-labeled as
-hard negatives, so the retraining corpus fills itself with precisely the
-negatives the model lacks — no manual labeling, no retraining needed to get
-immediate relief.
+A cough fails all three. A guest fails the third once anyone is enrolled: a
+voice below the accept threshold, or too close to two people, is rejected as
+`unknown_speaker`, so a guest is heard only in a session already open (§5).
+With nobody enrolled, or no speaker ID, stage three passes every voice. Only
+on confirmation does the session become perceptible to the user. Rejections
+are logged with audio and auto-labeled as hard negatives, so the retraining
+corpus fills itself with precisely the negatives the model lacks — no manual
+labeling, no retraining needed to get immediate relief.
 
 Dual-channel capture means the corpus carries the fully processed stream and
 the XMOS's lighter-processed second output, so retraining can target either.
