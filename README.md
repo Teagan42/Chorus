@@ -216,7 +216,7 @@ dataset comes from the Export screen.
 
 ## Tests
 
-Five tiers, separated because four of them cannot run everywhere. `task check`
+Six tiers, separated because five of them cannot run everywhere. `task check`
 is the gate; the others are what the gate can't demand of every machine.
 
 | Task | Needs | Runs |
@@ -224,6 +224,7 @@ is the gate; the others are what the gate can't demand of every machine.
 | `task test` | nothing | hermetic suite, included in `task check` |
 | `task test:db` | Postgres (`task db:up`) | separate CI job, every push |
 | `task test:e2e` | Chrome or Chromium (`CHORUS_E2E_CHROME`) | separate CI job, every push |
+| `task test:sidecars` | `uv`; fetches the two pinned sidecar models | separate CI job, every push |
 | `task test:models` | GPU sidecars | self-hosted runner |
 | `task test:hardware` | a real satellite | self-hosted runner, manual |
 

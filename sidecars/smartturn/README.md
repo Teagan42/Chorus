@@ -83,6 +83,8 @@ runs under `tests/test_real_model.py` when `SMARTTURN_MODEL_DIR` holds the asset
 and with `SMARTTURN_CORPUS` pointing at `<dir>/complete/*.wav` and
 `<dir>/incomplete/*.wav` (16 kHz s16le mono) it checks finished turns score
 above unfinished ones. That corpus is never committed (CONTRIBUTING §7).
+`task test:sidecars` fetches the pinned model and runs everything but the
+corpus check, with ruff; CI runs that task on every push.
 `task smartturn:corpus` renders one on your machine: about twenty household
 commands, finished and cut off mid-sentence, spoken by Chatterbox (or cloned
 from a reference WAV with `-- --voice teagan.wav`) into `.corpus/turns`. It is

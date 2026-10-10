@@ -2,13 +2,17 @@
 stays hermetic by default (CONTRIBUTING §1).
 
     uv run speakerid --download-only --model-dir .models/speakerid
-    SPEAKERID_MODEL_DIR=.models/speakerid SPEAKERID_CORPUS=/path/to/wavs \
-        uv run pytest sidecars/speakerid
+    SPEAKERID_MODEL_DIR=.models/speakerid uv run pytest sidecars/speakerid
 
-The corpus is <dir>/<speaker>/*.wav at 16 kHz s16le mono, never committed:
+`task test:sidecars` does both. Without SPEAKERID_CORPUS the voices are the
+household fixture's: Teagan, Alice and Alan asking for the weather, the
+garage door, Zeppelin and an oven timer, in the Kokoro voices that speak
+them (internal/reviewui/household/voice.json). SPEAKERID_CORPUS points at
+<dir>/<speaker>/*.wav at 16 kHz s16le mono instead, and is never committed:
 the repo holds no real recordings (CONTRIBUTING §7).
 """
 
+import json
 import os
 import wave
 from pathlib import Path
@@ -22,6 +26,11 @@ MODEL_DIR = os.environ.get("SPEAKERID_MODEL_DIR", "")
 CORPUS = os.environ.get("SPEAKERID_CORPUS", "")
 
 
+# The fixture the review UI demo plays, which is device-format PCM with who
+# said each clip beside it.
+HOUSEHOLD = Path(__file__).resolve().parents[3] / "internal" / "reviewui" / "household"
+
+
 def read_wav(path: Path) -> np.ndarray:
     with wave.open(str(path), "rb") as w:
         if (w.getframerate(), w.getnchannels(), w.getsampwidth()) != (SAMPLE_RATE, 1, 2):
@@ -32,24 +41,47 @@ def read_wav(path: Path) -> np.ndarray:
 
 @pytest.fixture(scope="module")
 def embedder() -> OnnxEmbedder:
-    if not MODEL_DIR or not (Path(MODEL_DIR) / ASSET_NAME).is_file():
+    if not MODEL_DIR:
         pytest.skip("no model: set SPEAKERID_MODEL_DIR to a directory holding the pinned asset")
+    # Set and empty is a broken fetch, not an opted-out machine: CI sets it,
+    # and a skip there would pass with the model never run.
+    if not (Path(MODEL_DIR) / ASSET_NAME).is_file():
+        pytest.fail(f"SPEAKERID_MODEL_DIR={MODEL_DIR} does not hold {ASSET_NAME}")
     e = OnnxEmbedder(MODEL_DIR)
     e.load()
     return e
 
 
+def read_pcm(path: Path) -> np.ndarray:
+    return np.fromfile(path, dtype="<i2").astype(np.float32) / 32768.0
+
+
+def household() -> dict[str, list[np.ndarray]]:
+    """What each person said to a satellite. The wake clips are the
+    dishwasher and a podcast, which are nobody's voice."""
+    voice = json.loads((HOUSEHOLD / "voice.json").read_text())
+    by_speaker: dict[str, list[np.ndarray]] = {}
+    for clip in voice["clips"]:
+        if clip["ref"].startswith("mic/"):
+            path = HOUSEHOLD / "audio" / f"{clip['ref']}.pcm"
+            by_speaker.setdefault(clip["who"], []).append(read_pcm(path))
+    return by_speaker
+
+
 @pytest.fixture(scope="module")
-def corpus() -> dict[str, list[Path]]:
+def corpus() -> dict[str, list[np.ndarray]]:
     """Two speakers with two utterances each is the least that says anything."""
-    if not CORPUS:
-        pytest.skip("no corpus: set SPEAKERID_CORPUS to <dir>/<speaker>/*.wav")
-    by_speaker = {
-        d.name: sorted(d.glob("*.wav")) for d in sorted(Path(CORPUS).iterdir()) if d.is_dir()
-    }
+    if CORPUS:
+        by_speaker = {
+            d.name: [read_wav(p) for p in sorted(d.glob("*.wav"))]
+            for d in sorted(Path(CORPUS).iterdir())
+            if d.is_dir()
+        }
+    else:
+        by_speaker = household()
     by_speaker = {k: v for k, v in by_speaker.items() if len(v) >= 2}
     if len(by_speaker) < 2:
-        pytest.skip(f"{CORPUS}: fewer than two speakers with two utterances")
+        pytest.skip(f"{CORPUS or HOUSEHOLD}: fewer than two speakers with two utterances")
     return by_speaker
 
 
@@ -64,7 +96,7 @@ def test_the_model_on_disk_is_the_pinned_one(embedder: OnnxEmbedder) -> None:
 #
 # verifies SPEC §10
 def test_the_model_embeds_to_the_contract(embedder: OnnxEmbedder, corpus: dict) -> None:
-    samples = read_wav(next(iter(corpus.values()))[0])
+    samples = next(iter(corpus.values()))[0]
     v = embedder.embed(samples)
     assert v.shape == (DIM,) and v.dtype == np.float32
     assert np.isfinite(v).all()
@@ -79,7 +111,7 @@ def test_the_model_embeds_to_the_contract(embedder: OnnxEmbedder, corpus: dict) 
 #
 # verifies SPEC §5
 def test_one_voice_scores_above_two(embedder: OnnxEmbedder, corpus: dict) -> None:
-    vecs = {spk: [embedder.embed(read_wav(p)) for p in paths] for spk, paths in corpus.items()}
+    vecs = {spk: [embedder.embed(x) for x in takes] for spk, takes in corpus.items()}
     for spk, own in vecs.items():
         same = np.mean([own[i] @ own[j] for i in range(len(own)) for j in range(i + 1, len(own))])
         for other, theirs in vecs.items():

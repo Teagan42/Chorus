@@ -235,6 +235,21 @@ tasks:
       - uv sync --all-packages
       - uv run pytest sidecars/smartturn
 
+  test:sidecars:
+    desc: Both Python sidecars' tests against their real pinned models, and ruff. First run fetches ~110 MB into .models/.
+    cmds:
+      - uv sync --all-packages
+      - uv run ruff check sidecars
+      - uv run ruff format --check sidecars
+      # The same verified fetch the servers do at boot; a file already there
+      # is kept only if its digest matches, so a cached .models costs nothing.
+      - uv run --package speakerid speakerid --download-only --model-dir .models/speakerid
+      - uv run --package smartturn smartturn --download-only --model-dir .models/smartturn
+      - uv run pytest sidecars
+    env:
+      SPEAKERID_MODEL_DIR: .models/speakerid
+      SMARTTURN_MODEL_DIR: .models/smartturn
+
   smartturn:corpus:
     desc: Render finished and cut-off household commands with Chatterbox into .corpus/turns for the models tier. First run fetches torch and the weights.
     cmds:
