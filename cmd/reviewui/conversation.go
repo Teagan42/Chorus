@@ -316,7 +316,7 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 		house, err = timersOf(r, s.journal, id)
 	}
 	if err == nil && len(events) > 0 {
-		pairs, err = s.pairs(r.Context())
+		pairs, err = s.pairs(r.Context(), nil)
 	}
 	if err == nil && len(events) > 0 {
 		annos, err = s.decisions.Annotations(r.Context(), id)

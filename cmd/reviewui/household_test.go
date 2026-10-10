@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -159,5 +161,37 @@ func TestHouseholdCurationExportsOnlyTheFixedAttributedPairs(t *testing.T) {
 	}
 	if h := get(t, s, "/export"); !strings.Contains(h, "Held · unattributed") || !strings.Contains(h, "Download 2 rows (JSONL)") {
 		t.Error("the export page does not count the held jazz pair beside the two rows")
+	}
+}
+
+// A row that cannot be written halfway through the download fails the
+// download: the reviewer's browser says so, rather than saving a file that
+// stops after the Zeppelin row and looks complete.
+//
+// verifies SPEC §9.1
+func TestAnExportThatFailsMidStreamIsAFailedDownload(t *testing.T) {
+	s, decisions := newHouseholdServer(t)
+	for _, action := range []string{"accept-anyway", "save"} {
+		if code, h := post(t, s, "/pairs/"+pairZeppel+"/"+action, url.Values{"chosen": {fixZeppel}}); code != http.StatusOK {
+			t.Fatalf("%s %s = %d: %s", action, pairZeppel, code, h)
+		}
+	}
+	// The weather verdict's chosen side was emptied outside the UI.
+	if err := decisions.Put(context.Background(), curation.Decision{
+		PairID: pairWeather, ConversationID: convWeather,
+		Status: curation.StatusAccepted, DecidedAt: household.ReviewedAt(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(s.routes())
+	t.Cleanup(srv.Close)
+	resp, err := http.Get(srv.URL + "/export/dpo.jsonl")
+	if err != nil {
+		return // aborted before a byte was sent: still a failed download
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if body, err := io.ReadAll(resp.Body); err == nil {
+		t.Errorf("the download completed as %d bytes after a row failed:\n%s", len(body), body)
 	}
 }

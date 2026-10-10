@@ -30,6 +30,7 @@ import (
 	"github.com/teagan42/chorus/internal/blob"
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/reviewui/household"
 )
 
 // chromeEnv names the browser binary. Unset skips the tier, the way an unset
@@ -607,4 +608,112 @@ func TestE2EAConversationShowsTheModelAndTheVoiceFailing(t *testing.T) {
 	p.waitText("#seq-9", "kokoro: 503 Service Unavailable")
 	p.waitText("#seq-10", "cut: tts_unavailable")
 	p.shot("conversation-provider-failure")
+}
+
+// The bare address opens the household's day, and so does the brand.
+//
+// verifies SPEC §9.2
+func TestE2ETheBareAddressLandsOnBrowse(t *testing.T) {
+	s, _ := newHouseholdServer(t)
+	p := open(t, s)
+	p.visit("/")
+	if got := p.path(); got != "/conversations" {
+		t.Errorf("/ landed on %s, want Browse", got)
+	}
+	p.waitText("h2", "Thursday 9 October")
+	p.shot("browse-landing")
+
+	p.visit("/export")
+	p.follow("a.app-header__brand")
+	if got := p.path(); got != "/conversations" {
+		t.Errorf("the brand landed on %s, want Browse", got)
+	}
+}
+
+// The kitchen's own log: its radar's day and the dishwasher that woke it,
+// a clip the browser decodes, named for a screen reader.
+//
+// verifies SPEC §3.3.1, §9.3
+func TestE2EASatellitesOwnLogPlaysItsRejectedWake(t *testing.T) {
+	s, _ := newHouseholdServer(t)
+	p := open(t, s)
+	p.visit("/conversations/device:kitchen")
+	p.waitText("#seq-1", "presence: present")
+	p.waitText("#seq-7", "wake rejected: no_speech")
+	closeTo(t, "the dishwasher", p.durations("#seq-7"), []float64{0.8})
+	var name string
+	p.eval(`document.querySelector("#seq-7 audio").getAttribute("aria-label")`, &name)
+	if name != "#7 wake rejected · device" {
+		t.Errorf("the dishwasher's player is named %q", name)
+	}
+	p.shot("conversation-device-kitchen")
+}
+
+// Teagan's rice timer went off to an unplugged office. Its Triage row opens
+// the house log at the event, which says why nobody heard it.
+//
+// verifies SPEC §7, §9.2
+func TestE2ETriageOpensTheHouseLogAtATimerNobodyHeard(t *testing.T) {
+	p := open(t, newServer(withRiceTimer(t, householdJournal(t)), curation.NewMemStore(), householdBlobs(t), household.ReviewedAt))
+	p.visit("/queue?tab=failure")
+	p.follow(`#queue a[href="/conversations/house:timers#seq-4"]`)
+	if got := p.path(); got != "/conversations/house:timers" {
+		t.Errorf("landed on %s, want the house log at the rice timer", got)
+	}
+	if id, visible := p.target(); id != "seq-4" || !visible {
+		t.Errorf("target #%s (visible %v), want #seq-4 in view", id, visible)
+	}
+	p.waitText("#seq-4", "went off: unannounced")
+	p.waitText("#seq-4", "office: not connected")
+	p.shot("conversation-house-timers")
+}
+
+// A page served by another service on the box, open in Alan's browser,
+// posts a verdict to the review UI. The browser says where it came from, so
+// the post is refused and nothing is stored; the UI's own htmx posts land.
+//
+// verifies SPEC §9.2
+func TestE2EAnotherSitesPageCannotPostAVerdict(t *testing.T) {
+	s, decisions := newHouseholdServer(t)
+	p := open(t, s)
+	action := "/pairs/" + pairZeppel + "/accept-anyway"
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, `<!doctype html><title>Recipes</title><form method="post" action="%s%s"><button>Save the recipe</button></form>`, p.base, action)
+	}))
+	t.Cleanup(other.Close)
+
+	p.expect(http.StatusForbidden, action)
+	p.expect(http.StatusNotFound, "/favicon.ico") // asked for by the plain-text refusal
+	p.run(chromedp.Navigate(other.URL), chromedp.WaitReady("button", chromedp.ByQuery))
+	p.follow("form button")
+	p.waitText("body", "cross-origin request detected")
+	if d, ok, _ := decisions.Get(context.Background(), pairZeppel); ok {
+		t.Errorf("another site's post stored %+v", d)
+	}
+
+	p.visit("/conversations/" + convZeppel)
+	p.click(chip(zeppelinAsk, "too_slow"))
+	p.pressed(chip(zeppelinAsk, "too_slow"), true)
+	if a, _ := decisions.Annotations(context.Background(), convZeppel); !a[zeppelinAsk].Has(curation.LabelTooSlow) {
+		t.Errorf("the UI's own label post stored %+v", a)
+	}
+}
+
+// A log no reducer can read is left out with a note naming it, and the rest
+// of the household's day is there to review.
+//
+// verifies SPEC §8, §9.2
+func TestE2EAnUnreadableLogIsNamedAndTheDayGoesOn(t *testing.T) {
+	p := open(t, newServer(withUnreadableRecall(t, householdJournal(t)), curation.NewMemStore(), householdBlobs(t), household.ReviewedAt))
+	for _, c := range []struct{ screen, path, list string }{
+		{"browse", "/conversations", "#conversations"},
+		{"triage", "/queue", "#queue"},
+		{"replays", "/replays", "#replays"},
+	} {
+		p.visit(c.path)
+		p.waitText(".alert", "Skipped 1 log that would not read.")
+		p.waitText(".alert", convCalendar)
+		p.waitText(c.list, "play something by zeppelin")
+		p.shot(c.screen + "-skipped-log")
+	}
 }

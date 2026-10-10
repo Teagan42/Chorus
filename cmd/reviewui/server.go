@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -62,11 +65,14 @@ func newServer(j Journal, d curation.Store, b blob.Store, now func() time.Time) 
 	}
 }
 
-func (s *server) routes() *http.ServeMux {
+// routes serves every screen behind a cross-origin check: the box trusts its
+// network (SPEC §1), so another site's page in the reviewer's browser must
+// not post to it.
+func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.StripPrefix("/static/", ui.Static()))
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, ui.Routes[ui.StepCurate], http.StatusSeeOther)
+		http.Redirect(w, r, ui.Routes[ui.StepBrowse], http.StatusSeeOther)
 	})
 	mux.HandleFunc("GET "+ui.Routes[ui.StepCurate], s.curate)
 	mux.HandleFunc("GET "+ui.Routes[ui.StepReview], s.review)
@@ -83,7 +89,7 @@ func (s *server) routes() *http.ServeMux {
 	mux.HandleFunc("GET "+ui.Routes[ui.StepExport], s.export)
 	mux.HandleFunc("GET /export/dpo.jsonl", s.exportJSONL)
 	mux.HandleFunc("POST /pairs/{rest...}", s.pairAction)
-	return mux
+	return http.NewCrossOriginProtection().Handler(mux)
 }
 
 // pair is one harvested candidate with any verdict applied, ready for the
@@ -94,11 +100,36 @@ type pair struct {
 	ui.Pair
 }
 
+// unread is the logs one request could not read. A corrupt conversation is
+// skipped and named on the page, not a 500 for the household's whole day.
+type unread struct{ ids []string }
+
+// skip logs why id was left out and remembers it for the page; a nil
+// unread only logs.
+func (u *unread) skip(id string, err error) {
+	log.Printf("reviewui: skipping %s: %v", id, err)
+	if u != nil && !slices.Contains(u.ids, id) {
+		u.ids = append(u.ids, id)
+	}
+}
+
+// alert names the skipped logs above the page, or is nil when all read.
+func (u *unread) alert() *ui.Alert {
+	if u == nil || len(u.ids) == 0 {
+		return nil
+	}
+	return &ui.Alert{
+		Title: "Skipped " + plural(len(u.ids), "log") + " that would not read.",
+		Body:  "Left out of this page: " + strings.Join(u.ids, ", ") + ". The server log says why.",
+		Tone:  ui.ToneHome,
+	}
+}
+
 // pairs harvests every conversation, newest activity first, adds the pairs
 // reviewers cut from labelled and re-run turns, and overlays the stored
 // verdicts. The page reads the log each time: the journal is the source of
 // truth and candidates are derived, never copied (SPEC §8).
-func (s *server) pairs(ctx context.Context) ([]pair, error) {
+func (s *server) pairs(ctx context.Context, u *unread) ([]pair, error) {
 	convs, err := s.journal.Conversations(ctx)
 	if err != nil {
 		return nil, err
@@ -107,7 +138,8 @@ func (s *server) pairs(ctx context.Context) ([]pair, error) {
 	for _, conv := range convs {
 		res, err := harvest.Scan(ctx, s.journal, conv)
 		if err != nil {
-			return nil, fmt.Errorf("harvest %s: %w", conv, err)
+			u.skip(conv, err)
+			continue
 		}
 		reviewed, err := s.reviewersPairs(ctx, conv, res.Turns)
 		if err != nil {
@@ -405,7 +437,8 @@ func (s *server) curate(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	pairs, err := s.pairs(r.Context())
+	var u unread
+	pairs, err := s.pairs(r.Context(), &u)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -424,9 +457,10 @@ func (s *server) curate(w http.ResponseWriter, r *http.Request) {
 			Eyebrow: "05 · Curate", Title: "DPO pairs",
 			Subtitle: "Rejected and chosen must answer the same prompt. Most harvested pairs don't until you fix the chosen side.",
 		},
-		"Tabs": pairTabs(pairs, sel.ID, status, false),
-		"Rows": pairRows(pairs, sel.ID, status, false),
-		"Pair": ui.PairActions{},
+		"Tabs":   pairTabs(pairs, sel.ID, status, false),
+		"Rows":   pairRows(pairs, sel.ID, status, false),
+		"Pair":   ui.PairActions{},
+		"Unread": u.alert(),
 	}
 	if selected {
 		data["Pair"] = s.pairView(sel, ui.PairModeView, "")
@@ -448,7 +482,7 @@ func (s *server) pairAction(w http.ResponseWriter, r *http.Request) {
 	}
 	id, action := rest[:i], rest[i+1:]
 
-	pairs, err := s.pairs(r.Context())
+	pairs, err := s.pairs(r.Context(), nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -482,7 +516,7 @@ func (s *server) pairAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Re-read so the list and counts reflect the verdict just stored.
-	pairs, err = s.pairs(r.Context())
+	pairs, err = s.pairs(r.Context(), nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -499,8 +533,13 @@ func (s *server) doc(title string) ui.Doc {
 	return ui.Doc{Title: title, Static: "/static", Notice: s.notice}
 }
 
+// render writes the page only once it has rendered whole, so a failing
+// template is a 500 rather than a 200 cut off mid-page.
 func (s *server) render(w http.ResponseWriter, name string, data any) {
-	if err := s.tpl.ExecuteTemplate(w, name, data); err != nil {
+	var b bytes.Buffer
+	if err := s.tpl.ExecuteTemplate(&b, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	_, _ = b.WriteTo(w)
 }

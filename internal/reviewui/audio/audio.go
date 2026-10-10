@@ -36,7 +36,7 @@ func Handler(store blob.Store) http.Handler {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		to, err := frameBound(r, "to", maxBlobBytes)
+		to, err := frameBound(r, "to", maxFrames)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -85,6 +85,10 @@ func Handler(store blob.Store) http.Handler {
 // bytesPerFrame is the size of one mono device-format sample.
 const bytesPerFrame = bridge.BitsPerSample / 8
 
+// maxFrames is the longest blob served, in frames; a bound past it is no
+// cut a journal recorded, and would overflow once scaled to bytes.
+const maxFrames = maxBlobBytes / bytesPerFrame
+
 // frameBound reads one frame-offset query parameter, absent meaning def.
 func frameBound(r *http.Request, name string, def int) (int, error) {
 	v := r.URL.Query().Get(name)
@@ -94,6 +98,9 @@ func frameBound(r *http.Request, name string, def int) (int, error) {
 	n, err := strconv.Atoi(v)
 	if err != nil || n < 0 {
 		return 0, fmt.Errorf("%s: not a frame count: %q", name, v)
+	}
+	if n > maxFrames {
+		return 0, fmt.Errorf("%s: %d frames is past the longest blob served (%d)", name, n, maxFrames)
 	}
 	return n, nil
 }

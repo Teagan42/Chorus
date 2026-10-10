@@ -80,9 +80,11 @@ func TestRenderComponents(t *testing.T) {
 
 	h = render(t, "day-lanes", demo.Household())
 	mustContain(t, "day-lanes", h, "day-lanes__migration", "Alan moved rooms", "legend__swatch--flag tone-people")
+	// Ticks and bands are drawn, so a screen reader is told what each one is.
+	mustContain(t, "day-lanes", h, `<span class="sr-only">wake rejected at 20:06</span>`, `<span class="sr-only">room occupied 07:00 to 09:00</span>`, `<span class="sr-only">room occupied 22:18 to 24:00</span>`)
 
 	h = render(t, "clip-grid", demo.Clips(map[string]string{"w2": "neg"}, func(id, m string) string { return "/clips/" + id + "/" + m }))
-	mustContain(t, "clip-grid", h, "2 of 3 passed", "auto negative", `class="clip-tile is-reviewed"`)
+	mustContain(t, "clip-grid", h, "2 of 3 passed", "auto negative", `class="clip-tile is-reviewed"`, `role="region" aria-label="Clips"`)
 
 	h = render(t, "metric-strip", demo.MovedHandoff())
 	mustContain(t, "metric-strip", h, "metric__meter", "width: 76.000%")

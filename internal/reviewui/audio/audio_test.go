@@ -121,3 +121,19 @@ func TestFrameBoundsTrimTheServedAudio(t *testing.T) {
 		t.Errorf("inverted range = %d, want 400", w.Code)
 	}
 }
+
+// A bound past any blob this handler would serve is refused, not multiplied
+// into a negative slice index.
+//
+// verifies SPEC §9.2
+func TestAFrameBoundPastAnyBlobIs400(t *testing.T) {
+	s, ref, _ := store(t)
+	h := audio.Handler(s)
+	for _, q := range []string{"to=4611686018427387904", "from=4611686018427387904", "from=2080&to=9223372036854775807"} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/audio?ref="+url.QueryEscape(ref)+"&"+q, nil))
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s = %d, want 400", q, w.Code)
+		}
+	}
+}

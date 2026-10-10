@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -213,6 +214,93 @@ func TestAnUnknownPairOrActionIsRefused(t *testing.T) {
 	}
 	if code, _ := post(t, s, "/pairs/"+pairID+"/explode", url.Values{}); code != http.StatusBadRequest {
 		t.Errorf("unknown action = %d, want 400", code)
+	}
+}
+
+// The bare address lands on Browse, where the brand link and the guide say
+// a reviewer starts.
+//
+// verifies SPEC §9.2
+func TestTheRootLandsOnBrowse(t *testing.T) {
+	s, _ := newTestServer(t)
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	if loc := w.Header().Get("Location"); w.Code != http.StatusSeeOther || loc != "/conversations" {
+		t.Errorf("GET / = %d to %q, want 303 to /conversations", w.Code, loc)
+	}
+}
+
+// A page on another site, open in Teagan's browser, posts to the review box
+// on the household's network. Every write is refused and stores nothing;
+// the same posts from the UI's own pages, or from curl, still land.
+//
+// verifies SPEC §9.2
+func TestAWriteFromAnotherSiteIsRefused(t *testing.T) {
+	s, decisions := householdReplayServer(t)
+	writes := []struct {
+		target string
+		form   url.Values
+	}{
+		{"/pairs/" + url.PathEscape(pairZeppel) + "/accept-anyway", nil},
+		{turnURL(convZeppel, 2, "labels/wrong_tool"), url.Values{"note": {shouldHaveZeppel}}},
+		{turnURL(convZeppel, 2, "note"), url.Values{"note": {shouldHaveZeppel}}},
+		{"/replays/" + convZeppel, url.Values{"model": {"qwen3-32b"}, "prompt": {"Lead with the count."}}},
+		{"/replays/" + convZeppel + "/turns/2/promote", url.Values{"speech": {shouldHaveZeppel}}},
+	}
+	send := func(target string, form url.Values, header ...string) int {
+		r := httptest.NewRequest(http.MethodPost, target, strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for i := 0; i+1 < len(header); i += 2 {
+			r.Header.Set(header[i], header[i+1])
+		}
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, r)
+		return w.Code
+	}
+	for _, wr := range writes {
+		if code := send(wr.target, wr.form, "Sec-Fetch-Site", "cross-site"); code != http.StatusForbidden {
+			t.Errorf("cross-site POST %s = %d, want 403", wr.target, code)
+		}
+		// An older browser sends no Sec-Fetch-Site, but says where it came from.
+		if code := send(wr.target, wr.form, "Origin", "https://recipes.example"); code != http.StatusForbidden {
+			t.Errorf("foreign-origin POST %s = %d, want 403", wr.target, code)
+		}
+	}
+	if ps := mustPairs(t, s); len(ps) == 0 {
+		t.Fatal("the household harvested no pairs")
+	}
+	if d, ok, _ := decisions.Get(context.Background(), pairZeppel); ok {
+		t.Errorf("a refused write stored %+v", d)
+	}
+	if a, _ := decisions.Annotations(context.Background(), convZeppel); len(a) > 0 {
+		t.Errorf("a refused write labelled %+v", a)
+	}
+
+	for _, ok := range [][]string{
+		{"Sec-Fetch-Site", "same-origin"},
+		{"Origin", "http://example.com"}, // httptest's own host
+		nil,                              // curl, or the demo's in-tab server
+	} {
+		if code := send(turnURL(convZeppel, 2, "labels/too_slow"), nil, ok...); code != http.StatusOK {
+			t.Errorf("same-origin POST with %v = %d, want 200", ok, code)
+		}
+	}
+}
+
+// A template that fails halfway is a 500 with the error, not the half page
+// it had written with the error pasted under it.
+//
+// verifies SPEC §9.2
+func TestAPageThatFailsToRenderSendsOnlyTheError(t *testing.T) {
+	s, _ := newTestServer(t)
+	template.Must(s.tpl.New("page-half").Parse(`{{template "doc-start" .Doc}}<h1>Curate</h1>{{.Pair.Chosen.Text}}`))
+	w := httptest.NewRecorder()
+	s.render(w, "page-half", map[string]any{"Doc": s.doc("Curate"), "Pair": map[string]string{"Chosen": "Playing Led Zeppelin one."}})
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+	if b := w.Body.String(); strings.Contains(b, "<h1>Curate</h1>") || !strings.Contains(b, "page-half") {
+		t.Errorf("body = %q, want only the error naming the template", b)
 	}
 }
 
@@ -490,6 +578,23 @@ func TestTriageQueuesEverySignalNewestFirst(t *testing.T) {
 	}
 }
 
+// Triage tells the time on the server's clock, as Browse and Replay do, not
+// in whatever zone the process happened to start in.
+//
+// verifies SPEC §9.2
+func TestTriageTellsTheTimeOnTheServersClock(t *testing.T) {
+	pacific := time.FixedZone("PDT", -7*60*60)
+	now := func() time.Time { return time.Unix(1_760_010_000, 0).In(pacific) }
+	s := newServer(withFailure(t, bargeInLog(t)), curation.NewMemStore(), fixtureBlobs(t), now)
+	// Alice's barge-in was at 08:53 UTC, before two in the morning in Pacific.
+	if h := get(t, s, "/queue"); !strings.Contains(h, "Oct 9 01:53") {
+		t.Error("Triage does not show the barge-in at 01:53 on the server's clock")
+	}
+	if h := get(t, s, "/replays"); !strings.Contains(h, "9 Oct 01:53") {
+		t.Error("Replay does not show the conversation at 01:53 on the server's clock")
+	}
+}
+
 // verifies SPEC §9.2
 func TestTriageTabsFilterBySignal(t *testing.T) {
 	s := newTriageServer(t)
@@ -576,6 +681,42 @@ func TestConversationPageReplaysTheLogWithItsAudio(t *testing.T) {
 	newBrowseServer(t).routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/conversations/conv-9", nil))
 	if w.Code != http.StatusNotFound {
 		t.Errorf("unknown conversation = %d, want 404", w.Code)
+	}
+}
+
+// A screen reader names each player by whose clip it is, not "audio" five
+// times over, and each session on the lane by what flagged it.
+//
+// verifies SPEC §9.2
+func TestEveryPlayerAndSessionSaysWhatItIs(t *testing.T) {
+	s := newBrowseServer(t)
+	for _, c := range []struct {
+		path  string
+		wants []string
+	}{
+		{"/conversations/conv-1", []string{
+			`aria-label="#2 utterance transcribed · alice"`,
+			`aria-label="#5 speech truncated · speaking"`,
+		}},
+		{"/review", []string{
+			`aria-label="rejected · heard · assistant"`,
+			`aria-label="barge-in · alice"`,
+			`aria-label="correction · alice"`,
+		}},
+		{"/conversations", []string{
+			`aria-label="kitchen 08:53 · barge-in pair"`,
+			`aria-label="office 09:53 · failure"`,
+		}},
+	} {
+		h := get(t, s, c.path)
+		if n, named := strings.Count(h, "<audio "), strings.Count(h, "<audio aria-label="); n != named {
+			t.Errorf("%s: %d of %d players have no name", c.path, n-named, n)
+		}
+		for _, want := range c.wants {
+			if !strings.Contains(h, want) {
+				t.Errorf("%s is missing %s", c.path, want)
+			}
+		}
 	}
 }
 

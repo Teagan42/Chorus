@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/teagan42/chorus/internal/reviewui/ui"
 	"github.com/teagan42/chorus/internal/triage"
@@ -33,10 +34,10 @@ var signalTags = map[triage.Kind]ui.SigTag{
 
 // signals scans every conversation, newest event first across the household,
 // and counts the unreviewed pairs the header badges on every page.
-func (s *server) signals(r *http.Request) ([]triage.Signal, int, error) {
+func (s *server) signals(r *http.Request, u *unread) ([]triage.Signal, int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	pairs, err := s.pairs(r.Context())
+	pairs, err := s.pairs(r.Context(), u)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -48,7 +49,8 @@ func (s *server) signals(r *http.Request) ([]triage.Signal, int, error) {
 	for _, conv := range convs {
 		sigs, err := triage.Scan(r.Context(), s.journal, conv)
 		if err != nil {
-			return nil, 0, fmt.Errorf("triage %s: %w", conv, err)
+			u.skip(conv, fmt.Errorf("triage: %w", err))
+			continue
 		}
 		out = append(out, sigs...)
 	}
@@ -63,12 +65,12 @@ func (s *server) signals(r *http.Request) ([]triage.Signal, int, error) {
 
 // signalRow lays a signal out for the kit's list: a barge-in opens its pair,
 // anything else its conversation at the event that raised it.
-func signalRow(sig triage.Signal) ui.ListRow {
+func signalRow(sig triage.Signal, loc *time.Location) ui.ListRow {
 	row := ui.ListRow{
 		Tag: signalTags[sig.Kind], Title: sig.Utterance, Detail: sig.Detail,
 		Who:    sig.Speaker + " · " + sig.Satellite,
 		Figure: fmt.Sprintf("%s #%d", sig.ConversationID, sig.Seq),
-		When:   sig.At.Local().Format("Jan 2 15:04"),
+		When:   sig.At.In(loc).Format("Jan 2 15:04"),
 	}
 	row.Href = conversationHref(sig.ConversationID) + fmt.Sprintf("#seq-%d", sig.Seq)
 	if sig.PairID != "" {
@@ -78,7 +80,8 @@ func signalRow(sig triage.Signal) ui.ListRow {
 }
 
 func (s *server) triage(w http.ResponseWriter, r *http.Request) {
-	sigs, unreviewed, err := s.signals(r)
+	var u unread
+	sigs, unreviewed, err := s.signals(r, &u)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -100,7 +103,7 @@ func (s *server) triage(w http.ResponseWriter, r *http.Request) {
 			if t.kind == "" || sig.Kind == t.kind {
 				n++
 				if t.id == tab {
-					list.Rows = append(list.Rows, signalRow(sig))
+					list.Rows = append(list.Rows, signalRow(sig, s.now().Location()))
 				}
 			}
 		}
@@ -117,7 +120,8 @@ func (s *server) triage(w http.ResponseWriter, r *http.Request) {
 			Eyebrow: "02 · Triage", Title: "What's worth a listen",
 			Subtitle: "Barge-ins, failures, repeated asks, slow answers and speaker flips, read from the journal.",
 		},
-		"Tabs": tabs,
-		"List": list,
+		"Tabs":   tabs,
+		"List":   list,
+		"Unread": u.alert(),
 	})
 }

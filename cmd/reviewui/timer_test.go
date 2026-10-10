@@ -88,13 +88,10 @@ func TestTheTimerIsShownSetInTheConversationThatSetIt(t *testing.T) {
 	}
 }
 
-// Teagan sets a rice timer in the office that evening, and the office
-// satellite is unplugged when it goes off. Triage queues the timer nobody
-// heard as a failure, and its row opens the house log at the event.
-//
-// verifies SPEC §7, §9.2
-func TestATimerNobodyHeardIsQueuedAsAFailure(t *testing.T) {
-	store := householdJournal(t)
+// withRiceTimer adds Teagan's rice timer, set in the office that evening and
+// going off while the office satellite is unplugged, to the house log.
+func withRiceTimer(t *testing.T, store *journal.MemStore) *journal.MemStore {
+	t.Helper()
 	clk := &stepClock{now: household.Day().Add(19*time.Hour + 30*time.Minute)}
 	j := journal.New(store, clk, household.Versions())
 	fires := clk.now.Add(20 * time.Minute)
@@ -115,7 +112,15 @@ func TestATimerNobodyHeardIsQueuedAsAFailure(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	s := newServer(store, curation.NewMemStore(), householdBlobs(t), household.ReviewedAt)
+	return store
+}
+
+// Triage queues the rice timer nobody heard as a failure, and its row opens
+// the house log at the event.
+//
+// verifies SPEC §7, §9.2
+func TestATimerNobodyHeardIsQueuedAsAFailure(t *testing.T) {
+	s := newServer(withRiceTimer(t, householdJournal(t)), curation.NewMemStore(), householdBlobs(t), household.ReviewedAt)
 
 	q := get(t, s, "/queue?tab=failure")
 	if !strings.Contains(q, `href="/conversations/house:timers#seq-4"`) || !strings.Contains(q, "unannounced") {

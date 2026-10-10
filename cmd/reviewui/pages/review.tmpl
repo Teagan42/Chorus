@@ -3,6 +3,7 @@
 {{define "page-review"}}{{template "doc-start" .Doc}}
 {{template "app-header" .Header}}
 {{template "page-head" .Head}}
+{{with .Unread}}<div class="pad">{{template "alert" .}}</div>{{end}}
 {{template "timeline" .Timeline}}
 <div class="cols" style="align-items: flex-start; margin-top: 18px">
 <div style="flex: 1 1 320px; min-width: 0" class="stack">
@@ -14,17 +15,18 @@
 </div>
 {{template "doc-end"}}{{end}}
 
-{{define "review-clips"}}<div class="stack" aria-label="Clips" style="gap: 10px">
+{{define "review-clips"}}<div class="stack" role="group" aria-label="Clips" style="gap: 10px">
 <span class="cap">Clips</span>
 {{- range .}}
 <div class="stack" style="gap: 4px">
 <span class="cap" data-tone="{{.Tone}}">{{.Label}}</span>
-<audio controls preload="none" src="{{.Src}}" style="width: 100%; height: 36px"></audio>
+<audio aria-label="{{.Label}} · {{.Who}}" controls preload="none" src="{{.Src}}" style="width: 100%; height: 36px"></audio>
 {{with .Text}}<span class="meta">{{.}}</span>{{end}}
 </div>{{end}}
 </div>{{end}}
 
 {{define "page-review-empty"}}{{template "doc-start" .Doc}}
 {{template "app-header" .Header}}
+{{with .Unread}}<div class="pad">{{template "alert" .}}</div>{{end}}
 {{template "empty-state" .Empty}}
 {{template "doc-end"}}{{end}}

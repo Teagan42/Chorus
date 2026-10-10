@@ -62,7 +62,7 @@ type replayable struct {
 func (s *server) readReplayable(ctx context.Context, id string) (replayable, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	pairs, err := s.pairs(ctx)
+	pairs, err := s.pairs(ctx, nil)
 	if err != nil {
 		return replayable{}, err
 	}
@@ -88,8 +88,9 @@ func (s *server) readReplayable(ctx context.Context, id string) (replayable, err
 }
 
 func (s *server) replays(w http.ResponseWriter, r *http.Request) {
+	var u unread
 	s.mu.Lock()
-	pairs, err := s.pairs(r.Context())
+	pairs, err := s.pairs(r.Context(), &u)
 	var ids []string
 	if err == nil {
 		ids, err = s.journal.Conversations(r.Context())
@@ -100,15 +101,20 @@ func (s *server) replays(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows []row
 	for _, id := range ids {
-		if err != nil || strings.HasPrefix(id, devicePrefix) || id == houseLog {
+		if strings.HasPrefix(id, devicePrefix) || id == houseLog {
 			continue
 		}
-		var events []journal.Event
-		if events, err = s.journal.Events(r.Context(), id); err != nil || len(events) == 0 {
+		events, rerr := s.journal.Events(r.Context(), id)
+		if rerr != nil {
+			u.skip(id, rerr)
 			continue
 		}
-		var turns []rerun.Turn
-		if turns, err = rerun.Turns(events); err != nil || len(turns) == 0 {
+		turns, rerr := rerun.Turns(events)
+		if rerr != nil {
+			u.skip(id, fmt.Errorf("replay: %w", rerr))
+			continue
+		}
+		if len(turns) == 0 {
 			continue
 		}
 		v := turns[0].Versions
@@ -142,7 +148,8 @@ func (s *server) replays(w http.ResponseWriter, r *http.Request) {
 			Eyebrow: "04 · Replay", Title: "Ask it again",
 			Subtitle: "Re-run a conversation's turns under another prompt or model and see what it would have said and done.",
 		},
-		"List": list,
+		"List":   list,
+		"Unread": u.alert(),
 	})
 }
 

@@ -486,7 +486,7 @@ func TestReviewWalksOnlyTheCuts(t *testing.T) {
 
 func mustPairs(t *testing.T, s *server) []pair {
 	t.Helper()
-	ps, err := s.pairs(context.Background())
+	ps, err := s.pairs(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

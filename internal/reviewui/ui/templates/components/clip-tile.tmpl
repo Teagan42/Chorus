@@ -11,6 +11,6 @@
 </article>{{end}}
 
 {{/* clip-grid · dot: ui.ClipGrid */}}
-{{define "clip-grid"}}<section class="clip-grid"{{with .ID}} id="{{.}}"{{end}} aria-label="Clips">
+{{define "clip-grid"}}<section class="clip-grid"{{with .ID}} id="{{.}}"{{end}} role="region" aria-label="Clips">
 {{- range .Tiles}}{{template "clip-tile" .}}{{end -}}
 </section>{{if and (not .Tiles) .Empty}}{{template "empty-state" .Empty}}{{end}}{{end}}
