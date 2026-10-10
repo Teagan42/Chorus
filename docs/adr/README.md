@@ -55,6 +55,7 @@ decision rather than by clause: facets of one choice share one record.
 | [0044](0044-recall-chooses-by-relevance-and-recency-when-more-is-kept-than-a-turn-is-told.md) | Refines 0040 and 0043: past twenty memories or five conversations, an embedding model and recency choose what a turn is told | §5, §8, §11 |
 | [0045](0045-timers-belong-to-the-house-and-an-announcement-is-a-session-with-no-wake-word.md) | Timers belong to the house, in a log of their own; an announcement is a session with no wake word, answerable with `start_conversation` | §4, §4.2, §7, §8 |
 | [0046](0046-a-turn-that-calls-nothing-has-its-answer-spoken-from-its-content.md) | A turn that calls nothing, with its reasoning in the thinking field, has its content spoken when it ends | §4.1, §5 |
+| [0047](0047-the-satellite-board-keeps-the-reference-voice-frontend-and-adds-a-wire.md) | Proposed: Chorus's own satellite board keeps the Satellite1's ESP32-S3 and XU316 frontend, and adds PoE Ethernet, a speaker-sense return and a hardware mute | §3.2.1, §3.3.2, §5 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.

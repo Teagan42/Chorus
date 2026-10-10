@@ -282,6 +282,7 @@ internal/
   reviewui/             the review UI's component kit and audio handler
     household/          the made-up household's Thursday: tests' fixture, the demo's data
   config/               satellite inventory
+  board/                a satellite PCB's pin map, checked against its module
   msgid/                ESPHome wire ids, derived from the proto descriptors
   tools/                build-time tooling (schemagen, spectrace, atomic, docexec, docsite,
                         demosite, householdvoice)
@@ -289,11 +290,13 @@ schema/                 CUE source of truth
   json/                 generated JSON Schema (do not edit)
 sidecars/               Python model services (uv workspace): speakerid, smartturn
 esphome/                chorus_bridge external component + YAML packages
+hardware/               satellite PCB sources; pins.yaml is the net-name source of truth
 docs/
   SPEC.md               normative spec
   adr/                  architecture decision records
   reference/            generated reference docs (do not edit)
   reviewui/             review UI guide and screenshots
+  hardware/             the satellite board's design
 mkdocs.yml              the docs site: which Markdown, in what nav
 proto/esphome/          vendored ESPHome protos
 ```

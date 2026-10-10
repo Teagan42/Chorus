@@ -46,6 +46,7 @@ nav:
   - Decisions:
       - adr/README.md
       - adr/[0-9]*.md
+  - Hardware: hardware/README.md
   - Review UI:
       - reviewui/README.md
       - Live demo: https://teagan42.github.io/Chorus/demo/
