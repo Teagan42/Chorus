@@ -24,7 +24,8 @@ CONF_DUCKING_SPEAKER = "ducking_speaker"
 CONF_HOST = "host"
 CONF_RECONNECT_INTERVAL = "reconnect_interval"
 
-# Two sources on one mic: channel 0 AEC'd, channel 1 raw (SPEC §3.2).
+# Two sources on one mic: channel 0 fully processed, channel 1 the XMOS's
+# second output (SPEC §3.2).
 MAX_MICROPHONE_SOURCES = 2
 
 chorus_bridge_ns = cg.esphome_ns.namespace("chorus_bridge")

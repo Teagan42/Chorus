@@ -49,7 +49,7 @@ func TestFrameWireLayout(t *testing.T) {
 	w := bridge.NewWriter(&buf)
 	if err := w.WriteFrame(bridge.Frame{
 		Type:    bridge.TypeMic,
-		Flags:   bridge.ChannelRaw,
+		Flags:   bridge.ChannelSecond,
 		Payload: []byte{0xaa, 0xbb, 0xcc},
 	}); err != nil {
 		t.Fatal(err)

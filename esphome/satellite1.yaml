@@ -15,7 +15,8 @@
 #   - `microphone: platform: satellite1` reads 48 kHz 32-bit off I2S and
 #     decimates by 3 on-device, reporting 16 kHz to consumers. The 48000 below
 #     is the wire rate, not what chorus_bridge receives.
-#   - Channel 0 is the XMOS echo-cancelled mix, channel 1 is raw.
+#   - Channel 0 is the XMOS's AEC+IC+NS+AGC mix, channel 1 the same without
+#     AGC. Neither is a bare mic (SPEC §3.2).
 
 substitutions:
   name: satellite1

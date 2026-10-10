@@ -230,7 +230,7 @@ func TestServeDispatchesDeviceFrames(t *testing.T) {
 
 	go func() {
 		_ = w.WriteFrame(bridge.Frame{Type: bridge.TypeMic, Flags: bridge.ChannelAEC, Payload: []byte{1, 2}})
-		_ = w.WriteFrame(bridge.Frame{Type: bridge.TypeMic, Flags: bridge.ChannelRaw, Payload: []byte{3, 4}})
+		_ = w.WriteFrame(bridge.Frame{Type: bridge.TypeMic, Flags: bridge.ChannelSecond, Payload: []byte{3, 4}})
 		_ = w.WriteFrame(bridge.Frame{Type: bridge.TypeWake, Payload: []byte("hey_eddie")})
 		_ = w.WriteFrame(bridge.Played{Frames: 16000, TimestampMicros: 42}.Frame())
 		_ = w.WriteFrame(bridge.Mute{Hardware: true}.Frame())
@@ -242,9 +242,9 @@ func TestServeDispatchesDeviceFrames(t *testing.T) {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.mic[0].channel != bridge.ChannelAEC || c.mic[1].channel != bridge.ChannelRaw {
+	if c.mic[0].channel != bridge.ChannelAEC || c.mic[1].channel != bridge.ChannelSecond {
 		t.Errorf("mic channels = %d,%d, want %d,%d",
-			c.mic[0].channel, c.mic[1].channel, bridge.ChannelAEC, bridge.ChannelRaw)
+			c.mic[0].channel, c.mic[1].channel, bridge.ChannelAEC, bridge.ChannelSecond)
 	}
 	if string(c.mic[1].pcm) != "\x03\x04" {
 		t.Errorf("raw mic pcm = % x, want 03 04", c.mic[1].pcm)

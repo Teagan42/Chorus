@@ -38,8 +38,9 @@ chorus_bridge:
   port: ${orchestrator_port}
   speaker: ${speaker_id}
   microphone:
-    # Channel 0 is the XMOS echo-cancelled mix; channel 1 is raw. Both are
-    # non-passive by construction -- see the component's to_code.
+    # Channel 0 is the XMOS's fully processed mix; channel 1 its second
+    # output. Both are non-passive by construction -- see the component's
+    # to_code.
     - microphone: ${microphone_id}
       channels: [0]
     - microphone: ${microphone_id}

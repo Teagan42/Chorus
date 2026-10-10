@@ -54,8 +54,8 @@ const (
 
 // Mic channel, in Frame.Flags on TypeMic.
 const (
-	ChannelAEC uint8 = 0 // XMOS echo-cancelled
-	ChannelRaw uint8 = 1
+	ChannelAEC    uint8 = 0 // XMOS fully processed: AEC, IC, NS, AGC
+	ChannelSecond uint8 = 1 // XMOS second output; its processing is the firmware's setting (SPEC §3.2)
 )
 
 // Mute bits, in Frame.Flags on TypeMute.
