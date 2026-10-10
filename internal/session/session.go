@@ -101,6 +101,10 @@ type Config struct {
 	// Canned is what is said when the model or the voice fails. Empty lines
 	// take DefaultCanned's (SPEC §7).
 	Canned Canned
+
+	// Ring is the satellite's LED ring, shown each session's state. Nil
+	// shows nothing.
+	Ring Ring
 }
 
 // Supervisor opens sessions. It holds no per-session state.
@@ -214,6 +218,11 @@ type Session struct {
 	// speaker is who this turn is for, as the log identified them: whom a
 	// person-scoped call is made for (SPEC §5).
 	speaker string
+
+	// shown is what the ring last showed, and over that the session ended:
+	// its children may still be settling, but the ring is dark.
+	shown RingState
+	over  bool
 
 	speech    *speechChannel
 	closeOnce sync.Once
@@ -894,6 +903,10 @@ func (s *Session) yield() error { return s.end("migrated", "migrated") }
 func (s *Session) end(reason, discard string) error {
 	var err error
 	s.closeOnce.Do(func() {
+		// First, so the ring is dark while the cut speech settles.
+		s.mu.Lock()
+		s.over = true
+		s.mu.Unlock()
 		// Discards are recorded before the close that caused them.
 		s.speech.shut(discard)
 		err = s.record(journal.Record{
@@ -984,12 +997,14 @@ func (s *Session) enter(child string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.children[child]++
+	s.showLocked()
 }
 
 func (s *Session) leave(child string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.children[child]--
+	s.showLocked()
 }
 
 func mode(m Mode) Mode {
