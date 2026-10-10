@@ -8,7 +8,6 @@ import (
 	"slices"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/teaganglenn/chorus/internal/journal"
 	"github.com/teaganglenn/chorus/internal/registry"
@@ -23,8 +22,8 @@ type remembered struct {
 	summaries map[string][]journal.Summary
 	err       error
 	keepErr   error
-	asked     []string
-	askedAt   []time.Time
+	rankedBy  string
+	asks      []session.Ask
 	kept      []kept
 }
 
@@ -34,12 +33,17 @@ type kept struct {
 	Summary journal.Summary
 }
 
-func (r *remembered) Recall(_ context.Context, person, _ string, now time.Time) (session.Recollection, error) {
+func (r *remembered) Recall(_ context.Context, a session.Ask) (session.Recollection, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.asked = append(r.asked, person)
-	r.askedAt = append(r.askedAt, now)
-	return session.Recollection{Memories: r.byPerson[person], Summaries: r.summaries[person]}, r.err
+	r.asks = append(r.asks, a)
+	return session.Recollection{Memories: r.byPerson[a.Person], Summaries: r.summaries[a.Person], RankedBy: r.rankedBy}, r.err
+}
+
+func (r *remembered) asked() []session.Ask {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.asks)
 }
 
 func (r *remembered) Keep(_ context.Context, people []string, s journal.Summary) error {
@@ -126,6 +130,51 @@ func TestATurnIsToldWhatItsSpeakerRemembers(t *testing.T) {
 	}
 }
 
+// Teagan asks about the garage, and the memories are chosen for it by an
+// embedding model: the log says which, and what was said that they were
+// chosen for reaches the recall. When the model is down for the next turn
+// and the same memories are the newest, the log says they were not ranked.
+//
+// verifies SPEC §5, §8
+func TestARecallSaysWhatChoseIt(t *testing.T) {
+	steps := []step{{act: session.TurnEnd{FinishReason: "stop", Completion: "{}"}}}
+	r, mem := newMemoryRig(t, steps, nil, nil)
+	mem.rankedBy = "nomic-embed-text"
+	s := r.open(t, "teagan")
+	wait(t, heard(s, "what's the code for the garage"))
+
+	recalls := func() []journal.Event {
+		var out []journal.Event
+		for _, e := range r.events(t, s.ConversationID()) {
+			if e.Kind == journal.KindMemoryRecalled {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	if got := recalls(); len(got) != 1 || got[0].Fields["ranked_by"] != "nomic-embed-text" {
+		t.Fatalf("recalls %+v, want one ranked by the embedding model", got)
+	}
+	if st := r.state(t, s.ConversationID()); st.RecalledRankedBy != "nomic-embed-text" {
+		t.Errorf("state ranked by %q, want the embedding model", st.RecalledRankedBy)
+	}
+	if got := mem.asked(); len(got) != 1 || got[0].Words != "what's the code for the garage" {
+		t.Errorf("recalled for %+v, want what Teagan said", got)
+	}
+
+	mem.mu.Lock()
+	mem.rankedBy = ""
+	mem.mu.Unlock()
+	wait(t, heard(s, "and the front door"))
+	got := recalls()
+	if len(got) != 2 {
+		t.Fatalf("recorded %d recalls, want again once ranking stopped", len(got))
+	}
+	if _, ok := got[1].Fields["ranked_by"]; ok {
+		t.Errorf("an unranked recall says %v", got[1].Fields)
+	}
+}
+
 // A guest is told nothing, and nobody's memory is looked up for them.
 //
 // verifies SPEC §5
@@ -138,8 +187,8 @@ func TestAGuestIsToldNothingRemembered(t *testing.T) {
 	if asks := r.engine.asks(); len(asks) != 1 || asks[0].Memories != nil {
 		t.Errorf("a guest's turn was told %+v", asks)
 	}
-	if len(mem.asked) != 0 {
-		t.Errorf("recalled for %q on a guest's turn", mem.asked)
+	if got := mem.asked(); len(got) != 0 {
+		t.Errorf("recalled for %+v on a guest's turn", got)
 	}
 	if n := countKind(r.kinds(t, s.ConversationID()), journal.KindMemoryRecalled); n != 0 {
 		t.Errorf("memory_recalled recorded %d times for a guest", n)
