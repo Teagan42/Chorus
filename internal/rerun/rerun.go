@@ -95,6 +95,9 @@ func Turns(events []journal.Event) ([]Turn, error) {
 		// follow-up asks' speak calls, whose speech is not the first ask's.
 		asked bool
 		later map[string]bool
+		// held is each call an interjection paused, by its take's index:
+		// what plays after is the same line (ADR-0056).
+		held map[string]int
 	)
 	for _, e := range events {
 		if state, err = journal.Reduce(state, e); err != nil {
@@ -110,7 +113,7 @@ func Turns(events []journal.Event) ([]Turn, error) {
 				Memories: state.Recalled, Summaries: state.RecalledSummaries, HeardAt: state.HeardAt,
 				Room: state.Room,
 			})
-			asked, later = false, map[string]bool{}
+			asked, later, held = false, map[string]bool{}, map[string]int{}
 			continue
 		}
 		if len(out) == 0 {
@@ -132,17 +135,22 @@ func Turns(events []journal.Event) ([]Turn, error) {
 			}
 		case journal.KindSpeechSpoken:
 			if !later[f["call_id"]] {
-				t.Recorded.Speech = append(t.Recorded.Speech, Speech{Text: f["text"]})
+				t.said(held, f["call_id"], Speech{Text: f["text"]})
 			}
 		case journal.KindSpeechTruncated:
-			if !later[f["call_id"]] {
-				t.Recorded.Speech = append(t.Recorded.Speech, Speech{Text: f["spoken_text"], Unheard: f["unspoken_text"]})
+			switch {
+			case later[f["call_id"]]:
+			case f["reason"] == "interjected":
+				t.said(held, f["call_id"], Speech{Text: f["spoken_text"]})
+				held[f["call_id"]] = len(t.Recorded.Speech) - 1
+			default:
+				t.said(held, f["call_id"], Speech{Text: f["spoken_text"], Unheard: f["unspoken_text"]})
 			}
 		case journal.KindSpeechDiscarded:
 			// A log from before ADR-0051 names no call, so its discarded
 			// speech is kept with the turn whichever ask generated it.
 			if !later[f["call_id"]] {
-				t.Recorded.Speech = append(t.Recorded.Speech, Speech{Unheard: f["unspoken_text"]})
+				t.said(held, f["call_id"], Speech{Unheard: f["unspoken_text"]})
 			}
 		case journal.KindToolCalled:
 			switch {
@@ -161,6 +169,19 @@ func Turns(events []journal.Event) ([]Turn, error) {
 		}
 	}
 	return out, nil
+}
+
+// said adds speech to the take, or to the line an interjection paused,
+// which it then no longer is.
+func (t *Turn) said(held map[string]int, id string, sp Speech) {
+	i, ok := held[id]
+	if !ok || id == "" {
+		t.Recorded.Speech = append(t.Recorded.Speech, sp)
+		return
+	}
+	delete(held, id)
+	t.Recorded.Speech[i].Text += sp.Text
+	t.Recorded.Speech[i].Unheard = sp.Unheard
 }
 
 // finishError is how an engine ends a turn its stream broke under: the

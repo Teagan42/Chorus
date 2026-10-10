@@ -461,3 +461,28 @@ func TestAnApologyThatCouldNotBeSaidIsNotTheTurnsSpeech(t *testing.T) {
 		t.Errorf("turns = %+v, want only the forecast as the turn's unheard speech", ts)
 	}
 }
+
+// The garage door's state lands while Teagan's forecast plays, and the
+// model's follow-up interjects. The forecast paused and resumed is still
+// one thing the turn said, and the interjection is the follow-up's.
+//
+// verifies SPEC §4.2, §9.2
+func TestAnInterjectedLineIsOneLineOfTheTake(t *testing.T) {
+	ts := turns(t, logOf(t, []journal.Record{
+		record(journal.KindSessionOpened, "satellite", "kitchen", "speaker_id", "teagan", "resumed", "false"),
+		record(journal.KindUtteranceTranscribed, "text", "what's the weather tomorrow and is the garage shut", "speaker_id", "teagan"),
+		record(journal.KindToolCalled, "tool", "speak", "call_id", "s1", "args_json", `{"mode":"queue","streamed":true}`),
+		record(journal.KindToolCalled, "tool", "ha_get_state", "call_id", "c1", "args_json", `{"entity_id":"cover.garage_door"}`),
+		record(journal.KindModelCompleted, "completion_json", "{}", "finish_reason", "tool_calls"),
+		record(journal.KindToolResult, "call_id", "c1", "outcome", "ok", "result_json", `{"state":"open"}`),
+		record(journal.KindToolCalled, "tool", "speak", "call_id", "s2", "args_json", `{"mode":"interject","streamed":true}`),
+		record(journal.KindSpeechTruncated, "spoken_text", "Tomorrow will be cloudy in the morning,", "unspoken_text", " with rain from three.", "frames_played", "24000", "call_id", "s1", "reason", "interjected"),
+		record(journal.KindSpeechSpoken, "text", "Sorry, the garage door is open.", "frames_played", "12800", "call_id", "s2"),
+		record(journal.KindSpeechSpoken, "text", " with rain from three.", "frames_played", "19200", "call_id", "s1"),
+		record(journal.KindModelCompleted, "completion_json", "{}", "finish_reason", "stop"),
+	}))
+	want := []rerun.Speech{{Text: "Tomorrow will be cloudy in the morning, with rain from three."}}
+	if got := ts[0].Recorded.Speech; !slices.Equal(got, want) {
+		t.Errorf("speech = %+v, want %+v", got, want)
+	}
+}
