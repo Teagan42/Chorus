@@ -30,6 +30,7 @@ const (
 	convGarage  = household.ConvGarage
 	convTimer   = household.ConvTimer
 	convOven    = household.ConvOven
+	convPasta   = household.ConvPasta
 	convJazz    = household.ConvJazz
 	convList    = household.ConvList
 	convLock    = household.ConvLock
@@ -111,6 +112,7 @@ func TestHouseholdDay(t *testing.T) {
 		triage.KindFailure:     {convGarage},
 		triage.KindRepeated:    {convTimer},
 		triage.KindSpeakerFlip: {convJazz},
+		triage.KindSlow:        {convGarage, convDoor},
 	}
 	for k, convs := range want {
 		got := map[string]bool{}

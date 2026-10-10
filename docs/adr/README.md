@@ -72,6 +72,7 @@ numbered 0028 was ever committed or dropped.
 | [0059](0059-every-re-run-is-kept-beside-the-journal-and-its-tool-schema-is-the-reviewers-to-edit.md) | Refines 0052: every re-run is kept beside the journal and promoted from there; the tool schema a re-run is offered is edited beside its prompt and versioned from the edit | §8, §9.2 |
 | [0060](0060-a-timeout-leaves-outliving-work-running-and-each-edge-of-a-session-is-journalled.md) | Refines 0031 and 0049: a timeout cancels only `cancel` work; the model is offered what the build runs; a guest tool acts for nobody; a candidate names its utterance's one blob | §4.3, §4.4, §4.5, §5, §6, §9.3 |
 | [0061](0061-direction-of-arrival-uses-the-kits-four-mics-and-is-estimated-on-the-satellite.md) | Proposed, amends 0053: direction of arrival uses the kit's four mics and is estimated on the ESP32-S3 by SRP-PHAT, sent as an additive `direction` frame; the raw array frame stays, opt-in, for journalling and tuning where the link carries it | §3.2, §3.3.2, §4.3, §5, §8 |
+| [0062](0062-the-review-ui-derives-a-log-again-only-once-it-has-grown.md) | Refines 0026 and 0052: the review UI keeps what each log derives by the seq it was read to, and reads and derives a log again only once its last seq has moved; a reviewer's verdicts and labels are read on every request | §8, §9.1 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.

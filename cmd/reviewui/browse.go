@@ -147,6 +147,20 @@ type deviceLog struct {
 	presence []presenceMark
 }
 
+// deviceOf is a satellite's rejected wakes and its room's presence.
+func deviceOf(events []journal.Event) *deviceLog {
+	dev := &deviceLog{}
+	for _, e := range events {
+		switch e.Kind {
+		case journal.KindWakeRejected:
+			dev.rejects = append(dev.rejects, e)
+		case journal.KindPresenceChanged:
+			dev.presence = append(dev.presence, presenceMark{e.At, e.Fields["state"]})
+		}
+	}
+	return dev
+}
+
 // presenceMark is one presence_changed: present, absent or unknown.
 type presenceMark struct {
 	at    time.Time
@@ -190,9 +204,9 @@ func presenceSpans(marks []presenceMark, from, to, now time.Time) [][2]float64 {
 	return out
 }
 
-// household reads every log once: conversations to summarize, device logs
-// for their rejected wakes and presence, and the unreviewed count every
-// header badges.
+// household reads every log that grew since it was last read: conversations
+// to summarize, device logs for their rejected wakes and presence, and the
+// unreviewed count every header badges.
 func (s *server) household(r *http.Request, u *unread) ([]convSummary, map[string]*deviceLog, int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -207,7 +221,7 @@ func (s *server) household(r *http.Request, u *unread) ([]convSummary, map[strin
 	var convs []convSummary
 	devices := map[string]*deviceLog{}
 	for _, id := range ids {
-		events, err := s.journal.Events(r.Context(), id)
+		d, err := s.logs.of(r.Context(), s.journal, id)
 		if err != nil {
 			u.skip(id, err)
 			continue
@@ -216,24 +230,14 @@ func (s *server) household(r *http.Request, u *unread) ([]convSummary, map[strin
 			continue
 		}
 		if sat, ok := strings.CutPrefix(id, devicePrefix); ok {
-			dev := &deviceLog{}
-			for _, e := range events {
-				switch e.Kind {
-				case journal.KindWakeRejected:
-					dev.rejects = append(dev.rejects, e)
-				case journal.KindPresenceChanged:
-					dev.presence = append(dev.presence, presenceMark{e.At, e.Fields["state"]})
-				}
-			}
-			devices[sat] = dev
+			devices[sat] = d.device
 			continue
 		}
-		sigs, err := triage.Scan(r.Context(), s.journal, id)
-		if err != nil {
-			u.skip(id, fmt.Errorf("triage: %w", err))
+		if d.triageErr != nil {
+			u.skip(id, fmt.Errorf("triage: %w", d.triageErr))
 			continue
 		}
-		convs = append(convs, summarize(id, events, sigs))
+		convs = append(convs, d.summary)
 	}
 	return convs, devices, unreviewedCount(pairs), nil
 }

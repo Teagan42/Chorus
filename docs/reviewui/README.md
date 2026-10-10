@@ -50,8 +50,11 @@ of the UI must pass the `Host` header through.
 [teagan42.github.io/Chorus/demo](https://teagan42.github.io/Chorus/demo/)
 is this UI running in a visitor's browser over one made-up household's
 Thursday: Teagan, Alice and Alan, the kitchen, office and living room, three
-barge-ins, a garage sensor that times out, an oven timer asked for twice, and
-Alice carrying her music to the living room. It is the same day the browser
+barge-ins, three music searches that each say a few words while they look,
+a garage sensor that times out, an oven timer asked for twice, a pasta timer
+called off, the television the barge-in gate refused, a front
+door that kept Teagan waiting, and Alice carrying her music to the living
+room. It is the same day the browser
 tests walk (`internal/reviewui/household`), so what the demo shows is what CI
 checked.
 
@@ -104,7 +107,11 @@ Chrome, so a URL the shell fails to re-point is a 404 the test fails on.
 The header runs left to right in the order a reviewer usually works, and
 badges the number of harvested pairs nobody has judged yet.
 
-Every screen but a conversation's own reads the whole household. A log no
+Every screen but a conversation's own reads the whole household. Each
+request asks the journal how far every log has got and reads again only
+the logs that grew since the last one: the journal is append-only, so what
+a log derives (its pairs, signals, summary and turns) is kept by the seq it
+was read to, and an append is on the next request (ADR-0062). A log no
 reducer can read, such as a recall written cut off mid-memory, is left out
 rather than failing the screen: Browse, Triage, Review, Replay, Curate and
 Export each name the logs they skipped above what they could read, and the
@@ -158,6 +165,11 @@ the voice failing, not as someone talking over it (ADR-0051).
 
 ![Conversation, the model and the voice failing](conversation-provider-failure.png)
 
+A barge-in the gate refused is a row of its own, playing what it heard,
+such as the living room's television talking over an answer and turned
+away at speaker ID. It is no turn and offers no labels: it is kept to tune
+the gate on (SPEC §4.3).
+
 A rejected wake's row plays what the wake model heard and, when the
 satellite kept one, its second channel, captioned as such. Under it sit
 *Confirm negative* and *Discard*, the reviewer's word on whether the clip
@@ -202,8 +214,9 @@ room, opens a session with no wake word (ADR-0045). Browse lists it as an
 *announcement*, named by what it said and whom it was for. Its log says why
 it was said. Timers live in the household's own log, `house:timers`, which
 Browse does not list. Its events appear in the conversations they name, as
-`house #N` rows: the timer being set beside the `timer_start` call, and its
-going off in the session that said it. A timer nobody heard is a failure in
+`house #N` rows: the timer being set beside the `timer_start` call, its
+cancellation beside the `timer_cancel` call, and its going off in the
+session that said it. A timer nobody heard is a failure in
 Triage, which opens the house log at the event.
 
 ![An announcement: the oven timer going off](e2e/journey-oven-goes-off.png)

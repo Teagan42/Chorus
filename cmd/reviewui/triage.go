@@ -50,17 +50,15 @@ func (s *server) signals(r *http.Request, u *unread) ([]triage.Signal, int, erro
 	}
 	var out []triage.Signal
 	for _, conv := range convs {
-		sigs, err := triage.Scan(r.Context(), s.journal, conv)
-		if err == nil {
-			var pos []triage.Signal
-			pos, err = triage.WeakPositives(r.Context(), s.journal, conv)
-			sigs = append(sigs, pos...)
+		d, err := s.logs.of(r.Context(), s.journal, conv)
+		if err == nil && d.triageErr != nil {
+			err = fmt.Errorf("triage: %w", d.triageErr)
 		}
 		if err != nil {
-			u.skip(conv, fmt.Errorf("triage: %w", err))
+			u.skip(conv, err)
 			continue
 		}
-		out = append(out, sigs...)
+		out = append(append(out, d.signals...), d.positives...)
 	}
 	slices.SortStableFunc(out, func(a, b triage.Signal) int {
 		if c := b.At.Compare(a.At); c != 0 {

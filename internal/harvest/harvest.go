@@ -327,6 +327,10 @@ type walker struct {
 	// line for a failed model or voice. Nobody's turn chose those words, so
 	// they are no side of a pair (ADR-0045, ADR-0051).
 	unchosen map[string]bool
+
+	// acks are the speak calls that said a slow call's acknowledgement:
+	// words the model wrote as that call's argument (ADR-0039).
+	acks map[string]bool
 }
 
 // skip marks a speak call as said by nobody's turn.
@@ -401,7 +405,10 @@ func (w *walker) fold(e journal.Event) error {
 		}
 		w.cur.bargeIn = &bargeIn{seq: e.Seq, positionMS: ms, audioRef: e.AudioRef, frames: frames}
 	case journal.KindSpeechSpoken:
-		if w.cur != nil {
+		// Played out, an acknowledgement is the slow call's argument, which
+		// the turn's calls carry. One the person cut is what they rejected,
+		// so a truncation keeps it, as the dialogue does.
+		if w.cur != nil && !w.acks[e.Fields["call_id"]] {
 			w.cur.spoken = append(w.cur.spoken, e.Fields["text"])
 			w.cur.spokenAudio = append(w.cur.spokenAudio, e.AudioRef)
 		}
@@ -431,6 +438,12 @@ func (w *walker) fold(e journal.Event) error {
 			w.cur.unheard = append(w.cur.unheard, e.Fields["unspoken_text"])
 		}
 	case journal.KindToolCalled:
+		if e.Fields["tool"] == "speak" && acknowledges(e.Fields["args_json"]) {
+			if w.acks == nil {
+				w.acks = map[string]bool{}
+			}
+			w.acks[e.Fields["call_id"]] = true
+		}
 		if w.cur != nil {
 			w.cur.calls = append(w.cur.calls, journal.Call{
 				ID: e.Fields["call_id"], Tool: e.Fields["tool"], Args: e.Fields["args_json"],
@@ -465,6 +478,17 @@ func (w *walker) fold(e journal.Event) error {
 		return fmt.Errorf("unhandled event kind %q", e.Kind)
 	}
 	return nil
+}
+
+// acknowledges reports a speak call the session made to say a slow call's
+// acknowledgement. A streamed speak's arguments carry no such field.
+func acknowledges(args string) bool {
+	var a struct {
+		Acknowledges string `json:"acknowledges"`
+	}
+	// An unreadable speak is the model's, so it is the turn's speech.
+	_ = json.Unmarshal([]byte(args), &a)
+	return a.Acknowledges != ""
 }
 
 // cutByPerson reports a truncation the barge-in made. A log from before

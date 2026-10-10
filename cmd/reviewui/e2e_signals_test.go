@@ -113,16 +113,16 @@ func TestE2EJourneyLabelTheAnswerAlanHadToRepeat(t *testing.T) {
 
 	p.visit("/queue?tab=repeated")
 	p.follow(`#queue a.list__row`)
-	p.waitText("#seq-7", "asked again 6.2 s after")
-	p.click(`#seq-7 a[href="#turn-2-labels"]`)
+	p.waitText("#seq-8", "asked again 6.2 s after")
+	p.click(`#seq-8 a[href="#turn-2-labels"]`)
 	p.waitHash("#turn-2-labels")
-	p.waitText("#turn-2-labels", "asked again at #7: “set a timer for twelve minutes”")
+	p.waitText("#turn-2-labels", "asked again at #8: “set a timer for twelve minutes”")
 	p.click(chip(ovenAsk, "misunderstood_intent"))
 	p.pressed(chip(ovenAsk, "misunderstood_intent"), true)
 	p.typeInto("#turn-2-should-have", fixOven)
 	p.click(`#turn-2-labels button[type="submit"]`)
 	p.waitText("#turn-2-labels", "In Curate")
-	p.waitText("#turn-2-labels", "asked again at #7")
+	p.waitText("#turn-2-labels", "asked again at #8")
 	p.shot("journey-repeat-labelled")
 	if a, _ := decisions.Annotations(context.Background(), convTimer); a[ovenAsk].ShouldHave != fixOven {
 		t.Errorf("stored annotation = %+v", a[ovenAsk])
@@ -144,7 +144,7 @@ func TestE2EJourneyLabelTheAnswerAlanHadToRepeat(t *testing.T) {
 	seq := meta["seq"].(map[string]any)
 	audio := meta["audio"].(map[string]any)
 	if !strings.Contains(fmt.Sprint(meta["heard"]), "asked again: “set a timer for twelve minutes”") ||
-		seq["correction"] != float64(7) || audio["correction"] != "blob://mic/timer-twelve" {
+		seq["correction"] != float64(8) || audio["correction"] != "blob://mic/timer-twelve" {
 		t.Errorf("the oven row's evidence = heard %q, seq %v, audio %v", meta["heard"], seq, audio)
 	}
 }
@@ -164,17 +164,17 @@ func TestE2EJourneyAWeakPositiveIsLabelledAnExemplar(t *testing.T) {
 		t.Error("All lists a weak positive among the problems")
 	}
 	p.follow(`#queue-tabs a[href$="tab=weak-positive"]`)
-	if n := p.count("#queue a.list__row"); n != 10 {
-		t.Errorf("the weak positives tab lists %d rows, want 10", n)
+	if n := p.count("#queue a.list__row"); n != 12 {
+		t.Errorf("the weak positives tab lists %d rows, want 12", n)
 	}
 	p.shot("triage-weak-positives")
 
-	p.follow(fmt.Sprintf(`#queue a[href="%s#seq-8"]`, conversationHref(convList)))
-	if id, visible := p.target(); id != "seq-8" || !visible {
-		t.Errorf("target #%s (visible %v), want the completion #seq-8 in view", id, visible)
+	p.follow(fmt.Sprintf(`#queue a[href="%s#seq-9"]`, conversationHref(convList)))
+	if id, visible := p.target(); id != "seq-9" || !visible {
+		t.Errorf("target #%s (visible %v), want the completion #seq-9 in view", id, visible)
 	}
-	p.waitText("#seq-8", "weak positive")
-	p.waitText("#seq-8", "answered “Added oat milk.”")
+	p.waitText("#seq-9", "weak positive")
+	p.waitText("#seq-9", "answered “Added oat milk.”")
 	p.click(chip(2, "exemplar"))
 	p.pressed(chip(2, "exemplar"), true)
 	if a, _ := decisions.Annotations(context.Background(), convList); !a[2].Has(curation.LabelExemplar) {

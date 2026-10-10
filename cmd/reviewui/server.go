@@ -51,6 +51,9 @@ type server struct {
 	// a household's own review box.
 	notice *ui.Notice
 
+	// logs is what each log derives, read again only once it has grown.
+	logs logs
+
 	// One reviewer at a time is the household reality; the lock keeps a
 	// read-modify-write on a pair from racing itself.
 	mu sync.Mutex
@@ -131,8 +134,8 @@ func (u *unread) alert() *ui.Alert {
 
 // pairs harvests every conversation, newest activity first, adds the pairs
 // reviewers cut from labelled and re-run turns, and overlays the stored
-// verdicts. The page reads the log each time: the journal is the source of
-// truth and candidates are derived, never copied (SPEC §8).
+// verdicts. Candidates are derived from the log as it stands, never copied:
+// a log that grew since the last request is read again (SPEC §8).
 func (s *server) pairs(ctx context.Context, u *unread) ([]pair, error) {
 	convs, err := s.journal.Conversations(ctx)
 	if err != nil {
@@ -140,12 +143,15 @@ func (s *server) pairs(ctx context.Context, u *unread) ([]pair, error) {
 	}
 	var out []pair
 	for _, conv := range convs {
-		res, err := harvest.Scan(ctx, s.journal, conv)
+		d, err := s.logs.of(ctx, s.journal, conv)
+		if err == nil {
+			err = d.scanErr
+		}
 		if err != nil {
 			u.skip(conv, err)
 			continue
 		}
-		reviewed, err := s.reviewersPairs(ctx, conv, res.Turns)
+		reviewed, err := s.reviewersPairs(ctx, conv, d)
 		if err != nil {
 			return nil, err
 		}
@@ -153,7 +159,7 @@ func (s *server) pairs(ctx context.Context, u *unread) ([]pair, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, h := range append(res.Pairs, reviewed...) {
+		for _, h := range slices.Concat(d.scan.Pairs, reviewed) {
 			d, decided := verdicts[h.ID]
 			out = append(out, pair{conversationID: conv, H: h, Pair: toUIPair(h, d, decided)})
 		}
@@ -164,7 +170,7 @@ func (s *server) pairs(ctx context.Context, u *unread) ([]pair, error) {
 // reviewersPairs cuts a pair from each turn a reviewer labelled with a fault
 // and what it should have done, and from each turn whose re-run they
 // promoted (SPEC §9.2). Neither is harvested: a person made them.
-func (s *server) reviewersPairs(ctx context.Context, conv string, turns []harvest.Turn) ([]harvest.Pair, error) {
+func (s *server) reviewersPairs(ctx context.Context, conv string, d *derived) ([]harvest.Pair, error) {
 	annos, err := s.decisions.Annotations(ctx, conv)
 	if err != nil {
 		return nil, err
@@ -173,22 +179,22 @@ func (s *server) reviewersPairs(ctx context.Context, conv string, turns []harves
 	if err != nil {
 		return nil, err
 	}
-	asked, err := s.firstAsks(ctx, conv, len(promos) > 0)
+	asked, err := firstAsks(conv, d, len(promos) > 0)
 	if err != nil {
 		return nil, err
 	}
 	var again map[uint64]triage.Signal
 	if len(annos) > 0 {
-		if again, err = s.askedAgain(ctx, conv); err != nil {
+		if again, err = askedAgain(d); err != nil {
 			return nil, err
 		}
 	}
 	askAudio := map[uint64]string{}
-	for _, t := range turns {
+	for _, t := range d.scan.Turns {
 		askAudio[t.Seq] = t.AskAudio
 	}
 	var out []harvest.Pair
-	for _, t := range turns {
+	for _, t := range d.scan.Turns {
 		if a := annos[t.Seq]; a.Faulted() {
 			h := t.Pair(conv, harvest.SourceAnnotation, a.ShouldHave)
 			h.Heard = labelled(a)
@@ -220,22 +226,17 @@ func (s *server) reviewersPairs(ctx context.Context, conv string, turns []harves
 	return out, nil
 }
 
-// firstAsks indexes the conversation's turns as Replay compares them, read
-// only when a promotion needs them.
-func (s *server) firstAsks(ctx context.Context, conv string, need bool) (map[uint64]rerun.Turn, error) {
+// firstAsks indexes the conversation's turns as Replay compares them, when
+// a promotion needs them.
+func firstAsks(conv string, d *derived, need bool) (map[uint64]rerun.Turn, error) {
 	if !need {
 		return nil, nil
 	}
-	events, err := s.journal.Events(ctx, conv)
-	if err != nil {
-		return nil, err
+	if d.turnsErr != nil {
+		return nil, fmt.Errorf("replay %s: %w", conv, d.turnsErr)
 	}
-	turns, err := rerun.Turns(events)
-	if err != nil {
-		return nil, fmt.Errorf("replay %s: %w", conv, err)
-	}
-	out := make(map[uint64]rerun.Turn, len(turns))
-	for _, t := range turns {
+	out := make(map[uint64]rerun.Turn, len(d.turns))
+	for _, t := range d.turns {
 		out[t.Seq] = t
 	}
 	return out, nil

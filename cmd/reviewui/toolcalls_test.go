@@ -101,7 +101,7 @@ func TestCurateShowsWhatEachSideCalls(t *testing.T) {
 	s, _ := newHouseholdServer(t)
 	mustPost(t, s, turnURL(convZeppel, zeppelinAsk, "labels/misunderstood_intent"), url.Values{"should_have": {shouldHaveZeppel}})
 	h := get(t, s, pairHref(annotatedZeppel, "all"))
-	search := `<span class="pair-actions__call">media_search {&#34;query&#34;:&#34;Led Zeppelin&#34;,&#34;media_type&#34;:&#34;album&#34;,&#34;limit&#34;:5}</span>`
+	search := `<span class="pair-actions__call">media_search {&#34;query&#34;:&#34;Led Zeppelin&#34;,&#34;limit&#34;:5,&#34;acknowledgement&#34;:&#34;Let me find that.&#34;}</span>`
 	if n := strings.Count(h, search); n != 2 {
 		t.Errorf("the search shows %d times, want once on each side", n)
 	}

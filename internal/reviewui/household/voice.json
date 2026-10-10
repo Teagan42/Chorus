@@ -4,7 +4,8 @@
     "teagan": "af_sarah",
     "alice": "bf_emma",
     "alan": "am_michael",
-    "podcast": "bm_george"
+    "podcast": "bm_george",
+    "tv": "bm_daniel"
   },
   "clips": [
     {"ref": "mic/weather-ask", "who": "teagan", "say": "what's the weather today", "seconds": 1.2},
@@ -14,6 +15,7 @@
     {"ref": "tts/weather-yes", "who": "assistant", "say": "Yes, rain from three.", "seconds": 1.5},
 
     {"ref": "mic/zeppelin-ask", "who": "alice", "say": "play something by zeppelin", "seconds": 1.4},
+    {"ref": "tts/zeppelin-ack", "who": "assistant", "say": "Let me find that.", "seconds": 1},
     {"ref": "tts/zeppelin-list", "who": "assistant", "say": "I found three", "unheard": " albums by that artist: Led Zeppelin, Led Zeppelin II and Led Zeppelin IV.", "heard_frames": 12800, "seconds": 6.2},
     {"ref": "mic/zeppelin-bargein", "who": "alice", "say": "stop", "seconds": 0.5},
     {"ref": "mic/zeppelin-first", "who": "alice", "say": "just the first one", "seconds": 0.9},
@@ -29,12 +31,20 @@
     {"ref": "tts/timer-started", "who": "assistant", "say": "Twelve minute oven timer started.", "seconds": 1.5},
     {"ref": "tts/oven-done", "who": "assistant", "say": "The oven timer is done.", "seconds": 1.5},
 
+    {"ref": "mic/pasta-ask", "who": "teagan", "say": "set a pasta timer for ten minutes", "seconds": 1.5},
+    {"ref": "tts/pasta-started", "who": "assistant", "say": "Ten minute pasta timer started.", "seconds": 1.8},
+    {"ref": "mic/pasta-cancel", "who": "teagan", "say": "actually cancel it, the water isn't boiling yet", "seconds": 2.2},
+    {"ref": "tts/pasta-cancelled", "who": "assistant", "say": "Pasta timer cancelled.", "seconds": 1.3},
+
     {"ref": "mic/jazz-dim", "who": "alice", "say": "dim the living room lights", "seconds": 1.4},
     {"ref": "tts/jazz-dimmed", "who": "assistant", "say": "Dimmed to thirty percent.", "seconds": 1.5},
+    {"ref": "mic/jazz-tv", "who": "tv", "say": "stay with us, after the break", "seconds": 1.2},
     {"ref": "mic/jazz-ask", "who": "alan", "say": "and put on some jazz", "seconds": 1.1},
+    {"ref": "tts/jazz-ack", "who": "assistant", "say": "Finding some jazz.", "seconds": 1.1},
     {"ref": "tts/jazz-playlist", "who": "assistant", "say": "Playing Late Night Jazz", "unheard": " from Spotify, starting with Take Five.", "heard_frames": 17600, "seconds": 3.5},
     {"ref": "mic/jazz-bargein", "who": "alan", "say": "no, wait", "seconds": 0.7},
     {"ref": "mic/jazz-quieter", "who": "alan", "say": "something quieter", "seconds": 0.9},
+    {"ref": "tts/jazz-quieter-ack", "who": "assistant", "say": "Looking for something quieter.", "seconds": 1.6},
     {"ref": "tts/jazz-quiet", "who": "assistant", "say": "Playing Quiet Jazz Piano.", "seconds": 1.5},
 
     {"ref": "mic/door-ask", "who": "teagan", "say": "unlock the front door", "seconds": 1.1},

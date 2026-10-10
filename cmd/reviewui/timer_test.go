@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -73,11 +74,11 @@ func TestTheOvenGoingOffSaysWhyItWasSaid(t *testing.T) {
 func TestTheTimerIsShownSetInTheConversationThatSetIt(t *testing.T) {
 	s, _ := newHouseholdServer(t)
 	h := get(t, s, conversationHref(convTimer))
-	call, set, result := strings.Index(h, `id="seq-8"`), strings.Index(h, `id="house-1"`), strings.Index(h, `id="seq-9"`)
+	call, set, result := strings.Index(h, `id="seq-9"`), strings.Index(h, `id="house-1"`), strings.Index(h, `id="seq-10"`)
 	if call < 0 || set < 0 || result < 0 || call >= set || set >= result {
 		t.Fatalf("timer_start at %d, timer_started at %d, its result at %d: want them in that order", call, set, result)
 	}
-	for _, want := range []string{"set the oven timer for 12m0s on kitchen", "goes off 2025-10-09T12:22:07.1Z", "house #1"} {
+	for _, want := range []string{"set the oven timer for 12m0s on kitchen", "goes off 2025-10-09T12:22:06.55Z", "house #1"} {
 		if !strings.Contains(h, want) {
 			t.Errorf("the timer's conversation is missing %q", want)
 		}
@@ -85,6 +86,47 @@ func TestTheTimerIsShownSetInTheConversationThatSetIt(t *testing.T) {
 	// The house log's own page is not doubled up.
 	if own := get(t, s, conversationHref(journal.HouseTimers)); strings.Contains(own, `id="house-`) {
 		t.Error("the house log's own page repeats its events as house rows")
+	}
+}
+
+// Teagan's pasta timer is shown set and then cancelled in the conversation
+// she called it off in, each beside the call that did it, and a timer that
+// never went off is no failure.
+//
+// verifies SPEC §7, §9.2
+func TestTheCancelledPastaTimerIsShownCalledOff(t *testing.T) {
+	s, _ := newHouseholdServer(t)
+	h := get(t, s, conversationHref(convPasta))
+	call, cancelled, result := strings.Index(h, `id="seq-11"`), strings.Index(h, `id="house-4"`), strings.Index(h, `id="seq-12"`)
+	if call < 0 || cancelled < 0 || result < 0 || call >= cancelled || cancelled >= result {
+		t.Fatalf("timer_cancel at %d, timer_cancelled at %d, its result at %d: want them in that order", call, cancelled, result)
+	}
+	for _, want := range []string{"set the pasta timer for 10m0s on kitchen", "timer_cancel", "cancelled", household.PastaTimer} {
+		if !strings.Contains(h, want) {
+			t.Errorf("the pasta conversation is missing %q", want)
+		}
+	}
+	if q := get(t, s, "/queue?tab=failure"); strings.Contains(q, "pasta") {
+		t.Error("the cancelled pasta timer is queued as a failure")
+	}
+}
+
+// The television the gate refused while the living room answered Alice is a
+// row of its own, playable, and no turn: it opens no labels.
+//
+// verifies SPEC §4.3, §9.2
+func TestTheTelevisionTheGateRefusedIsHeardButIsNoTurn(t *testing.T) {
+	s, _ := newHouseholdServer(t)
+	h := get(t, s, conversationHref(convJazz))
+	row := h[strings.Index(h, `id="seq-7"`):]
+	row = row[:strings.Index(row, `id="seq-8"`)]
+	for _, want := range []string{"barge-in rejected at speaker_id", "/audio?ref=" + url.QueryEscape("blob://mic/jazz-tv")} {
+		if !strings.Contains(row, want) {
+			t.Errorf("the refused barge-in's row is missing %q:\n%s", want, row)
+		}
+	}
+	if strings.Contains(h, `id="turn-7-labels"`) {
+		t.Error("the refused barge-in is offered labels as if it were a turn")
 	}
 }
 
@@ -123,7 +165,7 @@ func TestATimerNobodyHeardIsQueuedAsAFailure(t *testing.T) {
 	s := newServer(withRiceTimer(t, householdJournal(t)), curation.NewMemStore(), householdBlobs(t), household.ReviewedAt)
 
 	q := get(t, s, "/queue?tab=failure")
-	if !strings.Contains(q, `href="/conversations/house:timers#seq-4"`) || !strings.Contains(q, "unannounced") {
+	if !strings.Contains(q, `href="/conversations/house:timers#seq-6"`) || !strings.Contains(q, "unannounced") {
 		t.Errorf("the failure queue does not open the rice timer nobody heard:\n%s", q)
 	}
 	w := httptest.NewRecorder()

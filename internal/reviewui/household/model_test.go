@@ -68,8 +68,8 @@ func TestModelReproducesEveryRecordedTurnUnderTheDefaultPrompt(t *testing.T) {
 			}
 		}
 	}
-	if turns != 15 || searched != 3 {
-		t.Errorf("%d turns in the day, %d of them searched; want 15 and Zeppelin, jazz and quieter", turns, searched)
+	if turns != 17 || searched != 3 {
+		t.Errorf("%d turns in the day, %d of them searched; want 17 and Zeppelin, jazz and quieter", turns, searched)
 	}
 }
 
@@ -111,6 +111,10 @@ func TestModelAnswersBrieflyUnderAnEditedPrompt(t *testing.T) {
 	}
 	if zep.Said() != "I found three albums. Want Led Zeppelin one?" || len(zep.Calls) != 1 || zep.Calls[0].Tool != "media_search" {
 		t.Errorf("zeppelin under the edit, offered media_search = %+v", zep)
+	}
+	// Offered a slow tool, it is required to say what to say while it works.
+	if o, err := registry.Split(zep.Calls[0].Args); err != nil || o.Acknowledgement == "" {
+		t.Errorf("the brief search %s carries no acknowledgement (%v)", zep.Calls[0].Args, err)
 	}
 }
 

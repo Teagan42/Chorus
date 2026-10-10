@@ -58,10 +58,10 @@ func TestE2EJourneyTheDoorWaitsForAYes(t *testing.T) {
 	p.waitText("#seq-3", "Teagan locked the front door for the night.")
 	p.waitText("#seq-5", "held ha_call_service for the person's yes")
 	p.waitText("#seq-5", "nonce "+household.DoorNonce)
-	p.waitText("#seq-13", "ha_call_service ran on a yes")
-	p.waitText("#seq-13", `redeemed after #11, teagan: “yes”`)
-	p.waitText("#seq-20", "Teagan let book club in")
-	for _, seq := range []string{"3", "5", "13", "20"} {
+	p.waitText("#seq-14", "ha_call_service ran on a yes")
+	p.waitText("#seq-14", `redeemed after #12, teagan: “yes”`)
+	p.waitText("#seq-22", "Teagan let book club in")
+	for _, seq := range []string{"3", "5", "14", "22"} {
 		var tag string
 		p.eval(fmt.Sprintf(`document.querySelector("#seq-%s .sig-tag").textContent`, seq), &tag)
 		if tag == "" {

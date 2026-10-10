@@ -58,13 +58,12 @@ func againNote(r triage.Signal) string {
 }
 
 // askedAgain is the conversation's repeats, keyed by the turn each repeated.
-func (s *server) askedAgain(ctx context.Context, conv string) (map[uint64]triage.Signal, error) {
-	sigs, err := triage.Scan(ctx, s.journal, conv)
-	if err != nil {
-		return nil, err
+func askedAgain(d *derived) (map[uint64]triage.Signal, error) {
+	if d.triageErr != nil {
+		return nil, d.triageErr
 	}
 	out := map[uint64]triage.Signal{}
-	for _, sig := range sigs {
+	for _, sig := range d.signals {
 		if sig.Kind == triage.KindRepeated {
 			out[sig.First] = sig
 		}
@@ -168,7 +167,11 @@ func (s *server) annotate(w http.ResponseWriter, r *http.Request) {
 		}
 		after = before.Toggle(l)
 	}
-	again, err := s.askedAgain(ctx, conv)
+	d, err := s.logs.of(ctx, s.journal, conv)
+	var again map[uint64]triage.Signal
+	if err == nil {
+		again, err = askedAgain(d)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -3,6 +3,7 @@ package harvest_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -667,5 +668,65 @@ func TestAnApologyInTheAnsweringTurnIsNotAsSaid(t *testing.T) {
 	p := onePair(t, scan(t, store))
 	if p.AsSaid != "" || len(p.Audio.AsSaid) != 0 {
 		t.Errorf("as said = %q %v, want nothing: the model never answered", p.AsSaid, p.Audio.AsSaid)
+	}
+}
+
+// ackOf is the session's speak for slow call id, as it journals one: the
+// words the model wrote as the call's argument (ADR-0039).
+func ackOf(id, text string) []journal.Record {
+	args := fmt.Sprintf(`{"text":%q,"mode":"queue","acknowledges":%q}`, text, id)
+	return []journal.Record{
+		record(journal.KindToolCalled, "", "tool", "speak", "call_id", id+"_ack", "args_json", args),
+		record(journal.KindSpeechSpoken, "blob://tts/"+id+"_ack", "text", text, "frames_played", "16000", "call_id", id+"_ack"),
+		record(journal.KindToolResult, "", "call_id", id+"_ack", "outcome", "ok"),
+	}
+}
+
+// Alice heard "Let me find that." while the search ran, then cut the answer.
+// The model wrote those words as the search's argument, which the pair's
+// calls carry, so the rejected side is the answer it spoke: shown the words
+// twice, a model learns to say them twice (ADR-0039).
+//
+// verifies SPEC §9.1
+func TestAPlayedAcknowledgementIsTheSlowCallsNotTheRejectedSpeech(t *testing.T) {
+	cut := cutTurn()
+	cut[1].Fields["args_json"] = `{"query":"zeppelin","acknowledgement":"Let me find that."}`
+	store := conversation(t, versions(), concat(
+		[]journal.Record{opened("kitchen")}, cut[:2], ackOf("c1", "Let me find that."), cut[2:], correctedTurn(),
+	))
+	p := onePair(t, scan(t, store))
+	if p.Rejected != "I found three" || p.RejectedUnheard != " albums by that artist" {
+		t.Errorf("rejected = %q | %q, want the answer without the acknowledgement", p.Rejected, p.RejectedUnheard)
+	}
+	if len(p.Audio.Rejected) != 1 || p.Audio.Rejected[0] != "blob://tts/s1" {
+		t.Errorf("rejected audio = %v, want the answer's alone", p.Audio.Rejected)
+	}
+	if p.Calls[0].Args != cut[1].Fields["args_json"] {
+		t.Errorf("search = %s, want it as the model made it", p.Calls[0].Args)
+	}
+}
+
+// An acknowledgement the person cut is what they rejected: it stays the
+// pair's speech, as it goes back to the model as a speak call (ADR-0039).
+//
+// verifies SPEC §9.1
+func TestACutAcknowledgementIsWhatThePersonRejected(t *testing.T) {
+	ack := ackOf("c1", "Let me find that.")
+	store := conversation(t, versions(), concat(
+		[]journal.Record{
+			opened("kitchen"),
+			heard("play something by zeppelin", "blob://mic/1"),
+			record(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c1", "args_json", `{"query":"zeppelin","acknowledgement":"Let me find that."}`),
+			ack[0],
+			bargeIn("420", "blob://mic/2"),
+			record(journal.KindSpeechTruncated, "blob://tts/c1_ack", "spoken_text", "Let me", "unspoken_text", " find that.", "frames_played", "6720", "call_id", "c1_ack", "reason", "barge_in"),
+			cancelled("c1_ack"),
+			completed(),
+		},
+		correctedTurn(),
+	))
+	p := onePair(t, scan(t, store))
+	if p.Rejected != "Let me" || p.RejectedUnheard != " find that." {
+		t.Errorf("rejected = %q | %q, want the acknowledgement she cut", p.Rejected, p.RejectedUnheard)
 	}
 }

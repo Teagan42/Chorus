@@ -32,8 +32,8 @@ func TestTheHouseholdsWeakPositivesAreTheTurnsNobodyCorrected(t *testing.T) {
 			}
 		}
 	}
-	if n != 10 {
-		t.Errorf("%d weak positives, want 10", n)
+	if n != 12 {
+		t.Errorf("%d weak positives, want 12", n)
 	}
 }
 
@@ -45,11 +45,11 @@ func TestTriageKeepsTheWeakPositivesInTheirOwnPile(t *testing.T) {
 	s, _ := newHouseholdServer(t)
 	h := get(t, s, "/queue?tab=weak-positive")
 	for _, want := range []string{
-		`href="/queue?tab=weak-positive">Weak positives <span class="tabs__count">10</span>`,
-		`href="/queue?tab=all">All <span class="tabs__count">6</span>`,
+		`href="/queue?tab=weak-positive">Weak positives <span class="tabs__count">12</span>`,
+		`href="/queue?tab=all">All <span class="tabs__count">8</span>`,
 		"add oat milk to the shopping list",
 		"answered “Added oat milk.” · not cut off, asked again or failed",
-		`href="/conversations/` + convList + `#seq-8"`,
+		`href="/conversations/` + convList + `#seq-9"`,
 	} {
 		if !strings.Contains(h, want) {
 			t.Errorf("the weak positives tab is missing %q", want)
@@ -62,7 +62,7 @@ func TestTriageKeepsTheWeakPositivesInTheirOwnPile(t *testing.T) {
 		t.Error("All lists a weak positive among the problems")
 	}
 	h = get(t, s, conversationHref(convList))
-	row := h[strings.Index(h, `id="seq-8"`):]
+	row := h[strings.Index(h, `id="seq-9"`):]
 	if !strings.Contains(row[:strings.Index(row, "</div>")], "weak positive") {
 		t.Error("the shopping list's completion does not say it is a weak positive")
 	}
@@ -117,18 +117,18 @@ const (
 func TestARepeatedAskIsTheEvidenceOnThePairItsFirstAnswerMakes(t *testing.T) {
 	s, _ := newHouseholdServer(t)
 	h := get(t, s, conversationHref(convTimer))
-	repeat := h[strings.Index(h, `id="seq-7"`):]
-	if !strings.Contains(repeat[:strings.Index(repeat, `id="turn-7-labels"`)], `href="#turn-2-labels"`) {
+	repeat := h[strings.Index(h, `id="seq-8"`):]
+	if !strings.Contains(repeat[:strings.Index(repeat, `id="turn-8-labels"`)], `href="#turn-2-labels"`) {
 		t.Error("the repeat's row does not offer the first answer's labels")
 	}
 	first := h[strings.Index(h, `id="turn-2-labels"`):]
-	if !strings.Contains(first[:strings.Index(first, `id="seq-3"`)], "asked again at #7: “set a timer for twelve minutes”") {
+	if !strings.Contains(first[:strings.Index(first, `id="seq-3"`)], "asked again at #8: “set a timer for twelve minutes”") {
 		t.Error("the first answer's labels do not say it was asked again")
 	}
 
 	mustPost(t, s, turnURL(convTimer, ovenAsk, "labels/misunderstood_intent"), nil)
 	body := mustPost(t, s, turnURL(convTimer, ovenAsk, "note"), url.Values{"should_have": {fixOven}})
-	if !strings.Contains(body, "asked again at #7") || !strings.Contains(body, "In Curate ›") {
+	if !strings.Contains(body, "asked again at #8") || !strings.Contains(body, "In Curate ›") {
 		t.Errorf("the swapped labels lost the repeat or the pair:\n%s", body)
 	}
 	h = get(t, s, pairHref(pairOven, "all"))
@@ -140,7 +140,7 @@ func TestARepeatedAskIsTheEvidenceOnThePairItsFirstAnswerMakes(t *testing.T) {
 	line := exportRow(t, s, pairOven)
 	for _, want := range []string{
 		`"heard":"labelled “misunderstood intent” · asked again: “set a timer for twelve minutes”"`,
-		`"correction":7`,
+		`"correction":8`,
 		`"correction":"blob://mic/timer-twelve"`,
 		`"chosen":[{"role":"assistant","content":"` + fixOven + `"`,
 	} {

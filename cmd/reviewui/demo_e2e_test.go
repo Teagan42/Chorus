@@ -100,8 +100,8 @@ func TestE2EDemoBootsUnderThePagesPathAndPlaysTheDay(t *testing.T) {
 	p.waitText(".notice", "A made-up household's Thursday, running entirely in your browser.")
 	p.waitText("h2", "Thursday 9 October")
 	p.waitText("#conversations", "alice · kitchen → living_room")
-	if n := p.count(".day-lanes__session"); n != 9 {
-		t.Errorf("%d sessions on the lanes, want 9", n)
+	if n := p.count(".day-lanes__session"); n != 10 {
+		t.Errorf("%d sessions on the lanes, want 10", n)
 	}
 	var title string
 	p.eval(`document.title`, &title)
@@ -113,7 +113,7 @@ func TestE2EDemoBootsUnderThePagesPathAndPlaysTheDay(t *testing.T) {
 	zeppelin := "/conversations/" + household.ConvZeppelin
 	p.route(fmt.Sprintf(`#conversations a[href="#%s"]`, zeppelin), zeppelin)
 	p.waitText(".page-head", "alice · kitchen → living_room")
-	p.waitText("#seq-18", "opened on living_room")
+	p.waitText("#seq-23", "opened on living_room")
 	var srcs []string
 	p.eval(`[...document.querySelectorAll("audio")].map(a => a.src)`, &srcs)
 	if len(srcs) == 0 {
@@ -124,10 +124,10 @@ func TestE2EDemoBootsUnderThePagesPathAndPlaysTheDay(t *testing.T) {
 			t.Errorf("clip %q is not served from the tab; a static host has no /audio", s)
 		}
 	}
-	closeTo(t, "the cut answer", p.durations("#seq-7"), []float64{0.8})
+	closeTo(t, "the cut answer", p.durations("#seq-11"), []float64{0.8})
 	var loud float64
 	p.eval(`(async () => {
-		const a = document.querySelector("#seq-7 audio");
+		const a = document.querySelector("#seq-11 audio");
 		const pcm = await new AudioContext().decodeAudioData(await (await fetch(a.src)).arrayBuffer());
 		const x = pcm.getChannelData(0);
 		return Math.sqrt(x.reduce((s, v) => s + v * v, 0) / x.length);

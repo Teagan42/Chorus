@@ -108,27 +108,27 @@ func (s *server) replays(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(id, devicePrefix) || id == houseLog {
 			continue
 		}
-		events, rerr := s.journal.Events(r.Context(), id)
+		d, rerr := s.logs.of(r.Context(), s.journal, id)
 		if rerr != nil {
 			u.skip(id, rerr)
 			continue
 		}
-		turns, rerr := rerun.Turns(events)
-		if rerr != nil {
-			u.skip(id, fmt.Errorf("replay: %w", rerr))
+		if d.turnsErr != nil {
+			u.skip(id, fmt.Errorf("replay: %w", d.turnsErr))
 			continue
 		}
+		turns := d.turns
 		if len(turns) == 0 {
 			continue
 		}
 		v := turns[0].Versions
-		rows = append(rows, row{start: events[0].At, row: ui.ListRow{
+		rows = append(rows, row{start: d.start, row: ui.ListRow{
 			Href:   replayHref(id),
 			Title:  turns[0].Text,
 			Detail: fmt.Sprintf("%s · %s · %s · %s", id, v.Model, v.Prompt, v.ToolSchema),
 			Who:    turns[0].Speaker,
 			Figure: plural(len(turns), "turn"),
-			When:   events[0].At.In(s.now().Location()).Format("2 Jan 15:04"),
+			When:   d.start.In(s.now().Location()).Format("2 Jan 15:04"),
 		}})
 	}
 	s.mu.Unlock()

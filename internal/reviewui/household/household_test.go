@@ -3,13 +3,20 @@ package household_test
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"io"
 	"math"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/provider/kokoro"
+	"github.com/teagan42/chorus/internal/provider/speaches"
+	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/reviewui/household"
 )
 
@@ -179,5 +186,266 @@ func TestTheKitchensRejectedWakeKeepsBothChannels(t *testing.T) {
 	}
 	if a, b := pcm(t, "wake/kitchen-dishwasher"), pcm(t, "wake/kitchen-dishwasher-second"); len(a) != len(b) {
 		t.Errorf("the two channels hold %d and %d frames of the same span", len(a), len(b))
+	}
+}
+
+// Every answer the household heard says when it was first heard, once per
+// turn, naming the turn's first speak call and how long its person waited:
+// since the transcript, plus the endpointer's pause before it (ADR-0035).
+// An announcement answers nobody, so it records no start.
+//
+// verifies SPEC §11
+func TestEveryAnswerSaysWhenItWasFirstHeard(t *testing.T) {
+	for id, lines := range household.Logs() {
+		var (
+			asked     time.Duration
+			first     string
+			started   []household.Line
+			announced bool
+		)
+		check := func() {
+			switch {
+			case first == "" && len(started) > 0:
+				t.Errorf("%s: a turn nobody answered aloud records %d starts", id, len(started))
+			case first == "":
+			case len(started) != 1:
+				t.Errorf("%s: the turn %s answered records %d starts, want 1", id, first, len(started))
+			default:
+				f := started[0].Rec.Fields
+				if f["call_id"] != first {
+					t.Errorf("%s: first audio names %s, want the turn's first speak call %s", id, f["call_id"], first)
+				}
+				want := (started[0].At - asked + household.Trailing).Round(time.Millisecond).Milliseconds()
+				if f["wait_ms"] != strconv.FormatInt(want, 10) {
+					t.Errorf("%s: %s waited %s ms, but its log says %d", id, first, f["wait_ms"], want)
+				}
+			}
+		}
+		for _, l := range lines {
+			switch l.Rec.Kind {
+			case journal.KindSessionOpened:
+				announced = l.Rec.Fields["announced"] == "true"
+			case journal.KindUtteranceTranscribed:
+				check()
+				asked, first, started = l.At, "", nil
+			case journal.KindToolCalled:
+				if l.Rec.Fields["tool"] == "speak" && first == "" && !announced {
+					first = l.Rec.Fields["call_id"]
+				}
+			case journal.KindSpeechStarted:
+				started = append(started, l)
+			case journal.KindSpeechSpoken, journal.KindSpeechTruncated:
+				if !announced && len(started) == 0 {
+					t.Errorf("%s: %s is heard before its first frame is", id, l.Rec.AudioRef)
+				}
+			}
+		}
+		check()
+	}
+}
+
+// Speech names the speak call it played, as the Speaking child records it,
+// so the dialogue a re-run is told puts it where the model said it.
+func TestSpeechNamesTheCallItPlayed(t *testing.T) {
+	for id, lines := range household.Logs() {
+		speaks := map[string]bool{}
+		for _, l := range lines {
+			f := l.Rec.Fields
+			switch l.Rec.Kind {
+			case journal.KindToolCalled:
+				speaks[f["call_id"]] = f["tool"] == "speak"
+			case journal.KindSpeechSpoken, journal.KindSpeechTruncated:
+				if !speaks[f["call_id"]] {
+					t.Errorf("%s: %s names call %q, which no earlier speak is", id, l.Rec.AudioRef, f["call_id"])
+				}
+			}
+		}
+	}
+}
+
+// Every event names the ear and the voice it was heard and spoken by, as
+// chorusd records them from its providers (ADR-0032): the assistant speaks
+// in the Kokoro voice voice.json gives it.
+func TestTheDayNamesTheEarAndTheVoice(t *testing.T) {
+	b, err := os.ReadFile("voice.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct{ Voices map[string]string }
+	if err := json.Unmarshal(b, &s); err != nil {
+		t.Fatal(err)
+	}
+	want := household.Versions()
+	if tts := kokoro.DefaultModel + "/" + s.Voices["assistant"]; want.STT != speaches.DefaultModel || want.TTS != tts {
+		t.Errorf("the day ran under STT %q and TTS %q, want %q and %q", want.STT, want.TTS, speaches.DefaultModel, tts)
+	}
+	store, err := household.Journal(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := store.Events(context.Background(), household.ConvWeather)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Versions != want {
+			t.Fatalf("%s #%d ran under %+v, want %+v", e.Kind, e.Seq, e.Versions, want)
+		}
+	}
+}
+
+// The television talked over the living room's answer to Alice, and the
+// gate refused it at speaker ID: it is no barge-in, and kept to tune the
+// gate on (SPEC §4.3).
+func TestTheTelevisionIsRefusedAtTheSpeakerGate(t *testing.T) {
+	var playing bool
+	var refused []household.Line
+	for _, l := range household.Logs()[household.ConvJazz] {
+		switch l.Rec.Kind {
+		case journal.KindSpeechStarted:
+			playing = true
+		case journal.KindSpeechSpoken, journal.KindSpeechTruncated:
+			playing = false
+		case journal.KindBargeInRejected:
+			if !playing {
+				t.Errorf("a barge-in was refused at %v with nothing playing", l.At)
+			}
+			refused = append(refused, l)
+		}
+	}
+	if len(refused) != 1 || refused[0].Rec.Fields["stage"] != "speaker_id" || refused[0].Rec.AudioRef != "blob://mic/jazz-tv" {
+		t.Fatalf("refused = %+v, want the television at speaker_id", refused)
+	}
+	for _, c := range clips(t) {
+		if c.Ref == "mic/jazz-tv" && c.Who != "tv" {
+			t.Errorf("the refused clip is %s's voice, want the television's", c.Who)
+		}
+	}
+}
+
+// Teagan set a pasta timer and called it off before the water boiled: the
+// house log says it was cancelled, by the call that cancelled it, and it
+// never goes off.
+func TestTheCancelledPastaTimerNeverGoesOff(t *testing.T) {
+	calls := map[string]journal.Record{}
+	for _, l := range household.Logs()[household.ConvPasta] {
+		if l.Rec.Kind == journal.KindToolCalled {
+			calls[l.Rec.Fields["call_id"]] = l.Rec
+		}
+	}
+	var started, cancelled bool
+	for _, l := range household.Logs()[journal.HouseTimers] {
+		f := l.Rec.Fields
+		if f["timer_id"] != household.PastaTimer {
+			continue
+		}
+		switch l.Rec.Kind {
+		case journal.KindTimerStarted:
+			started = calls[f["call_id"]].Fields["tool"] == "timer_start" && f["conversation_id"] == household.ConvPasta
+		case journal.KindTimerCancelled:
+			c := calls[f["call_id"]]
+			cancelled = c.Fields["tool"] == "timer_cancel" && strings.Contains(c.Fields["args_json"], household.PastaTimer) &&
+				f["conversation_id"] == household.ConvPasta
+		case journal.KindTimerFinished:
+			t.Error("the cancelled pasta timer went off")
+		}
+	}
+	if !started || !cancelled {
+		t.Errorf("pasta timer started by its call %v, cancelled by its call %v", started, cancelled)
+	}
+}
+
+// Every call the household's model made asks only for what its tool offered
+// the model: a model shown no media_type cannot have asked for one. The
+// session's own speak calls carry its fields, not the model's.
+//
+// verifies SPEC §3
+func TestEveryCallAsksOnlyForWhatItsToolOffered(t *testing.T) {
+	for id, lines := range household.Logs() {
+		for _, l := range lines {
+			f := l.Rec.Fields
+			if l.Rec.Kind != journal.KindToolCalled || f["tool"] == "speak" {
+				continue
+			}
+			spec, ok := registry.Specs[f["tool"]]
+			if !ok {
+				t.Errorf("%s: %s is no tool", id, f["tool"])
+				continue
+			}
+			var args map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(f["args_json"]), &args); err != nil {
+				t.Errorf("%s: %s %s: %v", id, f["call_id"], f["args_json"], err)
+				continue
+			}
+			for name := range args {
+				if !slices.ContainsFunc(spec.ModelParams, func(p registry.ParamSpec) bool { return p.Name == name }) {
+					t.Errorf("%s: %s asks %s for %q, which it never offered", id, f["call_id"], f["tool"], name)
+				}
+			}
+		}
+	}
+}
+
+// Every slow call carries what to say while it works, and the session says
+// it as chorusd journals it: a speak call of its own, right after the slow
+// call, with the id <call>_ack, mode queue, and acknowledges naming the call.
+// It plays out while the search runs, so the person hears it before the
+// results land (ADR-0039).
+//
+// verifies SPEC §4.1, §11
+func TestEverySlowCallIsAcknowledgedWhileItWorks(t *testing.T) {
+	var n int
+	for id, lines := range household.Logs() {
+		for i, l := range lines {
+			f := l.Rec.Fields
+			if l.Rec.Kind != journal.KindToolCalled || !registry.Specs[f["tool"]].Slow {
+				continue
+			}
+			n++
+			o, err := registry.Split(f["args_json"])
+			if err != nil || o.Acknowledgement == "" {
+				t.Errorf("%s: %s %s carries no acknowledgement (%v)", id, f["call_id"], f["args_json"], err)
+				continue
+			}
+			ack := f["call_id"] + "_ack"
+			want, _ := json.Marshal(struct {
+				Text         string `json:"text"`
+				Mode         string `json:"mode"`
+				Acknowledges string `json:"acknowledges"`
+			}{o.Acknowledgement, "queue", f["call_id"]})
+			if i+1 >= len(lines) {
+				t.Errorf("%s: %s is the log's last event", id, f["call_id"])
+				continue
+			}
+			next := lines[i+1]
+			if g := next.Rec.Fields; next.Rec.Kind != journal.KindToolCalled || g["tool"] != "speak" ||
+				g["call_id"] != ack || g["args_json"] != string(want) || next.At != l.At {
+				t.Errorf("%s: after %s comes %s %v at %v, want speak %s %s as it is called", id, f["call_id"], next.Rec.Kind, g, next.At-l.At, ack, want)
+			}
+			var spoken, settled, landed time.Duration
+			for _, m := range lines[i+1:] {
+				g := m.Rec.Fields
+				switch {
+				case m.Rec.Kind == journal.KindSpeechSpoken && g["call_id"] == ack:
+					if g["text"] != o.Acknowledgement {
+						t.Errorf("%s: %s said %q, want %q", id, ack, g["text"], o.Acknowledgement)
+					}
+					spoken = m.At
+				case m.Rec.Kind == journal.KindToolResult && g["call_id"] == ack && g["outcome"] == "ok":
+					settled = m.At
+				case m.Rec.Kind == journal.KindToolResult && g["call_id"] == f["call_id"]:
+					landed = m.At
+				}
+			}
+			if spoken == 0 || settled < spoken {
+				t.Errorf("%s: %s never played out", id, ack)
+			}
+			if landed == 0 || landed < spoken {
+				t.Errorf("%s: %s's results landed before its acknowledgement finished", id, f["call_id"])
+			}
+		}
+	}
+	if n != 3 {
+		t.Errorf("%d slow calls, want Zeppelin's, jazz's and the quieter search", n)
 	}
 }
