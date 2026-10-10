@@ -14,7 +14,7 @@ import (
 )
 
 // devicePrefix marks a satellite's own log: wake rejections, which opened no
-// conversation (listen.DeviceConversation).
+// conversation, and its room's presence (listen.DeviceConversation).
 const devicePrefix = "device:"
 
 // houseLog is the household's own log of timers, which belong to no
@@ -133,9 +133,59 @@ func hour(t time.Time) float64 {
 	return float64(t.Hour()) + float64(t.Minute())/60 + float64(t.Second())/3600
 }
 
+// deviceLog is what Browse draws from a satellite's own log.
+type deviceLog struct {
+	rejects  []time.Time
+	presence []presenceMark
+}
+
+// presenceMark is one presence_changed: present, absent or unknown.
+type presenceMark struct {
+	at    time.Time
+	state string
+}
+
+// presenceSpans are the hours of [from, to) someone was in the room, as
+// decimal hours on the lane. A span opens on present and closes on anything
+// else; one still open runs to now, or to the end of the day.
+func presenceSpans(marks []presenceMark, from, to, now time.Time) [][2]float64 {
+	var out [][2]float64
+	var since time.Time
+	span := func(a, b time.Time) {
+		if a.Before(from) {
+			a = from
+		}
+		if b.After(to) {
+			b = to
+		}
+		if !a.Before(b) {
+			return
+		}
+		end := 24.0
+		if b.Before(to) {
+			end = hour(b.In(from.Location()))
+		}
+		out = append(out, [2]float64{hour(a.In(from.Location())), end})
+	}
+	for _, m := range marks {
+		switch {
+		case m.state == "present" && since.IsZero():
+			since = m.at
+		case m.state != "present" && !since.IsZero():
+			span(since, m.at)
+			since = time.Time{}
+		}
+	}
+	if !since.IsZero() {
+		span(since, now)
+	}
+	return out
+}
+
 // household reads every log once: conversations to summarize, device logs
-// for their rejected wakes, and the unreviewed count every header badges.
-func (s *server) household(r *http.Request) ([]convSummary, map[string][]time.Time, int, error) {
+// for their rejected wakes and presence, and the unreviewed count every
+// header badges.
+func (s *server) household(r *http.Request) ([]convSummary, map[string]*deviceLog, int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pairs, err := s.pairs(r.Context())
@@ -147,7 +197,7 @@ func (s *server) household(r *http.Request) ([]convSummary, map[string][]time.Ti
 		return nil, nil, 0, err
 	}
 	var convs []convSummary
-	rejects := map[string][]time.Time{}
+	devices := map[string]*deviceLog{}
 	for _, id := range ids {
 		events, err := s.journal.Events(r.Context(), id)
 		if err != nil {
@@ -157,11 +207,16 @@ func (s *server) household(r *http.Request) ([]convSummary, map[string][]time.Ti
 			continue
 		}
 		if sat, ok := strings.CutPrefix(id, devicePrefix); ok {
+			dev := &deviceLog{}
 			for _, e := range events {
-				if e.Kind == journal.KindWakeRejected {
-					rejects[sat] = append(rejects[sat], e.At)
+				switch e.Kind {
+				case journal.KindWakeRejected:
+					dev.rejects = append(dev.rejects, e.At)
+				case journal.KindPresenceChanged:
+					dev.presence = append(dev.presence, presenceMark{e.At, e.Fields["state"]})
 				}
 			}
+			devices[sat] = dev
 			continue
 		}
 		sigs, err := triage.Scan(r.Context(), s.journal, id)
@@ -170,11 +225,11 @@ func (s *server) household(r *http.Request) ([]convSummary, map[string][]time.Ti
 		}
 		convs = append(convs, summarize(id, events, sigs))
 	}
-	return convs, rejects, unreviewedCount(pairs), nil
+	return convs, devices, unreviewedCount(pairs), nil
 }
 
 func (s *server) browse(w http.ResponseWriter, r *http.Request) {
-	convs, rejects, unreviewed, err := s.household(r)
+	convs, devices, unreviewed, err := s.household(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -253,11 +308,14 @@ func (s *server) browse(w http.ResponseWriter, r *http.Request) {
 			When:   c.start.In(loc).Format("15:04"),
 		})
 	}
-	for sat, ts := range rejects {
-		for _, t := range ts {
+	for sat, dev := range devices {
+		for _, t := range dev.rejects {
 			if on(t) {
 				lane(sat).Rejects = append(lane(sat).Rejects, hour(t.In(loc)))
 			}
+		}
+		if spans := presenceSpans(dev.presence, day, next, now); len(spans) > 0 {
+			lane(sat).Presence = spans
 		}
 	}
 
@@ -268,10 +326,16 @@ func (s *server) browse(w http.ResponseWriter, r *http.Request) {
 		{Label: "wake rejected at stage two", Shape: "tick"},
 	}}}
 	names := make([]string, 0, len(lanes))
+	occupied := false
 	for n := range lanes {
+		occupied = occupied || len(lanes[n].Presence) > 0
 		names = append(names, n)
 	}
 	slices.Sort(names)
+	if occupied {
+		// Only a satellite with a radar has presence to show.
+		dl.Legend.Items = append(dl.Legend.Items, ui.LegendItem{Label: "room occupied (mmWave)", Shape: "presence"})
+	}
 	index := map[string]int{}
 	for i, n := range names {
 		l := lanes[n]

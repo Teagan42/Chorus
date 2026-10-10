@@ -66,6 +66,11 @@ func rec(kind journal.Kind, audio string, fields ...string) journal.Record {
 	return r
 }
 
+// presence is the radar's report as chorusd journals it (ADR-0050).
+func presence(state string) journal.Record {
+	return rec(journal.KindPresenceChanged, "", "state", state, "sensor", "room_presence")
+}
+
 func at(h, m int, s float64) time.Duration {
 	return time.Duration(h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(s*float64(time.Second))
 }
@@ -213,8 +218,25 @@ func Logs() map[string][]Line {
 			{at(-2, 30, 8), rec(journal.KindSessionClosed, "", "reason", "model_ended", "satellite", "kitchen")},
 		},
 		// Wakes the second stage threw out: the dishwasher, and a podcast.
+		// The kitchen and the living room have the mmWave radar; the office's
+		// Voice PE has none, so its log holds no presence.
 		"device:kitchen": {
+			{at(6, 52, 0), presence("present")}, // Teagan makes coffee
+			{at(7, 21, 0), presence("absent")},
+			{at(8, 50, 0), presence("present")}, // Alice
+			{at(8, 58, 30), presence("absent")}, // she carries the music next door
+			{at(12, 8, 0), presence("present")}, // Alan, about the oven
+			{at(12, 14, 0), presence("absent")}, // so the timer goes off to an empty room
 			{at(14, 2, 0), rec(journal.KindWakeRejected, "blob://wake/kitchen-dishwasher", "reason", "no_speech")},
+			{at(17, 45, 0), presence("present")}, // dinner
+			{at(18, 30, 0), presence("absent")},
+		},
+		"device:living_room": {
+			{at(8, 58, 20), presence("present")},
+			{at(9, 40, 0), presence("absent")},
+			{at(18, 32, 0), presence("present")},
+			{at(20, 11, 0), presence("unknown")}, // the native API dropped for two minutes
+			{at(20, 13, 0), presence("present")}, // and still there when the reviewer sits down
 		},
 		"device:office": {
 			{at(21, 15, 0), rec(journal.KindWakeRejected, "blob://wake/office-podcast", "reason", "no_speech")},
