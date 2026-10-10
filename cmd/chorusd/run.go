@@ -95,6 +95,10 @@ type daemon struct {
 	// turn is told, whichever satellite's supervisor opens it (SPEC §5).
 	rooms map[string]string
 
+	// rings is each satellite's LED ring: shown by its audio link's
+	// sessions, driven by its native API connection (ADR-0056).
+	rings map[string]*ring
+
 	// links is each connected satellite's Listening child, by name: where
 	// an announcement for that satellite is said (ADR-0045).
 	linksMu sync.Mutex
@@ -135,9 +139,11 @@ func newDaemon(inv *config.Config, d deps) (*daemon, error) {
 		gate:    d.bargeInGate(),
 		links:   map[string]*listen.Listener{},
 		rooms:   map[string]string{},
+		rings:   map[string]*ring{},
 	}
 	for _, sat := range inv.Satellites {
 		dm.rooms[sat.Name] = sat.Room
+		dm.rings[sat.Name] = newRing()
 	}
 	return dm, nil
 }
@@ -378,6 +384,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 		Engine: d.engine, Speaker: speaker, Conversations: d.convs,
 		Tools: d.tools, Gate: d.gate, Memories: d.memories, Rooms: d.rooms,
 		Summarizer: d.summarizer, Summarizing: &d.wg, Log: log,
+		Ring: d.rings[sat.Name],
 	})
 	if err != nil {
 		return err
