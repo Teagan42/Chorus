@@ -4,9 +4,10 @@
 turns the barge-ins worth learning from into a preference dataset (SPEC §9).
 It is Go and htmx over the same Postgres journal and blob directory `chorusd`
 writes, and it is a reader: every row on every screen is derived from the log
-on request, never copied out of it (SPEC §8, ADR-0007). The one thing it
-writes is a reviewer's verdict on a pair, and that lives in its own table
-beside the journal, not in it (ADR-0034).
+on request, never copied out of it (SPEC §8, ADR-0007). What it writes is
+a reviewer's word: a verdict on a pair, a turn's labels, a promoted re-run,
+and whether a rejected wake ships as a hard negative. Those live in their
+own tables beside the journal, not in it (ADR-0034, ADR-0052, ADR-0058).
 
 Inline audio is the point. A voice assistant cannot be judged from
 transcripts (SPEC §9.2), so every clip on every screen plays, and a truncated
@@ -126,7 +127,9 @@ walking from the kitchen to the office shows up as one conversation in two
 lanes. A block takes the colour of its most important signal: a barge-in
 first, since it is the training signal, then a failure, a repeated ask, a
 slow answer, a speaker flip. Ticks mark wakes rejected at stage two (SPEC §9.3), which
-opened no conversation and so live in the satellite's own `device:` log. The
+opened no conversation and so live in the satellite's own `device:` log.
+Each tick is a link to that rejection in the log, and a lane's name opens
+the whole log. The
 shaded band behind a lane is when its mmWave radar saw someone in the room,
 from the same log (ADR-0050). A gap inside an evening is the native API
 dropping, not the room emptying. A satellite with no radar, such as a Voice
@@ -151,6 +154,16 @@ the voice failing, not as someone talking over it (ADR-0051).
 
 ![Conversation, the model and the voice failing](conversation-provider-failure.png)
 
+A rejected wake's row plays what the wake model heard and, when the
+satellite kept one, its second channel, captioned as such. Under it sit
+*Confirm negative* and *Discard*, the reviewer's word on whether the clip
+ships in the wake corpus [Export](#export) offers. A rejection ships unless
+it is discarded, except one only the voice check failed (`unknown_speaker`),
+which may be the wake word from a guest and so waits for a confirm
+(ADR-0058). Pressing the same verdict again takes it back.
+
+![A rejected wake, confirmed](e2e/journey-wake-confirmed.png)
+
 The log also shows what the model was told and what the house vouched for.
 A `memory_recalled` row lists each memory the turn was told, whose it is
 when someone shared it, and the earlier conversations it was told of. A
@@ -172,6 +185,14 @@ is a positive, not a pair (ADR-0052).
 
 ![Labelling a turn](e2e/journey-labels.png)
 
+A request the person had to repeat is a turn worth labelling. The repeat's
+row offers *Label the first answer*, which jumps to the labels of the turn
+that failed, and those labels say when it was asked again and what was
+said. Its pair carries the repeat as evidence: the second ask is in the
+pair's `heard`, and its seq and audio are the pair's correction (ADR-0058).
+
+![The oven ask Alan repeated, labelled](e2e/journey-repeat-labelled.png)
+
 A timer going off, or someone asking for something to be said in another
 room, opens a session with no wake word (ADR-0045). Browse lists it as an
 *announcement*, named by what it said and whom it was for. Its log says why
@@ -187,8 +208,9 @@ Triage, which opens the house log at the event.
 
 ![Triage](triage.png)
 
-Every conversation in the household scanned for five signals
-(`internal/triage`), newest first, filterable by tab:
+Every conversation in the household scanned for five signals of trouble
+and one of things going right (`internal/triage`), newest first,
+filterable by tab:
 
 | Signal | Raised when | Opens |
 |---|---|---|
@@ -197,9 +219,19 @@ Every conversation in the household scanned for five signals
 | repeated | the same person asked substantially the same thing again within 30 seconds | the conversation at the second ask |
 | slow | the first audio of an answer came more than 700 ms after the person stopped speaking (SPEC §11, ADR-0035) | the conversation at the answer's first audio |
 | speaker flip | the next utterance in a conversation came from a different person (ADR-0016) | the conversation at the flip |
+| weak positive | a turn's model completed without error, and the turn was not cut off, asked again, or failed (SPEC §9.1) | the conversation at the completion |
 
 ![Triage, repeated](triage-repeated.png)
 ![Triage, slow](triage-slow.png)
+
+Weak positives have a tab of their own and are left out of *All*, which is
+the pile of problems; Browse does not colour a block by one. They are not
+exported: a DPO pair needs a rejected side, and SPEC §9.1 calls them weak.
+A reviewer who agrees labels the turn *good — exemplar*, which keeps it a
+positive and makes no pair (ADR-0058).
+
+![Triage, weak positives](triage-weak-positives.png)
+![Triage, no weak positives](triage-weak-positives-empty.png)
 
 A signal is derived on read, never recorded. The slow signal reads
 `speech_started`, which the Speaking child journals the moment the device
@@ -305,6 +337,7 @@ them, and a take that only calls is named by its calls in the list
 
 ![Curate, a labelled turn's pair](e2e/journey-curate-annotation.png)
 ![Curate, a re-run that only calls the contact sensor](e2e/journey-curate-calls-only.png)
+![Curate, a labelled turn with its repeat as evidence](e2e/journey-repeat-curate.png)
 
 Verdicts are rows in the curation table, revisable where the journal is
 append-only; unreviewed is the absence of a row (ADR-0034). Labels, kept
@@ -336,6 +369,25 @@ A row that cannot be written partway through the download aborts it, so the
 browser reports a failed download rather than saving a short file that looks
 whole. The server log names the row.
 
+Below the dataset is the wake corpus: every wake a satellite rejected at
+stage two, auto-labelled a hard negative (SPEC §9.3), as its own file at
+`/export/wake-negatives.jsonl` (`harvest.ExportNegatives`). It is not a
+preference pair, so it never enters the DPO file. The page counts what
+ships, how many a reviewer confirmed, how many are held as
+`unknown_speaker` waiting for a confirm, and how many were discarded. Each
+row is one JSON object:
+
+```json
+{"id":"device:kitchen/7","label":0,"source":"stage2_reject","reason":"no_speech","satellite":"kitchen","at":"2025-10-09T14:02:00Z","audio":"blob://wake/kitchen-dishwasher","second_audio":"blob://wake/kitchen-dishwasher-second","confirmed":true,"conversation_id":"device:kitchen","seq":7}
+```
+
+`audio` and `second_audio` are blob refs, as the DPO rows' audio is, so the
+clips stay under the blob store's retention. `second_audio` is empty
+when the satellite kept no second channel. `reason` is what stage two said,
+so a trainer can keep or drop each kind (ADR-0058).
+
+![Export, the wake corpus](e2e/journey-wake-export.png)
+
 ## The UI kit
 
 `internal/reviewui/ui` is the component kit the screens are built from:
@@ -365,7 +417,7 @@ cut them.
 |---|---|---|
 | handlers | `cmd/reviewui/*_test.go`, in `task test` | what the server writes, against in-memory stores |
 | database | `replay_db_test.go`, `internal/curation`, in `task test:db` | the same screens over real Postgres |
-| browser | `e2e_test.go`, `e2e_journeys_test.go`, in `task test:e2e` | what a reviewer gets: htmx loaded and swapping, audio a browser decodes, links that land where they say |
+| browser | `e2e_test.go`, `e2e_journeys_test.go`, `e2e_signals_test.go`, in `task test:e2e` | what a reviewer gets: htmx loaded and swapping, audio a browser decodes, links that land where they say |
 
 The browser tier drives a headless Chrome with chromedp and skips unless
 `CHORUS_E2E_CHROME` names a browser; CI sets it, so there it fails rather
@@ -377,8 +429,8 @@ CHORUS_E2E_CHROME=$(command -v chromium) task test:e2e
 CHORUS_E2E_CHROME=$(command -v chromium) CHORUS_E2E_SHOTS=/tmp/shots task test:e2e
 ```
 
-`e2e_test.go` checks each screen on its own. `e2e_journeys_test.go` walks a
-reviewer through a whole day, start to finish:
+`e2e_test.go` checks each screen on its own. `e2e_journeys_test.go` and
+`e2e_signals_test.go` walk a reviewer through a whole day, start to finish:
 
 - triage a barge-in, open it in Review, fix the chosen side, and accept it;
 - curate every pair, discarding one, then download the dataset;
@@ -391,6 +443,9 @@ reviewer through a whole day, start to finish:
 - the front door waits for Teagan's yes, and the log shows the whole audit;
 - a turn is labelled, its note becomes a pair, and the pair ships with its labels;
 - a re-run is promoted, lands accepted, and ships saying which prompt wrote it.
+- a rejected wake is opened from its tick, heard on both channels, confirmed, and shipped in the wake corpus;
+- the answer Alan had to repeat is labelled from the repeat, and ships with the repeat as evidence;
+- a weak positive is found in its own pile and labelled an exemplar, making no pair.
 
 ![Journey: Browse today](e2e/journey-browse-today.png)
 ![Journey: editing the chosen side](e2e/journey-review-editing.png)
