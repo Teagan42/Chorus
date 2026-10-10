@@ -30,11 +30,11 @@ conversation, and its trace data is too thin to learn from.
 └───┬────────────┬───────────┬───────────┬──────────────┘
     │            │           │           │
    STT          LLM         TTS      speaker-ID     (model sidecars, HTTP)
- Parakeet   Qwen3/vLLM    Kokoro      ECAPA
+ Parakeet  Qwen3/Ollama   Kokoro    TitaNet-L
     │
 ┌───┴──────────────────┐   ┌─────────────────────┐
 │ Postgres (JSONB log) │   │ review UI (Go+htmx) │
-│ MinIO (audio blobs)  │   │ dataset export      │
+│ audio blobs (files)  │   │ dataset export      │
 └──────────────────────┘   └─────────────────────┘
 ```
 
