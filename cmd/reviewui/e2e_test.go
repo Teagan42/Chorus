@@ -591,3 +591,20 @@ func TestE2EHeaderLinksLandOnTheirScreens(t *testing.T) {
 		}
 	}
 }
+
+// The kitchen's evening with Ollama down and Kokoro dying, in a browser:
+// both failures read as rows that say what failed, and the forecast's cut
+// is the voice's.
+//
+// verifies SPEC §7
+func TestE2EAConversationShowsTheModelAndTheVoiceFailing(t *testing.T) {
+	now := func() time.Time { return thursday.Add(20 * time.Hour) }
+	p := open(t, newServer(failingKitchen(t), curation.NewMemStore(), fixtureBlobs(t), now))
+	p.visit("/conversations/c-kitchen-evening")
+	p.waitText("#seq-3", "model failed: unavailable")
+	p.waitText("#seq-3", "apologised in cn_77d0a1b2")
+	p.waitText("#seq-9", "voice failed: tts_unavailable")
+	p.waitText("#seq-9", "kokoro: 503 Service Unavailable")
+	p.waitText("#seq-10", "cut: tts_unavailable")
+	p.shot("conversation-provider-failure")
+}
