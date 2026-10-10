@@ -5,6 +5,7 @@
 package triage
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strconv"
@@ -128,15 +129,14 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 				cur.speaker = e.Fields["speaker_id"]
 			}
 		case journal.KindUtteranceTranscribed:
-			// An unidentified voice is not a flip: speaker ID abstained.
-			if sp := e.Fields["speaker_id"]; sp != "" {
-				prev := cur.speaker
-				cur.utterance, cur.speaker = e.Fields["text"], sp
-				if prev != "" && prev != sp {
-					raise(e, KindSpeakerFlip, prev+" → "+sp)
-				}
-			} else {
-				cur.utterance = e.Fields["text"]
+			// Attributed as the session attributed it: a voice that matched
+			// nobody is a guest's turn and a flip, while one nothing judged
+			// is not, since speaker ID abstained (ADR-0049).
+			prev := cur.speaker
+			cur.utterance = e.Fields["text"]
+			cur.speaker = journal.Attribute(prev, e.Fields["speaker_id"], e.Fields["speaker_match"])
+			if prev != "" && prev != cur.speaker {
+				raise(e, KindSpeakerFlip, prev+" → "+cmp.Or(cur.speaker, "guest"))
 			}
 			// Same voice means the same speaker_id on both utterances, not the
 			// attribution carried over: an unplaced voice after Teagan may be
