@@ -23,8 +23,16 @@ import (
 // automatically; annotation and replay sources belong to the review UI.
 type Source string
 
-// SourceBargeIn is a pair cut from an interruption (SPEC §9.1).
-const SourceBargeIn Source = "barge-in"
+const (
+	// SourceBargeIn is a pair cut from an interruption (SPEC §9.1).
+	SourceBargeIn Source = "barge-in"
+	// SourceAnnotation is a turn a reviewer labelled, with what it should
+	// have done as the chosen side (SPEC §9.2).
+	SourceAnnotation Source = "annotation"
+	// SourceReplay is a turn whose re-run a reviewer promoted over what it
+	// recorded (SPEC §9.2).
+	SourceReplay Source = "replay"
+)
 
 // ContextTurns bounds how many turns before the rejected one the prompt
 // carries. Four is enough to make a correction trainable in context without
@@ -132,12 +140,70 @@ type Pair struct {
 
 	Seq   Seq
 	Audio Audio
+
+	// Labels are the reviewer's words for what went wrong, on an annotation
+	// pair (SPEC §9.2).
+	Labels []string
+
+	// ChosenVersions and ChosenCalls say where a replay pair's chosen side
+	// came from: the re-run's configuration and the calls it would make.
+	ChosenVersions journal.Versions
+	ChosenCalls    []journal.Call
+}
+
+// Turn is one turn as the rejected side of a pair would carry it: what it
+// was asked, in context, and what it said and did. Annotation and replay
+// pairs are cut from the turns a reviewer picks.
+type Turn struct {
+	// Seq is the turn's utterance, which is how Replay names it too.
+	Seq     uint64
+	Prompt  []Message
+	Speaker string
+
+	// Said and Unheard split what it generated as Pair's Rejected sides do.
+	Said, Unheard string
+	Audio         []string
+
+	Calls      []journal.Call
+	Versions   journal.Versions
+	Attributed bool
+
+	Recalled          []journal.Memory
+	RecalledSummaries []journal.Summary
+	HeardAt           time.Time
+}
+
+// Pair is the turn as the rejected side of a pair whose chosen side came
+// from source, keyed conversation/turn/source so it never collides with a
+// barge-in's conversation/cut.
+func (t Turn) Pair(conversationID string, source Source, chosen string) Pair {
+	return Pair{
+		ID:                fmt.Sprintf("%s/%d/%s", conversationID, t.Seq, source),
+		ConversationID:    conversationID,
+		Source:            source,
+		Prompt:            t.Prompt,
+		Rejected:          t.Said,
+		RejectedUnheard:   t.Unheard,
+		HeardSpeaker:      t.Speaker,
+		Chosen:            chosen,
+		Versions:          t.Versions,
+		Attributed:        t.Attributed,
+		Calls:             t.Calls,
+		Recalled:          t.Recalled,
+		RecalledSummaries: t.RecalledSummaries,
+		HeardAt:           t.HeardAt,
+		Seq:               Seq{Prompt: t.Seq},
+		Audio:             Audio{Rejected: t.Audio},
+	}
 }
 
 // Result is one conversation's harvest. Uncorrected cuts are counted, not
 // dropped: a log full of them is a gate-tuning problem (SPEC §4.3).
 type Result struct {
 	Pairs []Pair
+
+	// Turns is every turn in log order, for the pairs a reviewer cuts.
+	Turns []Turn
 
 	// Uncorrected counts barge-ins whose cut was never answered: the session
 	// closed first, or another barge-in landed before any utterance.
@@ -373,15 +439,34 @@ func (w *walker) closeTurn(next *journal.Event) {
 		w.answering = nil
 		w.result.Pairs = append(w.result.Pairs, w.finish(d, t))
 	}
+	prompt := w.prompt(t)
+	said, unheard := t.said()
+	w.result.Turns = append(w.result.Turns, Turn{
+		Seq: t.promptSeq, Prompt: prompt, Speaker: t.speaker,
+		Said: said, Unheard: unheard, Audio: t.spokenAudio,
+		Calls: t.calls, Versions: t.versions, Attributed: t.completed && complete(t.versions),
+		Recalled: t.recalled, RecalledSummaries: t.summaries, HeardAt: t.heardAt,
+	})
 	if t.cut {
 		switch {
 		case next == nil || t.closed:
 			w.result.Uncorrected++
 		default:
-			w.answering = &draft{rejected: t, prompt: w.prompt(t), heard: *next}
+			w.answering = &draft{rejected: t, prompt: prompt, heard: *next}
 		}
 	}
 	w.history = append(w.history, t)
+}
+
+// said is what the turn generated, heard and unheard, as a pair's rejected
+// side carries it.
+func (t turn) said() (heard, unheard string) {
+	heard, unheard = joinSpeech(t.spoken), joinSpeech(t.unheard)
+	// A discard is its own speak call; only a truncation's tail continues the heard text.
+	if !t.firstIsCut && heard != "" && unheard != "" {
+		unheard = " " + unheard
+	}
+	return heard, unheard
 }
 
 // prompt is the rejected turn's heard transcript after the heard half of the
@@ -400,12 +485,7 @@ func (w *walker) prompt(t turn) []Message {
 
 func (w *walker) finish(d *draft, answer turn) Pair {
 	r := d.rejected
-	rejected := joinSpeech(r.spoken)
-	unheard := joinSpeech(r.unheard)
-	// A discard is its own speak call; only a truncation's tail continues the heard text.
-	if !r.firstIsCut && rejected != "" && unheard != "" {
-		unheard = " " + unheard
-	}
+	rejected, unheard := r.said()
 	return Pair{
 		ID:                fmt.Sprintf("%s/%d", w.conversationID, r.cutSeq),
 		ConversationID:    w.conversationID,
