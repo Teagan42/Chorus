@@ -442,3 +442,27 @@ func TestReplayAsksTheEndpointChorusdUses(t *testing.T) {
 		t.Errorf("cut versions %+v against recorded %+v: want new tools, the same prompt", cut, recorded)
 	}
 }
+
+// A reworded description reads as a diff does: the old line struck, then
+// the new one, with only the lines near it kept.
+//
+// verifies SPEC §9.2
+func TestARewordedLineDiffsOldThenNew(t *testing.T) {
+	recorded := "[\n  {\n    \"name\": \"ha_get_state\",\n    \"description\": \"Read one entity.\",\n    \"type\": \"object\"\n  }\n]"
+	edited := strings.Replace(recorded, "Read one entity.", "Read its contact sensor.", 1)
+	var got []string
+	for _, l := range hunks(lineDiff(recorded, edited), 1) {
+		got = append(got, l.Kind+l.Text)
+	}
+	want := []string{
+		" …",
+		`     "name": "ha_get_state",`,
+		`-    "description": "Read one entity.",`,
+		`+    "description": "Read its contact sensor.",`,
+		`     "type": "object"`,
+		" …",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("diff =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

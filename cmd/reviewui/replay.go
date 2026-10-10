@@ -645,12 +645,13 @@ func lineDiff(a, b string) []ui.DiffLine {
 		case i < len(x) && j < len(y) && x[i] == y[j]:
 			out = append(out, ui.DiffLine{Kind: " ", Text: x[i]})
 			i, j = i+1, j+1
-		case j < len(y) && (i == len(x) || lcs[i][j+1] >= lcs[i+1][j]):
-			out = append(out, ui.DiffLine{Kind: "+", Text: y[j]})
-			j++
-		default:
+		// On a tie the old line goes first, so a rewording reads old then new.
+		case i < len(x) && (j == len(y) || lcs[i+1][j] >= lcs[i][j+1]):
 			out = append(out, ui.DiffLine{Kind: "-", Text: x[i]})
 			i++
+		default:
+			out = append(out, ui.DiffLine{Kind: "+", Text: y[j]})
+			j++
 		}
 	}
 	return out
