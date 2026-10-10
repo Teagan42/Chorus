@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,6 +77,11 @@ type utterance struct {
 	// canned marks a canned line, which a failure of its own does not
 	// apologise for again (ADR-0051).
 	canned bool
+
+	// held marks an utterance an interjection paused, and after is that
+	// interjection. Deltas still arriving gather in buf, for the rest.
+	held  bool
+	after *utterance
 
 	// closed tells the watcher of a Starter that playback is over, and
 	// watched closes once it has stopped watching. Nil when the stream
@@ -184,8 +190,8 @@ func (c *speechChannel) deliverLocked(d SpeechDelta, announces bool, heard chan<
 			c.dropLocked("preempted")
 			c.pending = append([]*utterance{u}, c.pending...)
 		case ModeInterject:
-			// Duck and cut in, but keep what was queued behind.
-			c.cutLocked("preempted")
+			// Pause what is playing and cut in, keeping it and the queue.
+			c.holdLocked(u)
 			c.pending = append([]*utterance{u}, c.pending...)
 		default:
 			c.pending = append(c.pending, u)
@@ -193,7 +199,7 @@ func (c *speechChannel) deliverLocked(d SpeechDelta, announces bool, heard chan<
 	}
 
 	if d.Text != "" {
-		if u.started {
+		if u.started && !u.held {
 			c.s.fail(u.stream.Write(d.Text))
 		} else {
 			u.buf = append(u.buf, d.Text)
@@ -236,6 +242,17 @@ func (c *speechChannel) shut(reason string) {
 	c.cut, c.closed = reason, true
 	c.cutLocked(reason)
 	c.dropLocked(reason)
+}
+
+// holdLocked pauses the playing utterance for the interjection u. play
+// records what was heard and queues the rest behind u (ADR-0056).
+func (c *speechChannel) holdLocked(u *utterance) {
+	if c.current == nil || c.current.held {
+		return
+	}
+	c.current.held, c.current.after = true, u
+	c.current.reason = "interjected"
+	c.current.cancel()
 }
 
 // cutLocked stops the playing utterance, tagging why for its record.
@@ -384,6 +401,17 @@ func (c *speechChannel) play(u *utterance) {
 		reason = failureReason(pb.Failure)
 		id = c.claimForLocked(u, reason)
 	}
+	rest := pb.Unspoken + strings.Join(u.buf, "")
+	paused := reason == "interjected" && (rest != "" || !u.lastSeen)
+	if reason == "interjected" && !paused {
+		// It ended as the interjection landed: nothing is left to resume.
+		reason = ""
+	}
+	// Deltas a pause gathered, which a cut since then means nobody hears.
+	gathered := ""
+	if u.held && !paused {
+		gathered = strings.Join(u.buf, "")
+	}
 	c.mu.Unlock()
 
 	// Recorded before the next utterance may start, so the log order is the
@@ -391,19 +419,80 @@ func (c *speechChannel) play(u *utterance) {
 	if failed {
 		c.recordFailure(u.callID, reason, pb.Failure, id)
 	}
-	c.record(u.callID, reason, failed, pb)
-	tell(u.heard, !pb.Truncated || pb.Spoken != "")
+	if paused {
+		c.recordPause(u.callID, rest, pb)
+	} else {
+		c.record(u.callID, reason, failed, pb)
+		tell(u.heard, !pb.Truncated || pb.Spoken != "")
+	}
+	if gathered != "" {
+		c.discardedLocked(u.callID, gathered, reason)
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if failed {
 		c.failedLocked(u, reason, id)
 	}
-	c.s.leave("speaking")
+	if paused {
+		c.resumeLocked(u, pb)
+	}
 	c.current = nil
 	c.live--
 	c.startNextLocked()
+	// After the next has started, so speech queued back to back is never
+	// seen to stop between utterances.
+	c.s.leave("speaking")
 	c.idle.Broadcast()
+}
+
+// recordPause writes what was heard before an interjection paused a call.
+// Its result waits for the rest, which is recorded as it plays (ADR-0056).
+func (c *speechChannel) recordPause(callID, rest string, pb Playback) {
+	frames := strconv.FormatInt(pb.Frames, 10)
+	switch {
+	case pb.Spoken == "":
+		// Nothing was heard yet: all of it is the rest.
+	case rest == "":
+		// Heard to the end of what was generated; the model is still going.
+		c.s.fail(c.s.record(journal.Record{
+			Kind: journal.KindSpeechSpoken, AudioRef: pb.AudioRef,
+			Fields: map[string]string{"text": pb.Spoken, "frames_played": frames, "call_id": callID},
+		}))
+	default:
+		c.s.fail(c.s.record(journal.Record{
+			Kind: journal.KindSpeechTruncated, AudioRef: pb.AudioRef,
+			Fields: map[string]string{
+				"spoken_text": pb.Spoken, "unspoken_text": rest,
+				"frames_played": frames, "call_id": callID, "reason": "interjected",
+			},
+		}))
+	}
+}
+
+// resumeLocked queues the rest of a paused call right behind the
+// interjection that paused it. A cut that landed while the pause was being
+// recorded means the rest is never heard, and is recorded so.
+func (c *speechChannel) resumeLocked(u *utterance, pb Playback) {
+	text := pb.Unspoken + strings.Join(u.buf, "")
+	if u.reason != "interjected" {
+		tell(u.heard, pb.Spoken != "")
+		if text != "" {
+			c.discardedLocked(u.callID, text, u.reason)
+		}
+		c.s.result(u.callID, "cancelled", "")
+		return
+	}
+	rest := &utterance{
+		callID: u.callID, last: make(chan struct{}), lastSeen: u.lastSeen,
+		announces: u.announces, heard: u.heard, canned: u.canned,
+	}
+	if text != "" {
+		rest.buf = []string{text}
+	}
+	c.live++
+	at := slices.Index(c.pending, u.after) + 1
+	c.pending = slices.Insert(c.pending, at, rest)
 }
 
 // record writes what the DAC actually played. The spoken half is kept and
