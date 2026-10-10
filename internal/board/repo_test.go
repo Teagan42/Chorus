@@ -1,9 +1,6 @@
 package board
 
-import (
-	"slices"
-	"testing"
-)
+import "testing"
 
 // The checked-in files, not fixtures: the board the design doc describes and
 // the Satellite1 config that already runs Chorus in the living room.
@@ -100,18 +97,14 @@ func TestTheRevASchematicChecksClean(t *testing.T) {
 }
 
 // Every footprint of the board's own is in chorus-sat.pretty, so a KiCad 9
-// import resolves all of them, and the check above has held each to its
-// part's pads. The TAS2780's alone is downloaded rather than committed, as
-// chorus-sat.pretty/README.md says; once fetched, the check holds it too.
+// import resolves all of them with nothing to download first, and the check
+// above has held each to its part's pads.
 func TestEveryRevAFootprintIsDrawn(t *testing.T) {
 	s, err := LoadSchematic("../../hardware/chorus-sat")
 	if err != nil {
 		t.Fatal(err)
 	}
-	downloaded := []string{"chorus-sat:Texas_RYA0030A_VQFN-HR-30"}
 	for _, fp := range s.Undrawn() {
-		if !slices.Contains(downloaded, fp) {
-			t.Errorf("parts.yaml names %s, which chorus-sat.pretty lacks and its README does not say to download", fp)
-		}
+		t.Errorf("parts.yaml names %s, which chorus-sat.pretty lacks", fp)
 	}
 }

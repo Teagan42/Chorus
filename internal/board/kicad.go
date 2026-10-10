@@ -53,6 +53,9 @@ func (s Schematic) KiCadNetlist() []byte {
 		if inst.DNP {
 			fields = append(fields, [2]string{"DNP", "DNP"})
 		}
+		if part.Side != "" {
+			fields = append(fields, [2]string{"Side", part.Side})
+		}
 		if inst.Note != "" {
 			fields = append(fields, [2]string{"Note", inst.Note})
 		}

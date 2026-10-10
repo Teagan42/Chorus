@@ -384,3 +384,11 @@ func TestTwoPadsOfOnePinAreOneDriver(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The ring's LEDs mount on B.Cu and shine up through their cutouts; "bottom"
+// is a typo the board generator would read as the top, so it is refused.
+func TestASideOtherThanBackIsRefused(t *testing.T) {
+	s := loadSchematic(t, hallway(t,
+		[3]string{"parts.yaml", "lcsc: C5149201", "lcsc: C5149201\n    side: bottom"}))
+	wantERC(t, s, `SK6812MINI-E: side "bottom" is neither empty (the top) nor back`)
+}

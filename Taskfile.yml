@@ -10,6 +10,8 @@ vars:
   # Pinned for the same reason as the Go tools: a component API change must
   # not turn a green build red with no code change. Bump on purpose.
   ESPHOME_VERSION: 2026.7.2
+  # task hardware:kicad builds boards in this; .github/workflows/hardware.yml pins the same.
+  KICAD_IMAGE: kicad/kicad:9.0.5@sha256:699f65fd2e4670bbdbe6846586768207f9f1528edd526c0e0502fda7c7f9bfad
 
 env:
   PATH: "{{.GOBIN}}/bin:{{.PATH}}"
@@ -66,6 +68,26 @@ tasks:
     desc: KiCad netlist and JLCPCB BOM from each board's netlist data
     sources: ["hardware/**/*.yaml", "internal/board/*.go", "internal/tools/kicadnet/*.go"]
     cmds: [go run ./internal/tools/kicadnet hardware/chorus-sat]
+
+  # In the KiCad image pinned above: pcbnew's file format and its footprint
+  # libraries are what the board is built from, so a moving tag would move it.
+  hardware:kicad:
+    desc: KiCad 9 project and board for each board, zipped for KiCad or EasyEDA (needs Docker)
+    deps: [gen:hardware]
+    cmds:
+      - mkdir -p dist/hardware
+      - >-
+        docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/src" -w /src
+        {{.KICAD_IMAGE}}
+        python3 internal/tools/kicadboard/build.py hardware/chorus-sat dist/hardware
+
+  hardware:test:
+    desc: The board builder's tests, inside the KiCad image (needs Docker)
+    cmds:
+      - >-
+        docker run --rm -e PYTHONDONTWRITEBYTECODE=1 -v "$PWD:/src:ro" -w /src
+        {{.KICAD_IMAGE}}
+        python3 -m unittest discover -s internal/tools/kicadboard -v
 
   gen:check:
     desc: Fail if generated output is stale (CI gate)

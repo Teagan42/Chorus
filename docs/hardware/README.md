@@ -402,21 +402,30 @@ upload.
 
 The path to an order:
 
-1. In KiCad 9.0.5 or later (9.0.0 lacks the mute switch's and the bucks'
-   inductor footprints), *File → Import → Netlist* the generated `chorus-sat.net` into
-   a new `chorus-sat.kicad_pcb`. Footprints and nets arrive; placement and
-   routing are a person's work.
-2. Copy `hardware/chorus-sat/fp-lib-table` and `chorus-sat.pretty` beside
-   the new board, or open it from that folder: the footprints KiCad's library
-   lacks are there, each checked pad for pad against `parts.yaml` by
-   `go test ./internal/board` (sources in its README). The TAS2780's is the
-   one exception: its licence does not allow republishing it, so download it
-   first as that README says.
-3. Lay out per the next section. Changes to parts or nets go in the YAML and
-   come back through *Update PCB from netlist*.
+1. Download the KiCad project: the `chorus-sat-kicad` artifact of the latest
+   [Hardware workflow](https://github.com/Teagan42/Chorus/actions/workflows/hardware.yml)
+   run on `main`, or build it with `task hardware:kicad` (Docker) into
+   `dist/hardware/`. KiCad 9.0.5 itself built it from the generated
+   `chorus-sat.net` and reloaded it to check every pad's net against the
+   netlist, so there is nothing to import by hand:
+   - every footprint is placed on the board, from KiCad's library or
+     `chorus-sat.pretty`, which ships in the zip with its `fp-lib-table`;
+   - parts are grouped by sheet beside an empty page, the LED ring already on
+     B.Cu;
+   - the project holds four copper layers and design rules inside JLCPCB's
+     standard multilayer process.
+2. Open `chorus-sat.kicad_pro` in KiCad 9.0.5 or later, or import the zip
+   into EasyEDA Pro (*File → Import → KiCad*). EasyEDA's own documentation
+   names KiCad 5 formats only, so whether it reads a KiCad 9 board is
+   untested; KiCad is the path that is known to work. The board has no
+   outline and no tracks yet.
+3. Lay out per the next section. Until layout starts, a change to parts or
+   nets is a fresh download. After that it goes in the YAML and comes back
+   into the laid-out board through KiCad's *Update PCB from netlist* on the
+   regenerated `chorus-sat.net`, which keeps placement because each
+   footprint carries its part's path.
 4. Plot Gerbers and drill files, and the position file (the CPL), from
-   Pcbnew. EasyEDA Pro imports a KiCad project too, for those who would rather
-   route there; it keeps the LCSC field.
+   Pcbnew.
 5. Upload Gerbers, `bom.csv` and the CPL to JLCPCB as a four-layer board with
    assembly, and check each rotation in its preview.
 
@@ -525,6 +534,15 @@ What rev A still cannot settle without a datasheet or a bench:
   the datasheet does and places them as the mirror of its top view, reading
   that view as the lens side, which its drawn lens says it is; KiCad's own
   footprint agrees. Solder one to a scrap board before the ring is laid out.
+- **The TAS2780's corner pins.** Its footprint comes from an open board that
+  uses the part, and its 26 side pads match Ultra Librarian's to 0.02 mm; pins
+  1, 9, 16 and 24 are drawn L-shaped there and rectangular in Ultra
+  Librarian's. Check them against TI's RYA0030A land pattern before ordering.
+- **The LED windows' edge clearance.** The reverse-mount LEDs' pads sit
+  0.247 mm from their cutouts, under the 0.3 mm copper-to-edge rule the
+  generated project sets, so KiCad's DRC flags them. JLCPCB's routed-cutout
+  tolerance decides whether that is an order-time question or a footprint
+  change.
 
 Settled since the first draft, from the sources below: the firmware licence,
 the XU316 port map, the mic part and geometry, the MCLK direction (the
