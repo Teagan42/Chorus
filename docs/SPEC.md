@@ -495,7 +495,10 @@ privacy story holds. Not needed today.
 ## 10. Model stack
 
 Local-first, cloud escape hatch per provider. Each behind an HTTP contract,
-every provider declaring capabilities (streaming? tool calls? interruption?).
+every provider declaring capabilities (streaming? tool calls? interruption?)
+so a build-time check can reject a pipeline that cannot work. Those
+declarations and the check are not built: nothing in `schema/` describes a
+provider.
 
 | Role | Choice | Rationale |
 |---|---|---|
