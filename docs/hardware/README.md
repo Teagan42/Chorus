@@ -384,16 +384,14 @@ upload.
 
 The path to an order:
 
-1. In KiCad 9, *File → Import → Netlist* the generated `chorus-sat.net` into
+1. In KiCad 9.0.5 or later (9.0.0 lacks the mute switch's and the bucks'
+   inductor footprints), *File → Import → Netlist* the generated `chorus-sat.net` into
    a new `chorus-sat.kicad_pcb`. Footprints and nets arrive; placement and
    routing are a person's work.
-2. Draw or vendor the footprints KiCad's library lacks into
-   `hardware/chorus-sat/chorus-sat.pretty`, which the board's `fp-lib-table`
-   makes the `chorus-sat` library: the XU316's QFN-60, the TAS2780's
-   RYA0030A, the CMM-4030DT and the AG9912-MTB. The LPJG0926HENL is the Home
-   Assistant Yellow's; the SK6812MINI-E's is KiCad's, renumbered to its
-   datasheet, since KiCad 9 ships none. `go test ./internal/board` checks each one's pads
-   against `parts.yaml` and lists those still to draw.
+2. Copy `hardware/chorus-sat/fp-lib-table` and `chorus-sat.pretty` beside
+   the new board, or open it from that folder: the footprints KiCad's library
+   lacks are there, each checked pad for pad against `parts.yaml` by
+   `go test ./internal/board` (sources in its README).
 3. Lay out per the next section. Changes to parts or nets go in the YAML and
    come back through *Update PCB from netlist*.
 4. Plot Gerbers and drill files, and the position file (the CPL), from
@@ -496,9 +494,9 @@ What rev A still cannot settle without a datasheet or a bench:
 - **The PoE module**: the AG9912-MTB had no JLCPCB stock at capture, and it
   wants at least 100 mA of load to keep the switch's maintain-power signature.
   An idle board draws about that at 12 V; measure it at bring-up.
-- **Two datasheets still unread.** The TAS2780's pins and modes are taken
-  from the Satellite1 schematic and its driver, the CMM-4030DT's pads from two
-  KiCad footprints that agree, and neither vendor's document was reachable.
+- **Two datasheets still unread.** The TAS2780's modes are taken from the
+  Satellite1 schematic and its driver, and neither TI's nor CUI's document was
+  reachable; the vendors' own symbols agree with both pad tables.
 - **The SK6812MINI-E's pad positions.** The board's footprint numbers pads as
   the datasheet does and places them as the mirror of its top view, reading
   that view as the lens side, which its drawn lens says it is; KiCad's own

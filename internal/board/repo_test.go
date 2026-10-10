@@ -1,7 +1,6 @@
 package board
 
 import (
-	"slices"
 	"testing"
 )
 
@@ -99,21 +98,15 @@ func TestTheRevASchematicChecksClean(t *testing.T) {
 	}
 }
 
-// What still stands between rev A and a layout. Drawing one of these into
-// chorus-sat.pretty takes it off this list; the check above then holds it
-// to its part's pads.
-func TestTheRevAFootprintsStillToDraw(t *testing.T) {
+// Every footprint of the board's own is in chorus-sat.pretty, so a KiCad 9
+// import resolves all of them, and the check above has held each to its
+// part's pads.
+func TestEveryRevAFootprintIsDrawn(t *testing.T) {
 	s, err := LoadSchematic("../../hardware/chorus-sat")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		"chorus-sat:CUI_CMM-4030DT",
-		"chorus-sat:Silvertel_Ag9912-MTB",
-		"chorus-sat:Texas_RYA0030A_VQFN-HR-30",
-		"chorus-sat:XMOS_QFN-60_7x7mm_P0.4mm_VDD-Bars",
-	}
-	if got := s.Undrawn(); !slices.Equal(got, want) {
-		t.Errorf("undrawn footprints = %q, want %q", got, want)
+	if got := s.Undrawn(); len(got) != 0 {
+		t.Errorf("footprints parts.yaml names but chorus-sat.pretty lacks: %q", got)
 	}
 }
