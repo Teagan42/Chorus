@@ -49,6 +49,10 @@ type Entry struct {
 	// to say, and becomes what was heard once playback is recorded.
 	Pending bool
 
+	// Held marks pending speech an interjection paused: Text is what was
+	// heard before it, and what plays after it is added (ADR-0056).
+	Held bool
+
 	// Acknowledges is the slow call whose acknowledgement this speech was:
 	// words the model wrote as an argument, not a speak call (ADR-0039).
 	Acknowledges string
@@ -107,10 +111,35 @@ func (s State) cutBy(id, reason string) []Entry {
 func (s State) played(id, text string, cut bool) []Entry {
 	if i := s.said(id); i >= 0 {
 		out := cloneEntries(s.Dialogue)
-		out[i].Text, out[i].Cut, out[i].Pending = text, cut, false
+		if out[i].Held {
+			text = out[i].Text + text
+		}
+		out[i].Text, out[i].Cut, out[i].Pending, out[i].Held = text, cut, false, false
 		return out
 	}
 	return appendEntry(s.Dialogue, Entry{Kind: EntrySaid, CallID: id, Text: text, Cut: cut})
+}
+
+// held records what a speak call was heard to say before an interjection
+// paused it. It is still playing: the rest resumes after (ADR-0056).
+func (s State) held(id, text string) []Entry {
+	out := s.played(id, text, false)
+	if i := (State{Dialogue: out}).said(id); i >= 0 {
+		out[i].Pending, out[i].Held = true, true
+	}
+	return out
+}
+
+// dropped cuts a paused call whose rest was discarded before it resumed:
+// the person heard the first half, and whatever emptied the queue cut it.
+func (s State) dropped(id, reason string) []Entry {
+	i := s.said(id)
+	if i < 0 || !s.Dialogue[i].Held {
+		return s.Dialogue
+	}
+	out := cloneEntries(s.Dialogue)
+	out[i].Cut, out[i].CutBy, out[i].Pending, out[i].Held = true, reason, false, false
+	return out
 }
 
 // resulted closes a call. A speak still pending at its result was never
@@ -124,6 +153,12 @@ func (s State) resulted(id, tool, outcome, result string) []Entry {
 	i := s.said(id)
 	if i < 0 || !s.Dialogue[i].Pending {
 		return s.Dialogue
+	}
+	if s.Dialogue[i].Held {
+		// Its first half was heard, whatever became of the rest.
+		out := cloneEntries(s.Dialogue)
+		out[i].Pending, out[i].Held = false, false
+		return out
 	}
 	out := make([]Entry, 0, len(s.Dialogue)-1)
 	out = append(out, s.Dialogue[:i]...)
