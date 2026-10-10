@@ -535,14 +535,18 @@ Do not build the S2S path until the cascade works end to end.
   protocol contract that must version together. Split repos mean a coordinated
   release dance for a one-person project.
 - **docker-compose**, model sidecars pinned to GPU.
-- **Satellite inventory:** mDNS discovery (`_esphomelib._tcp`) for addresses;
-  static YAML for Noise PSKs, room assignment, and capability profile. Secrets
-  stay out of a database that would need separate backup.
-- **Addressing is asymmetric.** Discovery runs one way only: the orchestrator
-  resolves satellites, but the orchestrator's own address must be a literal IP
-  in the device YAML. ESPHome's `set_sockaddr` does not resolve hostnames, so
-  the device cannot dial an mDNS name. The orchestrator needs a static lease;
-  `chorus_bridge` enforces this at `esphome config` time via `cv.ipaddress`.
+- **Satellite inventory:** static YAML for each satellite's address, Noise
+  PSK, room assignment, and capability profile. Secrets stay out of a database
+  that would need separate backup. The address is an IP literal: the audio
+  link's hello carries no name, so a device is known by its source address,
+  and `chorusd` refuses a hostname, or a host two satellites share, at
+  startup. mDNS discovery (`_esphomelib._tcp`) is not built.
+- **Addressing is asymmetric.** Discovery, were it built, would run one way
+  only: the orchestrator could resolve satellites, but the orchestrator's own
+  address must be a literal IP in the device YAML. ESPHome's `set_sockaddr`
+  does not resolve hostnames, so the device cannot dial an mDNS name. The
+  orchestrator needs a static lease; `chorus_bridge` enforces this at
+  `esphome config` time via `cv.ipaddress`.
 - Wake word: existing trained "Hey Eddie" model, gated by two-stage
   confirmation (§9.3). Swappable without touching anything else.
 - Persona lives in the system prompt as a **versioned artifact** — because
