@@ -1,7 +1,7 @@
 // Package triage reads the journal for conversations worth a reviewer's time
 // (SPEC §9.1): barge-ins, failures, repeated requests, slow answers and
-// speaker flips. Like harvest, it is a reader of existing data; a signal is
-// derived on read, never recorded.
+// speaker flips, and the weak positives nobody corrected. Like harvest, it
+// is a reader of existing data; a signal is derived on read, never recorded.
 package triage
 
 import (
@@ -26,6 +26,10 @@ const (
 	KindSpeakerFlip Kind = "speaker-flip"
 	KindRepeated    Kind = "repeated"
 	KindSlow        Kind = "slow"
+
+	// KindWeakPositive is a completed turn nobody corrected (SPEC §9.1).
+	// WeakPositives raises it, never Scan: it is no problem to look into.
+	KindWeakPositive Kind = "weak-positive"
 )
 
 // SlowAfter is SPEC §11's first-audio target. A turn whose first frame came
@@ -65,23 +69,47 @@ type Signal struct {
 
 	// PairID names the harvested candidate for a barge-in.
 	PairID string
+
+	// First is a repeat's earlier ask: the turn whose answer failed.
+	First uint64
 }
 
 // turnContext is where the conversation stood when an event was recorded.
+// turn is the seq of the utterance that opened it.
 type turnContext struct {
 	utterance, speaker, satellite string
-	session                       uint64
+	session, turn                 uint64
 }
 
 // Scan returns the conversation's signals in log order.
 func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Signal, error) {
+	sigs, _, err := read(ctx, store, conversationID)
+	return sigs, err
+}
+
+// WeakPositives returns the conversation's completed turns that nobody cut
+// off, asked again or saw fail, in log order, each at its completion.
+func WeakPositives(ctx context.Context, store journal.Store, conversationID string) ([]Signal, error) {
+	_, pos, err := read(ctx, store, conversationID)
+	return pos, err
+}
+
+// outcome is how one turn ended, for telling a weak positive.
+type outcome struct {
+	turn      turnContext
+	done      *journal.Event
+	said      []string
+	corrected bool
+}
+
+func read(ctx context.Context, store journal.Store, conversationID string) ([]Signal, []Signal, error) {
 	events, err := store.Events(ctx, conversationID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	pairs, err := harvest.Harvest(ctx, store, conversationID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cutPairs := map[uint64]harvest.Pair{}
 	for _, p := range pairs {
@@ -96,6 +124,7 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 	}
 	// ask is the last utterance, to tell a repeat from a follow-up.
 	type ask struct {
+		seq   uint64
 		at    time.Time
 		text  string
 		voice string // this utterance's own speaker_id: empty is unplaced
@@ -109,13 +138,27 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 		last  *ask
 		// timers are the house log's, by id: what each was set to say.
 		timers = map[string]turnContext{}
+		// turns are how each turn ended, in log order.
+		turns []*outcome
+		ended = map[uint64]*outcome{}
 	)
-	raiseIn := func(turn turnContext, e journal.Event, k Kind, detail string) {
-		out = append(out, Signal{
+	correct := func(turn uint64) {
+		if o := ended[turn]; o != nil {
+			o.corrected = true
+		}
+	}
+	signal := func(turn turnContext, e journal.Event, k Kind, detail string) Signal {
+		return Signal{
 			Kind: k, ConversationID: conversationID, Seq: e.Seq, At: e.At,
 			Utterance: turn.utterance, Speaker: turn.speaker, Satellite: turn.satellite,
 			Session: turn.session, Detail: detail,
-		})
+		}
+	}
+	raiseIn := func(turn turnContext, e journal.Event, k Kind, detail string) {
+		out = append(out, signal(turn, e, k, detail))
+		if k == KindFailure {
+			correct(turn.turn)
+		}
 	}
 	raise := func(e journal.Event, k Kind, detail string) { raiseIn(cur, e, k, detail) }
 	for _, e := range events {
@@ -133,7 +176,9 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 			// nobody is a guest's turn and a flip, while one nothing judged
 			// is not, since speaker ID abstained (ADR-0049).
 			prev := cur.speaker
-			cur.utterance = e.Fields["text"]
+			cur.utterance, cur.turn = e.Fields["text"], e.Seq
+			o := &outcome{turn: cur}
+			turns, ended[e.Seq] = append(turns, o), o
 			cur.speaker = journal.Attribute(prev, e.Fields["speaker_id"], e.Fields["speaker_match"])
 			if prev != "" && prev != cur.speaker {
 				raise(e, KindSpeakerFlip, prev+" → "+cmp.Or(cur.speaker, "guest"))
@@ -142,13 +187,15 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 			// attribution carried over: an unplaced voice after Teagan may be
 			// a guest. Both unplaced still counts, since without the speaker
 			// sidecar every utterance is (ADR-0031).
-			next := &ask{at: e.At, text: cur.utterance, voice: e.Fields["speaker_id"], words: contentWords(cur.utterance)}
+			next := &ask{seq: e.Seq, at: e.At, text: cur.utterance, voice: e.Fields["speaker_id"], words: contentWords(cur.utterance)}
 			if last != nil && last.voice == next.voice && next.at.Sub(last.at) <= RepeatWindow && similar(last.words, next.words) {
 				detail := fmt.Sprintf("asked again %.1f s after “%s”", next.at.Sub(last.at).Seconds(), last.text)
 				if !last.acted {
 					detail += " · no tool call on the first ask"
 				}
 				raise(e, KindRepeated, detail)
+				out[len(out)-1].First = last.seq
+				correct(last.seq)
 			}
 			// An answer ("yes") is not a request, so the request it answered
 			// stays the one a repeat is measured against.
@@ -176,9 +223,17 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 			if wait := time.Duration(ms) * time.Millisecond; err == nil && wait > SlowAfter {
 				raise(e, KindSlow, fmt.Sprintf("first audio %.1f s after the ask · target %.1f s", wait.Seconds(), SlowAfter.Seconds()))
 			}
+		case journal.KindBargeInDetected:
+			correct(cur.turn)
+		case journal.KindSpeechSpoken, journal.KindSpeechTruncated:
+			if o := ended[cur.turn]; o != nil {
+				o.said = append(o.said, cmp.Or(e.Fields["text"], e.Fields["spoken_text"]))
+			}
 		case journal.KindModelCompleted:
 			if e.Fields["finish_reason"] == "error" {
 				raise(e, KindFailure, "model finished with error")
+			} else if o := ended[cur.turn]; o != nil {
+				o.turn, o.done = cur, &e
 			}
 		case journal.KindModelFailed:
 			// A model that never answered left no completion to raise on;
@@ -207,7 +262,18 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Si
 			out[len(out)-1].PairID = p.ID
 		}
 	}
-	return out, nil
+	var pos []Signal
+	for _, o := range turns {
+		if o.done == nil || o.corrected {
+			continue
+		}
+		detail := "not cut off, asked again or failed"
+		if said := strings.Join(o.said, " "); said != "" {
+			detail = "answered “" + said + "” · " + detail
+		}
+		pos = append(pos, signal(o.turn, *o.done, KindWeakPositive, detail))
+	}
+	return out, pos, nil
 }
 
 // fillers carry no request: articles, pronouns, politeness, the wake phrase.

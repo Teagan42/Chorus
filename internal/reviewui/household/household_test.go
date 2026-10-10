@@ -22,6 +22,9 @@ func cited(t *testing.T) map[string]household.Line {
 			if l.Rec.AudioRef != "" {
 				out[strings.TrimPrefix(l.Rec.AudioRef, "blob://")] = l
 			}
+			if ref := l.Rec.Fields["second_audio_ref"]; ref != "" {
+				out[strings.TrimPrefix(ref, "blob://")] = l
+			}
 		}
 	}
 	return out
@@ -159,5 +162,22 @@ func TestEveryBargeInIsDetectedWhereTheCutLands(t *testing.T) {
 				t.Errorf("%s: barge-in at %s ms, but the DAC cut at %s ms", id, l.Rec.Fields["tts_position_ms"], want)
 			}
 		}
+	}
+}
+
+// The kitchen's Satellite1 streams both XMOS outputs, so the dishwasher it
+// rejected is kept on both channels: the corpus can target either (SPEC §9.3).
+func TestTheKitchensRejectedWakeKeepsBothChannels(t *testing.T) {
+	var second string
+	for _, l := range household.Logs()["device:kitchen"] {
+		if l.Rec.Kind == journal.KindWakeRejected {
+			second = l.Rec.Fields["second_audio_ref"]
+		}
+	}
+	if second != "blob://wake/kitchen-dishwasher-second" {
+		t.Fatalf("the dishwasher's second channel is %q", second)
+	}
+	if a, b := pcm(t, "wake/kitchen-dishwasher"), pcm(t, "wake/kitchen-dishwasher-second"); len(a) != len(b) {
+		t.Errorf("the two channels hold %d and %d frames of the same span", len(a), len(b))
 	}
 }

@@ -11,15 +11,25 @@ type Session struct {
 	Label string // accessible label, e.g. "Living room 23:04 · barge-in"
 }
 
-// DayLane is one satellite across the day.
+// Reject is one stage-two wake rejection on its lane. With Href the tick is
+// a link to the rejection; Label says why it was rejected.
+type Reject struct {
+	Hour  float64
+	Href  string
+	Label string
+}
+
+// DayLane is one satellite across the day. With Href its name links to the
+// satellite's own log.
 type DayLane struct {
 	Name     string
 	Sub      string // "Satellite1 · 7 sessions"
-	On       bool   // filtering the list to this room
-	Hx       Hx     // click the lane header to filter
+	Href     string
+	On       bool // filtering the list to this room
+	Hx       Hx   // click the lane header to filter
 	Presence [][2]float64
 	Sessions []Session
-	Rejects  []float64 // stage-two wake rejections, decimal hours
+	Rejects  []Reject
 }
 
 // Migration links a conversation that moved from one lane to another.

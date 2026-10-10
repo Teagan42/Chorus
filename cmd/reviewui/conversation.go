@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/reviewui/ui"
 	"github.com/teagan42/chorus/internal/triage"
@@ -27,14 +28,21 @@ type logRow struct {
 	Note    string
 	Lines   []string // what a recall told the model, one memory or conversation a line
 	Audio   string
+	Second  string // the XMOS's lighter-processed channel of the same span (ADR-0050)
 
 	// Signal tags the event Triage raised on; SignalWhy says why, in the
 	// text column where a sentence fits.
 	Signal    *ui.SigTag
 	SignalWhy string
 
+	// Again opens the labels of the turn a repeat asked again.
+	Again *ui.Button
+
 	// Annotation is the turn's labels, under the utterance that opens it.
 	Annotation *turnAnnotation
+
+	// Wake is the reviewer's word on a rejected wake, under it.
+	Wake *wakeView
 }
 
 var kindTones = map[journal.Kind]ui.Tone{
@@ -95,6 +103,9 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) logRow {
 	}
 	if e.AudioRef != "" {
 		row.Audio = audioSrc(e.AudioRef)
+	}
+	if ref := f["second_audio_ref"]; ref != "" {
+		row.Second = audioSrc(ref)
 	}
 	switch e.Kind {
 	case journal.KindSessionOpened:
@@ -312,6 +323,10 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 	if err == nil && len(events) > 0 {
 		sigs, err = triage.Scan(r.Context(), s.journal, id)
 	}
+	var positives []triage.Signal
+	if err == nil && len(events) > 0 {
+		positives, err = triage.WeakPositives(r.Context(), s.journal, id)
+	}
 	if err == nil && len(events) > 0 && id != houseLog {
 		house, err = timersOf(r, s.journal, id)
 	}
@@ -320,6 +335,10 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 	}
 	if err == nil && len(events) > 0 {
 		annos, err = s.decisions.Annotations(r.Context(), id)
+	}
+	var wakes map[uint64]curation.WakeVerdict
+	if err == nil && len(events) > 0 && strings.HasPrefix(id, devicePrefix) {
+		wakes, err = s.decisions.WakeVerdicts(r.Context(), id)
 	}
 	s.mu.Unlock()
 	if err != nil {
@@ -332,8 +351,12 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bySeq := map[uint64]triage.Signal{}
-	for _, sig := range sigs {
+	again := map[uint64]triage.Signal{}
+	for _, sig := range append(positives, sigs...) {
 		bySeq[sig.Seq] = sig
+		if sig.Kind == triage.KindRepeated {
+			again[sig.First] = sig
+		}
 	}
 	c := summarize(id, events, sigs)
 	rows := make([]logRow, 0, len(events)+len(house))
@@ -351,11 +374,22 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 				a = curation.Annotation{ConversationID: id, Seq: e.Seq}
 			}
 			v := annotationView(id, e.Seq, a)
+			if r, ok := again[e.Seq]; ok {
+				v.Again = againNote(r)
+			}
 			row.Annotation = &v
+		}
+		if e.Kind == journal.KindWakeRejected && wakes != nil {
+			n := negative{Negative: harvest.Negative{Seq: e.Seq, Reason: e.Fields["reason"]}, status: wakes[e.Seq].Status}
+			v := wakeVerdictView(id, n)
+			row.Wake = &v
 		}
 		if sig, ok := bySeq[e.Seq]; ok {
 			tag := signalTags[sig.Kind]
 			row.Signal, row.SignalWhy = &tag, sig.Detail
+			if sig.Kind == triage.KindRepeated {
+				row.Again = &ui.Button{Label: "Label the first answer ›", Href: fmt.Sprintf("#turn-%d-labels", sig.First)}
+			}
 		}
 		rows = append(rows, row)
 	}

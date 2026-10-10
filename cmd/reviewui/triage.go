@@ -11,7 +11,8 @@ import (
 	"github.com/teagan42/chorus/internal/triage"
 )
 
-// triageTabs are the signal filters, in the order the mock lists them.
+// triageTabs are the signal filters, in the order the mock lists them. All
+// is every problem; weak positives are no problem, so only their own tab.
 var triageTabs = []struct {
 	id, label string
 	kind      triage.Kind
@@ -22,14 +23,16 @@ var triageTabs = []struct {
 	{string(triage.KindSlow), "Slow", triage.KindSlow},
 	{string(triage.KindFailure), "Failures", triage.KindFailure},
 	{string(triage.KindSpeakerFlip), "Speaker flips", triage.KindSpeakerFlip},
+	{string(triage.KindWeakPositive), "Weak positives", triage.KindWeakPositive},
 }
 
 var signalTags = map[triage.Kind]ui.SigTag{
-	triage.KindBargeIn:     {Text: "barge-in pair", Tone: ui.TonePeople},
-	triage.KindFailure:     {Text: "failure", Tone: ui.ToneHome},
-	triage.KindRepeated:    {Text: "repeated", Tone: ui.ToneConv},
-	triage.KindSlow:        {Text: "slow", Tone: ui.ToneVoice},
-	triage.KindSpeakerFlip: {Text: "speaker flip", Tone: ui.TonePeople},
+	triage.KindBargeIn:      {Text: "barge-in pair", Tone: ui.TonePeople},
+	triage.KindFailure:      {Text: "failure", Tone: ui.ToneHome},
+	triage.KindRepeated:     {Text: "repeated", Tone: ui.ToneConv},
+	triage.KindSlow:         {Text: "slow", Tone: ui.ToneVoice},
+	triage.KindSpeakerFlip:  {Text: "speaker flip", Tone: ui.TonePeople},
+	triage.KindWeakPositive: {Text: "weak positive", Tone: ui.ToneMuted},
 }
 
 // signals scans every conversation, newest event first across the household,
@@ -48,6 +51,11 @@ func (s *server) signals(r *http.Request, u *unread) ([]triage.Signal, int, erro
 	var out []triage.Signal
 	for _, conv := range convs {
 		sigs, err := triage.Scan(r.Context(), s.journal, conv)
+		if err == nil {
+			var pos []triage.Signal
+			pos, err = triage.WeakPositives(r.Context(), s.journal, conv)
+			sigs = append(sigs, pos...)
+		}
 		if err != nil {
 			u.skip(conv, fmt.Errorf("triage: %w", err))
 			continue
@@ -100,7 +108,7 @@ func (s *server) triage(w http.ResponseWriter, r *http.Request) {
 	for _, t := range triageTabs {
 		n := 0
 		for _, sig := range sigs {
-			if t.kind == "" || sig.Kind == t.kind {
+			if t.kind == "" && sig.Kind != triage.KindWeakPositive || sig.Kind == t.kind {
 				n++
 				if t.id == tab {
 					list.Rows = append(list.Rows, signalRow(sig, s.now().Location()))
@@ -118,7 +126,7 @@ func (s *server) triage(w http.ResponseWriter, r *http.Request) {
 		"Header": ui.NewAppHeader(ui.StepTriage, unreviewed, "chorus · journal"),
 		"Head": ui.PageHead{
 			Eyebrow: "02 · Triage", Title: "What's worth a listen",
-			Subtitle: "Barge-ins, failures, repeated asks, slow answers and speaker flips, read from the journal.",
+			Subtitle: "Barge-ins, failures, repeated asks, slow answers and speaker flips, read from the journal. The weak positives nobody corrected are a pile of their own.",
 		},
 		"Tabs":   tabs,
 		"List":   list,

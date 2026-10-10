@@ -631,7 +631,7 @@ func TestE2ETheBareAddressLandsOnBrowse(t *testing.T) {
 }
 
 // The kitchen's own log: its radar's day and the dishwasher that woke it,
-// a clip the browser decodes, named for a screen reader.
+// on both channels the browser decodes, each named for a screen reader.
 //
 // verifies SPEC §3.3.1, §9.3
 func TestE2EASatellitesOwnLogPlaysItsRejectedWake(t *testing.T) {
@@ -640,11 +640,11 @@ func TestE2EASatellitesOwnLogPlaysItsRejectedWake(t *testing.T) {
 	p.visit("/conversations/device:kitchen")
 	p.waitText("#seq-1", "presence: present")
 	p.waitText("#seq-7", "wake rejected: no_speech")
-	closeTo(t, "the dishwasher", p.durations("#seq-7"), []float64{0.8})
-	var name string
-	p.eval(`document.querySelector("#seq-7 audio").getAttribute("aria-label")`, &name)
-	if name != "#7 wake rejected · device" {
-		t.Errorf("the dishwasher's player is named %q", name)
+	closeTo(t, "the dishwasher", p.durations("#seq-7"), []float64{0.8, 0.8})
+	var names []string
+	p.eval(`[...document.querySelectorAll("#seq-7 audio")].map(a => a.getAttribute("aria-label"))`, &names)
+	if fmt.Sprint(names) != "[#7 wake rejected · device #7 wake rejected · device · second channel]" {
+		t.Errorf("the dishwasher's players are named %q", names)
 	}
 	p.shot("conversation-device-kitchen")
 }

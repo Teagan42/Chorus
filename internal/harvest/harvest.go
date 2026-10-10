@@ -6,6 +6,9 @@
 // A candidate is not a training pair yet. What the assistant said after the
 // correction answers the correction, not the prompt the rejected turn
 // answered, so the chosen side is left for the Curate step (ADR-0026).
+//
+// A satellite's rejected wakes are read the same way, as the wake-word
+// corpus's hard negatives (SPEC §9.3).
 package harvest
 
 import (
@@ -170,10 +173,12 @@ type Pair struct {
 // was asked, in context, and what it said and did. Annotation and replay
 // pairs are cut from the turns a reviewer picks.
 type Turn struct {
-	// Seq is the turn's utterance, which is how Replay names it too.
-	Seq     uint64
-	Prompt  []Message
-	Speaker string
+	// Seq is the turn's utterance, which is how Replay names it too, and
+	// AskAudio that utterance's mic audio.
+	Seq      uint64
+	Prompt   []Message
+	Speaker  string
+	AskAudio string
 
 	// Said and Unheard split what it generated as Pair's Rejected sides do.
 	Said, Unheard string
@@ -439,7 +444,8 @@ func (w *walker) fold(e journal.Event) error {
 		journal.KindConfirmationRequested, journal.KindConfirmationGiven, journal.KindConversationSummarized,
 		journal.KindTimerStarted, journal.KindTimerCancelled, journal.KindTimerFinished,
 		journal.KindPresenceChanged:
-		// A resumed open continues the same log; rejections tune the gate; a
+		// A resumed open continues the same log; a barge-in rejection tunes the
+		// gate and a wake rejection is a hard negative (Negatives), not a turn; a
 		// start is when speech was heard, and the pair is what (ADR-0035). A
 		// held call's outcome is its tool_result; the nonce is the audit's. A
 		// summary is the conversation's, written after its last turn. Timers
@@ -477,7 +483,7 @@ func (w *walker) closeTurn(next *journal.Event) {
 	prompt := w.prompt(t)
 	said, unheard := t.said()
 	w.result.Turns = append(w.result.Turns, Turn{
-		Seq: t.promptSeq, Prompt: prompt, Speaker: t.speaker,
+		Seq: t.promptSeq, Prompt: prompt, Speaker: t.speaker, AskAudio: t.heardAudio,
 		Said: said, Unheard: unheard, Audio: t.spokenAudio,
 		Calls: t.calls, Versions: t.versions, Attributed: t.completed && complete(t.versions),
 		Recalled: t.recalled, RecalledSummaries: t.summaries, HeardAt: t.heardAt,

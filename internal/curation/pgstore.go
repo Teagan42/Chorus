@@ -299,3 +299,57 @@ func (p *PgStore) Reruns(ctx context.Context, conversationID string) ([]Rerun, e
 	}
 	return rs, nil
 }
+
+// PutWakeVerdict upserts the rejection's verdict, or deletes an empty one.
+func (p *PgStore) PutWakeVerdict(ctx context.Context, v WakeVerdict) error {
+	if err := v.validate(); err != nil {
+		return err
+	}
+	if v.Status == "" {
+		if _, err := p.db.Exec(ctx,
+			`DELETE FROM curation_wake_verdicts WHERE conversation_id = $1 AND event_seq = $2`,
+			v.ConversationID, int64(v.Seq)); err != nil {
+			return fmt.Errorf("delete wake verdict %s/%d: %w", v.ConversationID, v.Seq, err)
+		}
+		return nil
+	}
+	_, err := p.db.Exec(ctx, `
+		INSERT INTO curation_wake_verdicts (conversation_id, event_seq, status, judged_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (conversation_id, event_seq) DO UPDATE SET
+			status    = excluded.status,
+			judged_at = excluded.judged_at`,
+		v.ConversationID, int64(v.Seq), string(v.Status), v.JudgedAt)
+	if err != nil {
+		return fmt.Errorf("put wake verdict %s/%d: %w", v.ConversationID, v.Seq, err)
+	}
+	return nil
+}
+
+// WakeVerdicts returns a device log's verdicts keyed by event seq.
+func (p *PgStore) WakeVerdicts(ctx context.Context, conversationID string) (map[uint64]WakeVerdict, error) {
+	rows, err := p.db.Query(ctx, `
+		SELECT conversation_id, event_seq, status, judged_at
+		FROM curation_wake_verdicts WHERE conversation_id = $1`, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("wake verdicts for %s: %w", conversationID, err)
+	}
+	vs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (WakeVerdict, error) {
+		var (
+			v      WakeVerdict
+			seq    int64
+			status string
+		)
+		err := row.Scan(&v.ConversationID, &seq, &status, &v.JudgedAt)
+		v.Seq, v.Status, v.JudgedAt = uint64(seq), WakeStatus(status), v.JudgedAt.UTC()
+		return v, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wake verdicts for %s: %w", conversationID, err)
+	}
+	out := make(map[uint64]WakeVerdict, len(vs))
+	for _, v := range vs {
+		out[v.Seq] = v
+	}
+	return out, nil
+}

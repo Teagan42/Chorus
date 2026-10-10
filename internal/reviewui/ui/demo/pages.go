@@ -206,7 +206,7 @@ func Days() []Day {
 	}
 	keep(&sun.Lanes[0], 9.4, 11.2, 18.9, 20.5)
 	sun.Lanes[0].Sessions[2].Flag = ui.TonePeople
-	sun.Lanes[0].Rejects = []float64{20.7, 21.4}
+	sun.Lanes[0].Rejects = rejects(20.7, 21.4)
 	keep(&sun.Lanes[1], 8.1, 13.3, 19.0)
 	sun.Lanes[1].Sessions[0].Flag = ui.TonePeople
 	keep(&sun.Lanes[2], 15.2, 16.0)

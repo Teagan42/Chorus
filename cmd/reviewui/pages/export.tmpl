@@ -10,4 +10,12 @@
 <span class="cap">Preview · first rows</span>
 <pre class="mono" style="margin: 0; padding: 14px 16px; border: 1px solid var(--c-rule); border-radius: 8px; overflow-x: auto; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word">{{.}}</pre>
 </div>{{end}}
+{{with .Wake}}<section aria-label="Wake-word hard negatives" style="margin-top: 32px">
+<div class="row band pad" style="justify-content: space-between; flex-wrap: wrap; gap: 10px">
+<div class="stack" style="gap: 4px"><h2 style="margin: 0; font-size: 18px; font-weight: 600">Wake-word hard negatives</h2>
+<span class="muted" style="font-size: 13px">Every rejected wake, auto-labelled (SPEC §9.3), in its own file. Confirm or discard each on its satellite&#39;s log; one only the voice check failed waits for a confirm.</span></div>
+{{template "button" .Download}}
+</div>
+{{template "metric-strip" .Stats}}
+</section>{{end}}
 {{template "doc-end"}}{{end}}

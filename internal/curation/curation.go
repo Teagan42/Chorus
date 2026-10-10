@@ -1,9 +1,9 @@
 // Package curation persists what a reviewer decides (SPEC §9.2): verdicts on
-// preference candidates, labels on turns, the re-runs they asked, and re-run
-// takes promoted to a pair's chosen side. It lives beside the journal, not
-// in it: the log records what the runtime did, a verdict records what a
-// person later decided about it, and a verdict is revisable where the log is
-// append-only.
+// preference candidates, labels on turns, the re-runs they asked, re-run
+// takes promoted to a pair's chosen side, and the word on rejected wakes
+// (SPEC §9.3). It lives beside the journal, not in it: the log records what
+// the runtime did, a verdict records what a person later decided about it,
+// and a verdict is revisable where the log is append-only.
 package curation
 
 import (
@@ -93,6 +93,11 @@ type Store interface {
 	AddRerun(ctx context.Context, r Rerun) (uint64, error)
 	// Reruns returns the conversation's re-runs, newest first.
 	Reruns(ctx context.Context, conversationID string) ([]Rerun, error)
+	// PutWakeVerdict stores or replaces the word on a rejected wake; an
+	// empty status returns it to unreviewed.
+	PutWakeVerdict(ctx context.Context, v WakeVerdict) error
+	// WakeVerdicts returns a device log's verdicts keyed by event seq.
+	WakeVerdicts(ctx context.Context, conversationID string) (map[uint64]WakeVerdict, error)
 }
 
 // MemStore is the in-memory Store used by tests and the demo server.
@@ -101,6 +106,7 @@ type MemStore struct {
 	annotations map[turnKey]Annotation
 	promotions  map[turnKey]Promotion
 	reruns      []Rerun // in the order added, which is the id's
+	wakes       map[turnKey]WakeVerdict
 	mu          sync.RWMutex
 }
 
@@ -116,6 +122,7 @@ func NewMemStore() *MemStore {
 		byPair:      map[string]Decision{},
 		annotations: map[turnKey]Annotation{},
 		promotions:  map[turnKey]Promotion{},
+		wakes:       map[turnKey]WakeVerdict{},
 	}
 }
 
@@ -264,5 +271,35 @@ func (m *MemStore) Reruns(_ context.Context, conversationID string) ([]Rerun, er
 		}
 		return cmp.Compare(b.ID, a.ID)
 	})
+	return out, nil
+}
+
+// PutWakeVerdict replaces the rejection's verdict, or deletes an empty one.
+func (m *MemStore) PutWakeVerdict(_ context.Context, v WakeVerdict) error {
+	if err := v.validate(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	k := turnKey{v.ConversationID, v.Seq}
+	if v.Status == "" {
+		delete(m.wakes, k)
+		return nil
+	}
+	v.JudgedAt = v.JudgedAt.Truncate(StoredClockResolution)
+	m.wakes[k] = v
+	return nil
+}
+
+// WakeVerdicts returns a device log's verdicts keyed by event seq.
+func (m *MemStore) WakeVerdicts(_ context.Context, conversationID string) (map[uint64]WakeVerdict, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := map[uint64]WakeVerdict{}
+	for k, v := range m.wakes {
+		if k.conversationID == conversationID {
+			out[k.seq] = v
+		}
+	}
 	return out, nil
 }

@@ -20,10 +20,10 @@
 <div id="{{.Anchor}}" class="list__row" style="grid-template-columns: 80px 170px minmax(0, 1fr) minmax(0, 300px) 110px; align-items: start; scroll-margin-top: 80px">
 <span class="list__when stack" style="gap: 2px"><span>{{.Ref}}</span><span>{{.Offset}}</span></span>
 <span class="stack" style="gap: 6px; align-items: flex-start">{{template "sig-tag" .Kind}}{{with .Signal}}{{template "sig-tag" .}}{{end}}</span>
-<span class="list__text"><span class="list__title" style="white-space: normal">{{.Text}}{{with .Unheard}}<span class="inspector__unheard">{{.}}</span>{{end}}</span>{{with .Note}}<span class="list__detail" style="white-space: normal; word-break: break-word">{{.}}</span>{{end}}{{range .Lines}}<span class="list__detail" style="white-space: normal; word-break: break-word">{{.}}</span>{{end}}{{if .Signal}}<span class="{{cls "list__detail" (tone .Signal.Tone)}}" style="white-space: normal; color: var(--tone-text)">{{.SignalWhy}}</span>{{end}}</span>
-<span>{{with .Audio}}<audio aria-label="{{$row.Ref}} {{$row.Kind.Text}} · {{$row.Who}}" controls preload="none" src="{{.}}" style="width: 100%; height: 32px"></audio>{{end}}</span>
+<span class="list__text"><span class="list__title" style="white-space: normal">{{.Text}}{{with .Unheard}}<span class="inspector__unheard">{{.}}</span>{{end}}</span>{{with .Note}}<span class="list__detail" style="white-space: normal; word-break: break-word">{{.}}</span>{{end}}{{range .Lines}}<span class="list__detail" style="white-space: normal; word-break: break-word">{{.}}</span>{{end}}{{if .Signal}}<span class="{{cls "list__detail" (tone .Signal.Tone)}}" style="white-space: normal; color: var(--tone-text)">{{.SignalWhy}}</span>{{end}}{{with .Again}}<span>{{template "button" .}}</span>{{end}}</span>
+<span class="stack" style="gap: 4px">{{with .Audio}}<audio aria-label="{{$row.Ref}} {{$row.Kind.Text}} · {{$row.Who}}" controls preload="none" src="{{.}}" style="width: 100%; height: 32px"></audio>{{end}}{{with .Second}}<span class="cap muted" aria-hidden="true">second channel</span><audio aria-label="{{$row.Ref}} {{$row.Kind.Text}} · {{$row.Who}} · second channel" controls preload="none" src="{{.}}" style="width: 100%; height: 32px"></audio>{{end}}</span>
 <span class="list__who">{{.Who}}</span>
-</div>{{with .Annotation}}{{template "turn-annotation" .}}{{end}}{{end}}
+</div>{{with .Annotation}}{{template "turn-annotation" .}}{{end}}{{with .Wake}}{{template "wake-verdict" .}}{{end}}{{end}}
 </section>
 {{template "doc-end"}}{{end}}
 
@@ -31,10 +31,17 @@
 {{define "turn-annotation"}}<div id="{{.ID}}" class="list__row" role="group" aria-label="Labels for turn #{{.Seq}}" style="grid-template-columns: 80px minmax(0, 1fr); align-items: start; border-top: 0; padding-top: 0">
 <span></span>
 <div class="stack" style="gap: 10px">
+{{with .Again}}<span class="list__detail tone-conv" style="white-space: normal; color: var(--tone-text)">{{.}}</span>{{end}}
 {{template "chip-group" .Labels}}
 <form class="row" style="gap: 10px; align-items: flex-end; flex-wrap: wrap" hx-post="{{.Action}}" hx-target="#{{.ID}}" hx-swap="outerHTML">
 <div style="flex: 1 1 320px; min-width: 0">{{template "field" .Note}}</div>
 {{template "button" .Save}}{{with .Pair}}{{template "button" .}}{{end}}
 </form>
 </div>
+</div>{{end}}
+
+{{/* wake-verdict · a reviewer's word on a rejected wake, the hard negative SPEC §9.3 auto-labels, under it. */}}
+{{define "wake-verdict"}}<div id="{{.ID}}" class="list__row" role="group" aria-label="Verdict on wake #{{.Seq}}" style="grid-template-columns: 80px minmax(0, 1fr); align-items: start; border-top: 0; padding-top: 0">
+<span></span>
+<div class="row" style="gap: 10px; align-items: center; flex-wrap: wrap"><span class="list__detail" style="flex: 1 1 320px; white-space: normal">{{.Note}}</span>{{template "button" .Confirm}}{{template "button" .Discard}}</div>
 </div>{{end}}

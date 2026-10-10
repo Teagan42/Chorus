@@ -482,6 +482,10 @@ are logged with audio and auto-labeled as hard negatives, so the retraining
 corpus fills itself with precisely the negatives the model lacks — no manual
 labeling, no retraining needed to get immediate relief.
 
+The one exception is a wake that failed only the speaker check: that is likely
+the wake word from a guest, so it is held until a reviewer confirms it
+(ADR-0058).
+
 Dual-channel capture means the corpus carries the fully processed stream and
 the XMOS's lighter-processed second output, so retraining can target either.
 Neither is the bare mic on stock firmware (§3.2); a truly raw stream needs the

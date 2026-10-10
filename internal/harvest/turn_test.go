@@ -40,6 +40,10 @@ func TestScanReturnsEveryTurnWithItsPrompt(t *testing.T) {
 	if answer.Said != "Playing Led Zeppelin one." || !reflect.DeepEqual(answer.Audio, []string{"blob://tts/s2"}) {
 		t.Errorf("answer said %q in %v", answer.Said, answer.Audio)
 	}
+	// What Alice said is playable too: a repeat is heard as evidence.
+	if cut.AskAudio != "blob://mic/1" || answer.AskAudio != "blob://mic/3" {
+		t.Errorf("asks recorded in %q and %q", cut.AskAudio, answer.AskAudio)
+	}
 }
 
 // A pair cut from a turn is keyed so it can never take a barge-in's id, and

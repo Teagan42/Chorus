@@ -103,8 +103,8 @@ func TestBrowseDrawsEachRoomsPresence(t *testing.T) {
 	if !strings.Contains(h, "room occupied (mmWave)") {
 		t.Error("the legend does not say what the presence band is")
 	}
-	if strings.Contains(h, `href="/conversations/device:kitchen"`) {
-		t.Error("a device's log is not a conversation")
+	if strings.Contains(h[strings.Index(h, `id="conversations"`):], `href="/conversations/device:kitchen`) {
+		t.Error("a device's log is listed as a conversation")
 	}
 
 	device := get(t, newServer(store, curation.NewMemStore(), fixtureBlobs(t), now), "/conversations/device:kitchen")
