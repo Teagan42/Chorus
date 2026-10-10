@@ -258,7 +258,7 @@ func action(id, name string, args json.RawMessage) (session.Action, error) {
 // mode keeps an unrecognised mode from reaching the speech channel. The schema
 // declares a closed enum, but Ollama does not validate arguments against it:
 // qwen3:14b emits mode="filler" when the prompt suggests one. Queue is the only
-// safe default, since preempt and interject discard or duck speech the user is
+// safe default, since preempt and interject discard or pause speech the user is
 // still hearing (SPEC §4.2).
 //
 // This cannot catch a mode that is valid but wrong -- ornith:9b chose preempt
