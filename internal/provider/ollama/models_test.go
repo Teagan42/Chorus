@@ -116,8 +116,8 @@ func truncate(s string) string {
 	return s
 }
 
-// The model must speak by calling the tool. Content is dropped by default, so a
-// model that answers in content is simply not heard.
+// The model is heard. It should speak by calling the tool; an answer it
+// writes as content instead is heard only once the turn ends (ADR-0046).
 //
 // verifies SPEC §4.1
 func TestARealModelSpeaksByCallingTheTool(t *testing.T) {

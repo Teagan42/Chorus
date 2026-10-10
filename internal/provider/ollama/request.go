@@ -14,11 +14,14 @@ import (
 //
 // Speech is tool-only because content is not speech here. With think:false,
 // qwen3:4b streams its reasoning as content and phi4-mini echoed the entire
-// tool schema there. The decoder drops content by default, so a model that
-// writes an answer there is simply not heard (SPEC §4.1). Told the garage
-// code as a memory, qwen3:14b reasoned that it needed no tools since it
-// already knew, and wrote "speak\nThe garage door code is 4512." as content
-// in one run of five; hence "saying it is still a speak call" (ADR-0044).
+// tool schema there. The decoder drops content while a turn streams (SPEC
+// §4.1). Told the garage code as a memory, qwen3:14b still reasoned that it
+// needed no tools since it already knew, and wrote "speak\nThe garage door
+// code is 4512." as content; hence "saying it is still a speak call". It
+// still does so often enough that a turn calling nothing, whose reasoning
+// came separately, has its content spoken at the end (decoder.answer,
+// ADR-0046). The tool is still asked for: content beside a call, or cut off
+// by its length, is never spoken.
 //
 // The acknowledgement clause replaced an ordering one. Told to call speak
 // FIRST and the slow tool after, qwen3:14b and ornith:9b did so some of the
@@ -31,7 +34,7 @@ import (
 // delta, which is the unit a barge-in has to truncate (SPEC §15 item 1).
 const DefaultPrompt = `You are a voice assistant in a home. Everything you say is spoken aloud, so keep replies short and plain -- no lists, no markdown, no emoji.
 
-Speak only by calling the speak tool. That holds when you already know the answer, from what you remember or anywhere else: saying it is still a speak call. Never answer in ordinary message content, and never write a tool's name there: it does not reach the speakers and nobody hears it.
+Speak only by calling the speak tool. That holds when you already know the answer, from what you remember or anywhere else: saying it is still a speak call. Never answer in ordinary message content, and never write a tool's name there.
 
 A tool that takes a moment asks for an acknowledgement: the few words the person hears while it works. They are spoken for you as it starts, so do not also call speak to say them.
 

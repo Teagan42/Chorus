@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/teaganglenn/chorus/internal/session"
 )
@@ -91,6 +92,28 @@ type decoder struct {
 	speakInlineContent bool
 }
 
+// answer is what a turn that called nothing said in its content, to be
+// spoken once it has finished; empty when that content is not an answer.
+//
+// Told to speak only through the speak tool, qwen3:14b still answers what it
+// already knows -- a remembered garage code, last night's conversation, the
+// day -- in content, reasoning that it "doesn't need any tools" (ADR-0046).
+// That is an answer only when the model's reasoning went to its own field and
+// the turn ended on its own: with think:false, content is the reasoning
+// (content_leak.ndjson), which no one should hear. A turn that called
+// anything has said what it meant to through its calls. A first line naming
+// the speak tool is the call the model meant to make, not words to say.
+func (d decoder) answer(comp completion, reason string) string {
+	if d.speakInlineContent || len(comp.ToolCalls) > 0 || comp.Thinking == "" || reason != "stop" {
+		return ""
+	}
+	text := unthought(comp.Content)
+	if first, rest, ok := strings.Cut(text, "\n"); ok && strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(first), ":")) == toolSpeak {
+		text = strings.TrimSpace(rest)
+	}
+	return text
+}
+
 // decode reads the stream until done, emitting actions as they arrive.
 func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Action) (err error) {
 	var comp completion
@@ -172,6 +195,11 @@ func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Act
 			if inlineOpen {
 				inlineOpen = false
 				if err := emit(ctx, out, session.SpeechDelta{Mode: session.ModeQueue, Last: true}); err != nil {
+					return err
+				}
+			}
+			if text := d.answer(comp, c.DoneReason); text != "" {
+				if err := emit(ctx, out, session.SpeechDelta{Text: text, Mode: session.ModeQueue, Last: true}); err != nil {
 					return err
 				}
 			}

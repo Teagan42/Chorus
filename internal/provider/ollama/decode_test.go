@@ -477,3 +477,66 @@ func equal(a, b []string) bool {
 	}
 	return true
 }
+
+// Asked what day it is, qwen3:14b reasoned that the system message already
+// said and wrote the answer as content, calling nothing. Its reasoning went
+// to its own field, so the content is the answer, and it is spoken once the
+// turn has finished, as one utterance, before the turn ends.
+//
+// verifies SPEC §4.1
+func TestAnAnswerInContentIsSpokenWhenTheTurnCallsNothing(t *testing.T) {
+	acts, err := replay(t, "day_in_content.ndjson", decoder{})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := kinds(acts); len(got) != 2 || got[0] != "speech" || got[1] != "end" {
+		t.Fatalf("actions = %v, want the answer spoken, then the end", got)
+	}
+	sp := speechOf(acts)[0]
+	if sp.Text != "Today is Friday, 9 October 2026." || !sp.Last || sp.CallID != "" || sp.Mode != session.ModeQueue {
+		t.Errorf("spoke %+v, want the day as one implicit, queued utterance", sp)
+	}
+}
+
+// Given the garage code as a memory, qwen3:14b wrote the call it meant to
+// make as a line of content: "speak", then the words. The tool's name is not
+// said aloud; the code is.
+//
+// verifies SPEC §4.1
+func TestTheSpeakToolsNameInContentIsNotSaid(t *testing.T) {
+	acts, err := replay(t, "answered_in_content.ndjson", decoder{})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if sp := speechOf(acts); len(sp) != 1 || sp[0].Text != "The garage door code is 4512." {
+		t.Errorf("spoke %+v, want only the code", sp)
+	}
+}
+
+// Content is not an answer when the turn called something, was cut off by
+// its length, or carried the model's reasoning because nothing else did.
+//
+// verifies SPEC §4.1
+func TestContentThatIsNotAnAnswerIsNotSpoken(t *testing.T) {
+	const (
+		think = `{"model":"qwen3:14b","message":{"role":"assistant","content":"","thinking":"Alan wants the kitchen lights off."},"done":false}` + "\n"
+		said  = `{"model":"qwen3:14b","message":{"role":"assistant","content":"Turning off the kitchen lights."},"done":false}` + "\n"
+		call  = `{"model":"qwen3:14b","message":{"role":"assistant","content":"","tool_calls":[{"id":"call_k1","function":{"name":"ha_call_service","arguments":{"domain":"light","service":"turn_off","target":{"entity_id":"light.kitchen"}}}}]},"done":false}` + "\n"
+		stop  = `{"model":"qwen3:14b","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}` + "\n"
+		cut   = `{"model":"qwen3:14b","message":{"role":"assistant","content":""},"done":true,"done_reason":"length"}` + "\n"
+	)
+	cases := []struct{ why, stream string }{
+		{"content beside a call", think + said + call + stop},
+		{"cut off by length", think + said + cut},
+		{"no reasoning of its own", said + stop},
+	}
+	for _, c := range cases {
+		acts, err := collect(t, decoder{}, strings.NewReader(c.stream))
+		if err != nil {
+			t.Fatalf("%s: decode: %v", c.why, err)
+		}
+		if sp := speechOf(acts); len(sp) != 0 {
+			t.Errorf("%s: spoke %+v", c.why, sp)
+		}
+	}
+}
