@@ -43,6 +43,11 @@ type Entry struct {
 	// words the model wrote as an argument, not a speak call (ADR-0039).
 	Acknowledges string
 
+	// Announces is the announcement this speech said: words nobody in the
+	// conversation asked for, said because a timer went off or someone
+	// elsewhere asked (SPEC §4). Nil for anything else.
+	Announces *Announcement
+
 	// Tool and Args are a call's; Tool, Outcome and Result are a result's.
 	Tool    string
 	Args    string
@@ -68,7 +73,10 @@ func (s State) called(id, tool, args string) []Entry {
 	// and an unreadable one is the model's mistake, not the log's: either way
 	// there is nothing to say until playback says what was heard.
 	_ = json.Unmarshal([]byte(args), &a)
-	return appendEntry(s.Dialogue, Entry{Kind: EntrySaid, CallID: id, Text: a.Text, Pending: true, Acknowledges: a.Acknowledges})
+	return appendEntry(s.Dialogue, Entry{
+		Kind: EntrySaid, CallID: id, Text: a.Text, Pending: true,
+		Acknowledges: a.Acknowledges, Announces: s.announcement(id),
+	})
 }
 
 // played settles what a speak call was heard to say. A log written before

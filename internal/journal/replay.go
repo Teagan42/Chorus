@@ -58,6 +58,15 @@ type State struct {
 	// Summary is what the model wrote when the conversation last ended.
 	Summary string
 
+	// Announced marks a conversation a session opened with no wake word,
+	// and Announcements what it said that nobody in it asked for (SPEC §4).
+	Announced     bool
+	Announcements []Announcement
+
+	// Timers are every timer the log set, in the order they were set, and
+	// what became of each. Only HouseTimers holds any (ADR-0044).
+	Timers []Timer
+
 	LastSeq     uint64
 	Speculative int
 	Open        bool
@@ -135,6 +144,7 @@ func Reduce(s State, e Event) (State, error) {
 		s.Satellite = e.Fields["satellite"]
 		s.Speaker = e.Fields["speaker_id"]
 		s.Participants = participate(s.Participants, s.Speaker)
+		s.Announced = s.Announced || e.Fields["announced"] == "true"
 		// A resumed wake reopens the log the migration closed, so the reason the
 		// previous session ended no longer describes this conversation (§4.5).
 		s.CloseReason = ""
@@ -218,6 +228,31 @@ func Reduce(s State, e Event) (State, error) {
 			return s, fmt.Errorf("tts_position_ms %q: %w", e.Fields["tts_position_ms"], err)
 		}
 		s.BargeInAt = append(s.BargeInAt, time.Duration(ms)*time.Millisecond)
+	case KindAnnouncementMade:
+		s.Announcements = append(slices.Clip(s.Announcements), Announcement{
+			CallID: e.Fields["call_id"], Text: e.Fields["text"], Source: e.Fields["source"],
+			TimerID: e.Fields["timer_id"], RequestedBy: e.Fields["requested_by"],
+			FromSatellite: e.Fields["from_satellite"], FromConversation: e.Fields["from_conversation"],
+			StartConversation: e.Fields["start_conversation"] == "true",
+		})
+	case KindTimerStarted:
+		t, err := s.started(e.Fields)
+		if err != nil {
+			return s, err
+		}
+		s.Timers = t
+	case KindTimerCancelled:
+		t, err := s.ended(e.Fields["timer_id"], TimerCancelled, "", "")
+		if err != nil {
+			return s, err
+		}
+		s.Timers = t
+	case KindTimerFinished:
+		t, err := s.ended(e.Fields["timer_id"], TimerFinished, e.Fields["outcome"], e.Fields["conversation_id"])
+		if err != nil {
+			return s, err
+		}
+		s.Timers = t
 	case KindBargeInRejected, KindWakeRejected:
 		// Tuning corpus only; a rejected candidate changes no state.
 	case KindSpeechStarted:
@@ -246,6 +281,7 @@ func indexOfCall(calls []Call, id string) int {
 
 // handled is the reducer's exhaustiveness claim, asserted against AllKinds.
 var handled = map[Kind]bool{
+	KindAnnouncementMade:       true,
 	KindBargeInDetected:        true,
 	KindBargeInRejected:        true,
 	KindConfirmationGiven:      true,
@@ -259,6 +295,9 @@ var handled = map[Kind]bool{
 	KindSpeechSpoken:           true,
 	KindSpeechStarted:          true,
 	KindSpeechTruncated:        true,
+	KindTimerCancelled:         true,
+	KindTimerFinished:          true,
+	KindTimerStarted:           true,
 	KindToolCalled:             true,
 	KindToolResult:             true,
 	KindUtteranceTranscribed:   true,
