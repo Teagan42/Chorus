@@ -110,7 +110,7 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `person` | string | yes | Whose memories these are: the identified speaker. |
+| `person` | string |  | Whose memories these are: the identified speaker. Empty for a guest, who is told nothing: recorded when a guest follows someone who was told something, so the guest's turn does not inherit it (SPEC §5). |
 | `memories_json` | string | yes | The memories as a JSON array of {id, person, fact, shareable}, newest first. An empty array means nothing is remembered. |
 | `summaries_json` | string |  | The person's recent conversations as a JSON array of {conversation_id, at, text}, newest first. Empty in logs from before conversations were summarized. |
 | `ranked_by` | string |  | The embedding model that chose these by relevance to what was just said, when there were more than a turn is told. Empty when they are simply the newest: too few to choose from, no embedding model, or ranking failed (ADR-0044). |
@@ -289,6 +289,7 @@ Actor: `listening`. `has_audio`: yes. `training_signal`: no. `speculative`: no. 
 | `speaker_id` | string |  | Per-utterance speaker match. |
 | `embedding_json` | string |  | The utterance's speaker embedding as a JSON array of numbers, stored whether or not it matched anyone (SPEC §5). Empty when the embedder was unavailable. |
 | `second_audio_ref` | string |  | The same span from the XMOS's second, lighter-processed output (SPEC §8). Empty when the device streams one channel. |
+| `speaker_match` | string |  | How the voice matched the household (SPEC §5). below_threshold and ambiguous make the utterance a guest's, whoever spoke before it. Empty when nothing judged the voice (no speaker identification, or the embedder failed) and in logs from before it was recorded: the current speaker keeps the turn. One of: `identified`, `below_threshold`, `ambiguous`, `nobody_enrolled`. |
 
 ## `wake_rejected`
 
