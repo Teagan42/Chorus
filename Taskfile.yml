@@ -47,7 +47,7 @@ tasks:
   # ------------------------------------------------------------------- codegen
   gen:
     desc: Regenerate everything derived from schemas
-    cmds: [task: gen:proto, task: gen:cue]
+    cmds: [task: gen:proto, task: gen:cue, task: gen:hardware]
 
   gen:proto:
     desc: ESPHome API bindings from the vendored proto
@@ -62,6 +62,11 @@ tasks:
     sources: ["schema/**/*.cue", "internal/tools/schemagen/*.go"]
     cmds: [go run ./internal/tools/schemagen]
 
+  gen:hardware:
+    desc: KiCad netlist and JLCPCB BOM from each board's netlist data
+    sources: ["hardware/**/*.yaml", "internal/board/*.go", "internal/tools/kicadnet/*.go"]
+    cmds: [go run ./internal/tools/kicadnet hardware/chorus-sat]
+
   gen:check:
     desc: Fail if generated output is stale (CI gate)
     cmds:
@@ -70,7 +75,8 @@ tasks:
         # --porcelain, not `git diff`: a newly generated file is untracked, and
         # `git diff` does not see untracked files.
         dirty=$(git status --porcelain -- \
-          'internal/pb' '*.gen.go' 'schema/json' 'docs/reference')
+          'internal/pb' '*.gen.go' 'schema/json' 'docs/reference' \
+          'hardware/*/*.net' 'hardware/*/bom.csv')
         if [ -n "$dirty" ]; then
           echo "ERROR: generated output is stale or uncommitted." >&2
           echo "Run 'task gen' and commit the result in a chore(gen) commit." >&2
