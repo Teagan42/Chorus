@@ -2972,7 +2972,7 @@
       (node (ref "J80") (pin "A12") (pinfunction "GND") (pintype "passive"))
       (node (ref "J80") (pin "B1") (pinfunction "GND") (pintype "passive"))
       (node (ref "J80") (pin "B12") (pinfunction "GND") (pintype "passive"))
-      (node (ref "J80") (pin "SH") (pinfunction "SHIELD") (pintype "passive"))
+      (node (ref "J80") (pin "S1") (pinfunction "SHIELD") (pintype "passive"))
       (node (ref "MK1") (pin "2") (pinfunction "SEL") (pintype "input"))
       (node (ref "MK1") (pin "5") (pinfunction "GND") (pintype "power_in"))
       (node (ref "MK1") (pin "6") (pinfunction "GND") (pintype "power_in"))
