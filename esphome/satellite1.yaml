@@ -4,10 +4,12 @@
 # (config/common/core_board.yaml and speaker.yaml). Deliberately NOT built on
 # their satellite1.base.yaml: that package includes voice_assistant, whose
 # half-duplex state machine is the limit this component exists to escape
-# (SPEC §3.1). Everything their base adds beyond audio -- LED ring, timers,
-# media player, BLE improv -- is omitted because full duplex is what this
-# config exists to prove. The mmWave radar is kept: its "Room Presence" is
-# what the orchestrator journals presence from (ADR-0050).
+# (SPEC §3.1). Everything their base adds beyond audio -- timers, media
+# player, BLE improv -- is omitted because full duplex is what this config
+# exists to prove. The mmWave radar is kept: its "Room Presence" is what the
+# orchestrator journals presence from (ADR-0050). The LED ring is kept as a
+# plain light the orchestrator drives, since their animations of it run off
+# voice_assistant's state (ADR-0056).
 #
 # Hardware facts that are not obvious from the pin numbers:
 #   - The XMOS XU316 is the I2S master (`i2s_mode: secondary`). The ESP32 does
@@ -292,3 +294,45 @@ chorus_bridge:
 satellite1_radar:
   id: sat1_radar
   uart_id: uart_mmwave
+
+# ------------------------------------------------------------------ LED ring
+
+# The ring's wiring, from their config/common/led_ring.yaml. Nothing on the
+# device animates it: the orchestrator finds it by these three effects and
+# sets one per session state over the native API (SPEC §3.3.1, ADR-0056).
+# The effect names are that contract; the colours are this board's own.
+light:
+  - platform: esp32_rmt_led_strip
+    id: led_ring
+    name: LED Ring
+    pin: GPIO21
+    num_leds: 24
+    rgb_order: GRB
+    chipset: WS2812
+    default_transition_length: 0ms
+    restore_mode: ALWAYS_OFF
+    effects:
+      - addressable_lambda:
+          name: Listening
+          update_interval: 100ms
+          lambda: it.all() = Color(0, 96, 255);
+      # A short arc chasing round the ring.
+      - addressable_lambda:
+          name: Thinking
+          update_interval: 40ms
+          lambda: |-
+            static int32_t head = 0;
+            it.all() = Color::BLACK;
+            for (int32_t i = 0; i < 3; i++) {
+              it[(head + i) % it.size()] = Color(0, 96, 255);
+            }
+            head = (head + 1) % it.size();
+      # The whole ring breathing.
+      - addressable_lambda:
+          name: Speaking
+          update_interval: 30ms
+          lambda: |-
+            static uint8_t step = 0;
+            const uint8_t level = step < 32 ? 96 + step * 5 : 96 + (63 - step) * 5;
+            it.all() = Color(0, 96, 255) * level;
+            step = (step + 1) % 64;
