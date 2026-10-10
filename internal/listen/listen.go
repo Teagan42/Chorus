@@ -169,7 +169,7 @@ func Open(ctx context.Context, cfg Config) (*Listener, error) {
 	close(heard)
 	l := &Listener{cfg: cfg, ctx: ctx, log: cfg.Log, done: make(chan struct{}), last: heard}
 	if b, ok := cfg.Endpointer.(binder); ok {
-		b.bind(ctx, l.spawnLocked, cfg.Log)
+		b.bind(ctx, l.spawnLocked, cfg.Log, cfg.Clock)
 	}
 	go l.watch()
 	return l, nil

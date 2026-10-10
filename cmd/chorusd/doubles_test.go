@@ -492,14 +492,26 @@ func (c *clock) awaitWait(t *testing.T, d time.Duration) {
 // turnJudge says every turn is finished, as Smart Turn does for "turn off
 // the kitchen lights", and counts what it was asked.
 type turnJudge struct {
+	// gate, when set, holds the first verdict until the test closes it: a
+	// sidecar slower than the audio arriving.
+	gate chan struct{}
+
 	mu    sync.Mutex
 	asked int
 }
 
-func (j *turnJudge) Complete(context.Context, []byte) (bool, error) {
+func (j *turnJudge) Complete(ctx context.Context, _ []byte) (bool, error) {
 	j.mu.Lock()
-	defer j.mu.Unlock()
 	j.asked++
+	first := j.asked == 1
+	j.mu.Unlock()
+	if first && j.gate != nil {
+		select {
+		case <-j.gate:
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
 	return true, nil
 }
 

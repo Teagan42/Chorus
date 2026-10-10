@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -80,7 +81,8 @@ func newRig(t *testing.T, inv *config.Config, tweak ...func(*deps)) *rig {
 			household: []string{"alan"},
 			tools:     map[string]session.Tool{},
 		},
-		Log: slog.New(slog.NewTextHandler(r.logs, nil)),
+		// Debug, so a test can wait on what the endpointer judged.
+		Log: slog.New(slog.NewTextHandler(r.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
 	for _, f := range tweak {
 		f(&d)
@@ -128,6 +130,15 @@ func (r *rig) utter(t *testing.T, dev *bridgetest.Device, amplitude int16) {
 	for sent := 0; sent < silence; sent += chunkBytes {
 		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
 	}
+}
+
+// judged waits until the endpointer has taken n verdicts from Smart Turn,
+// counted across every link, so the quiet a test sends next lands after one.
+func (r *rig) judged(t *testing.T, n int) {
+	t.Helper()
+	await(t, fmt.Sprintf("Smart Turn's verdict on pause %d", n), func() bool {
+		return strings.Count(r.logs.String(), "semantic endpointing judged the pause") >= n
+	})
 }
 
 // exit waits for run to return. The channel is closed after the result, so
@@ -413,7 +424,9 @@ func TestTheFirstPlayedFrameIsJournalledWithItsWait(t *testing.T) {
 
 // With SMARTTURN_URL set every link endpoints semantically: Alan's answer
 // waits on the short pause Smart Turn is asked after, not the 800 ms the
-// test above records without it (ADR-0036).
+// test above records without it (ADR-0036). The test sends audio faster than
+// it was spoken, on a clock that does not move, so the quiet after the
+// verdict waits for it, as it does after a stalled radio's burst.
 //
 // verifies SPEC §4.5, §11
 func TestSmartTurnShortensTheWaitForAnAnswer(t *testing.T) {
@@ -437,7 +450,7 @@ func TestSmartTurnShortensTheWaitForAnAnswer(t *testing.T) {
 	for ; sent < listen.DefaultPause; sent += chunkBytes {
 		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
 	}
-	await(t, "the judge to be asked", func() bool { return j.asks() == 1 })
+	r.judged(t, 1)
 	for ; sent < silence; sent += chunkBytes {
 		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
 	}
@@ -451,6 +464,65 @@ func TestSmartTurnShortensTheWaitForAnAnswer(t *testing.T) {
 	}
 	if wait < 200 || wait >= 800 {
 		t.Errorf("waited %d ms, want the pause the judge was asked after, under Energy's 800", wait)
+	}
+}
+
+// The kitchen satellite's radio stalls while Alan thinks after "set a timer
+// for", then delivers the second of quiet it buffered in one burst. Smart
+// Turn has not answered yet: by the audio, Energy's 800 ms are long gone, but
+// by the clock the judge has had no time at all. The turn waits for it, and
+// the model is still asked once, for the whole command.
+//
+// verifies SPEC §4.5
+func TestABurstAfterARadioStallWaitsForSmartTurn(t *testing.T) {
+	answer := "Twelve minutes, starting now."
+	j := &turnJudge{gate: make(chan struct{})}
+	engine := &scriptEngine{acts: []session.Action{
+		session.SpeechDelta{CallID: "call_1", Text: answer, Last: true},
+		session.TurnEnd{FinishReason: "stop", Completion: "{}"},
+	}}
+	r := newRig(t, inventory(), func(d *deps) {
+		d.judge = j
+		d.engine = engine
+	})
+	dev := r.join(t, kitchenIP)
+	cut := r.line("Set a timer for", alan)
+	whole := r.line("Set a timer for twelve minutes.", alan)
+
+	dev.SendWake(t, "hey_eddie")
+	for range 8 {
+		dev.SendMic(t, bridge.ChannelAEC, voice(cut, chunkBytes))
+	}
+	// The burst: the pause and the second of thought behind it, all at once.
+	for sent := 0; sent < listen.DefaultPause+2*bridge.SampleRate; sent += chunkBytes {
+		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+	}
+	close(j.gate)
+	r.judged(t, 1)
+	for range 8 {
+		dev.SendMic(t, bridge.ChannelAEC, voice(whole, chunkBytes))
+	}
+	sent := 0
+	for ; sent < listen.DefaultPause; sent += chunkBytes {
+		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+	}
+	r.judged(t, 2)
+	for ; sent < silence; sent += chunkBytes {
+		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+	}
+
+	dev.AwaitTTS(t, 2*len(answer))
+	dev.PlayAll(t)
+	r.store.awaitKind(t, journal.KindSpeechStarted, 1)
+	if heard := engine.heard(); len(heard) != 1 || heard[0].Text != "Set a timer for twelve minutes." {
+		var said []string
+		for _, in := range heard {
+			said = append(said, in.Text)
+		}
+		t.Errorf("the model was asked %q, want the whole command once", said)
+	}
+	if n := len(r.store.ofKind(journal.KindUtteranceTranscribed)); n != 1 {
+		t.Errorf("%d utterances transcribed, want one", n)
 	}
 }
 
@@ -485,7 +557,7 @@ func TestACutOffCommandReachesTheModelWhole(t *testing.T) {
 	for ; sent < listen.DefaultPause; sent += chunkBytes {
 		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
 	}
-	await(t, "Smart Turn to judge the first pause", func() bool { return j.asks() == 1 })
+	r.judged(t, 1)
 	// A second of thought, past the 800 ms Energy would have ended it at.
 	for ; sent < listen.DefaultPause+2*bridge.SampleRate; sent += chunkBytes {
 		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
@@ -493,7 +565,11 @@ func TestACutOffCommandReachesTheModelWhole(t *testing.T) {
 	for range 8 {
 		dev.SendMic(t, bridge.ChannelAEC, voice(whole, chunkBytes))
 	}
-	for sent = 0; sent < silence; sent += chunkBytes {
+	for sent = 0; sent < listen.DefaultPause; sent += chunkBytes {
+		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+	}
+	r.judged(t, 2)
+	for ; sent < silence; sent += chunkBytes {
 		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
 	}
 
