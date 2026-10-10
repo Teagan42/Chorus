@@ -31,8 +31,11 @@ type Part struct {
 	Footprint string `yaml:"footprint"` // KiCad lib:footprint
 	Datasheet string `yaml:"datasheet"`
 	Pinout    string `yaml:"pinout"` // where the pad table below was read from
+	MPN       string `yaml:"mpn"`    // the manufacturer's part number
 	// LCSC is the part's number in JLCPCB's assembly catalogue. A part
-	// bought by value, a resistor or capacitor, gives one per value instead.
+	// bought by value, a resistor or capacitor, lists the values the board
+	// may use instead, each with its number, or "" to let JLCPCB match the
+	// value and footprint from its basic library.
 	LCSC   string            `yaml:"lcsc"`
 	Values map[string]string `yaml:"values"`
 	// Hand says why JLCPCB cannot place this part, when it cannot: it goes
@@ -206,8 +209,8 @@ func (s Schematic) refs(errs *[]error) map[string]placed {
 				*errs = append(*errs, fmt.Errorf("sheet %s: %s is a %q, which parts.yaml does not define", sh.Sheet, ref, inst.Part))
 			} else if part.Values != nil && inst.Value == "" {
 				*errs = append(*errs, fmt.Errorf("sheet %s: %s is a %s with no value", sh.Sheet, ref, inst.Part))
-			} else if part.Values != nil && part.Values[inst.Value] == "" && part.Hand == "" {
-				*errs = append(*errs, fmt.Errorf("sheet %s: %s is a %s of %s, a value parts.yaml gives no LCSC number for", sh.Sheet, ref, inst.Part, inst.Value))
+			} else if _, listed := part.Values[inst.Value]; part.Values != nil && !listed {
+				*errs = append(*errs, fmt.Errorf("sheet %s: %s is a %s of %s, a value parts.yaml does not list for it", sh.Sheet, ref, inst.Part, inst.Value))
 			} else if part.Values == nil && inst.Value != "" {
 				*errs = append(*errs, fmt.Errorf("sheet %s: %s gives value %s, but a %s is not bought by value", sh.Sheet, ref, inst.Value, inst.Part))
 			}
@@ -320,10 +323,18 @@ func checkNet(name string, nodes []Node, rails map[string]string) []error {
 	}
 	var drivers, powered, supplies []Node
 	listens := 0
+	pins := map[string]bool{}
 	for _, n := range nodes {
-		switch n.Type {
-		case "output", "power_out":
+		// Pads sharing a pin name are one pin: a regulator's two OUT pads
+		// are one output, not two fighting.
+		first := !pins[n.Ref+"."+n.Name]
+		pins[n.Ref+"."+n.Name] = true
+		switch {
+		case !first:
+		case n.Type == "output" || n.Type == "power_out":
 			drivers = append(drivers, n)
+		}
+		switch n.Type {
 		case "input":
 			listens++
 		}

@@ -22,10 +22,10 @@ func (s Schematic) KiCadNetlist() []byte {
 	var b bytes.Buffer
 	b.WriteString("(export (version \"E\")\n")
 	fmt.Fprintf(&b, "  (design\n    (source %s)\n    (tool \"chorus internal/tools/kicadnet\")\n", q("hardware/"+board))
-	fmt.Fprintf(&b, "    (sheet (number \"1\") (name \"/\") (tstamps \"/\")\n      (title_block (title %s) (rev %s)))", q(board), q(s.Pins.Revision))
+	fmt.Fprintf(&b, "    (sheet (number \"1\") (name \"/\") (tstamps \"/\")\n      %s)", s.titleBlock(board, "pins.yaml"))
 	for i, sh := range s.Sheets {
-		fmt.Fprintf(&b, "\n    (sheet (number %s) (name %s) (tstamps %s)\n      (title_block (title %s) (rev %s)))",
-			q(fmt.Sprint(i+2)), q("/"+sh.Sheet+"/"), q("/"+s.uuid("sheet/"+sh.Sheet)+"/"), q(sh.Title), q(s.Pins.Revision))
+		fmt.Fprintf(&b, "\n    (sheet (number %s) (name %s) (tstamps %s)\n      %s)",
+			q(fmt.Sprint(i+2)), q("/"+sh.Sheet+"/"), q("/"+s.uuid("sheet/"+sh.Sheet)+"/"), s.titleBlock(sh.Title, "sheets/"+sh.Sheet+".yaml"))
 	}
 	b.WriteString(")\n")
 
@@ -36,11 +36,14 @@ func (s Schematic) KiCadNetlist() []byte {
 		inst := refs[ref]
 		part := s.Parts[inst.Part]
 		lib, sym, _ := strings.Cut(part.Symbol, ":")
-		fmt.Fprintf(&b, "\n    (comp (ref %s)\n      (value %s)\n      (footprint %s)\n", q(ref), q(valueOf(inst)), q(part.Footprint))
+		fmt.Fprintf(&b, "\n    (comp (ref %s)\n      (value %s)\n      (footprint %s)\n", q(ref), q(s.valueOf(inst)), q(part.Footprint))
 		if part.Datasheet != "" {
 			fmt.Fprintf(&b, "      (datasheet %s)\n", q(part.Datasheet))
 		}
 		var fields [][2]string
+		if part.MPN != "" {
+			fields = append(fields, [2]string{"MPN", part.MPN})
+		}
 		if inst.Value != "" {
 			fields = append(fields, [2]string{"Part", inst.Part})
 		}
@@ -87,8 +90,8 @@ func (s Schematic) KiCadNetlist() []byte {
 func (s Schematic) BOM() []byte {
 	refs := s.refs(new([]error))
 	type line struct {
-		comment, footprint, lcsc string
-		refs                     []string
+		comment, footprint, lcsc, mpn string
+		refs                          []string
 	}
 	lines := map[string]*line{}
 	for ref, inst := range refs {
@@ -99,26 +102,38 @@ func (s Schematic) BOM() []byte {
 		key := inst.Part + "\x00" + inst.Value
 		l, ok := lines[key]
 		if !ok {
-			l = &line{comment: valueOf(inst), footprint: part.Footprint, lcsc: s.lcsc(inst.Instance)}
+			l = &line{comment: s.valueOf(inst), footprint: part.Footprint, lcsc: s.lcsc(inst.Instance), mpn: part.MPN}
 			lines[key] = l
 		}
 		l.refs = append(l.refs, ref)
 	}
 	var b bytes.Buffer
 	w := csv.NewWriter(&b)
-	_ = w.Write([]string{"Comment", "Designator", "Footprint", "LCSC Part #"})
+	_ = w.Write([]string{"Comment", "Designator", "Footprint", "LCSC Part #", "Manufacturer Part"})
 	for _, key := range sortedKeys(lines) {
 		l := lines[key]
 		slices.SortFunc(l.refs, func(a, c string) int { return strings.Compare(natural(a), natural(c)) })
-		_ = w.Write([]string{l.comment, strings.Join(l.refs, ","), l.footprint, l.lcsc})
+		_ = w.Write([]string{l.comment, strings.Join(l.refs, ","), l.footprint, l.lcsc, l.mpn})
 	}
 	w.Flush()
 	return b.Bytes()
 }
 
-func valueOf(inst placed) string {
+// titleBlock is written in full, every field KiCad writes, because readers
+// of the format (kinparse among them) require the lot.
+func (s Schematic) titleBlock(title, source string) string {
+	return fmt.Sprintf("(title_block (title %s) (company \"\") (rev %s) (date \"\") (source %s)\n        (comment (number \"1\") (value %s)))",
+		q(title), q(s.Pins.Revision), q(source), q("generated from hardware/"+s.Pins.Board+" by task gen:hardware; edit the YAML, not this"))
+}
+
+// valueOf is what a part is called on the netlist and the BOM: its value,
+// or the maker's part number, or the library's name for it.
+func (s Schematic) valueOf(inst placed) string {
 	if inst.Value != "" {
 		return inst.Value
+	}
+	if mpn := s.Parts[inst.Part].MPN; mpn != "" {
+		return mpn
 	}
 	return inst.Part
 }

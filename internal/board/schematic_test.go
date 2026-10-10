@@ -46,6 +46,7 @@ const hallwayParts = `parts:
     symbol: LED:SK6812MINI-E
     footprint: LED_SMD:LED_SK6812MINI-E_3.2x2.8mm_P1.5mm_ReverseMount
     pinout: SK6812MINI-E datasheet
+    mpn: SK6812MINI-E
     lcsc: C5149201
     pins:
       - {pad: "1", name: VSS, type: power_in}
@@ -335,12 +336,26 @@ func TestAModuleTheSheetsNeverPlaceIsRefused(t *testing.T) {
 	wantERC(t, s, "pins.yaml is for one ESP32-S3-WROOM-1-N16R8; the sheets place 0")
 }
 
-// A 4k7 pull-up where the library only knows 10k and 330R: JLCPCB would be
-// handed a BOM line it cannot fill.
-func TestAValueWithNoLCSCNumberIsRefused(t *testing.T) {
+// A 4k7 pull-up typed as "4.7K" where the library lists 4k7: JLCPCB would be
+// handed a BOM line in a spelling nobody checked.
+func TestAValueTheLibraryDoesNotListIsRefused(t *testing.T) {
 	s := loadSchematic(t, hallway(t,
+		[3]string{"sheets/mcu.yaml", "{part: R_0402, value: 10k}", "{part: R_0402, value: 4.7K}"}))
+	wantERC(t, s, "R1 is a R_0402 of 4.7K, a value parts.yaml does not list for it")
+}
+
+// A listed value with no number is JLCPCB's to match from its basic
+// library, by value and footprint, which is how its BOM upload treats it.
+func TestAListedValueWithoutANumberIsLeftForJLCPCBToMatch(t *testing.T) {
+	s := loadSchematic(t, hallway(t,
+		[3]string{"parts.yaml", "values: {10k: C25744, 330R: C25104}", `values: {10k: C25744, 330R: C25104, 4k7: ""}`},
 		[3]string{"sheets/mcu.yaml", "{part: R_0402, value: 10k}", "{part: R_0402, value: 4k7}"}))
-	wantERC(t, s, "R1 is a R_0402 of 4k7, a value parts.yaml gives no LCSC number for")
+	if err := s.Check(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(s.BOM()), "4k7,R1,Resistor_SMD:R_0402_1005Metric,,") {
+		t.Errorf("BOM does not leave R1's number for JLCPCB:\n%s", s.BOM())
+	}
 }
 
 func TestAPartJLCPCBCannotPlaceMustSayWhy(t *testing.T) {
@@ -356,4 +371,16 @@ func TestAPartBoughtByValueNeedsOne(t *testing.T) {
 	s = loadSchematic(t, hallway(t,
 		[3]string{"sheets/ui.yaml", "{part: SK6812MINI-E}", "{part: SK6812MINI-E, value: red}"}))
 	wantERC(t, s, "D1 gives value red, but a SK6812MINI-E is not bought by value")
+}
+
+// The TPS2121 brings its output out on two pads; that is one output on
+// VSYS, not two outputs fighting.
+func TestTwoPadsOfOnePinAreOneDriver(t *testing.T) {
+	s := loadSchematic(t, hallway(t,
+		[3]string{"parts.yaml", `{pad: "4", name: "Y", type: tri_state}`, `{pad: "4", name: "Y", type: output}`},
+		[3]string{"parts.yaml", `{pad: "5", name: VCC, type: power_in}`, `{pad: "5", name: VCC, type: power_in}
+      - {pad: "6", name: "Y", type: output}`}))
+	if err := s.Check(); err != nil {
+		t.Fatal(err)
+	}
 }

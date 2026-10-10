@@ -185,7 +185,8 @@ func TestTheNetlistIsTheSameBytesEveryTime(t *testing.T) {
 	if !bytes.Equal(a, b) {
 		t.Fatal("two renders of one schematic differ")
 	}
-	if bytes.Contains(a, []byte("(date")) {
+	// KiCad's readers want a date field in every title block; it stays empty.
+	if bytes.Count(a, []byte("(date")) != bytes.Count(a, []byte(`(date "")`)) {
 		t.Error("the netlist carries a date, so it changes on every regeneration")
 	}
 }
@@ -250,7 +251,12 @@ func TestTheBOMGroupsAPartAndValueOnOneLine(t *testing.T) {
 			t.Errorf("BOM %s = %v, want designators %s lcsc %q", r[0], r, w[0], w[1])
 		}
 	}
-	if strings.Join(rows[0], ",") != "Comment,Designator,Footprint,LCSC Part #" {
+	for _, r := range rows[1:] {
+		if r[0] == "SK6812MINI-E" && r[4] != "SK6812MINI-E" {
+			t.Errorf("SK6812 line carries maker part %q", r[4])
+		}
+	}
+	if strings.Join(rows[0], ",") != "Comment,Designator,Footprint,LCSC Part #,Manufacturer Part" {
 		t.Errorf("header = %v", rows[0])
 	}
 }
