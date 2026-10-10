@@ -287,6 +287,15 @@ func FilterList(l ui.List, q string) ui.List {
 
 // ---------------------------------------------------------------- Browse
 
+// rejects places unlinked wake rejections at decimal hours.
+func rejects(hours ...float64) []ui.Reject {
+	out := make([]ui.Reject, len(hours))
+	for i, h := range hours {
+		out[i] = ui.Reject{Hour: h}
+	}
+	return out
+}
+
 // Household is Browse’s day view.
 func Household() ui.DayLanes {
 	s := func(h float64, flag ui.Tone) ui.Session {
@@ -298,17 +307,17 @@ func Household() ui.DayLanes {
 			{
 				Name: "Living room", Sub: "Satellite1 · 7 sessions", Presence: [][2]float64{{7, 9}, {12, 12.5}, {17, 23.95}},
 				Sessions: []ui.Session{s(7.52, ""), s(8.52, ""), s(12.1, ""), s(17.33, ui.TonePeople), {Hour: 19.72, Flag: ui.ToneVoice, Href: "/review/moved", Label: "19:43 resumed from kitchen"}, s(21.4, ""), s(23.07, ui.TonePeople)},
-				Rejects:  []float64{20.1, 20.3, 20.36, 21.02},
+				Rejects:  rejects(20.1, 20.3, 20.36, 21.02),
 			},
 			{
 				Name: "Kitchen", Sub: "Voice PE · 6 sessions", Presence: [][2]float64{{6.9, 7.6}, {16.5, 19.8}},
 				Sessions: []ui.Session{s(7.1, ""), s(7.4, ""), s(16.78, ui.TonePeople), s(18.5, ""), {Hour: 19.68, Flag: ui.ToneVoice, Href: "/review/moved", Label: "19:41 moved to living room"}},
-				Rejects:  []float64{7.3, 18.6},
+				Rejects:  rejects(7.3, 18.6),
 			},
 			{
 				Name: "Office", Sub: "Satellite1 · 6 sessions", Presence: [][2]float64{{9, 18.2}},
 				Sessions: []ui.Session{s(9.2, ""), s(10.5, ""), s(14.22, ui.ToneVoice), s(15.9, ""), s(17.92, ui.ToneVoice), s(18.03, ui.ToneHome)},
-				Rejects:  []float64{14.9},
+				Rejects:  rejects(14.9),
 			},
 			{
 				Name: "Bedroom", Sub: "Voice PE · 2 sessions", Presence: [][2]float64{{6.5, 7}, {22.3, 24}},

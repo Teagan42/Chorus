@@ -3,14 +3,16 @@
 <div class="day-lanes__grid">
 <div class="day-lanes__heads">
 <div class="day-lanes__ruler-pad"></div>
-{{- range .Lanes}}<button type="button" class="{{cls "day-lanes__head" (when .On "is-on")}}" aria-pressed="{{bool .On}}"{{template "hx" .Hx}}><span class="day-lanes__name">{{.Name}}</span><span class="day-lanes__sub">{{.Sub}}</span></button>{{end}}
+{{- range .Lanes}}{{if .Href}}<a class="day-lanes__head" href="{{.Href}}"><span class="day-lanes__name">{{.Name}}</span><span class="day-lanes__sub">{{.Sub}}</span></a>{{else}}<button type="button" class="{{cls "day-lanes__head" (when .On "is-on")}}" aria-pressed="{{bool .On}}"{{template "hx" .Hx}}><span class="day-lanes__name">{{.Name}}</span><span class="day-lanes__sub">{{.Sub}}</span></button>{{end}}{{end}}
 </div>
 <div class="day-lanes__body">
 <div class="day-lanes__ruler">{{range .Hours}}<span style="left: {{pct .Pos}}">{{.Label}}</span>{{end}}</div>
 {{- range .Lanes}}<div class="day-lanes__lane">
 {{- range .Presence}}<span class="day-lanes__presence" style="left: {{pct ($.P (index . 0))}}; width: {{pct ($.W .)}}"><span class="sr-only">room occupied {{$.Clock (index . 0)}} to {{$.Clock (index . 1)}}</span></span>{{end}}
 {{- range .Sessions}}<a class="{{cls "day-lanes__session" (when (ne .Flag "") "is-flagged") (tone .Flag)}}" href="{{.Href}}" aria-label="{{.Label}}" style="left: {{pct ($.P .Hour)}}"></a>{{end}}
-{{- range .Rejects}}<span class="day-lanes__reject" style="left: {{pct ($.P .)}}"><span class="sr-only">wake rejected at {{$.Clock .}}</span></span>{{end}}
+{{- range .Rejects}}{{$why := print "wake rejected at " ($.Clock .Hour) (or (and .Label (print " · " .Label)) "")}}
+{{- if .Href}}<a class="day-lanes__reject" href="{{.Href}}" aria-label="{{$why}}" title="{{$why}}" style="left: {{pct ($.P .Hour)}}"></a>
+{{- else}}<span class="day-lanes__reject" style="left: {{pct ($.P .Hour)}}"><span class="sr-only">{{$why}}</span></span>{{end}}{{end}}
 </div>{{end}}
 {{- range $m := .Migrations}}<div class="day-lanes__migration" style="left: {{pct ($.P $m.Hour)}}; top: calc(26px + {{px ($.MigTop $m)}}); height: {{px ($.MigH $m)}}" aria-hidden="true"></div>
 {{- with $m.Label}}<span class="day-lanes__migration-label" style="left: {{pct ($.P $m.Hour)}}; top: calc(26px + {{px ($.MigTop $m)}} + 10px)">{{.}}</span>{{end}}{{end}}

@@ -82,6 +82,15 @@ func TestRenderComponents(t *testing.T) {
 	mustContain(t, "day-lanes", h, "day-lanes__migration", "Alan moved rooms", "legend__swatch--flag tone-people")
 	// Ticks and bands are drawn, so a screen reader is told what each one is.
 	mustContain(t, "day-lanes", h, `<span class="sr-only">wake rejected at 20:06</span>`, `<span class="sr-only">room occupied 07:00 to 09:00</span>`, `<span class="sr-only">room occupied 22:18 to 24:00</span>`)
+	// A tick with somewhere to go is a link to it, and so is a lane's name.
+	linked := ui.DayLanes{From: 0, To: 24, Lanes: []ui.DayLane{{
+		Name: "kitchen", Href: "/conversations/device:kitchen",
+		Rejects: []ui.Reject{{Hour: 14.0333, Href: "/conversations/device:kitchen#seq-7", Label: "no_speech"}},
+	}}}
+	h = render(t, "day-lanes", linked)
+	mustContain(t, "linked day-lanes", h,
+		`<a class="day-lanes__head" href="/conversations/device:kitchen"><span class="day-lanes__name">kitchen</span>`,
+		`<a class="day-lanes__reject" href="/conversations/device:kitchen#seq-7" aria-label="wake rejected at 14:02 · no_speech" title="wake rejected at 14:02 · no_speech" style="left: 58.472%"></a>`)
 
 	h = render(t, "clip-grid", demo.Clips(map[string]string{"w2": "neg"}, func(id, m string) string { return "/clips/" + id + "/" + m }))
 	mustContain(t, "clip-grid", h, "2 of 3 passed", "auto negative", `class="clip-tile is-reviewed"`, `role="region" aria-label="Clips"`)

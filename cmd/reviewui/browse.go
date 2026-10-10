@@ -325,7 +325,7 @@ func (s *server) browse(w http.ResponseWriter, r *http.Request) {
 	for sat, dev := range devices {
 		for _, t := range dev.rejects {
 			if on(t) {
-				lane(sat).Rejects = append(lane(sat).Rejects, hour(t.In(loc)))
+				lane(sat).Rejects = append(lane(sat).Rejects, ui.Reject{Hour: hour(t.In(loc))})
 			}
 		}
 		if spans := presenceSpans(dev.presence, day, next, now); len(spans) > 0 {
