@@ -37,6 +37,10 @@ type Announcement struct {
 
 	// StartConversation lets whoever is in the room answer with no wake word.
 	StartConversation bool
+
+	// Heard, when set, is sent once, never blocking, whether any of it was
+	// heard. Queued is not heard: the session may end, or the speaker fail.
+	Heard chan<- bool
 }
 
 // Announce opens a session with no wake word to say a. It closes once said,
@@ -93,7 +97,7 @@ func (s *Session) Announce(_ context.Context, a Announcement) error {
 	}); err != nil {
 		return err
 	}
-	if !s.speech.announce(id, text) {
+	if !s.speech.announce(id, text, a.Heard) {
 		// Ended between the check and the queue: recorded as never heard.
 		s.fail(s.record(journal.Record{
 			Kind:   journal.KindSpeechDiscarded,

@@ -175,6 +175,74 @@ func TestAnAnnouncementJoinsTheConversationInTheRoom(t *testing.T) {
 	}
 }
 
+// The oven goes off while the kitchen is still answering Alice, so it queues
+// behind the answer. She cuts the answer off: the turn is dropped, the timer
+// is not, and it plays once the cut has. Its Heard is told so.
+//
+// verifies SPEC §4.2, §4.4
+func TestAnAnnouncementQueuedBeforeABargeInStillPlays(t *testing.T) {
+	steps := []step{
+		{act: session.SpeechDelta{CallID: "s1", Text: line, Last: true}},
+		{act: session.TurnEnd{FinishReason: "stop", Completion: "{}"}},
+	}
+	r := newRig(t, steps, nil)
+	r.speaker.hold = true
+	r.speaker.cut = len("I found three")
+	s := r.open(t, "alice")
+	errc := heard(s, "find zeppelin")
+	r.speaker.wrote(t)
+
+	oven, said := ovenDone, make(chan bool, 1)
+	oven.Heard = said
+	if err := s.Announce(context.Background(), oven); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.BargeIn(context.Background(), interruption(420)); err != nil || !ok {
+		t.Fatalf("barge-in: ok=%v err=%v", ok, err)
+	}
+	if got := r.speaker.wrote(t); got != "The oven timer is done." {
+		t.Fatalf("played %q after the cut, want the oven", got)
+	}
+	close(r.speaker.release)
+	wait(t, errc)
+	select {
+	case ok := <-said:
+		if !ok {
+			t.Error("the oven was played, and Heard was told it was not")
+		}
+	case <-time.After(patience):
+		t.Fatal("Heard was never told")
+	}
+	st := r.state(t, s.ConversationID())
+	if last := st.Dialogue[len(st.Dialogue)-1]; last.Text != "The oven timer is done." || last.Announces == nil {
+		t.Errorf("last dialogue entry = %+v, want the oven", last)
+	}
+}
+
+// Kokoro is down when the oven goes off. The announcement is queued and
+// logged, but nothing plays, and Heard is told so: queued is not heard.
+//
+// verifies SPEC §7
+func TestAnAnnouncementTheSpeakerCannotPlayIsNotHeard(t *testing.T) {
+	r := newRig(t, nil, nil)
+	r.speaker.broken = true
+	oven, said := ovenDone, make(chan bool, 1)
+	oven.Heard = said
+	s, err := r.sup.Announce(context.Background(), "kitchen", oven)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ok := <-said:
+		if ok {
+			t.Error("Heard was told a timer nobody could hear was heard")
+		}
+	case <-time.After(patience):
+		t.Fatal("Heard was never told")
+	}
+	awaitDone(t, s)
+}
+
 // An announcement is not the answer to an ask, so its first frame is not the
 // turn's: the household's wait for an answer is not measured off a timer.
 //

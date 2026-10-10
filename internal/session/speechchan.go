@@ -61,9 +61,10 @@ type utterance struct {
 	// reason records why a cut happened, for the discard event.
 	reason string
 
-	// announces marks an announcement, which is not the answer to any ask:
-	// its first frame is not the turn's (ADR-0035).
+	// announces marks an announcement, answering no ask, so its first frame
+	// is not the turn's (ADR-0035). heard is told whether it was heard.
 	announces bool
+	heard     chan<- bool
 
 	// closed tells the watcher of a Starter that playback is over, and
 	// watched closes once it has stopped watching. Nil when the stream
@@ -87,31 +88,42 @@ func (c *speechChannel) deliver(d SpeechDelta) bool {
 	if c.cut {
 		return false
 	}
-	return c.deliverLocked(d, false)
+	return c.deliverLocked(d, false, nil)
 }
 
 // announce queues an announcement whole. A barge-in cut the turn, and this
 // is no part of the turn; only the session's end refuses it.
-func (c *speechChannel) announce(callID, text string) bool {
+func (c *speechChannel) announce(callID, text string, heard chan<- bool) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.deliverLocked(SpeechDelta{CallID: callID, Text: text, Mode: ModeQueue, Last: true}, true)
+	return c.deliverLocked(SpeechDelta{CallID: callID, Text: text, Mode: ModeQueue, Last: true}, true, heard)
 }
 
-func (c *speechChannel) deliverLocked(d SpeechDelta, announces bool) bool {
+// tell reports whether an announcement was heard, once, never blocking.
+func tell(heard chan<- bool, ok bool) {
+	if heard == nil {
+		return
+	}
+	select {
+	case heard <- ok:
+	default:
+	}
+}
+
+func (c *speechChannel) deliverLocked(d SpeechDelta, announces bool, heard chan<- bool) bool {
 	if c.closed || c.dead[d.CallID] {
 		return false
 	}
 	u := c.find(d.CallID)
 	if u == nil {
-		u = &utterance{callID: d.CallID, last: make(chan struct{}), announces: announces}
+		u = &utterance{callID: d.CallID, last: make(chan struct{}), announces: announces, heard: heard}
 		c.live++
 		switch mode(d.Mode) {
 		case ModePreempt:
 			// A tool result invalidated what was about to be said.
 			c.cutLocked("preempted")
 			c.dropLocked("preempted")
-			c.pending = []*utterance{u}
+			c.pending = append([]*utterance{u}, c.pending...)
 		case ModeInterject:
 			// Duck and cut in, but keep what was queued behind.
 			c.cutLocked("preempted")
@@ -177,9 +189,17 @@ func (c *speechChannel) cutLocked(reason string) {
 	c.current.cancel()
 }
 
-// dropLocked discards queued utterances that were generated but never played.
+// dropLocked discards queued utterances that were generated but never
+// played. Announcements are no part of the turn, so stay queued until the
+// session ends.
 func (c *speechChannel) dropLocked(reason string) {
+	var kept []*utterance
 	for _, u := range c.pending {
+		if u.announces && !c.closed {
+			kept = append(kept, u)
+			continue
+		}
+		tell(u.heard, false)
 		c.dead[u.callID] = true
 		if text := strings.Join(u.buf, ""); text != "" {
 			c.s.fail(c.s.record(journal.Record{
@@ -192,7 +212,7 @@ func (c *speechChannel) dropLocked(reason string) {
 		c.s.result(u.callID, "cancelled", "")
 		c.live--
 	}
-	c.pending = nil
+	c.pending = kept
 	c.idle.Broadcast()
 }
 
@@ -223,6 +243,7 @@ func (c *speechChannel) startNextLocked() {
 	if err != nil {
 		c.s.fail(fmt.Errorf("open tts %s: %w", u.callID, err))
 		c.s.result(u.callID, "error", `{"error":"tts_unavailable"}`)
+		tell(u.heard, false)
 		u.cancel()
 		c.live--
 		c.idle.Broadcast()
@@ -298,6 +319,7 @@ func (c *speechChannel) play(u *utterance) {
 	// Recorded before the next utterance may start, so the log order is the
 	// order the queue was heard in.
 	c.record(u.callID, reason, pb)
+	tell(u.heard, !pb.Truncated || pb.Spoken != "")
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
