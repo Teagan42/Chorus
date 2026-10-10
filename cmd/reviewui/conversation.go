@@ -27,6 +27,7 @@ type logRow struct {
 	Note    string
 	Lines   []string // what a recall told the model, one memory or conversation a line
 	Audio   string
+	Second  string // the XMOS's lighter-processed channel of the same span (ADR-0050)
 
 	// Signal tags the event Triage raised on; SignalWhy says why, in the
 	// text column where a sentence fits.
@@ -98,6 +99,9 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) logRow {
 	}
 	if e.AudioRef != "" {
 		row.Audio = audioSrc(e.AudioRef)
+	}
+	if ref := f["second_audio_ref"]; ref != "" {
+		row.Second = audioSrc(ref)
 	}
 	switch e.Kind {
 	case journal.KindSessionOpened:

@@ -648,8 +648,8 @@ func TestBrowseLaysTheDayOutBySatellite(t *testing.T) {
 			t.Errorf("Browse is missing %q", want)
 		}
 	}
-	if strings.Contains(h, `href="/conversations/device:kitchen"`) {
-		t.Error("a device's rejection log is not a conversation")
+	if strings.Contains(h[strings.Index(h, `id="conversations"`):], `href="/conversations/device:kitchen`) {
+		t.Error("a device's rejection log is listed as a conversation")
 	}
 }
 

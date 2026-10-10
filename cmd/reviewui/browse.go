@@ -143,7 +143,7 @@ func hour(t time.Time) float64 {
 
 // deviceLog is what Browse draws from a satellite's own log.
 type deviceLog struct {
-	rejects  []time.Time
+	rejects  []journal.Event
 	presence []presenceMark
 }
 
@@ -220,7 +220,7 @@ func (s *server) household(r *http.Request, u *unread) ([]convSummary, map[strin
 			for _, e := range events {
 				switch e.Kind {
 				case journal.KindWakeRejected:
-					dev.rejects = append(dev.rejects, e.At)
+					dev.rejects = append(dev.rejects, e)
 				case journal.KindPresenceChanged:
 					dev.presence = append(dev.presence, presenceMark{e.At, e.Fields["state"]})
 				}
@@ -323,13 +323,20 @@ func (s *server) browse(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	for sat, dev := range devices {
-		for _, t := range dev.rejects {
-			if on(t) {
-				lane(sat).Rejects = append(lane(sat).Rejects, ui.Reject{Hour: hour(t.In(loc))})
+		devHref := conversationHref(devicePrefix + sat)
+		for _, e := range dev.rejects {
+			if on(e.At) {
+				lane(sat).Rejects = append(lane(sat).Rejects, ui.Reject{
+					Hour: hour(e.At.In(loc)), Href: fmt.Sprintf("%s#seq-%d", devHref, e.Seq), Label: e.Fields["reason"],
+				})
 			}
 		}
 		if spans := presenceSpans(dev.presence, day, next, now); len(spans) > 0 {
 			lane(sat).Presence = spans
+		}
+		// The satellite's own log is one click from its name.
+		if l, ok := lanes[sat]; ok {
+			l.Href = devHref
 		}
 	}
 

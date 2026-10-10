@@ -68,6 +68,38 @@ func TestTriageKeepsTheWeakPositivesInTheirOwnPile(t *testing.T) {
 	}
 }
 
+// Each rejected wake on Browse opens the satellite's own log at it, and each
+// lane's name opens that log; there the dishwasher plays on both channels.
+//
+// verifies SPEC §9.2, §9.3
+func TestARejectedWakeOpensItsSatellitesLogWithBothChannels(t *testing.T) {
+	s, _ := newHouseholdServer(t)
+	h := get(t, s, "/conversations")
+	for _, want := range []string{
+		`<a class="day-lanes__reject" href="/conversations/device:kitchen#seq-7" aria-label="wake rejected at 14:02 · no_speech"`,
+		`<a class="day-lanes__reject" href="/conversations/device:office#seq-1" aria-label="wake rejected at 21:15 · no_speech"`,
+		`<a class="day-lanes__head" href="/conversations/device:kitchen">`,
+		`<a class="day-lanes__head" href="/conversations/device:living_room">`,
+		`<a class="day-lanes__head" href="/conversations/device:office">`,
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("Browse is missing %s", want)
+		}
+	}
+
+	h = get(t, s, "/conversations/device:kitchen")
+	row := h[strings.Index(h, `id="seq-7"`):]
+	row = row[:strings.Index(row, "</div>")]
+	for _, want := range []string{
+		`aria-label="#7 wake rejected · device" controls preload="none" src="/audio?ref=` + url.QueryEscape("blob://wake/kitchen-dishwasher") + `"`,
+		`aria-label="#7 wake rejected · device · second channel" controls preload="none" src="/audio?ref=` + url.QueryEscape("blob://wake/kitchen-dishwasher-second") + `"`,
+	} {
+		if !strings.Contains(row, want) {
+			t.Errorf("the dishwasher's row is missing %s:\n%s", want, row)
+		}
+	}
+}
+
 // Alan's oven ask, the twelve minutes he had to say again, and what the
 // reviewer says the first answer should have been.
 const (
