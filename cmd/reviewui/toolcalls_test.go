@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/harvest"
+	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/registry"
+	"github.com/teagan42/chorus/internal/reviewui/household"
 )
 
 const (
@@ -25,17 +29,21 @@ const (
 //
 // verifies SPEC §9.2
 func TestAReRunThatOnlyCallsCanBePromoted(t *testing.T) {
-	s, _ := householdReplayServer(t)
+	s, decisions := householdReplayServer(t)
 	run := mustPost(t, s, "/replays/"+convGarage, url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}})
-	if !strings.Contains(run, `hx-post="/replays/`+convGarage+`/turns/2/promote"`) {
+	if !strings.Contains(run, `hx-post="/replays/`+convGarage+`/runs/1/turns/2/promote"`) {
 		t.Fatalf("the garage turn's call-only re-run offers no promotion:\n%s", run)
 	}
-	cell := mustPost(t, s, "/replays/"+convGarage+"/turns/2/promote", url.Values{
-		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt},
-		"speech": {""}, "calls": {contactCheck},
-	})
+	cell := mustPost(t, s, "/replays/"+convGarage+"/runs/1/turns/2/promote", nil)
 	if !strings.Contains(cell, "promoted · qwen3-32b@1 · sys@edited") {
 		t.Errorf("the cell does not say it was promoted:\n%s", cell)
+	}
+	promos, err := decisions.Promotions(context.Background(), convGarage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls, _ := json.Marshal(promos[2].Calls); string(calls) != contactCheck {
+		t.Errorf("promoted calls = %s, want the kept run's %s", calls, contactCheck)
 	}
 
 	p, ok := find(mustPairs(t, s), replayedGarage)
@@ -67,14 +75,19 @@ func TestAReRunThatOnlyCallsCanBePromoted(t *testing.T) {
 	}
 }
 
-// A promotion that neither says nor calls anything is still refused.
+// A kept take that neither says nor calls anything is still refused.
 //
 // verifies SPEC §9.2
 func TestAPromotionThatDoesNothingIsRefused(t *testing.T) {
-	s, _ := householdReplayServer(t)
-	code, body := post(t, s, "/replays/"+convGarage+"/turns/2/promote", url.Values{
-		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}, "speech": {" "}, "calls": {"[]"},
-	})
+	s, decisions := householdReplayServer(t)
+	if _, err := decisions.AddRerun(context.Background(), curation.Rerun{
+		ConversationID: convGarage, Versions: journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@edited", ToolSchema: "tools@7"},
+		SystemPrompt: ollama.DefaultPrompt + briefPrompt, ToolSchema: ollama.ToolSchema(registry.Specs),
+		Takes: []curation.Take{{Seq: 2, Finish: "stop"}}, RanAt: household.ReviewedAt(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	code, body := post(t, s, "/replays/"+convGarage+"/runs/1/turns/2/promote", nil)
 	if code != 400 || !strings.Contains(body, "said or called") {
 		t.Errorf("promote = %d %q, want 400 asking for speech or a call", code, body)
 	}

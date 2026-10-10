@@ -13,6 +13,7 @@ import (
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/reviewui/household"
 )
 
@@ -290,18 +291,14 @@ const briefPrompt = "\nWhen there are several results, say how many, offer the f
 func TestPromotingAReRunMakesAnAcceptedReplayPair(t *testing.T) {
 	s, decisions := householdReplayServer(t)
 	run := mustPost(t, s, "/replays/"+convZeppel, url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}})
-	if !strings.Contains(run, `hx-post="/replays/`+convZeppel+`/turns/2/promote"`) {
+	if !strings.Contains(run, `hx-post="/replays/`+convZeppel+`/runs/1/turns/2/promote"`) {
 		t.Fatalf("the changed turn offers no promotion:\n%s", run)
 	}
 	if strings.Contains(run, "/turns/10/promote") {
 		t.Error("a turn the re-run left alone offers a promotion")
 	}
 
-	cell := mustPost(t, s, "/replays/"+convZeppel+"/turns/2/promote", url.Values{
-		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt},
-		"speech": {shouldHaveZeppel},
-		"calls":  {`[{"tool":"media_search","args":"{\"query\":\"Led Zeppelin\",\"media_type\":\"album\",\"limit\":5}"}]`},
-	})
+	cell := mustPost(t, s, "/replays/"+convZeppel+"/runs/1/turns/2/promote", nil)
 	if !strings.Contains(cell, "promoted · qwen3-32b@1 · sys@edited") || !strings.Contains(cell, `id="promote-2"`) {
 		t.Errorf("the cell does not say it was promoted:\n%s", cell)
 	}
@@ -309,7 +306,7 @@ func TestPromotingAReRunMakesAnAcceptedReplayPair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p := promos[zeppelinAsk]; p.SystemPrompt != ollama.DefaultPrompt+briefPrompt || len(p.Calls) != 1 || p.Versions.Prompt != "sys@edited" {
+	if p := promos[zeppelinAsk]; p.SystemPrompt != ollama.DefaultPrompt+briefPrompt || len(p.Calls) != 1 || p.Versions.Prompt != "sys@edited" || p.ToolSchema != ollama.ToolSchema(registry.Specs) {
 		t.Errorf("stored promotion = %+v", p)
 	}
 
@@ -325,6 +322,51 @@ func TestPromotingAReRunMakesAnAcceptedReplayPair(t *testing.T) {
 	}
 	if h := get(t, s, "/replays/"+convZeppel); !strings.Contains(h, "promoted · qwen3-32b@1 · sys@edited") {
 		t.Error("Replay forgets the promotion on the next visit")
+	}
+}
+
+// A re-run is kept, so a take can be promoted after Replay was left, by a
+// review box with no model to ask: the take is the store's, not the model's.
+//
+// verifies SPEC §9.2
+func TestAKeptReRunIsPromotedLaterWithNoModel(t *testing.T) {
+	asked, decisions := householdReplayServer(t)
+	mustPost(t, asked, "/replays/"+convZeppel, url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}})
+
+	later := newServer(asked.journal, decisions, asked.blobs, household.ReviewedAt)
+	page := get(t, later, "/replays/"+convZeppel+"/runs/1")
+	if !strings.Contains(page, shouldHaveZeppel) || !strings.Contains(page, `hx-post="/replays/`+convZeppel+`/runs/1/turns/2/promote"`) {
+		t.Fatalf("the kept run offers no promotion with no model:\n%s", page)
+	}
+	mustPost(t, later, "/replays/"+convZeppel+"/runs/1/turns/2/promote", nil)
+	if p, ok := find(mustPairs(t, later), replayedZeppel); !ok || p.Status != "accepted" || p.Chosen != shouldHaveZeppel {
+		t.Errorf("replay pair = %+v (found %v)", p.Pair, ok)
+	}
+}
+
+// A take re-run without media_search is promoted with the version the server
+// computes from the cut schema, and the declarations it was offered.
+//
+// verifies SPEC §9.2
+func TestAPromotionCarriesTheToolSchemaItRanUnder(t *testing.T) {
+	s, decisions := householdReplayServer(t)
+	mustPost(t, s, "/replays/"+convZeppel, url.Values{
+		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt}, "tools": {withoutTool(t, "media_search")},
+	})
+	cell := mustPost(t, s, "/replays/"+convZeppel+"/runs/1/turns/2/promote", nil)
+	if !strings.Contains(cell, "promoted · qwen3-32b@1 · sys@3 · tools@edited") {
+		t.Errorf("the cell does not say what it ran under:\n%s", cell)
+	}
+	promos, err := decisions.Promotions(context.Background(), convZeppel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := promos[zeppelinAsk]; p.Versions.ToolSchema != "tools@edited" || strings.Contains(p.ToolSchema, "media_search") || !strings.Contains(p.ToolSchema, "ha_get_state") {
+		t.Errorf("stored promotion ran under %+v, offered %d bytes of tools", p.Versions, len(p.ToolSchema))
+	}
+	line := exportRow(t, s, replayedZeppel)
+	if !strings.Contains(line, `"tool_schema":"tools@edited"`) {
+		t.Errorf("the replay row does not name the cut schema:\n%s", line)
 	}
 }
 
@@ -403,28 +445,25 @@ func TestAReplayPairRejectsTheFirstAskReplayCompared(t *testing.T) {
 	}
 }
 
-// A promotion needs a model to say what it ran under, a turn to belong to,
-// and something said.
+// A promotion is of a take a kept re-run made, of a turn, that changed: the
+// page's word is never the take.
 //
 // verifies SPEC §9.2
-func TestAPromotionThatCannotBeAttributedIsRefused(t *testing.T) {
-	form := url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}, "speech": {shouldHaveZeppel}}
-	bare, _ := newHouseholdServer(t)
-	if code, _ := post(t, bare, "/replays/"+convZeppel+"/turns/2/promote", form); code != http.StatusServiceUnavailable {
-		t.Errorf("with no model, promote = %d, want 503", code)
-	}
+func TestAPromotionOfNoKeptChangedTakeIsRefused(t *testing.T) {
 	s, _ := householdReplayServer(t)
-	if code, _ := post(t, s, "/replays/"+convZeppel+"/turns/4/promote", form); code != http.StatusNotFound {
-		t.Errorf("promoting the barge-in, not a turn = %d, want 404", code)
+	if code, _ := post(t, s, "/replays/"+convZeppel+"/runs/1/turns/2/promote", url.Values{"speech": {shouldHaveZeppel}}); code != http.StatusNotFound {
+		t.Errorf("promoting from a run nobody asked = %d, want 404", code)
 	}
-	silent := url.Values{"model": form["model"], "prompt": form["prompt"], "speech": {"  "}}
-	if code, _ := post(t, s, "/replays/"+convZeppel+"/turns/2/promote", silent); code != http.StatusBadRequest {
-		t.Errorf("promoting a take that says nothing = %d, want 400", code)
-	}
-	if code, _ := post(t, s, "/replays/"+convZeppel+"/turns/2/promote", url.Values{
-		"model": form["model"], "prompt": form["prompt"], "speech": form["speech"], "calls": {"media_search"},
-	}); code != http.StatusBadRequest {
-		t.Errorf("promoting unreadable calls = %d, want 400", code)
+	mustPost(t, s, "/replays/"+convZeppel, url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}})
+	for target, want := range map[string]int{
+		"/replays/" + convZeppel + "/runs/1/turns/4/promote":   http.StatusNotFound,   // the barge-in, not a turn
+		"/replays/" + convZeppel + "/runs/one/turns/2/promote": http.StatusNotFound,   // not a run id
+		"/replays/" + convGarage + "/runs/1/turns/2/promote":   http.StatusNotFound,   // another conversation's run
+		"/replays/" + convZeppel + "/runs/1/turns/10/promote":  http.StatusBadRequest, // answered as recorded
+	} {
+		if code, _ := post(t, s, target, nil); code != want {
+			t.Errorf("POST %s = %d, want %d", target, code, want)
+		}
 	}
 	for _, p := range mustPairs(t, s) {
 		if p.H.Source == "replay" {

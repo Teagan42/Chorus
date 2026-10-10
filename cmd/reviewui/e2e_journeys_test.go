@@ -22,6 +22,7 @@ import (
 
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/reviewui/household"
 	sess "github.com/teagan42/chorus/internal/session"
 )
@@ -844,8 +845,8 @@ func TestE2EJourneyReplayFailuresSaySoOnThePage(t *testing.T) {
 	hh := asksWhichPlaylist()
 	s, _ := newHouseholdServer(t)
 	engine := "ok"
-	s.engineFor = func(model, prompt string) (sess.Engine, journal.Versions, error) {
-		eng, v, err := hh.engineFor(model, prompt)
+	s.engineFor = func(model, prompt string, tools map[string]registry.ToolSpec) (sess.Engine, journal.Versions, error) {
+		eng, v, err := hh.engineFor(model, prompt, tools)
 		switch engine {
 		case "dies":
 			return failsOn{hh, "and put on some jazz"}, v, err
@@ -893,6 +894,126 @@ func TestE2EJourneyReplayFailuresSaySoOnThePage(t *testing.T) {
 	}
 }
 
+// contactSensor is the reviewer's rewording of ha_get_state after the
+// garage turn read a cover nobody could reach.
+const contactSensor = "Read one entity's current state. For a door or cover, read its contact sensor, binary_sensor.<name>_contact, which answers when the cover does not."
+
+// editTools rewrites the tool-schema editor's JSON with a script, the way a
+// reviewer edits one tool among hundreds of lines.
+func (p *page) editTools(script string) {
+	p.t.Helper()
+	p.run(chromedp.Evaluate(fmt.Sprintf(`(() => {
+		const a = document.querySelector("#replay-tools");
+		const tools = JSON.parse(a.value);
+		(%s)(tools);
+		a.value = JSON.stringify(tools, null, 2);
+	})()`, script), nil))
+}
+
+// The garage turn read the cover, which did not answer. The reviewer
+// rewords ha_get_state to name the contact sensor, re-runs the garage under
+// the day's prompt, and promotes the check it now makes. Curate and the
+// dataset both name the edited schema; a schema typed wrong is refused.
+//
+// verifies SPEC §9.2
+func TestE2EJourneyRewordATool(t *testing.T) {
+	s, _ := householdReplayServer(t)
+	p := open(t, s)
+
+	p.visit(replayHref(convGarage))
+	p.waitText("form", "matches the recorded tool schema")
+	p.editTools(fmt.Sprintf(`tools => { tools.find(t => t.function.name === "ha_get_state").function.description = %q }`, contactSensor))
+	p.click(`form button[type="submit"]`)
+	p.waitText("#turn-2", "binary_sensor.garage_door_contact")
+	if got := p.metrics(`#replay-result [aria-label="Outcome"]`)["Ran under"]; got != "qwen3-32b@1 · sys@3 · tools@edited" {
+		t.Errorf("ran under %q, want the day's prompt and the edited tools", got)
+	}
+	p.waitText(`[aria-label="Tool schema diff"] .is-add`, `"description": "`+contactSensor)
+	if p.has(`[aria-label="Prompt diff"]`) {
+		t.Error("an unedited prompt shows a diff")
+	}
+	p.shot("journey-replay-tool-schema")
+
+	p.click("#promote-2 button")
+	p.waitText("#promote-2", "promoted · qwen3-32b@1 · sys@3 · tools@edited")
+	p.follow("#promote-2 a")
+	p.waitText(".pair-actions", "re-run under qwen3-32b@1 · sys@3 · tools@edited")
+	if got := p.rowStatus(replayedGarage); got != "accepted" {
+		t.Errorf("the promoted pair is %q in the list, want accepted", got)
+	}
+	p.visit("/export")
+	p.waitText(".page-head", "Download 1 row")
+	rows := p.download()
+	cv, _ := rows[0]["meta"].(map[string]any)["chosen_versions"].(map[string]any)
+	if cv["tool_schema"] != "tools@edited" || cv["prompt"] != "sys@3" {
+		t.Errorf("chosen versions = %v, want the edited tool schema", cv)
+	}
+
+	// A comma too many, and nothing is asked.
+	p.visit(replayHref(convGarage))
+	p.run(chromedp.Evaluate(`(() => { const a = document.querySelector("#replay-tools"); a.value = a.value.replace('"type": "function"', '"type": "function",,'); })()`, nil))
+	p.click(`form button[type="submit"]`)
+	p.waitText("#replay-result .alert", "The tool schema does not read.")
+	p.waitText("#replay-result .alert", "tool schema line 3")
+	p.shot("journey-replay-tool-schema-malformed")
+}
+
+// Teagan's reviewer re-runs Alice's morning under the brief prompt, leaves
+// for Browse without promoting, and comes back: the run was kept. They try
+// the day's prompt too, then reopen the first run from the list and promote
+// its list turn, which lands accepted in Curate.
+//
+// verifies SPEC §9.2
+func TestE2EJourneyComeBackToAKeptReRun(t *testing.T) {
+	s, decisions := householdReplayServer(t)
+	p := open(t, s)
+
+	p.visit(replayHref(convZeppel))
+	p.waitText("#replay-runs", "No re-runs kept yet.")
+	p.editPrompt(strings.TrimSpace(briefPrompt))
+	p.click(`form button[type="submit"]`)
+	p.waitText("#turn-2", "I found three albums. Want Led Zeppelin one?")
+	p.waitText("#replay-runs", "shown")
+
+	p.visit("/conversations?day=2025-10-09")
+	p.visit(replayHref(convZeppel))
+	brief := fmt.Sprintf(`#replay-runs a[href="%s"]`, runHref(convZeppel, 1))
+	p.waitText(brief, "qwen3-32b@1 · sys@edited · tools@7")
+	p.waitText(brief, "1 change")
+	if p.has("#replay-result [id^=promote-] button") {
+		t.Error("the page offers a promotion before a kept run is opened")
+	}
+
+	p.click(`form button[type="submit"]`)
+	p.waitText("#replay-runs", "qwen3-32b@1 · sys@3 · tools@7")
+	if n := p.count("#replay-runs .list__row:not(.list__row--head)"); n != 2 {
+		t.Errorf("%d kept re-runs listed, want both", n)
+	}
+	p.shot("journey-replay-kept-runs")
+
+	p.follow(brief)
+	if got := p.path(); got != runHref(convZeppel, 1) {
+		t.Errorf("landed on %s, want the kept run", got)
+	}
+	var prompt string
+	p.eval(`document.querySelector("#replay-prompt").value`, &prompt)
+	if !strings.HasSuffix(prompt, strings.TrimSpace(briefPrompt)) {
+		t.Errorf("the editor holds %q, want the prompt the run ran under", prompt)
+	}
+	p.waitText("#turn-2", "I found three albums. Want Led Zeppelin one?")
+	p.click("#promote-2 button")
+	p.waitText("#promote-2", "promoted · qwen3-32b@1 · sys@edited · tools@7")
+	p.follow("#promote-2 a")
+	if got := p.rowStatus(replayedZeppel); got != "accepted" {
+		t.Errorf("the promoted pair is %q in the list, want accepted", got)
+	}
+	runs, _ := decisions.Reruns(context.Background(), convZeppel)
+	promos, _ := decisions.Promotions(context.Background(), convZeppel)
+	if len(runs) != 2 || promos[zeppelinAsk].SystemPrompt != runs[1].SystemPrompt {
+		t.Errorf("kept %d runs; the promotion ran under %q", len(runs), promos[zeppelinAsk].SystemPrompt)
+	}
+}
+
 // Links into the journal that point at nothing get a plain refusal, and a
 // bad day in the address bar is refused rather than guessed at.
 //
@@ -908,6 +1029,7 @@ func TestE2EDeadLinksAreRefused(t *testing.T) {
 	}{
 		{"/conversations/conv-0000-attic", 404, "404 page not found"},
 		{"/replays/conv-0000-attic", 404, "404 page not found"},
+		{runHref(convZeppel, 9), 404, "404 page not found"},
 		{"/conversations?day=thursday", 400, "day: want YYYY-MM-DD"},
 		{"/audio?ref=blob://mic/never-recorded", 404, "404 page not found"},
 		{"/audio?ref=blob://mic/zeppelin-first&to=4611686018427387904", 400, "past the longest blob"},

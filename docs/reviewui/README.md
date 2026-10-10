@@ -65,10 +65,11 @@ where it says.
 Three things differ from a household's own review box, and a notice above
 every screen says so:
 
-- verdicts live in the tab and are gone on reload;
-- Replay asks `household.Model`, not Ollama: under the default prompt it
-  answers each turn as the journal recorded it, and under an edited one as the
-  model did once told to lead with the count, offer the first, and stop;
+- verdicts and kept re-runs live in the tab and are gone on reload;
+- Replay asks `household.Model`, not Ollama: under the default prompt and
+  tools it answers each turn as the journal recorded it, and under an edited
+  prompt or tool schema as the model did once told to lead with the count,
+  offer the first, and stop, never calling a tool it was not offered;
 - the clock is fixed at 22:30 that Thursday, when the reviewer sits down.
 
 ![The demo's Replay, under a prompt edited to lead with the count](demo-replay.png)
@@ -229,7 +230,8 @@ model knew.
 ![Replays](replays.png)
 
 Edit-and-replay (SPEC §9.2, `internal/rerun`). Pick a conversation, edit the
-system prompt or the model, and every recorded turn is asked again.
+system prompt, the model or the tool schema, and every recorded turn is
+asked again.
 
 ![Replay](replay.png)
 ![Replay, after a re-run](replay-rerun.png)
@@ -241,13 +243,36 @@ in, and so a re-run compares the calls the model *would* make without
 executing any of them. A whole re-run is bounded at three minutes. Each
 turn also lists what it was told it remembers, which the re-run is told too.
 
-A turn whose re-run changed can be promoted. The re-run's take becomes the
+The tool schema is the declarations the model is offered, in the shape
+`/api/chat` sends them, starting from the registry's: drop a tool, reword a
+description, change what a parameter takes. The edit is read back on the
+server before anything is asked, and one that does not read is refused on
+the page with the line it broke on. It is diffed against the registry's
+schema, trimmed to the lines near each change, and the re-run's tool-schema
+version is the server's, a hash of what the model was sent, so an
+unedited schema keeps the recorded version (ADR-0059).
+
+![Replay, a tool's description reworded](e2e/journey-replay-tool-schema.png)
+![Replay, a tool schema that does not read](e2e/journey-replay-tool-schema-malformed.png)
+
+Every re-run that reaches a turn is kept beside the journal, promoted or
+not: what it ran under and what each turn did. Replay lists a
+conversation's kept re-runs newest first, and each opens at
+`/replays/{id}/runs/{run}` with its comparison and the editor holding the
+model, prompt and tools it ran under (ADR-0059).
+
+![Replay, two kept re-runs](e2e/journey-replay-kept-runs.png)
+
+A turn whose re-run changed can be promoted, from a run just made or any
+kept one, with or without a model configured. The kept take becomes the
 chosen side of a pair whose rejected side is what the turn recorded on its
-first ask, the take Replay set beside it, and it lands in Curate accepted, since promoting is the verdict. The take, the
-calls it would make, the versions it ran under and the edited prompt itself
-are stored, because the journal never held them (ADR-0052). A take that only
-calls can be promoted too: the garage re-run that checks the contact sensor
-and says nothing until it answers is a chosen side (ADR-0054).
+first ask, the take Replay set beside it, and it lands in Curate accepted,
+since promoting is the verdict. The take, the calls it would make, the
+versions it ran under and the edited prompt and tool declarations are
+stored, because the journal never held them (ADR-0052); the page sends
+only which run and turn. A take that only calls can be promoted too: the
+garage re-run that checks the contact sensor and says nothing until it
+answers is a chosen side (ADR-0054).
 
 ![Replay, a re-run promoted](e2e/journey-replay-promoted.png)
 
@@ -282,8 +307,8 @@ them, and a take that only calls is named by its calls in the list
 ![Curate, a re-run that only calls the contact sensor](e2e/journey-curate-calls-only.png)
 
 Verdicts are rows in the curation table, revisable where the journal is
-append-only; unreviewed is the absence of a row (ADR-0034). Labels and
-promoted takes are rows beside them (ADR-0052).
+append-only; unreviewed is the absence of a row (ADR-0034). Labels, kept
+re-runs and promoted takes are rows beside them (ADR-0052, ADR-0059).
 
 ### Export
 

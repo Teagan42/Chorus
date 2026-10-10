@@ -17,14 +17,18 @@
 <div class="row" style="gap: 14px; align-items: flex-end; flex-wrap: wrap">{{template "field" .Model}}{{template "button" .Run}}<span class="meta htmx-indicator">asking the model, turn by turn…</span></div>
 {{template "field" .Prompt}}
 {{with .PromptNote}}<span class="meta">{{.}}</span>{{end}}
+{{template "field" .Tools}}
+{{with .ToolsNote}}<span class="meta">{{.}}</span>{{end}}
 </form>
 {{template "replay-result" .Result}}
 {{template "doc-end"}}{{end}}
 
 {{define "replay-result"}}<section id="replay-result" aria-label="Turns">
 {{with .Alert}}<div class="pad">{{template "alert" .}}</div>{{end}}
+{{template "list" .Runs}}
 {{with .Stats}}{{template "metric-strip" .}}{{end}}
 {{with .Diff}}<div class="pad">{{template "code-diff" .}}</div>{{end}}
+{{with .ToolDiff}}<div class="pad">{{template "code-diff" .}}</div>{{end}}
 <div class="list__row list__row--head" style="grid-template-columns: 70px minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr) 180px"><span>Turn</span><span>Heard</span><span>Recorded</span><span>Replayed</span><span></span></div>
 {{- range .Rows}}
 <div id="{{.Anchor}}" class="list__row" style="grid-template-columns: 70px minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr) 180px; align-items: start">

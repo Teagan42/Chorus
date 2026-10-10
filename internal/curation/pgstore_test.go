@@ -43,7 +43,7 @@ func TestPgStoreConformance(t *testing.T) {
 	// The suite's cases share pair ids, so each gets an empty table rather
 	// than a namespaced store - the store under test must be the real one.
 	runStoreConformance(t, func(t *testing.T) curation.Store {
-		if _, err := pool.Exec(context.Background(), `TRUNCATE curation_decisions, curation_annotations, curation_promotions`); err != nil {
+		if _, err := pool.Exec(context.Background(), `TRUNCATE curation_decisions, curation_annotations, curation_promotions, curation_reruns`); err != nil {
 			t.Fatalf("truncate: %v", err)
 		}
 		return curation.NewPgStore(pool)
@@ -97,5 +97,18 @@ func TestPgStoreRefusesATakeThatDoesNothing(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, insert, `[{"tool":"ha_get_state","args":"{\"entity_id\":\"binary_sensor.garage_door_contact\"}"}]`); err != nil {
 		t.Errorf("the database refused a take that only calls: %v", err)
+	}
+}
+
+// verifies SPEC §9.2
+func TestPgStoreRefusesAReRunThatRanNothing(t *testing.T) {
+	pool := openPg(t)
+	// Past the Go check, the CHECK constraint wants a turn that ran.
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO curation_reruns (conversation_id, model, prompt_version, tool_schema,
+			system_prompt, tool_schema_json, takes_json, ran_at)
+		VALUES ('conv-0853-kitchen', 'qwen3-32b@1', 'sys@edited', 'tools@7', '', '', '[]', now())`)
+	if err == nil {
+		t.Error("the database accepted a re-run of no turns")
 	}
 }

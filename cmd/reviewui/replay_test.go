@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +16,7 @@ import (
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/registry"
 	sess "github.com/teagan42/chorus/internal/session"
 )
 
@@ -25,18 +29,41 @@ const cutFirstPrompt = ollama.DefaultPrompt + "\n\nWhen there are several result
 // keeps what each re-run was built with.
 type scripted struct {
 	built   []string // model + "|" + prompt, per engine built
+	offered []map[string]registry.ToolSpec
 	answers map[string][]sess.Action
 	fail    error
 	gate    chan struct{} // when set, a turn waits on it before answering
 }
 
-func (h *scripted) engineFor(model, prompt string) (sess.Engine, journal.Versions, error) {
+func (h *scripted) engineFor(model, prompt string, tools map[string]registry.ToolSpec) (sess.Engine, journal.Versions, error) {
 	h.built = append(h.built, model+"|"+prompt)
-	v := journal.Versions{Model: model, Prompt: "sys@edited", ToolSchema: "tools@7"}
+	h.offered = append(h.offered, tools)
+	v := journal.Versions{Model: model, Prompt: "sys@edited", ToolSchema: "tools@edited"}
 	if prompt == ollama.DefaultPrompt {
 		v.Prompt = "sys@3"
 	}
+	if ollama.ToolSchema(tools) == ollama.ToolSchema(registry.Specs) {
+		v.ToolSchema = "tools@7"
+	}
 	return h, v, nil
+}
+
+// withoutTool is the registry's schema as Replay's editor shows it, with
+// one tool's declaration cut out.
+func withoutTool(t *testing.T, name string) string {
+	t.Helper()
+	var tools []map[string]any
+	if err := json.Unmarshal([]byte(ollama.ToolSchema(registry.Specs)), &tools); err != nil {
+		t.Fatal(err)
+	}
+	tools = slices.DeleteFunc(tools, func(tool map[string]any) bool {
+		return tool["function"].(map[string]any)["name"] == name
+	})
+	b, err := json.MarshalIndent(tools, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func (h *scripted) Turn(ctx context.Context, in sess.Input) (<-chan sess.Action, error) {
@@ -134,6 +161,8 @@ func TestReplayPageShowsEachRecordedTurnAndProvesTheLogReplays(t *testing.T) {
 		"Speak only by calling the speak tool.",
 		`value="qwen3-32b@1"`,
 		`hx-post="/replays/conv-1"`,
+		`id="replay-tools"`, "&#34;name&#34;: &#34;media_search&#34;", // the tools it is offered, to edit
+		"matches the recorded tool schema",
 	)
 	w := httptest.NewRecorder()
 	newReplayServer(t, nil).routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/replays/conv-9", nil))
@@ -186,9 +215,52 @@ func TestReplayRunsEveryTurnUnderTheEditedPromptAndDiffsIt(t *testing.T) {
 func TestAnEmptiedPromptIsRefusedOnThePage(t *testing.T) {
 	hh := leadsWithTheCount()
 	h := runReplay(t, newReplayServer(t, hh), "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {"  \n"}})
-	missing(t, "Replay result", h, "A re-run needs a model and a system prompt.", "play something by zeppelin")
+	missing(t, "Replay result", h, "A re-run needs a model, a system prompt and a tool schema.", "play something by zeppelin")
 	if len(hh.built) != 0 {
 		t.Error("an empty prompt should not reach the model")
+	}
+}
+
+// The reviewer cuts media_search from what the model is offered: the re-run
+// is built with every other tool, runs under a new tool-schema version, and
+// the page shows the cut as a diff.
+//
+// verifies SPEC §9.2
+func TestReplayRunsUnderAnEditedToolSchemaAndDiffsIt(t *testing.T) {
+	hh := leadsWithTheCount()
+	h := runReplay(t, newReplayServer(t, hh), "conv-1", url.Values{
+		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt}, "tools": {withoutTool(t, "media_search")},
+	})
+	offered := hh.offered[len(hh.offered)-1]
+	if _, ok := offered["media_search"]; ok || len(offered) != len(registry.Specs)-1 {
+		t.Errorf("the engine was offered %d tools, media_search %v", len(offered), ok)
+	}
+	missing(t, "Replay result", h,
+		"qwen3-32b@1 · sys@3 · tools@edited", // what it ran under
+		`aria-label="Tool schema diff"`,
+		`<span class="code-diff__line is-del">−       &#34;name&#34;: &#34;media_search&#34;,</span>`, // the cut, as a deleted line
+	)
+	if strings.Contains(h, `aria-label="Prompt diff"`) {
+		t.Error("an unedited prompt shows a diff")
+	}
+	if strings.Contains(h, "&#34;name&#34;: &#34;speak&#34;") {
+		t.Error("the tool-schema diff lists tools far from the cut")
+	}
+}
+
+// A schema that does not read is refused on the page with where it broke,
+// and the model is never asked.
+//
+// verifies SPEC §9.2
+func TestAMalformedToolSchemaIsRefusedOnThePage(t *testing.T) {
+	hh := leadsWithTheCount()
+	h := runReplay(t, newReplayServer(t, hh), "conv-1", url.Values{
+		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt},
+		"tools": {strings.Replace(ollama.ToolSchema(registry.Specs), `"type": "function"`, `"type": "function",,`, 1)},
+	})
+	missing(t, "Replay result", h, "The tool schema does not read.", "tool schema line 3", "play something by zeppelin")
+	if len(hh.built) != 0 {
+		t.Error("a schema that does not read reached the model")
 	}
 }
 
@@ -214,6 +286,100 @@ func TestAStreamThatDiesMidAnswerStopsTheRun(t *testing.T) {
 	missing(t, "Replay result", h, "Re-run stopped at #2", "llama runner process has terminated", "0 of 2")
 	if strings.Contains(h, "speech and calls changed") {
 		t.Error("a broken stream was scored as a changed answer")
+	}
+}
+
+// codeOf is the status a GET answers, for the routes a test expects to refuse.
+func codeOf(s *server, target string) int {
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, target, nil))
+	return w.Code
+}
+
+// Each re-run is kept beside the journal with what it ran under and what
+// each turn did, and Replay lists them newest first, linking each but the
+// one it is showing.
+//
+// verifies SPEC §9.2
+func TestEveryReRunIsKeptAndListedOnReplay(t *testing.T) {
+	s := newReplayServer(t, leadsWithTheCount())
+	missing(t, "Replay page", get(t, s, "/replays/conv-1"), "No re-runs kept yet.")
+
+	runReplay(t, s, "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}})
+	h := runReplay(t, s, "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {ollama.DefaultPrompt}, "tools": {withoutTool(t, "media_search")}})
+
+	runs, err := s.decisions.Reruns(context.Background(), "conv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("%d re-runs kept, want both", len(runs))
+	}
+	cut, brief := runs[0], runs[1]
+	if cut.Versions.ToolSchema != "tools@edited" || strings.Contains(cut.ToolSchema, "media_search") || cut.SystemPrompt != ollama.DefaultPrompt {
+		t.Errorf("the newest run is %+v, want the cut schema", cut.Versions)
+	}
+	if brief.Versions != (journal.Versions{Model: "qwen3:32b", Prompt: "sys@edited", ToolSchema: "tools@7"}) || brief.SystemPrompt != cutFirstPrompt {
+		t.Errorf("the first run is %+v under %q", brief.Versions, brief.SystemPrompt)
+	}
+	if len(brief.Takes) != 2 || brief.Takes[0].Speech != "I found three albums. Want Led Zeppelin one?" || brief.Takes[0].Calls[0].Tool != "media_search" {
+		t.Errorf("the first run kept %+v", brief.Takes)
+	}
+	if !brief.RanAt.Equal(s.now()) {
+		t.Errorf("the first run ran at %v, want the server's clock", brief.RanAt)
+	}
+
+	missing(t, "Replay result", h,
+		"qwen3:32b · sys@3 · tools@edited", "qwen3:32b · sys@edited · tools@7",
+		fmt.Sprintf(`href="/replays/conv-1/runs/%d"`, brief.ID), ">shown</span>",
+	)
+	if strings.Contains(h, fmt.Sprintf(`href="/replays/conv-1/runs/%d"`, cut.ID)) {
+		t.Error("the run on the page links back to itself")
+	}
+	missing(t, "Replay page", get(t, s, "/replays/conv-1"),
+		fmt.Sprintf(`href="/replays/conv-1/runs/%d"`, cut.ID), fmt.Sprintf(`href="/replays/conv-1/runs/%d"`, brief.ID))
+}
+
+// A kept re-run opens on its own address with its comparison, its diffs,
+// and the editor holding what it ran under, ready to tweak.
+//
+// verifies SPEC §9.2
+func TestAKeptReRunReopensWithWhatItRanUnder(t *testing.T) {
+	s := newReplayServer(t, leadsWithTheCount())
+	runReplay(t, s, "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}})
+	h := get(t, s, "/replays/conv-1/runs/1")
+	missing(t, "kept re-run", h,
+		`value="qwen3:32b"`, "offer the first, and stop.</textarea>",
+		"I found three albums. Want Led Zeppelin one?", "speech and calls changed", "1 of 2",
+		`aria-label="Prompt diff"`, `hx-post="/replays/conv-1/runs/1/turns/2/promote"`,
+	)
+	for _, target := range []string{"/replays/conv-1/runs/9", "/replays/conv-1/runs/one", "/replays/conv-2/runs/1"} {
+		if code := codeOf(s, target); code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", target, code)
+		}
+	}
+}
+
+// A run the model stopped keeps the turns it reached; one that reached none
+// keeps nothing, since there is nothing in it to compare or promote.
+//
+// verifies SPEC §9.2
+func TestAStoppedReRunKeepsTheTurnsItReached(t *testing.T) {
+	hh := leadsWithTheCount()
+	hh.answers["just the first one"] = []sess.Action{
+		sess.TurnEnd{FinishReason: "error", Completion: `{"error":"llama runner process has terminated: signal: killed"}`},
+	}
+	s := newReplayServer(t, hh)
+	runReplay(t, s, "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}})
+	runs, _ := s.decisions.Reruns(context.Background(), "conv-1")
+	if len(runs) != 1 || len(runs[0].Takes) != 1 || runs[0].Takes[0].Seq != 2 {
+		t.Fatalf("kept %+v, want the one turn before the failure", runs)
+	}
+
+	hh.fail = errors.New(`ollama chat: 404 Not Found: {"error":"model 'qwen3:70b' not found"}`)
+	runReplay(t, s, "conv-1", url.Values{"model": {"qwen3:70b"}, "prompt": {cutFirstPrompt}})
+	if runs, _ := s.decisions.Reruns(context.Background(), "conv-1"); len(runs) != 1 {
+		t.Errorf("a run that reached no turn was kept: %d runs", len(runs))
 	}
 }
 
@@ -257,15 +423,46 @@ func TestReplayAsksTheEndpointChorusdUses(t *testing.T) {
 		t.Error("a half-configured endpoint should offer no engine")
 	}
 	build := ollamaEngines("http://ollama.lan:11434", "qwen3:32b")
-	_, recorded, err := build("qwen3:32b", ollama.DefaultPrompt)
+	_, recorded, err := build("qwen3:32b", ollama.DefaultPrompt, registry.Specs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, edited, err := build("qwen3:14b", cutFirstPrompt)
+	_, edited, err := build("qwen3:14b", cutFirstPrompt, registry.Specs)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if edited.Model != "qwen3:14b" || edited.Prompt == recorded.Prompt || edited.ToolSchema != recorded.ToolSchema {
 		t.Errorf("edited versions %+v against recorded %+v: want a new model and prompt, the same tools", edited, recorded)
+	}
+	noSearch, err := ollama.ParseToolSchema(withoutTool(t, "media_search"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, cut, _ := build("qwen3:32b", ollama.DefaultPrompt, noSearch); cut.ToolSchema == recorded.ToolSchema || cut.Prompt != recorded.Prompt {
+		t.Errorf("cut versions %+v against recorded %+v: want new tools, the same prompt", cut, recorded)
+	}
+}
+
+// A reworded description reads as a diff does: the old line struck, then
+// the new one, with only the lines near it kept.
+//
+// verifies SPEC §9.2
+func TestARewordedLineDiffsOldThenNew(t *testing.T) {
+	recorded := "[\n  {\n    \"name\": \"ha_get_state\",\n    \"description\": \"Read one entity.\",\n    \"type\": \"object\"\n  }\n]"
+	edited := strings.Replace(recorded, "Read one entity.", "Read its contact sensor.", 1)
+	var got []string
+	for _, l := range hunks(lineDiff(recorded, edited), 1) {
+		got = append(got, l.Kind+l.Text)
+	}
+	want := []string{
+		" …",
+		`     "name": "ha_get_state",`,
+		`-    "description": "Read one entity.",`,
+		`+    "description": "Read its contact sensor.",`,
+		`     "type": "object"`,
+		" …",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("diff =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

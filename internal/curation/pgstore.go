@@ -185,18 +185,19 @@ func (p *PgStore) PutPromotion(ctx context.Context, pr Promotion) error {
 	_, err = p.db.Exec(ctx, `
 		INSERT INTO curation_promotions (
 			conversation_id, turn_seq, speech, calls_json, model, prompt_version, tool_schema,
-			system_prompt, promoted_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			system_prompt, tool_schema_json, promoted_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (conversation_id, turn_seq) DO UPDATE SET
-			speech         = excluded.speech,
-			calls_json     = excluded.calls_json,
-			model          = excluded.model,
-			prompt_version = excluded.prompt_version,
-			tool_schema    = excluded.tool_schema,
-			system_prompt  = excluded.system_prompt,
-			promoted_at    = excluded.promoted_at`,
+			speech           = excluded.speech,
+			calls_json       = excluded.calls_json,
+			model            = excluded.model,
+			prompt_version   = excluded.prompt_version,
+			tool_schema      = excluded.tool_schema,
+			system_prompt    = excluded.system_prompt,
+			tool_schema_json = excluded.tool_schema_json,
+			promoted_at      = excluded.promoted_at`,
 		pr.ConversationID, int64(pr.Seq), pr.Speech, callsJSON,
-		pr.Versions.Model, pr.Versions.Prompt, pr.Versions.ToolSchema, pr.SystemPrompt, pr.PromotedAt)
+		pr.Versions.Model, pr.Versions.Prompt, pr.Versions.ToolSchema, pr.SystemPrompt, pr.ToolSchema, pr.PromotedAt)
 	if err != nil {
 		return fmt.Errorf("put promotion %s/%d: %w", pr.ConversationID, pr.Seq, err)
 	}
@@ -207,7 +208,7 @@ func (p *PgStore) PutPromotion(ctx context.Context, pr Promotion) error {
 func (p *PgStore) Promotions(ctx context.Context, conversationID string) (map[uint64]Promotion, error) {
 	rows, err := p.db.Query(ctx, `
 		SELECT conversation_id, turn_seq, speech, calls_json, model, prompt_version, tool_schema,
-			system_prompt, promoted_at
+			system_prompt, tool_schema_json, promoted_at
 		FROM curation_promotions WHERE conversation_id = $1`, conversationID)
 	if err != nil {
 		return nil, fmt.Errorf("promotions for %s: %w", conversationID, err)
@@ -220,7 +221,7 @@ func (p *PgStore) Promotions(ctx context.Context, conversationID string) (map[ui
 		)
 		if err := row.Scan(&pr.ConversationID, &seq, &pr.Speech, &calls,
 			&pr.Versions.Model, &pr.Versions.Prompt, &pr.Versions.ToolSchema,
-			&pr.SystemPrompt, &pr.PromotedAt); err != nil {
+			&pr.SystemPrompt, &pr.ToolSchema, &pr.PromotedAt); err != nil {
 			return pr, err
 		}
 		pr.Seq, pr.PromotedAt = uint64(seq), pr.PromotedAt.UTC()
@@ -240,4 +241,61 @@ func (p *PgStore) Promotions(ctx context.Context, conversationID string) (map[ui
 		out[pr.Seq] = pr
 	}
 	return out, nil
+}
+
+// AddRerun inserts the re-run; the identity column is its id.
+func (p *PgStore) AddRerun(ctx context.Context, r Rerun) (uint64, error) {
+	if err := r.validate(); err != nil {
+		return 0, err
+	}
+	takes, err := json.Marshal(r.Takes)
+	if err != nil {
+		return 0, fmt.Errorf("add re-run of %s: %w", r.ConversationID, err)
+	}
+	var id int64
+	err = p.db.QueryRow(ctx, `
+		INSERT INTO curation_reruns (
+			conversation_id, model, prompt_version, tool_schema, system_prompt, tool_schema_json,
+			takes_json, ran_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id`,
+		r.ConversationID, r.Versions.Model, r.Versions.Prompt, r.Versions.ToolSchema,
+		r.SystemPrompt, r.ToolSchema, takes, r.RanAt).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("add re-run of %s: %w", r.ConversationID, err)
+	}
+	return uint64(id), nil
+}
+
+// Reruns returns the conversation's re-runs, newest first.
+func (p *PgStore) Reruns(ctx context.Context, conversationID string) ([]Rerun, error) {
+	rows, err := p.db.Query(ctx, `
+		SELECT id, conversation_id, model, prompt_version, tool_schema, system_prompt,
+			tool_schema_json, takes_json, ran_at
+		FROM curation_reruns WHERE conversation_id = $1
+		ORDER BY ran_at DESC, id DESC`, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("re-runs of %s: %w", conversationID, err)
+	}
+	rs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Rerun, error) {
+		var (
+			r     Rerun
+			id    int64
+			takes []byte
+		)
+		if err := row.Scan(&id, &r.ConversationID, &r.Versions.Model, &r.Versions.Prompt,
+			&r.Versions.ToolSchema, &r.SystemPrompt, &r.ToolSchema, &takes, &r.RanAt); err != nil {
+			return r, err
+		}
+		r.ID, r.RanAt = uint64(id), r.RanAt.UTC()
+		if err := json.Unmarshal(takes, &r.Takes); err != nil {
+			return r, fmt.Errorf("takes_json: %w", err)
+		}
+		r.Takes = cloneTakes(r.Takes)
+		return r, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("re-runs of %s: %w", conversationID, err)
+	}
+	return rs, nil
 }

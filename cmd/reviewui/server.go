@@ -84,7 +84,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET "+ui.Routes[ui.StepReplay], s.replays)
 	mux.HandleFunc("GET "+ui.Routes[ui.StepReplay]+"/{id}", s.replayPage)
 	mux.HandleFunc("POST "+ui.Routes[ui.StepReplay]+"/{id}", s.replayRun)
-	mux.HandleFunc("POST "+ui.Routes[ui.StepReplay]+"/{id}/turns/{seq}/promote", s.promote)
+	mux.HandleFunc("GET "+ui.Routes[ui.StepReplay]+"/{id}/runs/{run}", s.runPage)
+	mux.HandleFunc("POST "+ui.Routes[ui.StepReplay]+"/{id}/runs/{run}/turns/{seq}/promote", s.promote)
 	mux.Handle("GET /audio", audio.Handler(s.blobs))
 	mux.HandleFunc("GET "+ui.Routes[ui.StepExport], s.export)
 	mux.HandleFunc("GET /export/dpo.jsonl", s.exportJSONL)
@@ -188,7 +189,7 @@ func (s *server) reviewersPairs(ctx context.Context, conv string, turns []harves
 			if r, ok := asked[t.Seq]; ok {
 				rejectFirstAsk(&h, r)
 			}
-			h.Heard = "re-run under " + p.Versions.Model + " · " + p.Versions.Prompt
+			h.Heard = "re-run under " + p.Versions.Model + " · " + p.Versions.Prompt + " · " + p.Versions.ToolSchema
 			h.ChosenVersions = p.Versions
 			for _, c := range p.Calls {
 				h.ChosenCalls = append(h.ChosenCalls, journal.Call{Tool: c.Tool, Args: c.Args})

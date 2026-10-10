@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"os"
 	"testing"
@@ -68,6 +69,22 @@ func TestReplayOverPostgresRerunsTheRecordedTurns(t *testing.T) {
 	missing(t, "Replay index", get(t, s, "/replays"), `href="/replays/`+conv+`"`)
 	missing(t, "Replay page", get(t, s, replayHref(conv)),
 		"play something by zeppelin", " albums by that artist", "replay() reads back all 13 events")
+	if _, err := pool.Exec(context.Background(), `DELETE FROM curation_reruns WHERE conversation_id = $1`, conv); err != nil {
+		t.Fatalf("clear %s's re-runs: %v", conv, err)
+	}
 	missing(t, "Replay result", runReplay(t, s, conv, url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}}),
 		"I found three albums. Want Led Zeppelin one?", "speech and calls changed", ">same</span>")
+
+	// The run is kept in Postgres, and its take promoted from there.
+	runs, err := s.decisions.Reruns(context.Background(), conv)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("kept re-runs = %v, %v; want the one", runs, err)
+	}
+	promote := fmt.Sprintf("%s/runs/%d/turns/2/promote", replayHref(conv), runs[0].ID)
+	missing(t, "kept re-run", get(t, s, fmt.Sprintf("%s/runs/%d", replayHref(conv), runs[0].ID)), `hx-post="`+promote+`"`)
+	mustPost(t, s, promote, nil)
+	promos, err := s.decisions.Promotions(context.Background(), conv)
+	if p := promos[2]; err != nil || p.Speech != "I found three albums. Want Led Zeppelin one?" || p.Versions.Prompt != "sys@edited" {
+		t.Errorf("promotion = %+v, %v", p, err)
+	}
 }
