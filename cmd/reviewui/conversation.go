@@ -312,6 +312,10 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 	if err == nil && len(events) > 0 {
 		sigs, err = triage.Scan(r.Context(), s.journal, id)
 	}
+	var positives []triage.Signal
+	if err == nil && len(events) > 0 {
+		positives, err = triage.WeakPositives(r.Context(), s.journal, id)
+	}
 	if err == nil && len(events) > 0 && id != houseLog {
 		house, err = timersOf(r, s.journal, id)
 	}
@@ -332,7 +336,7 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bySeq := map[uint64]triage.Signal{}
-	for _, sig := range sigs {
+	for _, sig := range append(positives, sigs...) {
 		bySeq[sig.Seq] = sig
 	}
 	c := summarize(id, events, sigs)
