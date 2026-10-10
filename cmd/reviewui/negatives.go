@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"slices"
 	"strconv"
@@ -97,8 +96,7 @@ func (s *server) exportWake(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/jsonl")
 	w.Header().Set("Content-Disposition", `attachment; filename="chorus-wake-negatives.jsonl"`)
 	if err := harvest.ExportNegatives(w, wakeCorpus(ns)); err != nil {
-		log.Printf("reviewui: wake export aborted: %v", err)
-		panic(http.ErrAbortHandler)
+		abortStream("wake export", err)
 	}
 }
 
