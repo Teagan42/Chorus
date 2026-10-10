@@ -22,7 +22,7 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | `speech_truncated` | speaking | yes | yes | Barge-in cut speech short. Carries the exact split between heard and unheard text. |
 | `timer_cancelled` | tool |  |  | A running timer was cancelled before it went off. |
 | `timer_finished` | session |  |  | A timer went off, and whether anybody was told. A timer nobody heard is a failure the household felt, so it is recorded as one (SPEC §7). |
-| `timer_started` | tool |  |  | A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0044). |
+| `timer_started` | tool |  |  | A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0045). |
 | `tool_called` | thinking |  |  | Model dispatched a tool; emitted when its JSON closed, not at end of message. |
 | `tool_result` | tool |  |  | Tool completed, failed, or timed out. Failures are results the model reasons about (SPEC §7). |
 | `utterance_transcribed` | listening | yes |  | Final STT result for one utterance. |
@@ -224,7 +224,7 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 
 ## `timer_started`
 
-A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0044).
+A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0045).
 
 Actor: `tool`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
 

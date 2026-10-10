@@ -42,7 +42,7 @@ const (
 	KindTimerCancelled Kind = "timer_cancelled"
 	// A timer went off, and whether anybody was told. A timer nobody heard is a failure the household felt, so it is recorded as one (SPEC §7).
 	KindTimerFinished Kind = "timer_finished"
-	// A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0044).
+	// A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0045).
 	KindTimerStarted Kind = "timer_started"
 	// Model dispatched a tool; emitted when its JSON closed, not at end of message.
 	KindToolCalled Kind = "tool_called"
