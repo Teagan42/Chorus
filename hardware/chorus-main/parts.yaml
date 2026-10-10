@@ -37,15 +37,15 @@ parts:
       contacts and MP1, MP2 the fixing tabs. Where each pad sits on the
       footprint: chorus-main.pretty/README.md
     mpn: FX23L-80S-0.5SV(20)
-    hand: >-
-      no LCSC number for this receptacle has been confirmed; until one is,
-      it is bought from Hirose's distributors and soldered after assembly
+    lcsc: C2911203
     unverified: >-
-      which power contact is which. The signal pads are read from
-      FutureProofHomes' shoe and protoboard; MH1-MH4 are inferred from the
-      shoe's copper, and a 5 V and VBUS swap puts PoE's 12 V on the HAT's
-      5 V rail. Confirm against Hirose's or a vendor's footprint, or by
-      measuring a powered HAT's plug, before ordering
+      which end of the plug is ground. The signal pads and all four holes
+      match Hirose's own 3D model of this part, but nothing Hirose publishes
+      says which net a power contact carries. MH1-MH4 are FutureProofHomes'
+      names, placed here from their shoe's ground pour; numbered as Hirose
+      numbers its power contacts, the grounds would be at the other end, and
+      this board would short PoE and the HAT's VBUS to ground. A continuity
+      test on an unpowered HAT settles it: chorus-main.pretty/README.md
     pins:
       - {pad: "1", name: "1", type: passive}
       - {pad: "2", name: "2", type: passive}
