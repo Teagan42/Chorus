@@ -73,8 +73,12 @@ no managed outbound-link helper. Native API retained for control only.
 
 ### 3.2 Component contract
 
-- Two `MicrophoneSource` consumers on one `Microphone`: channel 0 (AEC'd) and
-  channel 1 (raw), each with its own ring buffer. This is what stock does.
+- Two `MicrophoneSource` consumers on one `Microphone`: channel 0 and
+  channel 1, each with its own ring buffer. This is what stock does. Both are
+  the XMOS's processed outputs, not a bare mic: channel 0 is AEC, interference
+  cancelling, noise suppression and AGC on both devices; channel 1 is
+  AEC+IC+NS on the Satellite1's firmware and AEC alone by default on the Voice
+  PE's, which can switch it to the unprocessed mic over its control interface.
 - Callbacks fire on the **mic's FreeRTOS task, not `loop()`**. Signature
   `void(const std::vector<uint8_t> &)`. Not an ISR, so blocking is legal, but
   sockets / API / `App` must not be touched there.
@@ -149,8 +153,7 @@ this build wires a *single* mic channel into stock `voice_assistant` and does
 not advertise streamed-speaker TTS — the dual-channel claim in §3.2 describes
 the Voice PE config and the hardware capability, not this device's current stock
 wiring. Irrelevant to us (our component chooses its own sources), but the two
-AEC'd/raw sources must be declared by `chorus_bridge` rather than assumed
-present.
+sources must be declared by `chorus_bridge` rather than assumed present.
 
 Entities that matter, all usable from the orchestrator over the native API:
 
@@ -368,7 +371,7 @@ review UI, replay harness, and dataset export become readers of existing data
 rather than new plumbing.
 
 Storage: Postgres `JSONB`, partitioned by conversation, plus MinIO/filesystem
-for audio blobs (raw mic PCM both channels, synthesized TTS). Keep everything;
+for audio blobs (mic PCM, both channels; synthesized TTS). Keep everything;
 retention configurable per satellite. 16 kHz mono is ~115 MB/day of continuous
 capture.
 
@@ -434,8 +437,10 @@ hard negatives, so the retraining corpus fills itself with precisely the
 negatives the model lacks — no manual labeling, no retraining needed to get
 immediate relief.
 
-Dual-channel capture means the corpus carries both AEC'd and raw streams, so
-retraining can target whichever frontend ships.
+Dual-channel capture means the corpus carries the fully processed stream and
+the XMOS's lighter-processed second output, so retraining can target either.
+Neither is the bare mic on stock firmware (§3.2); a truly raw stream needs the
+Voice PE's stage switch or a change to the Satellite1's XMOS firmware.
 
 ### 9.4 False rejects (phase 2, lower priority)
 

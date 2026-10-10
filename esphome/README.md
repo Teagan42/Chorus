@@ -32,7 +32,7 @@ without breaking an older host.
 | Type | Dir | Payload |
 |---|---|---|
 | `0x01` hello | device | version:u8, sample_rate:u32, bits:u8, mic_channels:u8 |
-| `0x02` mic | device | 16 kHz s16le PCM; `flags` is the channel (0 AEC'd, 1 raw) |
+| `0x02` mic | device | 16 kHz s16le PCM; `flags` is the channel: 0 the fully processed mix, 1 the XMOS's second, lighter-processed output (SPEC §3.2) |
 | `0x03` wake | device | wake word name, UTF-8 |
 | `0x04` played | device | cumulative DAC frames:u64, `esp_timer` micros:i64; `flags` echoes the tag of the stop this report answers, 0 otherwise |
 | `0x05` mute | device | none; `flags` bit 0 hardware, bit 1 software |

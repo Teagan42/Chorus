@@ -54,7 +54,7 @@ i2s_audio:
     i2s_lrclk_pin: GPIO16
     i2s_bclk_pin: GPIO15
 
-# Stereo: the XMOS chip presents the AEC'd mix and the raw mic as two channels.
+# Stereo: the XMOS chip presents two processed channels (SPEC §3.2).
 microphone:
   - platform: i2s_audio
     id: xmos_mic

@@ -105,11 +105,10 @@ The XU316 (`XU316-1024-QF60B`, 3.3 V I/O) runs FutureProofHomes' XMOS
 firmware unmodified and hands the ESP32 two channels at 48 kHz, each 16 kHz
 sample repeated three times. **Both are processed**: slot 0 is AEC, interference
 cancelling, noise suppression and AGC; slot 1 is the same without AGC
-(`src/main.c`, `app_conf.h` in Satellite1-XMOS). Neither is a raw mic, so the
-`flags` 1 channel the wire protocol and
-[SPEC §9.3](../SPEC.md#93-two-stage-wake-confirmation-phase-1) call raw is
-processed audio on this board as on the Satellite1. A raw channel needs an XMOS
-firmware change, which its licence permits as a derivative.
+(`src/main.c`, `app_conf.h` in Satellite1-XMOS). Neither is a raw mic
+([SPEC §3.2](../SPEC.md#32-component-contract)). A raw channel needs an XMOS
+firmware change, which its licence permits as a derivative; the Voice PE's
+firmware has a control message for it that a derivative could copy.
 
 The firmware is under the XMOS Public Licence v1. Its only device condition
 is that it runs on XMOS silicon, which a genuine XU316 meets; distributing
