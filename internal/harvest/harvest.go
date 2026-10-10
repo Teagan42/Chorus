@@ -170,10 +170,12 @@ type Pair struct {
 // was asked, in context, and what it said and did. Annotation and replay
 // pairs are cut from the turns a reviewer picks.
 type Turn struct {
-	// Seq is the turn's utterance, which is how Replay names it too.
-	Seq     uint64
-	Prompt  []Message
-	Speaker string
+	// Seq is the turn's utterance, which is how Replay names it too, and
+	// AskAudio that utterance's mic audio.
+	Seq      uint64
+	Prompt   []Message
+	Speaker  string
+	AskAudio string
 
 	// Said and Unheard split what it generated as Pair's Rejected sides do.
 	Said, Unheard string
@@ -477,7 +479,7 @@ func (w *walker) closeTurn(next *journal.Event) {
 	prompt := w.prompt(t)
 	said, unheard := t.said()
 	w.result.Turns = append(w.result.Turns, Turn{
-		Seq: t.promptSeq, Prompt: prompt, Speaker: t.speaker,
+		Seq: t.promptSeq, Prompt: prompt, Speaker: t.speaker, AskAudio: t.heardAudio,
 		Said: said, Unheard: unheard, Audio: t.spokenAudio,
 		Calls: t.calls, Versions: t.versions, Attributed: t.completed && complete(t.versions),
 		Recalled: t.recalled, RecalledSummaries: t.summaries, HeardAt: t.heardAt,
