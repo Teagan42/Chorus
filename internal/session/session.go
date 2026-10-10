@@ -357,10 +357,8 @@ func (s *Session) Heard(ctx context.Context, t Transcript) error {
 	// voice that matched nobody makes it a guest's (§5). The reducer
 	// attributes the same way, so a replay asks as this turn did.
 	s.person = journal.Attribute(s.person, t.SpeakerID, t.SpeakerMatch)
-	// Read under the lock: another utterance's turn may be flipping it.
-	person := s.person
 	s.mu.Unlock()
-	s.sup.cfg.Conversations.Touch(person)
+	s.sup.cfg.Conversations.Touch(s.convID)
 	s.poke()
 	return s.turn(ctx, t)
 }
