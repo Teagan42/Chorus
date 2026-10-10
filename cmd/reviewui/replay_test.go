@@ -26,7 +26,8 @@ const cutFirstPrompt = ollama.DefaultPrompt + "\n\nWhen there are several result
 
 // scripted is a turn engine that answers the way the model does after the
 // prompt edit: it leads with the count and searches before it speaks. It
-// keeps what each re-run was built with.
+// keeps what each re-run was built with and, as a model does, never calls a
+// tool it was not offered.
 type scripted struct {
 	built   []string // model + "|" + prompt, per engine built
 	offered []map[string]registry.ToolSpec
@@ -42,18 +43,23 @@ func (h *scripted) engineFor(model, prompt string, tools map[string]registry.Too
 	if prompt == ollama.DefaultPrompt {
 		v.Prompt = "sys@3"
 	}
-	if ollama.ToolSchema(tools) == ollama.ToolSchema(registry.Specs) {
-		v.ToolSchema = "tools@7"
+	if ollama.ToolSchema(tools) == ollama.ToolSchema(registry.Offered()) {
+		v.ToolSchema = "tools@8" // what chorusd offers now; the fixtures ran under tools@7
 	}
 	return h, v, nil
 }
 
-// withoutTool is the registry's schema as Replay's editor shows it, with
+// searchBack is the registry's whole schema, media_search and all: what a
+// reviewer offers to see what the brief prompt makes of a search's results,
+// since chorusd offers no search (ADR-0060) and without one there are none.
+func searchBack() string { return ollama.ToolSchema(registry.Specs) }
+
+// withoutTool is the schema Replay's editor shows, what chorusd offers, with
 // one tool's declaration cut out.
 func withoutTool(t *testing.T, name string) string {
 	t.Helper()
 	var tools []map[string]any
-	if err := json.Unmarshal([]byte(ollama.ToolSchema(registry.Specs)), &tools); err != nil {
+	if err := json.Unmarshal([]byte(ollama.ToolSchema(registry.Offered())), &tools); err != nil {
 		t.Fatal(err)
 	}
 	tools = slices.DeleteFunc(tools, func(tool map[string]any) bool {
@@ -77,8 +83,14 @@ func (h *scripted) Turn(ctx context.Context, in sess.Input) (<-chan sess.Action,
 	if h.fail != nil {
 		return nil, h.fail
 	}
+	offered := h.offered[len(h.offered)-1]
 	out := make(chan sess.Action, len(h.answers[in.Text]))
 	for _, a := range h.answers[in.Text] {
+		if c, ok := a.(sess.ToolCall); ok {
+			if _, ok := offered[c.Tool]; !ok {
+				continue
+			}
+		}
 		out <- a
 	}
 	close(out)
@@ -161,9 +173,12 @@ func TestReplayPageShowsEachRecordedTurnAndProvesTheLogReplays(t *testing.T) {
 		"Speak only by calling the speak tool.",
 		`value="qwen3-32b@1"`,
 		`hx-post="/replays/conv-1"`,
-		`id="replay-tools"`, "&#34;name&#34;: &#34;media_search&#34;", // the tools it is offered, to edit
-		"matches the recorded tool schema",
+		`id="replay-tools"`, "&#34;name&#34;: &#34;ha_get_state&#34;", // the tools chorusd offers, to edit
+		"recorded under tools@7; the registry&#39;s schema is now tools@8", // and that they moved on
 	)
+	if h := get(t, newReplayServer(t, leadsWithTheCount()), "/replays/conv-1"); strings.Contains(h, "&#34;name&#34;: &#34;media_search&#34;") {
+		t.Error("the editor offers media_search, which chorusd defers (SPEC §14)")
+	}
 	w := httptest.NewRecorder()
 	newReplayServer(t, nil).routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/replays/conv-9", nil))
 	if w.Code != http.StatusNotFound {
@@ -191,7 +206,7 @@ func TestReplayWithoutAModelSaysHowToConnectOne(t *testing.T) {
 func TestReplayRunsEveryTurnUnderTheEditedPromptAndDiffsIt(t *testing.T) {
 	hh := leadsWithTheCount()
 	s := newReplayServer(t, hh)
-	h := runReplay(t, s, "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}})
+	h := runReplay(t, s, "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}, "tools": {searchBack()}})
 
 	if got := hh.built[len(hh.built)-1]; got != "qwen3:32b|"+cutFirstPrompt {
 		t.Errorf("engine built with %q, want the edited model and prompt", got)
@@ -221,24 +236,42 @@ func TestAnEmptiedPromptIsRefusedOnThePage(t *testing.T) {
 	}
 }
 
-// The reviewer cuts media_search from what the model is offered: the re-run
-// is built with every other tool, runs under a new tool-schema version, and
-// the page shows the cut as a diff.
+// A re-run nobody edited is offered what chorusd offers: every tool but the
+// deferred media_search, under the registry's version, with no diff.
+//
+// verifies SPEC §6, §9.2
+func TestAnUneditedReplayOffersWhatChorusdOffers(t *testing.T) {
+	hh := leadsWithTheCount()
+	h := runReplay(t, newReplayServer(t, hh), "conv-1", url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt}})
+	offered := hh.offered[len(hh.offered)-1]
+	if _, ok := offered["media_search"]; ok || len(offered) != len(registry.Offered()) {
+		t.Errorf("the engine was offered %d tools, media_search %v; want chorusd's %d", len(offered), ok, len(registry.Offered()))
+	}
+	missing(t, "Replay result", h, "qwen3-32b@1 · sys@3 · tools@8")
+	if strings.Contains(h, `aria-label="Tool schema diff"`) || strings.Contains(h, "media_search") {
+		t.Error("a re-run nobody edited shows a schema diff, or a search it was not offered")
+	}
+}
+
+// The reviewer cuts ha_call_service from what the model is offered, to hear
+// what it says to Alice when it cannot act: the re-run is built with every
+// other tool, runs under a new tool-schema version, and the page shows the
+// cut as a diff.
 //
 // verifies SPEC §9.2
 func TestReplayRunsUnderAnEditedToolSchemaAndDiffsIt(t *testing.T) {
 	hh := leadsWithTheCount()
 	h := runReplay(t, newReplayServer(t, hh), "conv-1", url.Values{
-		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt}, "tools": {withoutTool(t, "media_search")},
+		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt}, "tools": {withoutTool(t, "ha_call_service")},
 	})
 	offered := hh.offered[len(hh.offered)-1]
-	if _, ok := offered["media_search"]; ok || len(offered) != len(registry.Specs)-1 {
-		t.Errorf("the engine was offered %d tools, media_search %v", len(offered), ok)
+	if _, ok := offered["ha_call_service"]; ok || len(offered) != len(registry.Offered())-1 {
+		t.Errorf("the engine was offered %d tools, ha_call_service %v", len(offered), ok)
 	}
 	missing(t, "Replay result", h,
 		"qwen3-32b@1 · sys@3 · tools@edited", // what it ran under
 		`aria-label="Tool schema diff"`,
-		`<span class="code-diff__line is-del">−       &#34;name&#34;: &#34;media_search&#34;,</span>`, // the cut, as a deleted line
+		`<span class="code-diff__line is-del">−       &#34;name&#34;: &#34;ha_call_service&#34;,</span>`, // the cut, as a deleted line
 	)
 	if strings.Contains(h, `aria-label="Prompt diff"`) {
 		t.Error("an unedited prompt shows a diff")
@@ -256,7 +289,7 @@ func TestAMalformedToolSchemaIsRefusedOnThePage(t *testing.T) {
 	hh := leadsWithTheCount()
 	h := runReplay(t, newReplayServer(t, hh), "conv-1", url.Values{
 		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt},
-		"tools": {strings.Replace(ollama.ToolSchema(registry.Specs), `"type": "function"`, `"type": "function",,`, 1)},
+		"tools": {strings.Replace(ollama.ToolSchema(registry.Offered()), `"type": "function"`, `"type": "function",,`, 1)},
 	})
 	missing(t, "Replay result", h, "The tool schema does not read.", "tool schema line 3", "play something by zeppelin")
 	if len(hh.built) != 0 {
@@ -279,7 +312,7 @@ func TestAModelThatCannotAnswerStopsTheRunAndSaysWhy(t *testing.T) {
 func TestAStreamThatDiesMidAnswerStopsTheRun(t *testing.T) {
 	hh := leadsWithTheCount()
 	hh.answers["play something by zeppelin"] = []sess.Action{
-		sess.ToolCall{ID: "call_1", Tool: "media_search", Args: `{"query":"Led Zeppelin","limit":5}`},
+		sess.SpeechDelta{CallID: "call_1", Text: "I found ", Mode: sess.ModeQueue},
 		sess.TurnEnd{FinishReason: "error", Completion: `{"error":"llama runner process has terminated: signal: killed"}`},
 	}
 	h := runReplay(t, newReplayServer(t, hh), "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}})
@@ -305,8 +338,8 @@ func TestEveryReRunIsKeptAndListedOnReplay(t *testing.T) {
 	s := newReplayServer(t, leadsWithTheCount())
 	missing(t, "Replay page", get(t, s, "/replays/conv-1"), "No re-runs kept yet.")
 
-	runReplay(t, s, "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}})
-	h := runReplay(t, s, "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {ollama.DefaultPrompt}, "tools": {withoutTool(t, "media_search")}})
+	runReplay(t, s, "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}, "tools": {searchBack()}})
+	h := runReplay(t, s, "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {ollama.DefaultPrompt}, "tools": {withoutTool(t, "ha_call_service")}})
 
 	runs, err := s.decisions.Reruns(context.Background(), "conv-1")
 	if err != nil {
@@ -316,10 +349,10 @@ func TestEveryReRunIsKeptAndListedOnReplay(t *testing.T) {
 		t.Fatalf("%d re-runs kept, want both", len(runs))
 	}
 	cut, brief := runs[0], runs[1]
-	if cut.Versions.ToolSchema != "tools@edited" || strings.Contains(cut.ToolSchema, "media_search") || cut.SystemPrompt != ollama.DefaultPrompt {
+	if cut.Versions != (journal.Versions{Model: "qwen3:32b", Prompt: "sys@3", ToolSchema: "tools@edited"}) || strings.Contains(cut.ToolSchema, "ha_call_service") || cut.SystemPrompt != ollama.DefaultPrompt {
 		t.Errorf("the newest run is %+v, want the cut schema", cut.Versions)
 	}
-	if brief.Versions != (journal.Versions{Model: "qwen3:32b", Prompt: "sys@edited", ToolSchema: "tools@7"}) || brief.SystemPrompt != cutFirstPrompt {
+	if brief.Versions != (journal.Versions{Model: "qwen3:32b", Prompt: "sys@edited", ToolSchema: "tools@edited"}) || brief.SystemPrompt != cutFirstPrompt || brief.ToolSchema != searchBack() {
 		t.Errorf("the first run is %+v under %q", brief.Versions, brief.SystemPrompt)
 	}
 	if len(brief.Takes) != 2 || brief.Takes[0].Speech != "I found three albums. Want Led Zeppelin one?" || brief.Takes[0].Calls[0].Tool != "media_search" {
@@ -330,7 +363,7 @@ func TestEveryReRunIsKeptAndListedOnReplay(t *testing.T) {
 	}
 
 	missing(t, "Replay result", h,
-		"qwen3:32b · sys@3 · tools@edited", "qwen3:32b · sys@edited · tools@7",
+		"qwen3:32b · sys@3 · tools@edited", "qwen3:32b · sys@edited · tools@edited",
 		fmt.Sprintf(`href="/replays/conv-1/runs/%d"`, brief.ID), ">shown</span>",
 	)
 	if strings.Contains(h, fmt.Sprintf(`href="/replays/conv-1/runs/%d"`, cut.ID)) {
@@ -346,12 +379,12 @@ func TestEveryReRunIsKeptAndListedOnReplay(t *testing.T) {
 // verifies SPEC §9.2
 func TestAKeptReRunReopensWithWhatItRanUnder(t *testing.T) {
 	s := newReplayServer(t, leadsWithTheCount())
-	runReplay(t, s, "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}})
+	runReplay(t, s, "conv-1", url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}, "tools": {searchBack()}})
 	h := get(t, s, "/replays/conv-1/runs/1")
 	missing(t, "kept re-run", h,
 		`value="qwen3:32b"`, "offer the first, and stop.</textarea>",
 		"I found three albums. Want Led Zeppelin one?", "speech and calls changed", "1 of 2",
-		`aria-label="Prompt diff"`, `hx-post="/replays/conv-1/runs/1/turns/2/promote"`,
+		`aria-label="Prompt diff"`, `aria-label="Tool schema diff"`, `hx-post="/replays/conv-1/runs/1/turns/2/promote"`,
 	)
 	for _, target := range []string{"/replays/conv-1/runs/9", "/replays/conv-1/runs/one", "/replays/conv-2/runs/1"} {
 		if code := codeOf(s, target); code != http.StatusNotFound {
@@ -423,22 +456,22 @@ func TestReplayAsksTheEndpointChorusdUses(t *testing.T) {
 		t.Error("a half-configured endpoint should offer no engine")
 	}
 	build := ollamaEngines("http://ollama.lan:11434", "qwen3:32b")
-	_, recorded, err := build("qwen3:32b", ollama.DefaultPrompt, registry.Specs)
+	_, recorded, err := build("qwen3:32b", ollama.DefaultPrompt, registry.Offered())
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, edited, err := build("qwen3:14b", cutFirstPrompt, registry.Specs)
+	_, edited, err := build("qwen3:14b", cutFirstPrompt, registry.Offered())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if edited.Model != "qwen3:14b" || edited.Prompt == recorded.Prompt || edited.ToolSchema != recorded.ToolSchema {
 		t.Errorf("edited versions %+v against recorded %+v: want a new model and prompt, the same tools", edited, recorded)
 	}
-	noSearch, err := ollama.ParseToolSchema(withoutTool(t, "media_search"))
+	noService, err := ollama.ParseToolSchema(withoutTool(t, "ha_call_service"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, cut, _ := build("qwen3:32b", ollama.DefaultPrompt, noSearch); cut.ToolSchema == recorded.ToolSchema || cut.Prompt != recorded.Prompt {
+	if _, cut, _ := build("qwen3:32b", ollama.DefaultPrompt, noService); cut.ToolSchema == recorded.ToolSchema || cut.Prompt != recorded.Prompt {
 		t.Errorf("cut versions %+v against recorded %+v: want new tools, the same prompt", cut, recorded)
 	}
 }

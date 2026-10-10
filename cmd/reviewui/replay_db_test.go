@@ -72,7 +72,7 @@ func TestReplayOverPostgresRerunsTheRecordedTurns(t *testing.T) {
 	if _, err := pool.Exec(context.Background(), `DELETE FROM curation_reruns WHERE conversation_id = $1`, conv); err != nil {
 		t.Fatalf("clear %s's re-runs: %v", conv, err)
 	}
-	missing(t, "Replay result", runReplay(t, s, conv, url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}}),
+	missing(t, "Replay result", runReplay(t, s, conv, url.Values{"model": {"qwen3:32b"}, "prompt": {cutFirstPrompt}, "tools": {searchBack()}}),
 		"I found three albums. Want Led Zeppelin one?", "speech and calls changed", ">same</span>")
 
 	// The run is kept in Postgres, and its take promoted from there.

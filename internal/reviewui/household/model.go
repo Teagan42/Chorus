@@ -13,11 +13,15 @@ import (
 )
 
 // Model stands in for the household's model wherever no real one may be
-// asked, as on the hosted demo. Under the default prompt and tools it
-// answers each turn as the journal recorded it, which is what a
-// deterministic model would do. Under any edited prompt or tool schema it
-// answers as the household's model did once told to be brief: lead with the
-// count, offer the first, stop. It never calls a tool it was not offered.
+// asked, as on the hosted demo. The day ran under tools@7, which offered
+// media_search; the registry's schema chorusd offers now is tools@8, which
+// defers it (SPEC §14). Under the default prompt and tools@8 it answers each
+// turn as the journal recorded it, which is what a deterministic model would
+// do, but for the search: offered no media_search, a turn that searched for
+// music says it cannot. Under an edited prompt or a reviewer's own tool
+// schema it answers as the household's model did once told to be brief:
+// lead with the count, offer the first, stop. It never calls a tool it was
+// not offered.
 type Model struct {
 	store journal.Store
 
@@ -59,17 +63,38 @@ func brief(text string) (rerun.Take, bool) {
 	return rerun.Take{}, false
 }
 
+// unsearched is what a turn that searched for music says when it is offered
+// nothing to search with: that it cannot, not results it never found.
+func unsearched(text string) (rerun.Take, bool) {
+	switch text {
+	case "play something by zeppelin":
+		return rerun.Take{Speech: []rerun.Speech{{Text: "Sorry, I can't search for music yet, so I can't find Led Zeppelin for you."}}}, true
+	case "and put on some jazz":
+		return rerun.Take{Speech: []rerun.Speech{{Text: "Sorry, I can't search for music yet, so I can't pick a jazz playlist."}}}, true
+	case "something quieter":
+		// Nor play a playlist only a search would have found.
+		return rerun.Take{Speech: []rerun.Speech{{Text: "Sorry, I can't search for music yet, so I can't find anything quieter."}}}, true
+	}
+	return rerun.Take{}, false
+}
+
+// offeredSchema is the version of registry.Offered as the household's model
+// knows it: the tools chorusd offers today, not the day's tools@7.
+const offeredSchema = "tools@8"
+
 // Engines builds Replay's engine for a model, prompt and tools, as
 // reviewui's engine factory does against Ollama.
 func (m *Model) Engines(model, prompt string, tools map[string]registry.ToolSpec) (sess.Engine, journal.Versions, error) {
-	v := journal.Versions{Model: model, Prompt: Versions().Prompt, ToolSchema: Versions().ToolSchema}
+	v := journal.Versions{Model: model, Prompt: Versions().Prompt, ToolSchema: offeredSchema}
 	if prompt != ollama.DefaultPrompt {
 		v.Prompt = "sys@edited"
 	}
-	if ollama.ToolSchema(tools) != ollama.ToolSchema(registry.Specs) {
+	if ollama.ToolSchema(tools) != ollama.ToolSchema(registry.Offered()) {
 		v.ToolSchema = "tools@edited"
 	}
-	edited := v.Prompt != Versions().Prompt || v.ToolSchema != Versions().ToolSchema
+	// The registry moving on from the day's schema is not the reviewer's
+	// edit; only what they changed makes the model brief.
+	edited := v.Prompt == "sys@edited" || v.ToolSchema == "tools@edited"
 	return engine{m: m, edited: edited, offered: tools}, v, nil
 }
 
@@ -118,6 +143,11 @@ func (e engine) Turn(ctx context.Context, in sess.Input) (<-chan sess.Action, er
 	take, ok := e.m.recorded[in.ConversationID+"\x00"+in.Text]
 	if b, changed := brief(in.Text); e.edited && changed {
 		take, ok = b, true
+	}
+	if u, searched := unsearched(in.Text); ok && searched {
+		if _, offered := e.offered["media_search"]; !offered {
+			take = u
+		}
 	}
 	if !ok {
 		return nil, fmt.Errorf("household model: %s never heard %q", in.ConversationID, in.Text)

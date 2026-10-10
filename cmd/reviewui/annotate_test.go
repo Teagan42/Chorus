@@ -23,10 +23,19 @@ const (
 	zeppelinAsk = 2
 	doorYes     = 11
 
+	// weatherAsk is Teagan's "what's the weather today", the turn the brief
+	// prompt shortens; umbrellaAsk is her follow-up, which it leaves alone.
+	weatherAsk  = 2
+	umbrellaAsk = 10
+
 	// A reviewer's pairs, keyed conversation/turn/source.
 	annotatedZeppel = convZeppel + "/2/annotation"
 	replayedZeppel  = convZeppel + "/2/replay"
+	replayedWeather = convWeather + "/2/replay"
 )
+
+// What the household's model says of the forecast once told to be brief.
+const briefWeather = "Rain from three, high of fourteen. Take an umbrella."
 
 // What Alice should have heard, in the reviewer's words.
 const shouldHaveZeppel = "I found three albums. Want Led Zeppelin one?"
@@ -281,7 +290,7 @@ func householdReplayServer(t *testing.T) (*server, curation.Store) {
 }
 
 // briefPrompt is the default prompt with the line that makes the household's
-// model lead with the count.
+// model lead with the count and the gist.
 const briefPrompt = "\nWhen there are several results, say how many, offer the first, and stop."
 
 // A re-run that changed a turn can be promoted: the recorded take rejected,
@@ -290,37 +299,38 @@ const briefPrompt = "\nWhen there are several results, say how many, offer the f
 // verifies SPEC §9.2
 func TestPromotingAReRunMakesAnAcceptedReplayPair(t *testing.T) {
 	s, decisions := householdReplayServer(t)
-	run := mustPost(t, s, "/replays/"+convZeppel, url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}})
-	if !strings.Contains(run, `hx-post="/replays/`+convZeppel+`/runs/1/turns/2/promote"`) {
+	promote := fmt.Sprintf("/replays/%s/runs/1/turns/%d/promote", convWeather, weatherAsk)
+	run := mustPost(t, s, "/replays/"+convWeather, url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}})
+	if !strings.Contains(run, `hx-post="`+promote+`"`) {
 		t.Fatalf("the changed turn offers no promotion:\n%s", run)
 	}
-	if strings.Contains(run, "/turns/10/promote") {
+	if strings.Contains(run, fmt.Sprintf("/turns/%d/promote", umbrellaAsk)) {
 		t.Error("a turn the re-run left alone offers a promotion")
 	}
 
-	cell := mustPost(t, s, "/replays/"+convZeppel+"/runs/1/turns/2/promote", nil)
-	if !strings.Contains(cell, "promoted · qwen3-32b@1 · sys@edited") || !strings.Contains(cell, `id="promote-2"`) {
+	cell := mustPost(t, s, promote, nil)
+	if !strings.Contains(cell, "promoted · qwen3-32b@1 · sys@edited · tools@8") || !strings.Contains(cell, fmt.Sprintf(`id="promote-%d"`, weatherAsk)) {
 		t.Errorf("the cell does not say it was promoted:\n%s", cell)
 	}
-	promos, err := decisions.Promotions(context.Background(), convZeppel)
+	promos, err := decisions.Promotions(context.Background(), convWeather)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p := promos[zeppelinAsk]; p.SystemPrompt != ollama.DefaultPrompt+briefPrompt || len(p.Calls) != 1 || p.Versions.Prompt != "sys@edited" || p.ToolSchema != ollama.ToolSchema(registry.Specs) {
+	if p := promos[weatherAsk]; p.SystemPrompt != ollama.DefaultPrompt+briefPrompt || len(p.Calls) != 1 || p.Versions.Prompt != "sys@edited" || p.ToolSchema != ollama.ToolSchema(registry.Offered()) {
 		t.Errorf("stored promotion = %+v", p)
 	}
 
-	p, ok := find(mustPairs(t, s), replayedZeppel)
-	if !ok || p.Status != "accepted" || p.Chosen != shouldHaveZeppel || p.Rejected != "I found three" {
+	p, ok := find(mustPairs(t, s), replayedWeather)
+	if !ok || p.Status != "accepted" || p.Chosen != briefWeather || p.Rejected != "Today will be cloudy in the morning," {
 		t.Errorf("replay pair = %+v (found %v)", p.Pair, ok)
 	}
-	line := exportRow(t, s, replayedZeppel)
+	line := exportRow(t, s, replayedWeather)
 	for _, want := range []string{`"source":"replay"`, `"chosen_versions":{"model":"qwen3-32b@1","prompt":"sys@edited"`, `"chosen_calls":[{`} {
 		if !strings.Contains(line, want) {
 			t.Errorf("the replay row is missing %s:\n%s", want, line)
 		}
 	}
-	if h := get(t, s, "/replays/"+convZeppel); !strings.Contains(h, "promoted · qwen3-32b@1 · sys@edited") {
+	if h := get(t, s, "/replays/"+convWeather); !strings.Contains(h, "promoted · qwen3-32b@1 · sys@edited") {
 		t.Error("Replay forgets the promotion on the next visit")
 	}
 }
@@ -331,42 +341,55 @@ func TestPromotingAReRunMakesAnAcceptedReplayPair(t *testing.T) {
 // verifies SPEC §9.2
 func TestAKeptReRunIsPromotedLaterWithNoModel(t *testing.T) {
 	asked, decisions := householdReplayServer(t)
-	mustPost(t, asked, "/replays/"+convZeppel, url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}})
+	mustPost(t, asked, "/replays/"+convWeather, url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt + briefPrompt}})
 
 	later := newServer(asked.journal, decisions, asked.blobs, household.ReviewedAt)
-	page := get(t, later, "/replays/"+convZeppel+"/runs/1")
-	if !strings.Contains(page, shouldHaveZeppel) || !strings.Contains(page, `hx-post="/replays/`+convZeppel+`/runs/1/turns/2/promote"`) {
+	promote := fmt.Sprintf("/replays/%s/runs/1/turns/%d/promote", convWeather, weatherAsk)
+	page := get(t, later, "/replays/"+convWeather+"/runs/1")
+	if !strings.Contains(page, briefWeather) || !strings.Contains(page, `hx-post="`+promote+`"`) {
 		t.Fatalf("the kept run offers no promotion with no model:\n%s", page)
 	}
-	mustPost(t, later, "/replays/"+convZeppel+"/runs/1/turns/2/promote", nil)
-	if p, ok := find(mustPairs(t, later), replayedZeppel); !ok || p.Status != "accepted" || p.Chosen != shouldHaveZeppel {
+	mustPost(t, later, promote, nil)
+	if p, ok := find(mustPairs(t, later), replayedWeather); !ok || p.Status != "accepted" || p.Chosen != briefWeather {
 		t.Errorf("replay pair = %+v (found %v)", p.Pair, ok)
 	}
 }
 
-// A take re-run without media_search is promoted with the version the server
-// computes from the cut schema, and the declarations it was offered.
+// contactSensorSchema is what chorusd offers with ha_get_state reworded to
+// name the contact sensor, the edit a reviewer makes after the garage turn
+// read a cover nobody could reach.
+func contactSensorSchema() string {
+	tools := registry.Offered()
+	getState := tools["ha_get_state"]
+	getState.ModelDescription = "Read one entity's current state. For a door or cover, read its contact sensor, binary_sensor.<name>_contact, which answers when the cover does not."
+	tools["ha_get_state"] = getState
+	return ollama.ToolSchema(tools)
+}
+
+// A take re-run under a reworded ha_get_state is promoted with the version
+// the server computes from the edited schema, and the declarations it was
+// offered.
 //
 // verifies SPEC §9.2
 func TestAPromotionCarriesTheToolSchemaItRanUnder(t *testing.T) {
 	s, decisions := householdReplayServer(t)
-	mustPost(t, s, "/replays/"+convZeppel, url.Values{
-		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt}, "tools": {withoutTool(t, "media_search")},
+	mustPost(t, s, "/replays/"+convGarage, url.Values{
+		"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt}, "tools": {contactSensorSchema()},
 	})
-	cell := mustPost(t, s, "/replays/"+convZeppel+"/runs/1/turns/2/promote", nil)
+	cell := mustPost(t, s, "/replays/"+convGarage+"/runs/1/turns/2/promote", nil)
 	if !strings.Contains(cell, "promoted · qwen3-32b@1 · sys@3 · tools@edited") {
 		t.Errorf("the cell does not say what it ran under:\n%s", cell)
 	}
-	promos, err := decisions.Promotions(context.Background(), convZeppel)
+	promos, err := decisions.Promotions(context.Background(), convGarage)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p := promos[zeppelinAsk]; p.Versions.ToolSchema != "tools@edited" || strings.Contains(p.ToolSchema, "media_search") || !strings.Contains(p.ToolSchema, "ha_get_state") {
+	if p := promos[2]; p.Versions.ToolSchema != "tools@edited" || p.ToolSchema != contactSensorSchema() || strings.Contains(p.ToolSchema, "media_search") {
 		t.Errorf("stored promotion ran under %+v, offered %d bytes of tools", p.Versions, len(p.ToolSchema))
 	}
-	line := exportRow(t, s, replayedZeppel)
+	line := exportRow(t, s, replayedGarage)
 	if !strings.Contains(line, `"tool_schema":"tools@edited"`) {
-		t.Errorf("the replay row does not name the cut schema:\n%s", line)
+		t.Errorf("the replay row does not name the edited schema:\n%s", line)
 	}
 }
 
@@ -425,7 +448,7 @@ func TestAReplayPairRejectsTheFirstAskReplayCompared(t *testing.T) {
 	ask := withGarageCheck(t, store)
 	decisions := curation.NewMemStore()
 	s := newServer(store, decisions, householdBlobs(t), household.ReviewedAt)
-	edited := journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@edited", ToolSchema: "tools@7"}
+	edited := journal.Versions{Model: "qwen3-32b@1", Prompt: "sys@edited", ToolSchema: "tools@8"}
 	if err := decisions.PutPromotion(context.Background(), curation.Promotion{
 		ConversationID: convGarageCheck, Seq: ask, Speech: "One second, checking the garage door.",
 		Calls:    []curation.Call{{Tool: "ha_get_state", Args: `{"entity_id":"cover.garage_door"}`}},

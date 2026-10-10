@@ -337,8 +337,9 @@ func (s *server) compared(rp replayable, run curation.Rerun) replayResult {
 	if d := lineDiff(ollama.DefaultPrompt, run.SystemPrompt); d != nil {
 		res.Diff = &ui.CodeDiff{Label: "Prompt diff", Lines: d}
 	}
-	// Both sides written the same way, so a reindented edit is not a change.
-	if d := lineDiff(ollama.ToolSchema(registry.Specs), run.ToolSchema); d != nil {
+	// Both sides written the same way, so a reindented edit is not a change,
+	// and against what chorusd offers, so a deferred tool is not a cut.
+	if d := lineDiff(ollama.ToolSchema(registry.Offered()), run.ToolSchema); d != nil {
 		res.ToolDiff = &ui.CodeDiff{Label: "Tool schema diff", Lines: hunks(d, 3)}
 	}
 	return res
@@ -360,7 +361,7 @@ func (s *server) replayPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	recorded := rp.turns[len(rp.turns)-1].Versions
-	s.renderReplay(w, rp, overrides{recorded.Model, ollama.DefaultPrompt, ollama.ToolSchema(registry.Specs)}, s.recorded(rp))
+	s.renderReplay(w, rp, overrides{recorded.Model, ollama.DefaultPrompt, ollama.ToolSchema(registry.Offered())}, s.recorded(rp))
 }
 
 // runPage handles GET /replays/{id}/runs/{run}: a kept re-run, with the form
@@ -408,7 +409,7 @@ func (s *server) renderReplay(w http.ResponseWriter, rp replayable, form overrid
 			Body:  "Set OLLAMA_URL and OLLAMA_MODEL for reviewui, the same endpoint chorusd uses, to re-run these turns.",
 			Tone:  ui.ToneConv,
 		}
-	} else if _, v, err := s.engineFor(recorded.Model, ollama.DefaultPrompt, registry.Specs); err == nil {
+	} else if _, v, err := s.engineFor(recorded.Model, ollama.DefaultPrompt, registry.Offered()); err == nil {
 		promptNote = "the default prompt (" + v.Prompt + ") matches the recorded prompt"
 		if v.Prompt != recorded.Prompt {
 			promptNote = fmt.Sprintf("recorded under %s; the default prompt is now %s, so this starts from the default", recorded.Prompt, v.Prompt)
@@ -479,7 +480,9 @@ func (s *server) replayRun(w http.ResponseWriter, r *http.Request) {
 		s.render(w, "replay-result", res)
 	}
 	model, prompt := strings.TrimSpace(r.PostForm.Get("model")), r.PostForm.Get("prompt")
-	schema := ollama.ToolSchema(registry.Specs)
+	// Unedited, a re-run is offered what chorusd offers: every declared tool
+	// but the deferred (ADR-0060).
+	schema := ollama.ToolSchema(registry.Offered())
 	if r.PostForm.Has("tools") {
 		schema = r.PostForm.Get("tools")
 	}

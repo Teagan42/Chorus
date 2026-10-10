@@ -40,9 +40,11 @@ func TestDemoServesTheHouseholdDayUnderANotice(t *testing.T) {
 }
 
 // Replay works with no model configured: the default prompt reproduces the
-// Zeppelin morning, and the brief prompt changes only Alice's first ask.
+// Zeppelin morning but for the search chorusd no longer offers, so Alice's
+// album is one she is told cannot be searched for; the brief prompt changes
+// only Teagan's forecast.
 //
-// verifies SPEC §9.2
+// verifies SPEC §9.2, §14
 func TestDemoReplaysWithoutAModel(t *testing.T) {
 	s := newDemo(t)
 	if h := get(t, s, replayHref(convZeppel)); strings.Contains(h, "No model to ask.") || strings.Contains(h, " disabled>Re-run every turn") {
@@ -50,12 +52,14 @@ func TestDemoReplaysWithoutAModel(t *testing.T) {
 	}
 	form := url.Values{"model": {"qwen3-32b@1"}, "prompt": {ollama.DefaultPrompt}}
 	code, h := post(t, s, replayHref(convZeppel), form)
-	if code != http.StatusOK || !strings.Contains(h, "0 of 3") {
-		t.Fatalf("default-prompt run = %d, want nothing changed:\n%s", code, h)
+	for _, want := range []string{"I can&#39;t search for music yet", "speech and calls changed", "1 of 3", "sys@3 · tools@8"} {
+		if code != http.StatusOK || !strings.Contains(h, want) {
+			t.Errorf("default-prompt run = %d, does not show %q", code, want)
+		}
 	}
 	form.Set("prompt", ollama.DefaultPrompt+"\n\nWhen there are several results, say how many, offer the first, and stop.")
-	_, h = post(t, s, replayHref(convZeppel), form)
-	for _, want := range []string{"I found three albums. Want Led Zeppelin one?", "speech changed", "1 of 3", "sys@edited"} {
+	_, h = post(t, s, replayHref(convWeather), form)
+	for _, want := range []string{"Rain from three, high of fourteen. Take an umbrella.", "speech changed", "1 of 2", "sys@edited"} {
 		if !strings.Contains(h, want) {
 			t.Errorf("edited-prompt run does not show %q", want)
 		}

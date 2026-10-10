@@ -31,6 +31,7 @@ import (
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/reviewui/household"
+	sess "github.com/teagan42/chorus/internal/session"
 )
 
 // chromeEnv names the browser binary. Unset skips the tier, the way an unset
@@ -486,12 +487,29 @@ func TestE2EBrowseOpensEachConversationAndComesBack(t *testing.T) {
 	p.waitText("body", "is the garage door closed")
 }
 
+// saysWhatItCannot is the scripted engine after a prompt edit that has it
+// say plainly what it cannot do. Offered what chorusd offers, it has no
+// search, so Alice's album is one it cannot look for.
+func saysWhatItCannot() *scripted {
+	return &scripted{answers: map[string][]sess.Action{
+		"play something by zeppelin": {
+			sess.SpeechDelta{CallID: "call_1", Text: "Sorry, I can't search for music yet.", Mode: sess.ModeQueue, Last: true},
+			sess.TurnEnd{FinishReason: "stop", Completion: "{}"},
+		},
+		"just the first one": {
+			sess.SpeechDelta{CallID: "call_2", Text: "Playing Led Zeppelin one.", Mode: sess.ModeQueue, Last: true},
+			sess.TurnEnd{FinishReason: "stop", Completion: "{}"},
+		},
+	}}
+}
+
 // A reviewer opens the Zeppelin barge-in from its log, adds a line to the
-// prompt, re-runs it and reads what the model would have done instead.
+// prompt, re-runs it under the tools chorusd offers and reads what the model
+// would have done instead.
 //
 // verifies SPEC §9.2
 func TestE2EReplayRerunsAnEditedPromptAndShowsWhatChanged(t *testing.T) {
-	hh := leadsWithTheCount()
+	hh := saysWhatItCannot()
 	p := open(t, newReplayServer(t, hh))
 	p.visit("/replays")
 	p.waitText("#replays", "play something by zeppelin")
@@ -505,14 +523,14 @@ func TestE2EReplayRerunsAnEditedPromptAndShowsWhatChanged(t *testing.T) {
 	}
 	p.shot("replay")
 
-	edit := "When there are several results, say how many, offer the first, and stop."
+	edit := "When you cannot do what was asked, say so plainly."
 	p.run(
 		chromedp.Evaluate(`(() => { const a = document.querySelector("#replay-prompt"); a.value = a.value.trimEnd() + "\n\n"; })()`, nil),
 		chromedp.SendKeys("#replay-prompt", edit, chromedp.ByQuery),
 	)
 	p.click(`form button[type="submit"]`)
-	p.waitText("#replay-result", "I found three albums. Want Led Zeppelin one?")
-	for _, want := range []string{"speech and calls changed", "media_search", "1 of 2", edit} {
+	p.waitText("#replay-result", "Sorry, I can't search for music yet.")
+	for _, want := range []string{"speech changed", "1 of 2", "sys@edited · tools@8", edit} {
 		if !strings.Contains(p.text("#replay-result"), want) {
 			t.Errorf("the re-run is missing %q", want)
 		}
