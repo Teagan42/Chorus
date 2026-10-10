@@ -36,7 +36,7 @@ func TestTheXMOSInterfaceIsWhereSatellite1HasIt(t *testing.T) {
 	// be mirrored, not just the ones somebody remembered to annotate.
 	for _, net := range []string{
 		"I2S_LRCLK", "I2S_BCLK", "I2S_MCLK", "I2S_DOUT", "I2S_DIN",
-		"XMOS_RST_N", "XMOS_SPI_CS_N", "XMOS_SPI_SCLK", "XMOS_SPI_MOSI", "XMOS_SPI_MISO",
+		"XMOS_RST", "XMOS_SPI_CS_N", "XMOS_SPI_SCLK", "XMOS_SPI_MOSI", "XMOS_SPI_MISO",
 		"I2C_SDA", "I2C_SCL", "PD_INT_N",
 	} {
 		p := b.Net(net)
@@ -62,5 +62,24 @@ func TestThePlaybackPathAndItsSenseReachTheESP32(t *testing.T) {
 		if b.Net(net) == nil {
 			t.Errorf("%s is not on the board", net)
 		}
+	}
+}
+
+// verifies SPEC §3.3.2
+// The XU316 masters every audio clock, its MCLK included; the ESP32 driving
+// GPIO16 too would put two outputs on one net. Its reset is active high
+// through an N-FET, so a pin named for an active-low RST_N is miswired.
+func TestTheXU316OwnsItsClocksAndTheESP32HoldsItInReset(t *testing.T) {
+	b, err := Load(repoPins)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, net := range []string{"I2S_MCLK", "I2S_BCLK", "I2S_LRCLK"} {
+		if p := b.Net(net); p == nil || p.Dir != "in" {
+			t.Errorf("%s = %+v, want an input: the XU316 drives it", net, p)
+		}
+	}
+	if b.Net("XMOS_RST_N") != nil {
+		t.Error("XMOS_RST_N names the XU316 pin; the ESP32 drives XMOS_RST, the inverter's gate")
 	}
 }

@@ -32,8 +32,10 @@ pins:
     satellite1: i2s_audio[0].i2s_bclk_pin
   - gpio: 16
     net: I2S_MCLK
-    dir: io
-    peer: XU316 master clock; direction as the Satellite1 reference schematic has it
+    dir: in
+    peer: >-
+      XU316 App PLL MCLK, 24.576 MHz, through an unfitted 0 ohm; an I2S
+      secondary needs no MCLK, and the ESP32 must not drive this net
     satellite1: i2s_audio[0].i2s_mclk_pin
   - gpio: 9
     net: I2S_DOUT
@@ -43,32 +45,38 @@ pins:
   - gpio: 15
     net: I2S_DIN
     dir: in
-    peer: XU316 output; slot 0 the echo-cancelled mix, slot 1 a raw mic
+    peer: >-
+      XU316 output; slot 0 AEC+IC+NS+AGC, slot 1 AEC+IC+NS. Both are
+      processed: a raw mic needs an XMOS firmware change
     satellite1: microphone[0].i2s_din_pin
   - gpio: 4
-    net: XMOS_RST_N
+    net: XMOS_RST
     dir: out
-    peer: XU316 reset; the ESP32 owns when the XMOS starts
+    peer: >-
+      gate of the N-FET (FDV301N) that pulls XU316 RST_N low, so high holds
+      the XMOS in reset; it also switches the SPI muxes to the QSPI flash
     satellite1: satellite1.xmos_rst_pin
   - gpio: 10
     net: XMOS_SPI_CS_N
     dir: out
-    peer: XU316 control and firmware-flash SPI
+    peer: >-
+      through the 2:1 SPI muxes: the XU316's SPI slave while it runs, its
+      QSPI flash while XMOS_RST holds it in reset
     satellite1: satellite1.cs_pin
   - gpio: 12
     net: XMOS_SPI_SCLK
     dir: out
-    peer: XU316 control and firmware-flash SPI
+    peer: through the 2:1 SPI muxes, as XMOS_SPI_CS_N
     satellite1: spi[0].clk_pin
   - gpio: 11
     net: XMOS_SPI_MOSI
     dir: out
-    peer: XU316 control and firmware-flash SPI
+    peer: through the 2:1 SPI muxes, as XMOS_SPI_CS_N
     satellite1: spi[0].mosi_pin
   - gpio: 13
     net: XMOS_SPI_MISO
     dir: in
-    peer: XU316 control and firmware-flash SPI
+    peer: through the 2:1 SPI muxes, as XMOS_SPI_CS_N
     satellite1: spi[0].miso_pin
 
   # ------------------------------------------------- control bus and USB-C power
@@ -101,7 +109,10 @@ pins:
   - gpio: 17
     net: AMP_SENSE
     dir: in
-    peer: TAS2780 SDOUT, the speaker's sensed current and voltage, on the shared clocks
+    peer: >-
+      TAS2780 SDOUT, the speaker's sensed current and voltage, on the shared
+      clocks. New on this board: unconnected on the Satellite1, so the
+      tas2780 driver and the ESP32's second I2S need work to read it
   - gpio: 18
     net: PWR_SRC
     dir: in
@@ -125,7 +136,7 @@ pins:
   - gpio: 40
     net: ETH_MOSI
     dir: out
-    peer: W5500
+    peer: W5500. The Satellite1 has its playback passthrough here; that XMOS net is not copied
   - gpio: 41
     net: ETH_MISO
     dir: in
@@ -137,7 +148,7 @@ pins:
   - gpio: 21
     net: ETH_RST_N
     dir: out
-    peer: W5500 reset
+    peer: W5500 reset. The Satellite1 has its LED ring here; that XMOS net is not copied
   - gpio: 43
     net: RADAR_TX
     dir: out
