@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.12.0](https://github.com/Teagan42/Chorus/compare/v0.11.0...v0.12.0) (2026-10-10)
+
+
+### Features
+
+* hold a turn whose words end on one no command ends on ([#50](https://github.com/Teagan42/Chorus/issues/50)) ([4e4cc58](https://github.com/Teagan42/Chorus/commit/4e4cc582d8e1aa998a639274b2548744737f989a))
+* hold the garage door for a yes, and let the blinds through ([#48](https://github.com/Teagan42/Chorus/issues/48)) ([01bcf16](https://github.com/Teagan42/Chorus/commit/01bcf1601a8c81e7332cc1d1c2b18ddcec47fe47))
+* tell each turn the time and what the person asked lately ([#49](https://github.com/Teagan42/Chorus/issues/49)) ([42fc06a](https://github.com/Teagan42/Chorus/commit/42fc06a76d9f4ada5d324bef69e73542d02f3542))
+
 ## [0.11.0](https://github.com/Teagan42/Chorus/compare/v0.10.0...v0.11.0) (2026-10-09)
 
 
