@@ -118,7 +118,9 @@ is boolean only; there is no queue-depth accessor.
 Feed the stock `announcement_resampling_speaker` at 16 kHz / 16-bit / mono via
 `set_audio_stream_info()`; the `resampler → mixer → i2s_audio` stack converts up.
 Ducking is `SourceSpeaker::apply_ducking(db, duration)` (both stock YAMLs use
-20 dB) — not on the base class.
+20 dB) — not on the base class. The `duck` frame applies it to the mixer
+source the YAML names as `ducking_speaker`, which on the Satellite1 is the
+media source, not the voice. Nothing sends one yet (ADR-0056).
 
 **Playback position is DAC-accurate.** `add_audio_output_callback` reports the
 frames written to the DAC *since the last callback* — a per-DMA-buffer delta,
@@ -161,7 +163,7 @@ Entities that matter, all usable from the orchestrator over the native API:
 
 | Entity | Use |
 |---|---|
-| `light` **LED Ring** | §19 concurrency feedback — speaking *and* working |
+| `light` **LED Ring** | Shows the session listening, working or speaking, and goes dark when it closes. Stock firmware animates it from `voice_assistant`'s state, so `esphome/satellite1.yaml` declares it as a plain light with a `Listening`, `Thinking` and `Speaking` effect, and chorusd sets one per session state over the native API. A ring without those effects is left to its firmware (ADR-0056) |
 | `select` **Wake word sensitivity** (3 levels) | **Immediate relief for cough false-accepts, no retraining** (§9.3) |
 | `switch` **Capture wake-word audio** | Stock corpus capture hook — inspect before building our own |
 | `binary_sensor` **Room Presence** + mmWave radar suite | Journalled to the device's log as `presence_changed` and drawn on Browse (ADR-0050). Presence-gated sessions and occupancy-aware routing are not built |
@@ -261,7 +263,12 @@ position. Inline `content` from models whose template emits `content` +
 
 Default **queue** — natural for "one sec" → tool result → "found three". A
 declared field allows `queue | preempt | interject` per call; `preempt` is for
-when a tool result invalidates what was about to be said.
+when a tool result invalidates what was about to be said. `interject` is for
+something that cannot wait for the end of the sentence: it pauses what is
+playing where the DAC stopped, says the interjection, then resumes the rest
+under the same call, queue intact. A satellite plays one voice, so the pause
+is a stop, not a duck under the interjection; it is journalled as
+`interjected`, never as a barge-in (ADR-0056).
 
 On barge-in, the unspoken remainder is **discarded but recorded** — generated
 but never spoken is a distinct event type from spoken. The model sees only what
