@@ -294,3 +294,24 @@ func TestAnUnfittedPartIsOnTheNetlistAndOffTheBOM(t *testing.T) {
 		t.Error("the unfitted R1 lost its pads on the netlist")
 	}
 }
+
+// A reverse-mount LED says so on the netlist, so the board KiCad builds from
+// it puts the ring on B.Cu; a part on the top says nothing.
+func TestAPartOnTheBackSaysSoOnTheNetlist(t *testing.T) {
+	s := loadSchematic(t, hallway(t,
+		[3]string{"parts.yaml", "lcsc: C5149201", "lcsc: C5149201\n    side: back"}))
+	if err := s.Check(); err != nil {
+		t.Fatal(err)
+	}
+	netlist := string(s.KiCadNetlist())
+	d1 := netlist[strings.Index(netlist, `(comp (ref "D1")`):]
+	d1 = d1[:strings.Index(d1, "(tstamps")]
+	if !strings.Contains(d1, `(field (name "Side") "back")`) {
+		t.Errorf("D1 does not say it mounts on the back:\n%s", d1)
+	}
+	u2 := netlist[strings.Index(netlist, `(comp (ref "U2")`):]
+	u2 = u2[:strings.Index(u2, "(tstamps")]
+	if strings.Contains(u2, `"Side"`) {
+		t.Errorf("U2, the buffer on the top, names a side:\n%s", u2)
+	}
+}

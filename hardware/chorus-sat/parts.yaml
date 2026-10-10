@@ -531,6 +531,8 @@ parts:
       its own numbered as the datasheet is
     mpn: SK6812MINI-E
     lcsc: C5149201
+    # Reverse-mount: on B.Cu, shining up through its cutout to the top face.
+    side: back
     pins:
       - {pad: "1", name: VDD, type: power_in}
       - {pad: "2", name: DOUT, type: output}

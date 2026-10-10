@@ -40,7 +40,10 @@ type Part struct {
 	Values map[string]string `yaml:"values"`
 	// Hand says why JLCPCB cannot place this part, when it cannot: it goes
 	// on the BOM without a number and is soldered after assembly.
-	Hand string    `yaml:"hand"`
+	Hand string `yaml:"hand"`
+	// Side is "back" for a part that mounts on B.Cu, as a reverse-mount LED
+	// shining up through its cutout does; empty is the top.
+	Side string    `yaml:"side"`
 	Pins []PartPin `yaml:"pins"`
 }
 
@@ -439,6 +442,9 @@ func (s Schematic) checkParts() []error {
 		}
 		if len(p.Pins) == 0 {
 			errs = append(errs, fmt.Errorf("parts.yaml: %s has no pins", name))
+		}
+		if p.Side != "" && p.Side != "back" {
+			errs = append(errs, fmt.Errorf("parts.yaml: %s: side %q is neither empty (the top) nor back", name, p.Side))
 		}
 	}
 	return errs
