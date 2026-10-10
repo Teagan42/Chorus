@@ -65,7 +65,7 @@ func TestTheFrontDoorUnlocksOnlyAfterAlanSaysYes(t *testing.T) {
 	r.utter(t, dev, r.line("unlock the front door", alan))
 	dev.AwaitTTS(t, 2*len(question))
 	dev.PlayAll(t)
-	r.store.awaitKind(t, journal.KindSpeechSpoken, 1)
+	r.spoken(t, "kitchen", 1)
 	if got := ha.paths(); len(got) != 0 {
 		t.Fatalf("home assistant was asked %q before Alan said yes", got)
 	}
@@ -168,7 +168,7 @@ func TestTheGarageDoorOpensOnlyAfterAlanSaysYes(t *testing.T) {
 	r.utter(t, dev, r.line("open the garage door", alan))
 	dev.AwaitTTS(t, 2*len(question))
 	dev.PlayAll(t)
-	r.store.awaitKind(t, journal.KindSpeechSpoken, 1)
+	r.spoken(t, "kitchen", 1)
 	if got := ha.paths(); len(got) != 1 || got[0] != "GET /api/states/cover.garage_door" {
 		t.Fatalf("home assistant was asked %q before Alan said yes, want only what the cover is", got)
 	}

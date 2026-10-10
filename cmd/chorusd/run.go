@@ -109,15 +109,23 @@ type daemon struct {
 // closed and every goroutine it started has exited. A listener that dies
 // otherwise is the error, and ends everything else the same way.
 func run(ctx context.Context, inv *config.Config, d deps) error {
-	byHost, err := indexByHost(inv)
+	dm, err := newDaemon(inv, d)
 	if err != nil {
 		return err
+	}
+	return dm.run(ctx)
+}
+
+// newDaemon checks the inventory can be matched against and composes the
+// shared stack. Nothing runs until run.
+func newDaemon(inv *config.Config, d deps) (*daemon, error) {
+	byHost, err := indexByHost(inv)
+	if err != nil {
+		return nil, err
 	}
 	if d.Log == nil {
 		d.Log = slog.New(slog.DiscardHandler)
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	dm := &daemon{
 		deps:    d,
 		inv:     inv,
@@ -131,6 +139,13 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 	for _, sat := range inv.Satellites {
 		dm.rooms[sat.Name] = sat.Room
 	}
+	return dm, nil
+}
+
+// run serves satellites until ctx ends, as the package-level run does.
+func (d *daemon) run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	// The executors join whatever else is wired, Home Assistant's included.
 	tools := maps.Clone(d.tools)
 	if tools == nil {
@@ -138,7 +153,7 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 	}
 	if d.Memories != nil {
 		maps.Copy(tools, memory.Tools(d.Memories, d.Clock))
-		dm.memories = memory.Recaller(d.Memories, memory.RecallConfig{
+		d.memories = memory.Recaller(d.Memories, memory.RecallConfig{
 			Embedder: d.embedder,
 			Failed: func(person string, err error) {
 				d.Log.Warn("recall: ranking failed, so the turn is told the newest", "person", person, "err", err)
@@ -146,44 +161,44 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 		})
 	} else {
 		// Nowhere to keep a summary, so none is written.
-		dm.summarizer = nil
+		d.summarizer = nil
 	}
 	// Timers live in the journal, so a household always has them: armed
 	// from the house log before the first satellite connects (ADR-0045).
 	timers, err := timer.Start(ctx, timer.Config{
-		Journal: dm.journal, Store: d.Store, Clock: d.Clock, Timers: d.Timers,
-		Announcer: dm, Log: d.Log,
+		Journal: d.journal, Store: d.Store, Clock: d.Clock, Timers: d.Timers,
+		Announcer: d, Log: d.Log,
 	})
 	if err != nil {
 		return err
 	}
 	defer timers.Wait()
 	maps.Copy(tools, timer.Tools(timers))
-	tools["announce"] = announce.Tool(dm, inv.Satellites)
-	dm.tools = tools
+	tools["announce"] = announce.Tool(d, d.inv.Satellites)
+	d.tools = tools
 	// Every satellite speaks through one voice that keeps its own apology,
 	// rendered while it still answers: that line is only ever needed once
 	// it does not (SPEC §7, ADR-0051).
 	canned := satellite.NewCanned(d.synth)
-	dm.synth = canned
-	dm.wg.Add(1)
+	d.synth = canned
+	d.wg.Add(1)
 	go func() {
-		defer dm.wg.Done()
-		dm.rehearse(ctx, canned)
+		defer d.wg.Done()
+		d.rehearse(ctx, canned)
 	}()
 	if d.Native != nil {
-		for i := range inv.Satellites {
-			sat := &inv.Satellites[i]
-			dm.wg.Add(1)
+		for i := range d.inv.Satellites {
+			sat := &d.inv.Satellites[i]
+			d.wg.Add(1)
 			go func() {
-				defer dm.wg.Done()
-				dm.keep(ctx, sat)
+				defer d.wg.Done()
+				d.keep(ctx, sat)
 			}()
 		}
 	}
-	err = dm.accept(ctx)
+	err = d.accept(ctx)
 	cancel()
-	dm.wg.Wait()
+	d.wg.Wait()
 	return err
 }
 
@@ -345,9 +360,9 @@ func (d *daemon) handshake(ctx context.Context, conn net.Conn) (*bridge.Link, er
 // its own and serves until the link drops. The Speaker is per device, which
 // is why the supervisor is too; the Conversations are shared (ADR-0022).
 //
-// Teardown order: Serve returns, the link's context ends, the listener
-// closes the session as device_lost and finishes its goroutines, then the
-// link is closed by the caller (ADR-0030).
+// Teardown order: Serve returns, the link's context ends, the speaker stops
+// waiting on reports, the listener closes the session as device_lost and
+// finishes its goroutines, then the link is closed by the caller (ADR-0030).
 func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge.Link, log *slog.Logger) error {
 	linkCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -382,6 +397,9 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 
 	err = link.Serve(linkCtx, handlers{speaker, lst})
 	cancel()
+	// Nothing reads the link now, so speech cut on the way out takes the
+	// position it has rather than waiting for a report.
+	speaker.Hangup()
 	<-lst.Done()
 	if errors.Is(err, context.Canceled) {
 		return nil
@@ -406,12 +424,18 @@ func (d *daemon) unlink(name string, lst *listen.Listener) {
 	}
 }
 
+// linked is the named satellite's Listening child, or nil when it is not
+// connected.
+func (d *daemon) linked(name string) *listen.Listener {
+	d.linksMu.Lock()
+	defer d.linksMu.Unlock()
+	return d.links[name]
+}
+
 // Announce says a on the named satellite, through its Listening child, so
 // it joins whatever session is open there (announce.Announcer).
 func (d *daemon) Announce(ctx context.Context, satellite string, a session.Announcement) (string, error) {
-	d.linksMu.Lock()
-	lst := d.links[satellite]
-	d.linksMu.Unlock()
+	lst := d.linked(satellite)
 	if lst == nil {
 		return "", announce.ErrNotConnected
 	}

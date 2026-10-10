@@ -137,6 +137,8 @@ func TestAnAnswerFromHomeAssistantIsSpokenInTheSameTurn(t *testing.T) {
 	if last.Kind != journal.EntryResult || last.CallID != "call_c1" || !strings.Contains(last.Result, "garage") {
 		t.Errorf("follow-up ended on %+v, want the cover's state", last)
 	}
+	// The answer can play out before the ask that said it is journalled done.
+	r.store.awaitKind(t, journal.KindModelCompleted, 2)
 	if n := len(r.store.ofKind(journal.KindModelCompleted)); n != 2 {
 		t.Errorf("%d completions journalled, want 2", n)
 	}

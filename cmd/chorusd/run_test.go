@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -48,6 +49,7 @@ const silence = listen.DefaultSilence + chunkBytes
 // rig is the daemon running over in-memory doubles: every dependency that
 // reads time or does I/O is injected (CONTRIBUTING §1).
 type rig struct {
+	dm     *daemon
 	ln     *memListener
 	store  *spyStore
 	blobs  *blob.Memory
@@ -89,10 +91,15 @@ func newRig(t *testing.T, inv *config.Config, tweak ...func(*deps)) *rig {
 		f(&d)
 	}
 
+	dm, err := newDaemon(inv, d)
+	if err != nil {
+		t.Fatalf("daemon: %v", err)
+	}
+	r.dm = dm
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
 	go func() {
-		r.exited <- run(ctx, inv, d)
+		r.exited <- dm.run(ctx)
 		close(r.exited)
 	}()
 	t.Cleanup(func() {
@@ -115,10 +122,41 @@ func (r *rig) line(text string, who []float32) int16 {
 	return amp
 }
 
-// join connects a device from ip and returns it with its own end of the link.
+// join connects a device from ip and returns it with its own end of the
+// link, once the daemon can reach it: the hello alone is not that, and an
+// announcement made before then finds nothing connected. An address the
+// inventory does not name is refused, so nothing waits for it.
 func (r *rig) join(t *testing.T, ip string) *bridgetest.Device {
 	t.Helper()
-	return bridgetest.Connect(r.ln.dial(t, ip), 2)
+	sat := r.dm.byHost[ip]
+	if sat == nil {
+		return bridgetest.Connect(r.ln.dial(t, ip), 2)
+	}
+	// A reconnect may find the old link not yet forgotten.
+	old := r.dm.linked(sat.Name)
+	dev := bridgetest.Connect(r.ln.dial(t, ip), 2)
+	await(t, sat.Name+"'s link", func() bool {
+		lst := r.dm.linked(sat.Name)
+		return lst != nil && lst != old
+	})
+	return dev
+}
+
+// spoken waits for the nth speech_spoken and for the satellite to stop
+// speaking. The session journals the speech before it leaves Speaking, and a
+// voice heard in between is offered to the barge-in gate as an interruption.
+func (r *rig) spoken(t *testing.T, satellite string, n int) journal.Event {
+	t.Helper()
+	e := r.store.awaitKind(t, journal.KindSpeechSpoken, n)
+	await(t, satellite+" to stop speaking", func() bool {
+		lst := r.dm.linked(satellite)
+		if lst == nil {
+			return true
+		}
+		sess := lst.Session()
+		return sess == nil || !slices.Contains(sess.Children(), "speaking")
+	})
+	return e
 }
 
 // utter is a whole utterance on the AEC channel: speech, then enough quiet
@@ -185,7 +223,6 @@ func TestAnAddressNotInTheInventoryIsRefused(t *testing.T) {
 
 	// The daemon is still accepting.
 	known := r.join(t, kitchenIP)
-	r.logs.await(t, "satellite connected")
 	select {
 	case <-known.Gone():
 		t.Fatal("a known device was hung up on after the refusal")
@@ -339,6 +376,41 @@ func TestCancelClosesEveryLinkAndReturns(t *testing.T) {
 	closed := r.store.awaitKind(t, journal.KindSessionClosed, 1)
 	if closed.Fields["reason"] != "device_lost" {
 		t.Errorf("close reason = %q, want device_lost", closed.Fields["reason"])
+	}
+}
+
+// The daemon is stopped for an upgrade while the kitchen is still reading
+// Alan the weekend forecast. The stop that silences it goes out, but nothing
+// reads the link any more, so its answer cannot arrive: run returns without
+// waiting for it, on timers that would never end that wait, and the forecast
+// is journalled as cut where the kitchen last said it was (SPEC §4, §4.4).
+//
+// verifies SPEC §4, §4.4
+func TestStoppingMidAnswerDoesNotWaitForAReplyNobodyReads(t *testing.T) {
+	forecast := "Sunny on Saturday, with rain moving in on Sunday afternoon."
+	r := newRig(t, inventory(), func(d *deps) {
+		d.engine = &scriptEngine{acts: []session.Action{
+			session.SpeechDelta{CallID: "call_w1", Text: forecast, Last: true},
+			session.TurnEnd{FinishReason: "stop", Completion: "{}"},
+		}}
+	})
+	dev := r.join(t, kitchenIP)
+	dev.SendWake(t, "hey_eddie")
+	r.utter(t, dev, r.line("what's the weather this weekend", alan))
+	dev.AwaitTTS(t, 2*len(forecast))
+	heard := dev.Play(t, 24)
+	r.store.awaitKind(t, journal.KindSpeechStarted, 1)
+	// Whatever the kitchen says from here is still on the air at shutdown.
+	dev.HoldUplink(t)
+
+	r.cancel()
+	if err := r.exit(t); err != nil {
+		t.Errorf("run returned %v on cancel, want nil", err)
+	}
+	gone(t, dev, "kitchen")
+	cut := r.store.awaitKind(t, journal.KindSpeechTruncated, 1)
+	if cut.Fields["call_id"] != "call_w1" || cut.Fields["frames_played"] != strconv.FormatUint(heard, 10) {
+		t.Errorf("speech_truncated = %v, want call_w1 cut at frame %d", cut.Fields, heard)
 	}
 }
 

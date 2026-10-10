@@ -131,7 +131,6 @@ func TestATimerSurvivesARestartAndWaitsForItsSatellite(t *testing.T) {
 	// Due, with nothing to say it on: the scheduler tries again shortly.
 	clk.awaitWait(t, 5*time.Second)
 	back := second.join(t, kitchenIP)
-	second.logs.await(t, "satellite connected")
 	clk.advance(5 * time.Second)
 
 	back.AwaitTTS(t, 2*len(ovenDone))
@@ -171,7 +170,7 @@ func TestAQuestionForTheKitchenIsAnsweredThereWithNoWakeWord(t *testing.T) {
 	kitchen.AwaitTTS(t, 2*len(wineAsk))
 	kitchen.PlayAll(t)
 	made := r.store.awaitKind(t, journal.KindAnnouncementMade, 1)
-	r.store.awaitKind(t, journal.KindSpeechSpoken, 1)
+	r.spoken(t, "kitchen", 1)
 
 	r.utter(t, kitchen, r.line("yes please a glass of red", stranger))
 	heard := r.store.awaitKind(t, journal.KindUtteranceTranscribed, 2)

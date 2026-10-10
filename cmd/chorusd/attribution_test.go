@@ -114,7 +114,7 @@ func TestTheTelevisionTalkingOverTheKitchenIsNotAnswered(t *testing.T) {
 		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
 	}
 	dev.PlayAll(t)
-	if spoken := r.store.awaitKind(t, journal.KindSpeechSpoken, 1); spoken.Fields["text"] != answer {
+	if spoken := r.spoken(t, "kitchen", 1); spoken.Fields["text"] != answer {
 		t.Errorf("speech_spoken = %v, want the whole answer", spoken.Fields)
 	}
 
