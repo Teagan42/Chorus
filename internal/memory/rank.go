@@ -3,7 +3,6 @@ package memory
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -129,27 +128,24 @@ func (v *vectors) put(model string, texts []string, vecs [][]float32) {
 	}
 }
 
-// ranker chooses limit of candidates, given newest first, by fusing their
-// recency with their relevance to words, and returns them newest first.
+// ranker embeds what recall chooses between, and the words it is chosen for.
 type ranker struct {
 	e     Embedder
 	cache *vectors
 }
 
-func (r ranker) choose(ctx context.Context, words string, texts []string, limit int) ([]int, error) {
-	if len(texts) <= limit {
-		return nil, errors.New("nothing to choose between")
-	}
+// vectors returns the words' vector and each text's, embedding the texts
+// not yet seen and the words, which change every turn and are never kept.
+func (r ranker) vectors(ctx context.Context, words string, texts []string) ([]float32, [][]float32, error) {
 	vecs, err := r.kept(ctx, texts)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	// The words change every turn: embedded each time, never kept.
 	q, err := r.embed(ctx, []string{words})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return fuse(q[0], vecs, limit), nil
+	return q[0], vecs, nil
 }
 
 // kept returns the vectors of what is kept, embedding any not yet seen. The

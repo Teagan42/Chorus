@@ -272,35 +272,43 @@ func TestRankingThatFailsTellsTheNewest(t *testing.T) {
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("told %q and %q ranked by %q, want the newest, unranked", facts(got), told(got), got.RankedBy)
 			}
-			if len(heard) != 1 || !strings.HasPrefix(heard[0], "teagan: rank memories: ") {
+			if len(heard) != 1 || !strings.HasPrefix(heard[0], "teagan: rank: ") {
 				t.Errorf("the daemon heard %q, want why ranking failed for teagan", heard)
 			}
 		})
 	}
 }
 
-// The first turn after a restart cannot wait for two dozen memories to be
-// embedded on a GPU still loading the model, and is told the newest. The
-// embedding carries on without it, and the next turn is ranked.
+// The first turn after a restart cannot wait for Teagan's two dozen
+// memories and month of conversations to be embedded on a GPU still loading
+// the model, and is told the newest. The embedding carries on without it,
+// both pools at once, and the next turn is ranked for both, having embedded
+// only its words.
 //
 // verifies SPEC §5, §11
 func TestATurnTooSoonForRankingLeavesTheNextOneRanked(t *testing.T) {
 	store := memory.NewMemStore()
 	rememberAll(t, store, teagansYear())
+	keepAll(t, store, teagansMonth())
 	e := &topics{gate: make(chan struct{})}
 	r := memory.Recaller(store, memory.RecallConfig{Embedder: e, Timeout: 50 * time.Millisecond})
+	const words = "what's the garage code, and what did we set the thermostat to"
 
-	first := recalled(t, r, "what's the code for the garage")
-	if first.RankedBy != "" || slices.Contains(facts(first), "The garage door code is 4512.") {
-		t.Fatalf("the first turn was told %q ranked by %q, want the newest", facts(first), first.RankedBy)
+	first := recalled(t, r, words)
+	if first.RankedBy != "" || slices.Contains(facts(first), "The garage door code is 4512.") ||
+		slices.Contains(told(first), "conv-hallway-0918") {
+		t.Fatalf("the first turn was told %q and %q ranked by %q, want the newest", facts(first), told(first), first.RankedBy)
 	}
 	close(e.gate)
-	got := recalled(t, r, "what's the code for the garage")
-	if got.RankedBy != "nomic-embed-text" || !slices.Contains(facts(got), "The garage door code is 4512.") {
-		t.Errorf("the next turn was told %q ranked by %q, want the code", facts(got), got.RankedBy)
+	got := recalled(t, r, words)
+	if got.RankedBy != "nomic-embed-text" || !slices.Contains(facts(got), "The garage door code is 4512.") ||
+		!slices.Contains(told(got), "conv-hallway-0918") {
+		t.Errorf("the next turn was told %q and %q ranked by %q, want the code and the thermostat", facts(got), told(got), got.RankedBy)
 	}
-	// The first turn gave up before its words were embedded.
-	if n := len(e.embedded()); n != len(teagansYear())+1 {
-		t.Errorf("embedded %d texts, want what is kept once and the second turn's words", n)
+	// What is kept, once, and the second turn's words, once: the first
+	// turn gave up before its words were embedded.
+	kept := len(teagansYear()) + 6
+	if all := e.embedded(); len(all) != kept+1 || all[kept] != words {
+		t.Errorf("embedded %d texts, want the %d kept and the second turn's words", len(all), kept)
 	}
 }

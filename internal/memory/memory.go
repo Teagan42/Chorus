@@ -309,29 +309,32 @@ type chosen struct {
 	ss []Summary
 }
 
+// ranked embeds every pool that overflows in one warm and the words once,
+// then chooses each pool's best by itself: a busy person's memories and
+// conversations cost one wait, not two.
 func (r recaller) ranked(ctx context.Context, words string, ms []Memory, ss []Summary) (chosen, error) {
 	out := chosen{ms: ms, ss: ss}
+	var texts []string
 	if len(ms) > RecallLimit {
-		facts := make([]string, len(ms))
-		for i, m := range ms {
-			facts[i] = m.Fact
+		for _, m := range ms {
+			texts = append(texts, m.Fact)
 		}
-		keep, err := r.rank.choose(ctx, words, facts, RecallLimit)
-		if err != nil {
-			return out, fmt.Errorf("rank memories: %w", err)
-		}
-		out.ms = pick(ms, keep)
 	}
+	nm := len(texts)
 	if len(ss) > SummaryLimit {
-		texts := make([]string, len(ss))
-		for i, s := range ss {
-			texts[i] = s.Text
+		for _, s := range ss {
+			texts = append(texts, s.Text)
 		}
-		keep, err := r.rank.choose(ctx, words, texts, SummaryLimit)
-		if err != nil {
-			return out, fmt.Errorf("rank conversations: %w", err)
-		}
-		out.ss = pick(ss, keep)
+	}
+	q, vecs, err := r.rank.vectors(ctx, words, texts)
+	if err != nil {
+		return out, fmt.Errorf("rank: %w", err)
+	}
+	if nm > 0 {
+		out.ms = pick(ms, fuse(q, vecs[:nm], RecallLimit))
+	}
+	if len(vecs) > nm {
+		out.ss = pick(ss, fuse(q, vecs[nm:], SummaryLimit))
 	}
 	return out, nil
 }
