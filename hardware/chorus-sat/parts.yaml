@@ -345,7 +345,7 @@ parts:
   USB_C_HRO_TYPE-C-31-M-12:
     symbol: Connector:USB_C_Receptacle_USB2.0_16P
     footprint: Connector_USB:USB_C_Receptacle_HRO_TYPE-C-31-M-12
-    pinout: KiCad Connector:USB_C_Receptacle_USB2.0_16P against the footprint's pads
+    pinout: KiCad Connector:USB_C_Receptacle_USB2.0_16P against the footprint's pads; KiCad names the shell S1
     mpn: TYPE-C-31-M-12
     lcsc: C165948
     pins:
@@ -365,7 +365,7 @@ parts:
       - {pad: B8, name: SBU2, type: bidirectional}
       - {pad: B9, name: VBUS, type: passive}
       - {pad: B12, name: GND, type: passive}
-      - {pad: SH, name: SHIELD, type: passive}
+      - {pad: S1, name: SHIELD, type: passive}
 
   # -------------------------------------------------------------------- power
   TPS2121RUXR:
