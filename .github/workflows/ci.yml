@@ -128,6 +128,36 @@ jobs:
           path: ${{ runner.temp }}/reviewui-screens
           if-no-files-found: ignore
 
+  # The Python sidecars against the models they serve. Separate from gate for
+  # the same reason as db and e2e: it fetches two pinned models, and `task
+  # test` must keep proving it fetches nothing.
+  sidecars:
+    name: test:sidecars (speakerid, smartturn)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.54.0
+
+      # Keyed on the files that pin each digest, so a new pin fetches anew;
+      # the fetch re-verifies whatever the cache restores either way.
+      - uses: actions/cache@v4
+        with:
+          path: .models
+          key: sidecar-models-${{ hashFiles('sidecars/speakerid/src/speakerid/embedder.py', 'sidecars/smartturn/src/smartturn/model.py') }}
+
+      - run: task test:sidecars
+
   # Blocking since every SPEC §15 critical clause has coverage. It was advisory
   # while the runtime did not exist. If it goes red, add the test — do not
   # weaken spectrace or drop a citation.

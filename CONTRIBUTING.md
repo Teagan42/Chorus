@@ -21,13 +21,14 @@ Requires Go 1.27+, `uv` for Python sidecars. `task` and `cue` install via `task 
 
 ## 1. TDD
 
-Five tiers, separated because four of them cannot run everywhere.
+Six tiers, separated because five of them cannot run everywhere.
 
 | Task | Needs | Runs |
 |---|---|---|
 | `task test` | nothing | every push, every commit, pre-commit hook |
 | `task test:db` | Postgres (`task db:up`) | every push, its own CI job |
 | `task test:e2e` | Chrome or Chromium | every push, its own CI job |
+| `task test:sidecars` | `uv`; fetches the two pinned sidecar models | every push, its own CI job |
 | `task test:models` | GPU sidecars | self-hosted runner |
 | `task test:hardware` | a real satellite | self-hosted runner, manual |
 

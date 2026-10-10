@@ -76,9 +76,12 @@ uv run pytest sidecars/speakerid
 These exercise the contract against a fake embedder and the asset pin
 against `file://` sources; they need neither the model nor the network. The
 real model runs under `tests/test_model.py` when `SPEAKERID_MODEL_DIR` holds
-the asset and `SPEAKERID_CORPUS` points at `<dir>/<speaker>/*.wav` (16 kHz
-s16le mono), and skips otherwise. That corpus is never committed
-(CONTRIBUTING §7). The models tier of the Go tests covers the same ground
+the asset, and skips otherwise. Its voices are the household fixture's
+(`internal/reviewui/household`): Teagan, Alice and Alan, in the Kokoro voices
+the review UI demo plays. `SPEAKERID_CORPUS` swaps in `<dir>/<speaker>/*.wav`
+(16 kHz s16le mono) of your own, which is never committed (CONTRIBUTING §7).
+`task test:sidecars` fetches the pinned model and runs all of it, with
+ruff; CI runs that task on every push. The models tier of the Go tests covers the same ground
 over HTTP, and with `-speakerid-wavs` runs a real enrollment and
 identification pass, which is where the thresholds in `internal/identity`
 come from. `task test` runs nothing in Python.
