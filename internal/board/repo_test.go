@@ -13,6 +13,7 @@ const (
 	repoPins       = repoBoard + "/pins.yaml"
 	repoKit        = repoBoard + "/satellite1-hat.yaml"
 	repoSatellite1 = "../../esphome/satellite1.yaml"
+	repoMainConfig = "../../esphome/satellite1-main.yaml"
 )
 
 func TestTheMainBoardPinMapChecksClean(t *testing.T) {
@@ -192,5 +193,47 @@ func TestEveryMainBoardFootprintIsDrawn(t *testing.T) {
 	}
 	for _, fp := range s.Undrawn() {
 		t.Errorf("parts.yaml names %s, which chorus-main.pretty lacks", fp)
+	}
+}
+
+// verifies SPEC §3.3.2
+// The config a kit with the main board runs drives each of the board's pins
+// as the pin map names it, and nothing else of its own: flashed onto the
+// living-room kit, Ethernet comes up on the W5500 the board wires, and the
+// amplifier learns it is on PoE from the divider the board puts on GPIO42.
+func TestTheMainBoardConfigDrivesThePinsWhereThePinMapSays(t *testing.T) {
+	b, err := Load(repoPins)
+	if err != nil {
+		t.Fatal(err)
+	}
+	used, err := ConfigGPIOs(repoMainConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"ETH_SCLK":  "ethernet.clk_pin",
+		"ETH_MOSI":  "ethernet.mosi_pin",
+		"ETH_MISO":  "ethernet.miso_pin",
+		"ETH_CS_N":  "ethernet.cs_pin",
+		"ETH_INT_N": "ethernet.interrupt_pin",
+		"ETH_RST_N": "ethernet.reset_pin",
+		"POE_SENSE": "binary_sensor[0].pin",
+	}
+	if len(want) != len(b.Pins) {
+		t.Fatalf("pins.yaml has %d pins and this test names %d; say where the config drives each", len(b.Pins), len(want))
+	}
+	for _, p := range b.Pins {
+		path, ok := want[p.Net]
+		if !ok {
+			t.Errorf("%s on GPIO%d: this test does not say where satellite1-main.yaml drives it", p.Net, p.GPIO)
+			continue
+		}
+		if got := used[p.GPIO]; !slices.Equal(got, []string{path}) {
+			t.Errorf("%s is GPIO%d on the board; satellite1-main.yaml sets GPIO%d at %v, want only %s", p.Net, p.GPIO, p.GPIO, got, path)
+		}
+		delete(used, p.GPIO)
+	}
+	for gpio, paths := range used {
+		t.Errorf("satellite1-main.yaml sets GPIO%d at %v, which the main board does not wire", gpio, paths)
 	}
 }

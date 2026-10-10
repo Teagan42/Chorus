@@ -146,6 +146,12 @@ globals:
     type: int
     restore_value: false
     initial_value: '0'
+  # PoE through the Chorus main board's VBUS, 12 V with no PD contract.
+  # Always false here; satellite1-main.yaml sets it from its PoE sense pin.
+  - id: poe_supply
+    type: bool
+    restore_value: false
+    initial_value: 'false'
 
 # USB-PD. The amplifier's power mode depends on the negotiated voltage, so
 # activation waits for the contract rather than running at boot.
@@ -209,10 +215,11 @@ script:
           condition:
             lambda: return !id(tas2780_active);
           then:
-            # Mode 2 needs the 20 V contract; below that the amplifier must run
-            # in its low-power mode or it browns out.
+            # Mode 2 needs at least 9 V: a PD contract, or PoE's 12 V on VBUS.
+            # Below that the amplifier must run in its low-power mode or it
+            # browns out.
             - tas2780.activate:
-                mode: !lambda 'return id(pd_power_contract) >= 9 ? 2 : 0;'
+                mode: !lambda 'return id(pd_power_contract) >= 9 || id(poe_supply) ? 2 : 0;'
             - lambda: id(tas2780_active) = true;
       - audio_dac.mute_off: speaker_dac
 
