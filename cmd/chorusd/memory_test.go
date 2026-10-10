@@ -1,8 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -12,6 +17,7 @@ import (
 
 	"github.com/teaganglenn/chorus/internal/journal"
 	"github.com/teaganglenn/chorus/internal/memory"
+	"github.com/teaganglenn/chorus/internal/provider/ollama"
 	"github.com/teaganglenn/chorus/internal/session"
 )
 
@@ -235,5 +241,74 @@ func TestAlanIsToldTheGarageCodeOutOfTwoDozenMemories(t *testing.T) {
 	}
 	if recalled.Fields["ranked_by"] != "nomic-embed-text" || recalled.Fields["memories_json"] != journal.EncodeMemories(told) {
 		t.Errorf("memory_recalled = %v, want what the model was told, ranked by the embedding model", recalled.Fields)
+	}
+}
+
+// recordedOllama answers every /api/chat with one stream the household's
+// Ollama sent, as the real engine reads it.
+type recordedOllama struct{ stream []byte }
+
+func (o recordedOllama) RoundTrip(r *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK, Status: "200 OK", Request: r, Header: http.Header{},
+		Body: io.NopCloser(bytes.NewReader(o.stream)),
+	}, nil
+}
+
+// Alan asks the kitchen for the garage code he asked the house to remember.
+// The real engine runs over the stream qwen3:14b sent when it answered from
+// memory without calling speak: "speak", then the code, as content. Alan
+// hears the code, and the log says it was said.
+//
+// verifies SPEC §4.1, §5
+func TestAlanHearsTheGarageCodeTheModelWroteAsContent(t *testing.T) {
+	alanHearsFromContent(t, "answered_in_content.ndjson",
+		memory.Memory{ID: "m_9a7e4512", Person: "alan", Fact: "The garage door code is 4512.", At: epoch.Add(-60 * 24 * time.Hour)},
+		"what's the code for the garage", "The garage door code is 4512.")
+}
+
+// Asked how he takes his coffee, qwen3:14b wrote its reply as one line of
+// content, the words quoted after the tool's name. Alan hears the question
+// it asked back, without "speak" or the quotes.
+//
+// verifies SPEC §4.1, §5
+func TestAlanHearsTheQuestionTheModelWroteAfterTheToolsName(t *testing.T) {
+	alanHearsFromContent(t, "question_in_content.ndjson",
+		memory.Memory{ID: "m_c0ffee01", Person: "alan", Fact: "Alan takes his coffee with oat milk.", At: epoch.Add(-14 * 24 * time.Hour)},
+		"how do I take my coffee",
+		"Would you like instructions on how to brew your coffee, or are you looking for something else?")
+}
+
+// alanHearsFromContent runs the real engine over a stream the household's
+// Ollama sent, with what Alan asked the house to remember, and checks that
+// what he hears in the kitchen, and what the log says was said, is want.
+func alanHearsFromContent(t *testing.T, fixture string, remembered memory.Memory, words, want string) {
+	t.Helper()
+	stream, err := os.ReadFile(filepath.Join("..", "..", "internal", "provider", "ollama", "testdata", fixture))
+	if err != nil {
+		t.Fatalf("read stream: %v", err)
+	}
+	eng, err := ollama.New(ollama.Config{
+		BaseURL: "http://ollama.invalid:11434", Model: "qwen3:14b",
+		HTTP: &http.Client{Transport: recordedOllama{stream: stream}},
+	})
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+	memories := memory.NewMemStore()
+	if err := memories.Remember(context.Background(), remembered); err != nil {
+		t.Fatalf("remember: %v", err)
+	}
+	// An answer longer than the first two slices is paced onto the link by
+	// the clock, which the rig's timers never advance; the wall's do.
+	r := newRig(t, inventory(), func(d *deps) { d.engine, d.Memories, d.Timers = eng, memories, wallTimers{} })
+	dev := r.join(t, kitchenIP)
+	dev.SendWake(t, "hey_eddie")
+	r.utter(t, dev, r.line(words, alan))
+
+	dev.AwaitTTS(t, 2*len(want))
+	dev.PlayAll(t)
+	if spoken := r.store.awaitKind(t, journal.KindSpeechSpoken, 1); spoken.Fields["text"] != want {
+		t.Errorf("speech_spoken = %v, want %q and not the tool's name", spoken.Fields, want)
 	}
 }

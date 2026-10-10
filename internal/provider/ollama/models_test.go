@@ -91,10 +91,22 @@ func describe(acts []session.Action) []string {
 		case session.ToolCall:
 			out = append(out, fmt.Sprintf("%s(%s)", v.Tool, truncate(v.Args)))
 		case session.TurnEnd:
-			out = append(out, "end:"+v.FinishReason)
+			// What the model wrote is the only clue when it spoke nothing:
+			// content the session drops, or reasoning that never finished.
+			var c struct{ Content, Thinking string }
+			_ = json.Unmarshal([]byte(v.Completion), &c)
+			out = append(out, fmt.Sprintf("end:%s content=%q thinking=%q", v.FinishReason, truncate(c.Content), tail(c.Thinking)))
 		}
 	}
 	return out
+}
+
+// tail is the end of the model's reasoning, where it decided what to do.
+func tail(s string) string {
+	if len(s) > 300 {
+		return "..." + s[len(s)-300:]
+	}
+	return s
 }
 
 func truncate(s string) string {
@@ -104,8 +116,8 @@ func truncate(s string) string {
 	return s
 }
 
-// The model must speak by calling the tool. Content is dropped by default, so a
-// model that answers in content is simply not heard.
+// The model is heard. It should speak by calling the tool; an answer it
+// writes as content instead is heard only once the turn ends (ADR-0046).
 //
 // verifies SPEC §4.1
 func TestARealModelSpeaksByCallingTheTool(t *testing.T) {

@@ -29,8 +29,9 @@ type Embedder interface {
 const DefaultRankTimeout = 500 * time.Millisecond
 
 // warmTimeout bounds embedding what is kept, which no turn waits for past
-// its own bound.
-const warmTimeout = time.Minute
+// its own bound. It has to outlast loading the embedding model cold: a
+// minute did not, against the household's own Ollama (ADR-0044).
+const warmTimeout = 5 * time.Minute
 
 // RecallConfig is how the Recaller chooses.
 type RecallConfig struct {
