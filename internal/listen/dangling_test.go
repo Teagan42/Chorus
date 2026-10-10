@@ -125,6 +125,9 @@ type words struct {
 	heard   chan struct{}
 	release chan struct{}
 
+	// gaveUp, when set, closes once a decode returns on its cancellation.
+	gaveUp chan struct{}
+
 	mu       sync.Mutex
 	asked    [][]byte
 	returned bool
@@ -147,6 +150,9 @@ func (w *words) Transcribe(ctx context.Context, pcm []byte) (stt.Result, error) 
 		select {
 		case <-w.release:
 		case <-ctx.Done():
+			if w.gaveUp != nil {
+				defer close(w.gaveUp)
+			}
 			return stt.Result{}, ctx.Err()
 		}
 	}
@@ -287,6 +293,44 @@ func TestDanglingStopsDecodingWhenTheAskIsDropped(t *testing.T) {
 	}
 	if !w.done() {
 		t.Error("the decode outlived the ask it was for")
+	}
+}
+
+// stubborn is Smart Turn answering "finished" for an ask that was dropped
+// while it ran: its reply was already on the wire. It answers only once the
+// decode beside it has given up, so the verdict and the cancellation are both
+// waiting when Dangling looks.
+type stubborn struct{ words *words }
+
+func (j stubborn) Complete(ctx context.Context, _ []byte) (bool, error) {
+	<-ctx.Done()
+	<-j.words.gaveUp
+	return true, nil
+}
+
+// Alan keeps talking after "turn on the porch light and the", so the ask is
+// dropped mid-decode. A decode that gave up on the cancellation is not a
+// failed decode: the ask returns the cancellation, never the judge's
+// "finished" for words that were still coming. Either can be the one Dangling
+// sees first, so the pause repeats.
+//
+// verifies SPEC §4.5
+func TestDanglingGivesNoVerdictOnAnAskDroppedMidDecode(t *testing.T) {
+	for range 50 {
+		w := newWords("Turn on the porch light and the")
+		w.release, w.gaveUp = make(chan struct{}), make(chan struct{})
+		ctx, cancel := context.WithCancel(context.Background())
+
+		result := make(chan error, 1)
+		go func() {
+			_, err := listen.Dangling{Judge: stubborn{w}, Words: w}.Complete(ctx, voice(8000, ms(1500)))
+			result <- err
+		}()
+		<-w.heard
+		cancel()
+		if err := <-result; !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v, want the cancellation", err)
+		}
 	}
 }
 

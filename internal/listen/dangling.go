@@ -46,7 +46,12 @@ func (d Dangling) Complete(ctx context.Context, pcm []byte) (bool, error) {
 	}
 	select {
 	case r, ok := <-decoded:
-		return !ok || !Dangles(r.Text), nil
+		if !ok {
+			// A decode that gave up on a dropped ask did not fail: the ask
+			// gets its cancellation, not the judge's verdict.
+			return ctx.Err() == nil, ctx.Err()
+		}
+		return !Dangles(r.Text), nil
 	case <-ctx.Done():
 		return false, ctx.Err()
 	}
