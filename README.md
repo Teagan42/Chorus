@@ -35,7 +35,7 @@ satellite. What exists today:
 
 | Piece | State |
 |---|---|
-| `cmd/chorusd` — the orchestrator daemon: accepts satellites, one session supervisor per link over a shared journal, holds each device's native API open | under test against the in-process satellite; unproven on hardware |
+| `cmd/chorusd` — the orchestrator daemon: accepts satellites, one session supervisor per link over a shared journal, holds each device's native API open and drives its LED ring | under test against the in-process satellite; unproven on hardware |
 | `internal/esphome` — native API client, Noise transport | dials real hardware |
 | `internal/bridge` — the audio link, and `bridgetest`, the in-process satellite that is the primary test asset | under test; full duplex proven on hardware (§3.3.2) |
 | `internal/session` — actor/supervisor, speech channel, barge-in gate | under test |

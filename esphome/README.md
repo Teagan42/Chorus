@@ -11,9 +11,12 @@ satellite1.example.yaml     a device config that validates standalone
 secrets.example.yaml        template; the real secrets.yaml is gitignored
 ```
 
-Native API stays for control — entities, LED ring, wake-word sensitivity,
-and the mmWave radar's "Room Presence", which the orchestrator journals as
-the room's presence (ADR-0050).
+Native API stays for control — entities, wake-word sensitivity, the mmWave
+radar's "Room Presence", which the orchestrator journals as the room's
+presence (ADR-0050), and the LED ring, which it drives. `satellite1.yaml`
+declares the ring with a `Listening`, `Thinking` and `Speaking` effect, and
+the orchestrator sets one per session state; a ring without those three is
+left alone (ADR-0056).
 Audio rides a raw TCP socket the device dials out on, because the native API
 cannot carry audio without new message ids, which means forking `api.proto`.
 
@@ -41,7 +44,7 @@ without breaking an older host.
 | `0x10` tts | host | 16 kHz s16le PCM |
 | `0x11` stop | host | none — barge-in, discards the speaker buffer; `flags` is a tag, never 0 |
 | `0x12` finish | host | none — drains the buffer, then stops |
-| `0x13` duck | host | decibels:u8, duration_ms:u32 |
+| `0x13` duck | host | decibels:u8, duration_ms:u32; applied to the `ducking_speaker` source, never the voice |
 | `0x14` mic_enable | host | none; `flags` bit 0 enables the uplink |
 
 `played` is the truncation point and the reason this component exists in this

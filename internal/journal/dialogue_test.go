@@ -214,3 +214,113 @@ func TestAModelThatNeverAnsweredReplaysToTheApology(t *testing.T) {
 		t.Errorf("dialogue = %+v, want the utterance and the canned apology", s.Dialogue)
 	}
 }
+
+// interjected is Teagan's forecast paused for the garage door: the model
+// interjects while the forecast plays, and the rest of it is held.
+func interjected() []journal.Event {
+	return []journal.Event{
+		ev(journal.KindSessionOpened, map[string]string{"satellite": "kitchen", "speaker_id": "teagan"}),
+		ev(journal.KindUtteranceTranscribed, map[string]string{"text": "what's the weather tomorrow and is the garage shut", "speaker_id": "teagan"}),
+		ev(journal.KindToolCalled, map[string]string{"tool": "speak", "call_id": "call_s1", "args_json": `{"text":"Tomorrow will be cloudy in the morning, with rain from three.","mode":"queue"}`}),
+		ev(journal.KindToolCalled, map[string]string{"tool": "ha_get_state", "call_id": "call_c1", "args_json": `{"entity_id":"cover.garage_door"}`}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "call_c1", "outcome": "ok", "result_json": `{"entity_id":"cover.garage_door","state":"open"}`}),
+		ev(journal.KindToolCalled, map[string]string{"tool": "speak", "call_id": "call_s2", "args_json": `{"text":"Sorry, the garage door is open.","mode":"interject"}`}),
+		ev(journal.KindSpeechTruncated, map[string]string{
+			"spoken_text": "Tomorrow will be cloudy in the morning,", "unspoken_text": " with rain from three.",
+			"frames_played": "24000", "call_id": "call_s1", "reason": "interjected",
+		}),
+	}
+}
+
+// An interjection pauses what is playing, and the rest plays after it. The
+// paused call is still playing while the interjection is said, and once it
+// resumes the model is told everything Teagan heard of it, in one call.
+//
+// verifies SPEC §4.2
+func TestAnInterjectedCallIsHeardWholeOnceItResumes(t *testing.T) {
+	s := reduceAll(t, interjected())
+	if got := s.Dialogue[1]; got.Text != "Tomorrow will be cloudy in the morning," || !got.Pending || got.Cut {
+		t.Errorf("paused forecast = %+v, want still playing with the words heard so far", got)
+	}
+
+	s = reduceAll(t, append(interjected(),
+		ev(journal.KindSpeechSpoken, map[string]string{"text": "Sorry, the garage door is open.", "frames_played": "36800", "call_id": "call_s2"}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "call_s2", "outcome": "ok"}),
+		ev(journal.KindSpeechSpoken, map[string]string{"text": " with rain from three.", "frames_played": "56000", "call_id": "call_s1"}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "call_s1", "outcome": "ok"}),
+	))
+	want := []journal.Entry{
+		{Kind: journal.EntryHeard, Text: "what's the weather tomorrow and is the garage shut", Speaker: "teagan"},
+		{Kind: journal.EntrySaid, CallID: "call_s1", Text: "Tomorrow will be cloudy in the morning, with rain from three."},
+		{Kind: journal.EntryCall, CallID: "call_c1", Tool: "ha_get_state", Args: `{"entity_id":"cover.garage_door"}`},
+		{Kind: journal.EntryResult, CallID: "call_c1", Tool: "ha_get_state", Outcome: "ok", Result: `{"entity_id":"cover.garage_door","state":"open"}`},
+		{Kind: journal.EntrySaid, CallID: "call_s2", Text: "Sorry, the garage door is open."},
+	}
+	if !reflect.DeepEqual(s.Dialogue, want) {
+		t.Errorf("dialogue =\n%+v\nwant\n%+v", s.Dialogue, want)
+	}
+	if s.Interrupted || len(s.Unspoken) != 0 {
+		t.Errorf("interrupted=%v unspoken=%q: a pause is not a cut", s.Interrupted, s.Unspoken)
+	}
+	if want := []string{"Tomorrow will be cloudy in the morning,", "Sorry, the garage door is open.", " with rain from three."}; !reflect.DeepEqual(s.Spoken, want) {
+		t.Errorf("spoken = %q, want %q", s.Spoken, want)
+	}
+}
+
+// Teagan cuts off the interjection, so the held rest of the forecast never
+// plays. The model is told the forecast as far as Teagan heard it, cut by
+// Teagan: not still playing, and not dropped.
+//
+// verifies SPEC §4.2, §4.4
+func TestABargeInDuringAnInterjectionCutsTheCallItPaused(t *testing.T) {
+	s := reduceAll(t, append(interjected(),
+		ev(journal.KindBargeInDetected, map[string]string{"tts_position_ms": "480"}),
+		ev(journal.KindSpeechTruncated, map[string]string{
+			"spoken_text": "Sorry,", "unspoken_text": " the garage door is open.",
+			"frames_played": "7680", "call_id": "call_s2", "reason": "barge_in",
+		}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "call_s2", "outcome": "cancelled"}),
+		ev(journal.KindSpeechDiscarded, map[string]string{"unspoken_text": " with rain from three.", "call_id": "call_s1", "reason": "barge_in"}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "call_s1", "outcome": "cancelled"}),
+	))
+	if got := s.Dialogue[1]; got.Text != "Tomorrow will be cloudy in the morning," || !got.Cut || got.CutBy != "barge_in" || got.Pending {
+		t.Errorf("forecast = %+v, want the heard half, cut by the barge-in", got)
+	}
+	if got := s.Dialogue[4]; got.Text != "Sorry," || !got.Cut {
+		t.Errorf("interjection = %+v, want cut after its first word", got)
+	}
+}
+
+// The kitchen had played all of the forecast generated so far when the
+// interjection landed, so nothing was paused mid-word: the forecast was
+// heard to there, and what the model went on to say plays after.
+//
+// verifies SPEC §4.2
+func TestSpeechAfterAnInterjectionContinuesALineHeardToItsEnd(t *testing.T) {
+	events := interjected()
+	events[len(events)-1] = ev(journal.KindSpeechSpoken, map[string]string{"text": "Tomorrow will be cloudy in the morning,", "frames_played": "24000", "call_id": "call_s1"})
+	s := reduceAll(t, append(events,
+		ev(journal.KindSpeechSpoken, map[string]string{"text": "Sorry, the garage door is open.", "frames_played": "36800", "call_id": "call_s2"}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "call_s2", "outcome": "ok"}),
+		ev(journal.KindSpeechSpoken, map[string]string{"text": " with rain from three.", "frames_played": "56000", "call_id": "call_s1"}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "call_s1", "outcome": "ok"}),
+	))
+	if got := s.Dialogue[1]; got.Text != "Tomorrow will be cloudy in the morning, with rain from three." || got.Cut || got.Pending {
+		t.Errorf("forecast = %+v, want both halves, heard", got)
+	}
+}
+
+// The voice fails before the held rest can resume, with nothing of it left
+// to discard. What Teagan heard before the interjection stays in the
+// dialogue: the call's result ends the playing, not the hearing.
+//
+// verifies SPEC §4.4, §7
+func TestAPausedCallThatNeverResumesKeepsWhatWasHeard(t *testing.T) {
+	s := reduceAll(t, append(interjected(),
+		ev(journal.KindSpeechFailed, map[string]string{"call_id": "call_s1", "reason": "tts_unavailable", "error": "open: kokoro: 503 Service Unavailable"}),
+		ev(journal.KindToolResult, map[string]string{"call_id": "call_s1", "outcome": "error", "result_json": `{"error":"tts_unavailable"}`}),
+	))
+	if got := s.Dialogue[1]; got.Text != "Tomorrow will be cloudy in the morning," || got.Pending || got.Held {
+		t.Errorf("forecast = %+v, want settled with the words heard", got)
+	}
+}

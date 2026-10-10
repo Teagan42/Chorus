@@ -22,7 +22,7 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | `speech_failed` | speaking |  |  | A speak call's audio failed short of the person interrupting: the voice could not render it, or the device never confirmed playing it. The truncation or discard it caused names the same reason, so it is never mistaken for a barge-in (SPEC §7, ADR-0051). |
 | `speech_spoken` | speaking | yes |  | Audio the user actually heard, bounded by DAC-reported playback position. |
 | `speech_started` | speaking |  |  | The DAC played the first frame of a turn's speech. Recorded once per turn, when the device reports it, so its wall clock is when the household first heard the answer (SPEC §11). |
-| `speech_truncated` | speaking | yes | yes | Speech was cut short, usually by a barge-in; reason says what cut it. Carries the exact split between heard and unheard text. |
+| `speech_truncated` | speaking | yes | yes | Speech was cut short, usually by a barge-in; reason says what cut it. Carries the exact split between heard and unheard text. An interjected cut is a pause: the unheard text plays after the interjection, recorded under the same call_id (ADR-0056). |
 | `timer_cancelled` | tool |  |  | A running timer was cancelled before it went off. |
 | `timer_finished` | session |  |  | A timer went off, and whether anybody was told. A timer nobody heard is a failure the household felt, so it is recorded as one (SPEC §7). |
 | `timer_started` | tool |  |  | A timer was set. Recorded in the household's own log, which the daemon replays at startup to know what is running, so a timer outlives the session that set it and the process (ADR-0045). |
@@ -227,7 +227,7 @@ Actor: `speaking`. `has_audio`: no. `training_signal`: no. `speculative`: no. `r
 
 ## `speech_truncated`
 
-Speech was cut short, usually by a barge-in; reason says what cut it. Carries the exact split between heard and unheard text.
+Speech was cut short, usually by a barge-in; reason says what cut it. Carries the exact split between heard and unheard text. An interjected cut is a pause: the unheard text plays after the interjection, recorded under the same call_id (ADR-0056).
 
 Actor: `speaking`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. `requires_versions`: yes.
 
@@ -237,7 +237,7 @@ Actor: `speaking`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. 
 | `unspoken_text` | string | yes | Generated but never played. |
 | `frames_played` | integer | yes | DAC frame count at cut. |
 | `call_id` | string |  | The speak call that was cut. Empty in logs from before it was recorded. |
-| `reason` | string |  | Why it was cut. Only barge_in is the person interrupting; tts_unavailable and playback_unconfirmed are the voice or the device failing, which nobody chose and no preference pair may be cut from (ADR-0051). Empty in logs from before it was recorded. One of: `barge_in`, `preempted`, `session_closed`, `migrated`, `tts_unavailable`, `playback_unconfirmed`. |
+| `reason` | string |  | Why it was cut. Only barge_in is the person interrupting; tts_unavailable and playback_unconfirmed are the voice or the device failing, which nobody chose and no preference pair may be cut from (ADR-0051). interjected is an interject call cutting in, after which the rest resumes (ADR-0056). Empty in logs from before it was recorded. One of: `barge_in`, `preempted`, `interjected`, `session_closed`, `migrated`, `tts_unavailable`, `playback_unconfirmed`. |
 
 ## `timer_cancelled`
 

@@ -461,11 +461,16 @@ func (s *stream) Close() session.Playback {
 	close(s.quit)
 	<-s.done
 
-	switch {
-	case !cut:
+	if !cut {
 		_ = s.sat.cfg.Link.Finish()
-		s.awaitDrain()
-	case stopErr == nil:
+		// A cut that lands while the device drains is a cut all the same,
+		// and its answer is the truncation point (ADR-0033).
+		if !s.awaitDrain() && s.ctx.Err() != nil {
+			cut = true
+			tag, stopErr = s.sat.cfg.Link.Stop()
+		}
+	}
+	if cut && stopErr == nil {
 		s.settle(tag)
 	}
 
@@ -578,9 +583,10 @@ func (s *stream) settle(tag uint8) {
 }
 
 // awaitDrain waits for the DAC to confirm the whole utterance, bounded by
-// Config.Drain. Without the wait every completed utterance would report as
-// truncated, because Close runs the moment the model stops generating.
-func (s *stream) awaitDrain() {
+// Config.Drain, and reports whether it did. Without the wait every completed
+// utterance would report as truncated, because Close runs the moment the
+// model stops generating.
+func (s *stream) awaitDrain() bool {
 	deadline := s.sat.cfg.Timers.After(s.sat.cfg.Drain)
 	for {
 		s.mu.Lock()
@@ -588,18 +594,18 @@ func (s *stream) awaitDrain() {
 		s.mu.Unlock()
 		played, changed := s.sat.position()
 		if played-min(played, s.base) >= total {
-			return
+			return true
 		}
 		select {
 		case <-changed:
 		case <-deadline:
 			// Audio the device never confirmed is audio the user cannot be said
 			// to have heard, so this falls through to the truncated report.
-			return
+			return false
 		case <-s.ctx.Done():
-			return
+			return false
 		case <-s.sat.hungUp:
-			return
+			return false
 		}
 	}
 }

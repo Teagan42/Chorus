@@ -216,6 +216,12 @@ func Reduce(s State, e Event) (State, error) {
 		s.Spoken = append(s.Spoken, e.Fields["text"])
 		s.Dialogue = s.played(e.Fields["call_id"], e.Fields["text"], false)
 	case KindSpeechTruncated:
+		if e.Fields["reason"] == "interjected" {
+			// A pause: the unheard half plays after the interjection (ADR-0056).
+			s.Spoken = append(s.Spoken, e.Fields["spoken_text"])
+			s.Dialogue = s.held(e.Fields["call_id"], e.Fields["spoken_text"])
+			break
+		}
 		// Heard and unheard text stay separate: the model may only see what
 		// the user actually heard (SPEC §4.2).
 		s.Spoken = append(s.Spoken, e.Fields["spoken_text"])
@@ -229,6 +235,7 @@ func Reduce(s State, e Event) (State, error) {
 		// Never played, so it joins Unspoken only. The model must not believe
 		// the user heard it (SPEC §4.4).
 		s.Unspoken = append(s.Unspoken, e.Fields["unspoken_text"])
+		s.Dialogue = s.dropped(e.Fields["call_id"], e.Fields["reason"])
 	case KindBargeInDetected:
 		ms, err := strconv.Atoi(e.Fields["tts_position_ms"])
 		if err != nil {

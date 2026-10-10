@@ -229,11 +229,11 @@ var Specs = map[string]ToolSpec{
 		ModelDescription: "Say something to the user. Runs concurrently with other tools; the model chooses when and whether to speak.",
 		Params: []ParamSpec{
 			{Name: "text", Type: "string", Description: "What to say.", Required: true},
-			{Name: "mode", Type: "string", Description: "queue appends after current speech; preempt cancels it; interject ducks and cuts in.", Required: false, Enum: []string{"queue", "preempt", "interject"}},
+			{Name: "mode", Type: "string", Description: "queue appends after current speech; preempt cancels it; interject pauses it, cuts in, then resumes it.", Required: false, Enum: []string{"queue", "preempt", "interject"}},
 		},
 		ModelParams: []ParamSpec{
 			{Name: "text", Type: "string", Description: "What to say.", Required: true},
-			{Name: "mode", Type: "string", Description: "queue appends after current speech; preempt cancels it; interject ducks and cuts in.", Required: false, Enum: []string{"queue", "preempt", "interject"}},
+			{Name: "mode", Type: "string", Description: "queue appends after current speech; preempt cancels it; interject pauses it, cuts in, then resumes it.", Required: false, Enum: []string{"queue", "preempt", "interject"}},
 		},
 		OnInterrupt:          "cancel",
 		Scope:                "household",

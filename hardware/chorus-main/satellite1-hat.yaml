@@ -59,7 +59,7 @@ pads:
   - {pad: "12", label: I2S_BCLK, net: I2S_BCLK, gpio: 8, use: "XU316 bit clock", satellite1: "i2s_audio[0].i2s_bclk_pin"}
   - {pad: "13", label: GPIO02, gpio: 2}
   - {pad: "14", label: GND, net: GND, use: ground}
-  - {pad: "15", label: LED_RING, net: LED_RING, gpio: 21, use: "the HAT's LED ring data, driven by FutureProofHomes' firmware"}
+  - {pad: "15", label: LED_RING, net: LED_RING, gpio: 21, use: "the HAT's LED ring data, driven by FutureProofHomes' firmware or Chorus's", satellite1: "light[0].pin"}
   - {pad: "16", label: GPIO16, gpio: 41}
   - {pad: "17", label: Reserved_1, net: CORE_3V3, use: "the Core's 3V3, header pin 17"}
   - {pad: "18", label: I2S_DOUT2, net: I2S_DOUT2, gpio: 40, use: "XU316 output to the HAT's DAC and amplifier; the ESP32 must not drive it"}

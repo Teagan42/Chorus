@@ -42,7 +42,7 @@ const (
 	KindSpeechSpoken Kind = "speech_spoken"
 	// The DAC played the first frame of a turn's speech. Recorded once per turn, when the device reports it, so its wall clock is when the household first heard the answer (SPEC §11).
 	KindSpeechStarted Kind = "speech_started"
-	// Speech was cut short, usually by a barge-in; reason says what cut it. Carries the exact split between heard and unheard text.
+	// Speech was cut short, usually by a barge-in; reason says what cut it. Carries the exact split between heard and unheard text. An interjected cut is a pause: the unheard text plays after the interjection, recorded under the same call_id (ADR-0056).
 	KindSpeechTruncated Kind = "speech_truncated"
 	// A running timer was cancelled before it went off.
 	KindTimerCancelled Kind = "timer_cancelled"
