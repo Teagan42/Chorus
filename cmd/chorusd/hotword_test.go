@@ -67,11 +67,12 @@ func newHousehold(t *testing.T, eng *scriptEngine, tweak ...func(*deps)) *rig {
 	return r
 }
 
-// say streams enough of a voice for the ear to judge a partial, then stops
-// talking, so the utterance ends.
-func say(t *testing.T, dev *bridgetest.Device, amplitude int16) {
+// hush ends the utterance. A test that waits on what a partial decided
+// sends it only once that has happened: the partial is decoded beside the
+// mic, so silence sent straight after the voice can end the utterance
+// before any partial is judged, and the candidate is never offered.
+func hush(t *testing.T, dev *bridgetest.Device) {
 	t.Helper()
-	sayOver(t, dev, amplitude)
 	for sent := 0; sent < silence; sent += chunkBytes {
 		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
 	}
@@ -110,9 +111,10 @@ func TestTeaganSaysStopOverTheForecast(t *testing.T) {
 	dev.AwaitTTS(t, 2*len(morningForecast))
 	heard := dev.Play(t, 10)
 	dev.PlayDuringStop(6)
-	say(t, dev, r.line("Stop.", teagan))
+	sayOver(t, dev, r.line("Stop.", teagan))
 
 	dev.AwaitStop(t, 1)
+	hush(t, dev)
 	cut := r.store.awaitKind(t, journal.KindSpeechTruncated, 1)
 	if cut.Fields["frames_played"] != strconv.FormatUint(heard+6, 10) || cut.Fields["reason"] != "barge_in" ||
 		!strings.HasPrefix(morningForecast, cut.Fields["spoken_text"]) {
@@ -147,8 +149,9 @@ func TestTheTelevisionSaysStopAndNothingHappens(t *testing.T) {
 	dev.AwaitTTS(t, 2*len(morningForecast))
 	dev.Play(t, 10)
 
-	say(t, dev, r.line("Stop!", stranger))
+	sayOver(t, dev, r.line("Stop!", stranger))
 	rej := r.store.awaitKind(t, journal.KindBargeInRejected, 1)
+	hush(t, dev)
 	if rej.Fields["stage"] != "speaker_id" || rej.Fields["hot_word"] != "stop" {
 		t.Errorf("barge_in_rejected = %v, want the television's stop at speaker_id", rej.Fields)
 	}
@@ -201,8 +204,9 @@ func TestTeaganSaysNeverMindWhileTheKitchenLooks(t *testing.T) {
 	dev.AwaitTTS(t, 2*len(looking))
 	dev.Play(t, 10)
 
-	say(t, dev, r.line("Never mind.", teagan))
+	sayOver(t, dev, r.line("Never mind.", teagan))
 	dev.AwaitStop(t, 1)
+	hush(t, dev)
 	if det := r.store.awaitKind(t, journal.KindBargeInDetected, 1); det.Fields["hot_word"] != "never_mind" {
 		t.Errorf("barge_in_detected = %v, want never mind", det.Fields)
 	}
@@ -303,9 +307,10 @@ func TestAlanStopsTheBreadTimerGoingOff(t *testing.T) {
 	opened := r.store.awaitKind(t, journal.KindSessionOpened, 2)
 	kitchen.AwaitTTS(t, 2*len(breadSet)+2*len(breadDone))
 	heard := kitchen.Play(t, 10)
-	say(t, kitchen, r.line("stop", alan))
+	sayOver(t, kitchen, r.line("stop", alan))
 
 	kitchen.AwaitStop(t, 1)
+	hush(t, kitchen)
 	conv := opened.ConversationID
 	cut := r.store.awaitKind(t, journal.KindSpeechTruncated, 1)
 	want := map[string]string{
