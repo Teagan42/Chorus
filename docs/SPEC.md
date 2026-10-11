@@ -174,7 +174,7 @@ Entities that matter, all usable from the orchestrator over the native API:
 
 The Phase 1 blocker (§14) is closed. `internal/bridge/hardware_test.go` runs
 against the living-room Satellite1 with no Home Assistant involved: the device
-dials the orchestrator's audio port, declares `{version 1, 16 kHz, 16-bit, 2 mic
+dials the orchestrator's audio port, declares `{version 2, 16 kHz, 16-bit, 2 mic
 channels}`, and the three claims below are asserted on every run of
 `task test:hardware`.
 

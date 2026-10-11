@@ -2,6 +2,7 @@
 
 #ifdef USE_ESP32
 
+#include <algorithm>
 #include <cerrno>
 #include <cinttypes>
 #include <cstring>
@@ -320,10 +321,14 @@ void ChorusBridge::pump_downlink_() {
   // unbounded rx_ aborts the firmware in std::vector::insert the moment the
   // allocator fails, because exceptions are off. Leaving the socket unread
   // instead makes TCP flow control hold the remainder on the host.
-  while (this->rx_.size() + RX_CHUNK_SIZE <= RX_CAPACITY) {
+  //
+  // Read up to the capacity, not up to the last whole chunk: a frame that
+  // fits rx_ must be able to complete, or the parser below waits forever.
+  while (this->rx_.size() < RX_CAPACITY) {
     const size_t offset = this->rx_.size();
-    this->rx_.resize(offset + RX_CHUNK_SIZE);
-    ssize_t got = this->socket_->read(this->rx_.data() + offset, RX_CHUNK_SIZE);
+    const size_t want = std::min(RX_CHUNK_SIZE, RX_CAPACITY - offset);
+    this->rx_.resize(offset + want);
+    ssize_t got = this->socket_->read(this->rx_.data() + offset, want);
     this->rx_.resize(offset + (got > 0 ? got : 0));
     if (got > 0) {
       continue;
@@ -343,6 +348,14 @@ void ChorusBridge::pump_downlink_() {
   while (this->rx_.size() - consumed >= HEADER_SIZE) {
     const uint8_t *h = this->rx_.data() + consumed;
     const size_t length = (static_cast<size_t>(h[2]) << 8) | h[3];
+    // The wire allows 65535 bytes; rx_ holds RX_CAPACITY and never grows. A
+    // longer frame can never complete, so waiting for it wedges the link with
+    // no disconnect. The host sends 1 KB TTS chunks (internal/bridge/link.go),
+    // so this is a peer that is not the host, not backpressure.
+    if (length > RX_CAPACITY - HEADER_SIZE) {
+      this->disconnect_("frame too large");
+      return;
+    }
     if (this->rx_.size() - consumed - HEADER_SIZE < length) {
       break;  // partial frame; wait for the rest
     }

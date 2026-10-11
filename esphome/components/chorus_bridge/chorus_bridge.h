@@ -35,7 +35,8 @@ static const size_t SPEAKER_BUFFER_SIZE = 16 * 1024;
 // speaker_pending_ are allowed. Both are reserved once in setup() and never
 // grown past it: a repeated 16 KB reallocation out of a fragmented internal
 // heap aborts the firmware, because exceptions are off and there is nothing to
-// catch std::bad_alloc.
+// catch std::bad_alloc. RX_CAPACITY is therefore also the largest frame the
+// device accepts; a longer one drops the link (see pump_downlink_).
 static const size_t RX_CHUNK_SIZE = 4 * 1024;
 static const size_t RX_CAPACITY = SPEAKER_BUFFER_SIZE + RX_CHUNK_SIZE;
 

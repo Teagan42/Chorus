@@ -45,3 +45,68 @@ chorus_bridge:
       channels: [0]
     - microphone: ${microphone_id}
       channels: [1]
+
+# On-device wake word, stage one of SPEC §9.3. In code it is independent of
+# the bridge (SPEC §3.2); it is wired here because the host opens a session
+# only on a WAKE frame (internal/listen), so a bridge without a detector
+# streams audio nobody ever answers. A second non-passive consumer on the
+# same microphone: it never stops the mic the bridge is reading.
+micro_wake_word:
+  id: wake_detector
+  microphone:
+    # The processed mix, the same channel the host confirms the wake on.
+    microphone: ${microphone_id}
+    channels: [0]
+  models:
+    # A stock model, so the config validates without a file this repo cannot
+    # carry: ESPHome's `okay_nabu` shorthand resolves to this manifest, but at
+    # whatever main holds, so the commit is pinned, as satellite1.yaml pins the
+    # board vendor's components. The household's trained "Hey Eddie" model is
+    # swapped in here, as a local manifest path or a URL; the select below
+    # follows whichever model is loaded.
+    - model: https://raw.githubusercontent.com/esphome/micro-wake-word-models/40ff33f57f8fc6ad71a75ef085abbf742495b225/models/v2/okay_nabu.json
+      id: wake_model
+  # Full duplex: the detector keeps running through the session and through
+  # playback, so it never releases the mic (SPEC §3.1). Whether a detection
+  # becomes a session is the host's decision (SPEC §9.3), so a repeat is a
+  # frame it ignores, not a problem here.
+  stop_after_detection: false
+  on_wake_word_detected:
+    - lambda: id(chorus).on_wake_word(wake_word);
+
+# micro_wake_word does not start itself; the stock firmware starts it from
+# voice_assistant, which this config has no copy of. Last, so the microphone
+# it claims is set up.
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - micro_wake_word.start:
+            id: wake_detector
+
+# The relief for cough false-accepts that needs no retraining (SPEC §3.3.1,
+# §9.3): the model's cutoff, set over the native API. Relative to the loaded
+# model's own cutoff so a swapped-in model keeps the three levels. The setter
+# takes the cutoff quantised to a byte, so 5 is about 0.02 of probability.
+select:
+  - platform: template
+    id: wake_word_sensitivity
+    name: Wake word sensitivity
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_option: Default
+    options:
+      - Less sensitive
+      - Default
+      - More sensitive
+    on_value:
+      - lambda: |-
+          const uint8_t base = id(wake_model).get_default_probability_cutoff();
+          uint8_t cutoff = base;
+          if (x == "Less sensitive") {
+            cutoff = base + 5 > 255 ? 255 : base + 5;
+          } else if (x == "More sensitive") {
+            cutoff = base - 8;
+          }
+          id(wake_model).set_probability_cutoff(cutoff);

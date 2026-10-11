@@ -80,6 +80,8 @@ packages:
 ota:
   - platform: esphome
     id: ota_esphome
+    # Without it anyone on the LAN can reflash a device with a microphone.
+    password: !secret ota_password
 
 safe_mode:
 
