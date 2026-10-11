@@ -198,6 +198,8 @@ jobs:
 
       - run: task firmware:config -- satellite1.example.yaml
 
+      - run: task firmware:config -- voice-pe.yaml
+
       # The firmware's handshake MAC, built for the host against mbedTLS and
       # checked on the golden frames the Go tests use (ADR-0066). The only
       # C++ this job compiles; the component itself is not built here.

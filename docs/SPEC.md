@@ -77,10 +77,13 @@ no managed outbound-link helper. Native API retained for control only.
   channel 1, each with its own ring buffer. This is what stock does. Both are
   the XMOS's outputs, and by default neither is a bare mic: channel 0 is AEC,
   interference cancelling, noise suppression and AGC on both devices; channel
-  1 is AEC+IC+NS on the Satellite1's firmware and AEC alone by default on the
-  Voice PE's. The Voice PE can switch channel 1 to the unprocessed mic over its
-  control interface, so what channel 1 carries is the firmware's setting, not
-  something the host can assume.
+  1 is AEC+IC+NS on the Satellite1's firmware. On the Voice PE the ESP32 sets
+  the stage each channel is taken after, over the XMOS's control interface at
+  every boot (`voice_kit`'s `channel_0_stage` and `channel_1_stage`), and
+  `esphome/voice-pe.yaml` sets channel 1 to AEC+IC+NS as well, which is also
+  the stock component's default. It could as well be the unprocessed mic, so
+  what channel 1 carries is the firmware's setting, not something the host
+  can assume.
 - Callbacks fire on the **mic's FreeRTOS task, not `loop()`**. Signature
   `void(const std::vector<uint8_t> &)`. Not an ISR, so blocking is legal, but
   sockets / API / `App` must not be touched there.
@@ -190,13 +193,19 @@ Entities that matter, all usable from the orchestrator over the native API:
 
 | Entity | Use |
 |---|---|
-| `light` **LED Ring** | Shows the session listening, working or speaking, and goes dark when it closes. Shows the device muted over everything, and an error when no session is open and something the satellite needs last failed: the ear, the voice, the model or the journal, until it next answers. Stock firmware animates it from `voice_assistant`'s state, so `esphome/satellite1.yaml` declares it as a plain light with a `Listening`, `Thinking` and `Speaking` effect, plus `Muted` and `Error`, and chorusd sets one per state over the native API. A ring without the first three is left to its firmware (ADR-0056); one without `Muted` or `Error` goes dark in that state (ADR-0069) |
+| `light` **LED Ring** | Shows the session listening, working or speaking, and goes dark when it closes. Shows the device muted over everything, and an error when no session is open and something the satellite needs last failed: the ear, the voice, the model or the journal, until it next answers. Stock firmware animates it from `voice_assistant`'s state, so `esphome/satellite1.yaml` (24 LEDs) and `esphome/voice-pe.yaml` (12) declare it as a plain light with a `Listening`, `Thinking` and `Speaking` effect, plus `Muted` and `Error`, and chorusd sets one per state over the native API. A ring without the first three is left to its firmware (ADR-0056); one without `Muted` or `Error` goes dark in that state (ADR-0069) |
 | `select` **Wake word sensitivity** (3 levels) | **Immediate relief for cough false-accepts, no retraining** (§9.3) |
 | `switch` **Capture wake-word audio** | Stock corpus capture hook — inspect before building our own |
-| `binary_sensor` **Room Presence** + mmWave radar suite | Journalled to the device's log as `presence_changed` and drawn on Browse (ADR-0050). Presence-gated sessions and occupancy-aware routing are not built |
-| `binary_sensor` **Mute Switch** (HW) | The HAT's slide switch, on the XMOS's button port, which the stock firmware mirrors as a `switch` Mute Microphones. Hardware mute is a user-facing privacy control; respect it. `esphome/satellite1.yaml` reads the switch itself and `chorus_bridge` reports it as the `mute` frame's hardware bit; the software bit is the `Microphone`'s own mute. The host drops the room's audio while either is set (ADR-0067) |
-| `number` **Speaker Volume** | 0 to 100, kept across reboots, 0 mutes the amplifier. The stock firmware keeps its volume on a media player, so `esphome/satellite1.yaml` declares this number instead. chorusd finds it by name, reads its level and sets it over the native API when `set_volume` runs; a satellite without it answers `not_implemented` (ADR-0067) |
+| `binary_sensor` **Room Presence** + mmWave radar suite | Journalled to the device's log as `presence_changed` and drawn on Browse (ADR-0050). Presence-gated sessions and occupancy-aware routing are not built. The Voice PE has no radar, so it lists none and its room journals no presence |
+| `binary_sensor` **Mute Switch** (HW) | The HAT's slide switch, on the XMOS's button port, which the stock firmware mirrors as a `switch` Mute Microphones; on the Voice PE, the side switch on GPIO3. Hardware mute is a user-facing privacy control; respect it. `esphome/satellite1.yaml` and `esphome/voice-pe.yaml` read the switch themselves and `chorus_bridge` reports it as the `mute` frame's hardware bit; the software bit is the `Microphone`'s own mute. The host drops the room's audio while either is set (ADR-0067) |
+| `number` **Speaker Volume** | 0 to 100, kept across reboots, 0 mutes the amplifier. Both stock firmwares keep their volume on a media player, so `esphome/satellite1.yaml` and `esphome/voice-pe.yaml` declare this number instead; the Voice PE's dial turns it, 5 a detent. chorusd finds it by name, reads its level and sets it over the native API when `set_volume` runs; a satellite without it answers `not_implemented` (ADR-0067) |
 | `button` **XMOS Flash Embedded FW** | XMOS firmware is flashable from the API |
+
+`esphome/voice-pe.yaml` gives the Voice PE the same LED Ring, Mute Switch,
+Speaker Volume and wake-word sensitivity, and chorusd finds them by the same
+names and effects, so it needs nothing per board. That config has been
+validated with `esphome config`, not run on a device; nothing in this section
+has been measured on a Voice PE (ADR-0073).
 
 ### 3.3.2 Full duplex, measured on the device
 
@@ -675,7 +684,11 @@ Do not build the S2S path until the cascade works end to end.
   and the address is an IP literal: a connection from an address the
   inventory does not name is refused before a frame is read, and `chorusd`
   refuses a hostname, or a host two satellites share, at startup. mDNS
-  discovery (`_esphomelib._tcp`) is not built.
+  discovery (`_esphomelib._tcp`) is not built. The profile, `satellite1` or
+  `voice-pe`, is informational: chorusd reads what a satellite has (its ring,
+  its volume, a presence sensor) from the entities it lists over the native
+  API, and both boards stream the same two channels, so nothing in the host
+  branches on it (ADR-0073).
 - **Addressing is asymmetric.** Discovery, were it built, would run one way
   only: the orchestrator could resolve satellites, but the orchestrator's own
   address must be a literal IP in the device YAML. ESPHome's `set_sockaddr`

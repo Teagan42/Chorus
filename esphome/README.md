@@ -12,15 +12,17 @@ satellite1.yaml             the FutureProofHomes Satellite1, real wiring;
                             what the firmware tasks build by default
 satellite1-main.yaml        the same kit on the Chorus main board (ADR-0055)
 satellite1.example.yaml     exercises the config schema; validated, not flashed
+voice-pe.yaml               the Home Assistant Voice Preview Edition, real
+                            wiring from the stock config (ADR-0073)
 secrets.example.yaml        template; the real secrets.yaml is gitignored
 ```
 
 Native API stays for control — entities, wake-word sensitivity, the mmWave
 radar's "Room Presence", which the orchestrator journals as the room's
 presence (ADR-0050), and the LED ring, which it drives. `satellite1.yaml`
-declares the ring with a `Listening`, `Thinking` and `Speaking` effect, and
-the orchestrator sets one per session state; a ring without those three is
-left alone (ADR-0056). Its `Muted` and `Error` effects show the device's mute
+and `voice-pe.yaml` declare the ring with a `Listening`, `Thinking` and
+`Speaking` effect, and the orchestrator sets one per session state; a ring
+without those three is left alone (ADR-0056). Its `Muted` and `Error` effects show the device's mute
 and a failure the household should know about; a ring with only the first
 three goes dark in those states instead (ADR-0069). Its Speaker Volume number is how loud the satellite
 is, 0 to 100, which the orchestrator sets when someone asks (ADR-0067).
@@ -140,8 +142,9 @@ with the host.**
   `Microphone::get_mute_state()` is the flag `microphone.mute` sets, which
   zero-fills the audio in software, so it is the software bit. The hardware
   bit is the binary sensor `hardware_mute:` names: on the Satellite1, the
-  HAT's slide switch on the XMOS's button port. A board that names none never
-  sets it, and a switch not yet read counts as on (ADR-0067).
+  HAT's slide switch on the XMOS's button port; on the Voice PE, the side
+  switch on GPIO3. A board that names none never sets it, and a switch not
+  yet read counts as on (ADR-0067).
 - **Both microphone sources are non-passive.** `MicrophoneSource` is a
   per-consumer gate, not a hardware refcount: a `passive` source receives audio
   only while some non-passive consumer has started the mic. Registering passive
@@ -189,7 +192,43 @@ anyone on the LAN can reflash a device that carries a microphone.
 
 A kit on the Chorus main board builds `satellite1-main.yaml` instead, with
 `task firmware:config -- satellite1-main.yaml`. The example validates the same
-way, and CI validates all three on every push.
+way, and CI validates all four configs on every push.
+
+## Configuring a Voice PE
+
+`voice-pe.yaml` is the Home Assistant Voice Preview Edition, its pins, XMOS,
+DAC, ring, dial and buttons taken from the stock
+`esphome/home-assistant-voice-pe` config at the commit its header names. It
+uses the same package, secrets and steps:
+
+```sh
+$EDITOR esphome/voice-pe.yaml                          # orchestrator_host
+task firmware:config -- voice-pe.yaml
+task firmware:compile -- voice-pe.yaml
+task firmware:upload -- voice-pe.yaml
+```
+
+Stock firmware's OTA has no password, so the first upload over it is not
+refused for one, and USB is the fallback; from then on the device demands
+`ota_password`. The node
+name stays `home-assistant-voice` with its MAC suffix, so the inventory entry
+is `home-assistant-voice-xxxxxx` with `profile: voice-pe`. Every config here
+reads the one `secrets.yaml`, so two satellites built from it share its
+`api_encryption_key` unless it is changed between builds; each `psk` in
+`devices.yaml` is whatever its device was built with.
+
+What it has that the host reads: the LED Ring with Chorus's five effects,
+the Speaker Volume number, which the dial turns 5 a detent, the side switch
+as the `mute` frame's hardware bit, and the wake-word sensitivity select. It
+has no radar, so no presence. The centre button is a wake: a short press
+calls the bridge's wake hook with the name `button`, and the host confirms
+it on the next utterance as it does any wake. The stock config's media
+player, timers, sounds, Sendspin, BLE setup and factory-reset hold are left
+out. Channel 1 is AEC+IC+NS, set by `voice_kit` at boot; `channel_1_stage:
+NONE` would make it the bare mic.
+
+It has been validated with `esphome config`, not compiled against a device or
+flashed.
 
 ## Proving full duplex
 

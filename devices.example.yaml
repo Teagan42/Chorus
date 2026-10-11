@@ -18,6 +18,6 @@ satellites:
     address: 10.0.0.42:6053
     psk: BASE64_32_BYTE_KEY_HERE
     room: kitchen # told to the model, so "the lights" means this room's
-    profile: satellite1 # satellite1 | voice-pe
+    profile: satellite1 # satellite1 | voice-pe; informational, chorusd reads what it has from the device
     # retention: # this satellite's own horizons; what it leaves out is the house's
     #   audio: 7d

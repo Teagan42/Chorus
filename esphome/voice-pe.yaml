@@ -1,0 +1,405 @@
+# Home Assistant Voice Preview Edition running chorus_bridge instead of
+# voice_assistant (docs/adr/0073).
+#
+# Real board wiring, taken from esphome/home-assistant-voice-pe at
+# d4e6fa43d6a1a7d342b7d4d403567e06516719de (home-assistant-voice.yaml, the
+# `dev` branch as read). Deliberately NOT a package over that file: it
+# includes voice_assistant, whose half-duplex state machine is the limit this
+# component exists to escape (SPEC §3.1), and its LED, button and dial logic
+# all run off voice_assistant's phase and its media player. Everything beyond
+# audio -- timers, the media player, Sendspin, BLE improv, the sounds, the jack
+# animations, the factory-reset hold -- is omitted, as satellite1.yaml omits
+# its board's. What Chorus needs is kept: both XMOS channels, the DAC, the
+# 12-LED ring as a light the orchestrator drives (ADR-0056, ADR-0069), the
+# mute switch as the bridge's hardware bit and a Speaker Volume number in
+# place of the media player's volume (ADR-0067).
+#
+# Hardware facts that are not obvious from the pin numbers:
+#   - The XMOS XU316 is the I2S master on both buses (`i2s_mode: secondary`),
+#     so there is no audio until `voice_kit` has reset it and it has booted.
+#   - Unlike the Satellite1, the mics and the DAC are on separate I2S buses
+#     with stock ESPHome i2s_audio: no vendor driver override is needed.
+#   - The XMOS's two outputs are set by `voice_kit` over I2C at every boot,
+#     not fixed in its firmware. Channel 0 is AEC+IC+NS+AGC, channel 1 the
+#     same without AGC, as on the Satellite1 (SPEC §3.2).
+#   - The amplifier has its own enable, GPIO47. Nothing is heard until it is on.
+
+substitutions:
+  # The stock firmware's node name, so this is an upgrade of the same device
+  # rather than a new one. devices.yaml names it with its MAC suffix.
+  name: home-assistant-voice
+  friendly_name: Voice PE
+  # The orchestrator's address. A literal IP: ESPHome's set_sockaddr does not
+  # resolve hostnames, so this needs a static lease (SPEC §13).
+  orchestrator_host: "10.0.12.73"
+
+esphome:
+  name: ${name}
+  name_add_mac_suffix: true
+  friendly_name: ${friendly_name}
+  # The Taskfile's ESPHOME_VERSION. The stock file asks for 2026.9.0, but
+  # nothing below needs it, and satellite1.yaml's vendor components fix the
+  # repo at 2026.7.x.
+  min_version: 2026.7.0
+  # A list, so it joins the package's own on_boot rather than replacing it.
+  on_boot:
+    - priority: 375
+      then:
+        # As stock: the amplifier comes up a second after boot, at the
+        # household's level or muted at 0.
+        - delay: 1s
+        - switch.turn_on: internal_speaker_amp
+        - script.execute: apply_speaker_volume
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  cpu_frequency: 240MHz
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    # The stock file's cache and PSRAM options; its Bluetooth and TLS 1.3
+    # ones served BLE improv and Home Assistant Cloud, neither of which is here.
+    sdkconfig_options:
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+  ignore_not_found: false
+
+external_components:
+  # The XMOS's control component. Pinned to the commit the wiring was read
+  # from, not to `dev` as the stock file has it: a branch is refetched, so a
+  # driver change would land in a build nothing in this repo records.
+  - source: github://esphome/home-assistant-voice-pe@d4e6fa43d6a1a7d342b7d4d403567e06516719de
+    components: [voice_kit]
+
+packages:
+  chorus: !include
+    file: packages/chorus-bridge.yaml
+    vars:
+      orchestrator_host: ${orchestrator_host}
+      microphone_id: xmos_mics
+      speaker_id: tts_speaker
+
+# Retained so a bad flash is recoverable over the network rather than over USB.
+ota:
+  - platform: esphome
+    id: ota_esphome
+    # Without it anyone on the LAN can reflash a device with a microphone.
+    password: !secret ota_password
+
+safe_mode:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# Native API is control only: entities and diagnostics. Audio rides the
+# chorus_bridge socket (SPEC §3.1). The Noise handshake is the authentication.
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+logger:
+  # INFO, as satellite1.yaml: DEBUG in the audio path can starve the speaker.
+  level: INFO
+
+# ---------------------------------------------------------------- board buses
+
+i2c:
+  - id: internal_i2c
+    sda: GPIO5
+    scl: GPIO6
+    frequency: 400kHz
+
+i2s_audio:
+  # The DAC's bus; its data line is GPIO10.
+  - id: i2s_output
+    i2s_lrclk_pin: GPIO7
+    i2s_bclk_pin: GPIO8
+  # The XMOS's mic bus; its data line is GPIO15.
+  - id: i2s_input
+    i2s_lrclk_pin: GPIO14
+    i2s_bclk_pin: GPIO13
+
+# The XMOS over I2C: reset, firmware version, and which stage each output
+# channel is taken after. A board whose XMOS reports another version is
+# updated to this one on boot, as stock does, so the channels below mean what
+# they say.
+voice_kit:
+  id: voice_kit_component
+  i2c_id: internal_i2c
+  reset_pin: GPIO4
+  # The component's own defaults, spelled out because they are the contract
+  # SPEC §3.2 states: channel 1 is channel 0 before its AGC.
+  channel_0_stage: AGC
+  channel_1_stage: NS
+  firmware:
+    url: https://github.com/esphome/voice-kit-xmos-firmware/releases/download/v1.3.1/ffva_v1.3.1_upgrade.bin
+    version: "1.3.1"
+    md5: 964635c5bf125529dab14a2472a15401
+
+audio_dac:
+  - platform: aic3204
+    id: aic3204_dac
+    i2c_id: internal_i2c
+
+switch:
+  # The speaker amplifier's enable. Internal: it is not a control.
+  - platform: gpio
+    id: internal_speaker_amp
+    pin: GPIO47
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+script:
+  # The Speaker Volume number onto the AIC3204, through the i2s speaker that
+  # owns it. 0 mutes the DAC outright. 1 to 100 span 0.4 to 0.85 of the DAC's
+  # range: the stock media player's volume_min and volume_max, the span its
+  # own 0 to 100% is mapped onto.
+  - id: apply_speaker_volume
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: return id(speaker_volume).state <= 0;
+          then:
+            - speaker.mute_on: i2s_audio_speaker
+          else:
+            - speaker.volume_set:
+                id: i2s_audio_speaker
+                volume: !lambda return 0.4f + 0.45f * id(speaker_volume).state / 100.0f;
+            - speaker.mute_off: i2s_audio_speaker
+
+# voice_kit marks itself failed when the XMOS does not answer, before a log
+# client can attach. Repeated so a silent board says why.
+interval:
+  - interval: 10s
+    then:
+      - if:
+          condition:
+            lambda: return id(voice_kit_component).is_failed();
+          then:
+            - logger.log:
+                level: WARN
+                format: "XMOS not responding: there will be no audio"
+
+# ------------------------------------------------------------------- downlink
+
+speaker:
+  - platform: i2s_audio
+    id: i2s_audio_speaker
+    i2s_audio_id: i2s_output
+    i2s_mode: secondary
+    i2s_dout_pin: GPIO10
+    sample_rate: 48000
+    bits_per_sample: 32bit
+    channel: stereo
+    dac_type: external
+    audio_dac: aic3204_dac
+    timeout: never
+    buffer_duration: 100ms
+
+  # chorus_bridge feeds 16 kHz mono. The mixer and resampler forward the i2s
+  # speaker's output callback, rescaling frame counts to their own input rate,
+  # so the playback position stays DAC-accurate through the chain (SPEC §3.2.1).
+  # Stock's announcement input is the voice here and its media input the
+  # source that ducks.
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: i2s_audio_speaker
+    num_channels: 2
+    task_stack_in_psram: true
+    source_speakers:
+      # Half a second of slack, as satellite1.yaml: fed from loop() over the
+      # network, and an underrun plays silence the DAC counts as heard.
+      - id: tts_source
+        timeout: never
+        buffer_duration: 500ms
+      - id: media_source
+        timeout: never
+        buffer_duration: 100ms
+
+  - platform: resampler
+    id: tts_speaker
+    output_speaker: tts_source
+    sample_rate: 48000
+    bits_per_sample: 16
+
+# --------------------------------------------------------------------- uplink
+
+# Stereo at 16 kHz: the XMOS's two processed channels (SPEC §3.2). The bridge
+# and the wake word each take theirs as 16-bit mono sources.
+microphone:
+  - platform: i2s_audio
+    id: xmos_mics
+    i2s_audio_id: i2s_input
+    i2s_mode: secondary
+    i2s_din_pin: GPIO15
+    adc_type: external
+    pdm: false
+    sample_rate: 16000
+    bits_per_sample: 32bit
+    channel: stereo
+
+# Ducking applies to the other mixer source, not to our own TTS. The side
+# mute switch is the MUTE frame's hardware bit (ADR-0067).
+chorus_bridge:
+  ducking_speaker: media_source
+  hardware_mute: hardware_mute_switch
+
+binary_sensor:
+  # The slide switch on the side, read as stock reads it: on while the
+  # household has muted the microphones. chorus_bridge reports it and the
+  # orchestrator drops the room's audio while it is on (SPEC §3.3.1).
+  - platform: gpio
+    id: hardware_mute_switch
+    name: Mute Switch
+    icon: mdi:microphone-off
+    pin: GPIO3
+
+  # The centre button. A short press is a wake: the same hook the wake word
+  # calls, named "button", so a household can ask without saying "Hey
+  # Eddie". The host confirms it on the first utterance as it does any wake
+  # (SPEC §9.3), ignores it during a session or while muted, and so it is
+  # push-to-talk and nothing more (docs/adr/0073).
+  - platform: gpio
+    id: center_button
+    pin:
+      number: GPIO0
+      inverted: true
+    on_click:
+      - min_length: 50ms
+        max_length: 1s
+        then:
+          - lambda: id(chorus).on_wake_word("button");
+
+# ------------------------------------------------------------- speaker volume
+
+# How loud the satellite is, 0 to 100, where 0 mutes it. The orchestrator
+# finds it by this name and sets it over the native API when someone asks
+# (ADR-0067); the dial sets it here, and the orchestrator sees the same
+# state either way. Kept across reboots.
+number:
+  - platform: template
+    id: speaker_volume
+    name: Speaker Volume
+    icon: mdi:volume-high
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: slider
+    optimistic: true
+    restore_value: true
+    initial_value: 50
+    on_value:
+      - script.execute: apply_speaker_volume
+
+# The dial turns the Speaker Volume number, 5 a detent: the stock media
+# player's volume_increment. Through the number, so its state, and the
+# orchestrator's view of it, move with the dial.
+sensor:
+  - platform: rotary_encoder
+    id: dial
+    pin_a: GPIO16
+    pin_b: GPIO18
+    resolution: 2
+    on_clockwise:
+      - number.set:
+          id: speaker_volume
+          value: !lambda return std::min(100.0f, id(speaker_volume).state + 5.0f);
+    on_anticlockwise:
+      - number.set:
+          id: speaker_volume
+          value: !lambda return std::max(0.0f, id(speaker_volume).state - 5.0f);
+
+# ------------------------------------------------------------------ LED ring
+
+# The LEDs draw from their own supply, switched on while any is lit.
+power_supply:
+  - id: led_power
+    pin: GPIO45
+
+# The ring's wiring, with stock's explicit WS2812 timings. Internal: the
+# partition below is the ring as seen from outside.
+light:
+  - platform: esp32_rmt_led_strip
+    id: leds_internal
+    internal: true
+    pin: GPIO21
+    num_leds: 12
+    rgb_order: GRB
+    bit0_high: 300ns
+    bit0_low: 975ns
+    bit1_high: 650ns
+    bit1_low: 650ns
+    reset_low: 300us
+    reset_high: 0us
+    max_refresh_rate: 15ms
+    rmt_symbols: 192
+    default_transition_length: 0ms
+    power_supply: led_power
+
+  # Remapped as stock remaps it, so index 0 is the LED stock counts from.
+  # Nothing on the device animates it: the orchestrator finds it by its three
+  # session effects and sets one per session state over the native API
+  # (SPEC §3.3.1, ADR-0056), or Muted or Error (ADR-0069). The effect names
+  # are that contract, and each means what it means on satellite1.yaml; the
+  # timings are scaled to 12 LEDs.
+  - platform: partition
+    id: led_ring
+    name: LED Ring
+    default_transition_length: 0ms
+    restore_mode: ALWAYS_OFF
+    segments:
+      - id: leds_internal
+        from: 7
+        to: 11
+      - id: leds_internal
+        from: 0
+        to: 6
+    effects:
+      - addressable_lambda:
+          name: Listening
+          update_interval: 100ms
+          lambda: it.all() = Color(0, 96, 255);
+      # Two lit LEDs chasing round the ring, once a second as on the 24.
+      - addressable_lambda:
+          name: Thinking
+          update_interval: 80ms
+          lambda: |-
+            static int32_t head = 0;
+            it.all() = Color::BLACK;
+            for (int32_t i = 0; i < 2; i++) {
+              it[(head + i) % it.size()] = Color(0, 96, 255);
+            }
+            head = (head + 1) % it.size();
+      # The whole ring breathing.
+      - addressable_lambda:
+          name: Speaking
+          update_interval: 30ms
+          lambda: |-
+            static uint8_t step = 0;
+            const uint8_t level = step < 32 ? 96 + step * 5 : 96 + (63 - step) * 5;
+            it.all() = Color(0, 96, 255) * level;
+            step = (step + 1) % 64;
+      # Steady red while the device reports its mute.
+      - addressable_lambda:
+          name: Muted
+          update_interval: 100ms
+          lambda: it.all() = Color(255, 0, 0);
+      # Amber, blinking: something the household relies on is down.
+      - addressable_lambda:
+          name: Error
+          update_interval: 500ms
+          lambda: |-
+            static bool lit = false;
+            it.all() = lit ? Color(255, 96, 0) : Color::BLACK;
+            lit = !lit;
