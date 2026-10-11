@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"slices"
 	"sync"
 	"time"
@@ -17,10 +18,12 @@ import (
 	"github.com/teagan42/chorus/internal/listen"
 	"github.com/teagan42/chorus/internal/pb"
 	"github.com/teagan42/chorus/internal/session"
+	"github.com/teagan42/chorus/internal/volume"
 )
 
 // The native API is control only (SPEC §3.1). The host reads the room's
-// presence sensor over it and drives the LED ring. It is held open regardless:
+// presence sensor over it, drives the LED ring and sets the speaker's volume.
+// It is held open regardless:
 // a stock api component reboots the board when no client has connected
 // within its reboot_timeout, link and all.
 const (
@@ -53,6 +56,7 @@ func (d *daemon) keep(ctx context.Context, sat *config.Satellite) {
 	log := d.Log.With("satellite", sat.Name, "address", sat.Address)
 	p := &presence{journal: d.journal, conv: listen.DeviceConversation(sat.Name), log: log}
 	l := &led{ring: d.rings[sat.Name], log: log}
+	v := d.volumes[sat.Name]
 	backoff := nativeRetryMin
 	for {
 		conn, err := within(ctx, d.Timers, nativeDialTimeout, func(ctx context.Context) (nativeConn, error) {
@@ -66,9 +70,10 @@ func (d *daemon) keep(ctx context.Context, sat *config.Satellite) {
 		} else {
 			log.Info("native api connected", "device", conn.Describe())
 			backoff = nativeRetryMin
-			err = hold(ctx, conn, p, l)
+			err = hold(ctx, conn, p, l, v)
 			p.dropped(ctx)
 			l.dropped()
+			v.dropped()
 			if ctx.Err() != nil {
 				return
 			}
@@ -86,8 +91,9 @@ func (d *daemon) keep(ctx context.Context, sat *config.Satellite) {
 // hold answers the device's keepalive until the connection fails or ctx
 // ends. Unanswered pings are how the device decides a client is gone. It
 // lists the device's entities, drives the LED ring when it has one Chorus
-// can, and subscribes to states only when one is the room's presence sensor.
-func hold(ctx context.Context, c nativeConn, p *presence, l *led) error {
+// can, and subscribes to states only when it has a presence sensor or a
+// speaker volume to read.
+func hold(ctx context.Context, c nativeConn, p *presence, l *led, v *speakerVolume) error {
 	// Waited on last, after the cancel below has ended the ring's driver.
 	var driving sync.WaitGroup
 	defer driving.Wait()
@@ -121,11 +127,14 @@ func hold(ctx context.Context, c nativeConn, p *presence, l *led) error {
 			p.entity(m)
 		case *pb.ListEntitiesLightResponse:
 			l.entity(m)
+		case *pb.ListEntitiesNumberResponse:
+			v.entity(m)
 		case *pb.ListEntitiesDoneResponse:
 			if l.listed() {
 				driving.Go(func() { l.drive(ctx, c) })
 			}
-			if !p.listed() {
+			present, adjustable := p.listed(), v.listed(c)
+			if !present && !adjustable {
 				continue
 			}
 			if err := c.Send(&pb.SubscribeStatesRequest{}); err != nil {
@@ -133,6 +142,8 @@ func hold(ctx context.Context, c nativeConn, p *presence, l *led) error {
 			}
 		case *pb.BinarySensorStateResponse:
 			p.state(ctx, m)
+		case *pb.NumberStateResponse:
+			v.state(m)
 		}
 	}
 }
@@ -326,4 +337,112 @@ func ringCommand(key uint32, st session.RingState) *pb.LightCommandRequest {
 		return &pb.LightCommandRequest{Key: key, HasState: true, State: false}
 	}
 	return &pb.LightCommandRequest{Key: key, HasState: true, State: true, HasEffect: true, Effect: ringEffect(st)}
+}
+
+// speakerVolumeID is the number esphome/satellite1.yaml names Speaker Volume,
+// as the device lists it. The name is the contract, as the ring's effects are.
+const speakerVolumeID = "speaker_volume"
+
+// speakerVolume is one satellite's speaker volume, as its current native API
+// connection listed and last reported it: what set_volume reads and sets
+// (ADR-0067). It lives as long as the daemon; a redial lists it again.
+type speakerVolume struct {
+	log *slog.Logger
+
+	mu sync.Mutex
+	// conn is the connection that listed the device, nil while none has.
+	conn     nativeConn
+	found    bool
+	key      uint32
+	min, max float32
+	// level is the last the device reported, or the last set since.
+	level int
+	known bool
+}
+
+// entity takes the speaker volume number. One with no range is not a volume.
+func (v *speakerVolume) entity(e *pb.ListEntitiesNumberResponse) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.found || e.GetObjectId() != speakerVolumeID || e.GetMaxValue() <= e.GetMinValue() {
+		return
+	}
+	v.found, v.key, v.min, v.max = true, e.GetKey(), e.GetMinValue(), e.GetMaxValue()
+}
+
+// listed records the connection that listed the device, once it has listed
+// everything, and reports whether there is a volume to set on it.
+func (v *speakerVolume) listed(c nativeConn) bool {
+	v.mu.Lock()
+	v.conn = c
+	found := v.found
+	v.mu.Unlock()
+	if found {
+		v.log.Info("speaker volume found", "number", speakerVolumeID)
+	} else {
+		v.log.Info("no speaker volume, so set_volume answers not_implemented here")
+	}
+	return found
+}
+
+// state keeps the level the device reports: set by Chorus, its own
+// buttons, or Home Assistant.
+func (v *speakerVolume) state(m *pb.NumberStateResponse) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if !v.found || m.GetKey() != v.key {
+		return
+	}
+	if m.GetMissingState() {
+		v.known = false
+		return
+	}
+	span := float64(v.max - v.min)
+	v.level, v.known = min(100, max(0, int(math.Round(float64(m.GetState()-v.min)/span*100)))), true
+}
+
+// dropped forgets the connection and what it listed.
+func (v *speakerVolume) dropped() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.conn, v.found, v.key, v.min, v.max, v.known = nil, false, 0, 0, 0, false
+}
+
+// Level is the volume, 0 to 100, or why there is none to read.
+func (v *speakerVolume) Level() (int, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	switch {
+	case v.conn == nil:
+		return 0, volume.ErrNotConnected
+	case !v.found:
+		return 0, volume.ErrNotImplemented
+	case !v.known:
+		return 0, volume.ErrLevelUnknown
+	}
+	return v.level, nil
+}
+
+// Set sends the volume, scaled to the number's own range. It does not wait
+// for the device's report: the level is the next step's start until one comes.
+func (v *speakerVolume) Set(level int) error {
+	v.mu.Lock()
+	c, found, key := v.conn, v.found, v.key
+	value := float32(float64(v.min) + float64(v.max-v.min)*float64(level)/100)
+	v.mu.Unlock()
+	switch {
+	case c == nil:
+		return volume.ErrNotConnected
+	case !found:
+		return volume.ErrNotImplemented
+	}
+	if err := c.Send(&pb.NumberCommandRequest{Key: key, State: value}); err != nil {
+		return fmt.Errorf("set %s to %d: %w", speakerVolumeID, level, err)
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.conn == c {
+		v.level, v.known = level, true
+	}
+	return nil
 }

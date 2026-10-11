@@ -20,6 +20,7 @@ import (
 	"github.com/teagan42/chorus/internal/satellite"
 	"github.com/teagan42/chorus/internal/session"
 	"github.com/teagan42/chorus/internal/timer"
+	"github.com/teagan42/chorus/internal/volume"
 )
 
 // helloTimeout bounds the opening handshake, so a connection from something
@@ -104,6 +105,10 @@ type daemon struct {
 	// sessions, driven by its native API connection (ADR-0056).
 	rings map[string]*ring
 
+	// volumes is each satellite's speaker volume, as its native API
+	// connection lists it: what set_volume sets (ADR-0067).
+	volumes map[string]*speakerVolume
+
 	// links is each connected satellite's Listening child, by name: where
 	// an announcement for that satellite is said (ADR-0045).
 	linksMu sync.Mutex
@@ -148,10 +153,12 @@ func newDaemon(inv *config.Config, d deps) (*daemon, error) {
 		links:   map[string]*listen.Listener{},
 		rooms:   map[string]string{},
 		rings:   map[string]*ring{},
+		volumes: map[string]*speakerVolume{},
 	}
 	for _, sat := range inv.Satellites {
 		dm.rooms[sat.Name] = sat.Room
 		dm.rings[sat.Name] = newRing()
+		dm.volumes[sat.Name] = &speakerVolume{log: d.Log.With("satellite", sat.Name, "address", sat.Address)}
 	}
 	return dm, nil
 }
@@ -196,6 +203,7 @@ func (d *daemon) run(ctx context.Context) error {
 	}
 	maps.Copy(tools, timer.Tools(timers))
 	tools["announce"] = announce.Tool(d, d.inv.Satellites)
+	tools["set_volume"] = volume.Tool(d, d.inv.Satellites)
 	d.tools = tools
 	// Every satellite speaks through one voice that keeps its own apology,
 	// rendered while it still answers: that line is only ever needed once
@@ -569,6 +577,28 @@ func (d *daemon) Announce(ctx context.Context, satellite string, a session.Annou
 		return "", announce.ErrNotConnected
 	}
 	return conv, err
+}
+
+// Level is the named satellite's speaker volume (volume.Speakers).
+func (d *daemon) Level(satellite string) (int, error) {
+	v, ok := d.volumes[satellite]
+	if !ok {
+		return 0, volume.ErrNotConnected
+	}
+	return v.Level()
+}
+
+// SetLevel sets the named satellite's speaker volume over its native API
+// connection (volume.Speakers).
+func (d *daemon) SetLevel(ctx context.Context, satellite string, level int) error {
+	v, ok := d.volumes[satellite]
+	if !ok {
+		return volume.ErrNotConnected
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return v.Set(level)
 }
 
 // handlers fans one link's frames out to both children: the satellite
