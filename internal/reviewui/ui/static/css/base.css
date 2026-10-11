@@ -1,6 +1,6 @@
 /* Chorus review UI — base. Load after tokens.css.
-   Fonts: Outfit and JetBrains Mono from Google Fonts (see layout/base.tmpl),
-   or self-host them and drop the <link>. */
+   Fonts: Outfit and JetBrains Mono, declared in fonts.css and served from
+   static/fonts beside this file; nothing is fetched from Google. */
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -41,6 +41,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
   position: absolute; width: 1px; height: 1px; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap;
 }
+
+/* Where a failed request is said out loud (js/chorus.js). Empty, it takes
+   no room. */
+.alerts { padding: 14px 24px; }
+.alerts:empty { display: none; }
+
+/* htmx's own indicator rules, here because the page's policy lets no
+   <style> element in; base.tmpl tells htmx not to inject them. */
+.htmx-indicator { opacity: 0; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity: 1; transition: opacity 200ms ease-in; }
 
 /* Page frame: hairlines, not boxes. */
 .page { min-height: 100vh; display: flex; flex-direction: column; }

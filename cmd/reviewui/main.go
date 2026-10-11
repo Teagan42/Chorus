@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,20 +39,30 @@ const (
 // version is set by the release build (-X main.version=...).
 var version = "dev"
 
+// defaultAddr is loopback: there is no login, and the UI plays every
+// recording in the house, so reaching it from another machine is a choice
+// (-addr :8080) rather than the default (docs/reviewui/README.md).
+const defaultAddr = "127.0.0.1:8080"
+
 func main() {
-	addr := flag.String("addr", ":8080", "listen address")
+	addr := flag.String("addr", defaultAddr, "listen address")
+	hosts := flag.String("hosts", os.Getenv(hostsEnv), "comma-separated host names and IPs the UI answers as; default: the listen address's host, or localhost, 127.0.0.1 and ::1 when it binds loopback or every interface ($"+hostsEnv+")")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	if err := run(ctx, *addr); err != nil {
+	allowed := parseHosts(*hosts)
+	if len(allowed) == 0 {
+		allowed = defaultHosts(*addr)
+	}
+	if err := run(ctx, *addr, allowed); err != nil {
 		fmt.Fprintf(os.Stderr, "reviewui: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, addr string) error {
+func run(ctx context.Context, addr string, hosts []string) error {
 	log.Printf("reviewui %s", version)
 	pool, err := pgxpool.New(ctx, journal.DSN())
 	if err != nil {
@@ -71,14 +82,14 @@ func run(ctx context.Context, addr string) error {
 
 	s := newServer(pgJournal{journal.NewPgStore(pool)}, curation.NewPgStore(pool), blobs, time.Now)
 	s.engineFor = ollamaEngines(os.Getenv(ollamaURLEnv), os.Getenv(ollamaModelEnv))
-	srv := &http.Server{Addr: addr, Handler: s.routes(), ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: s.handler(hosts), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdown)
 	}()
-	log.Printf("Browse on http://localhost%s%s", addr, "/conversations")
+	log.Printf("Browse on %s; answering as %s", browseURL(addr), strings.Join(hosts, ", "))
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}

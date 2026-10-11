@@ -1,0 +1,26 @@
+/* fonts — Outfit and JetBrains Mono from the binary, never from Google: a page
+   about a household's recordings tells no third party it was opened. Both are
+   SIL OFL 1.1; the licences sit beside the files in ../fonts. Outfit is the
+   variable build google/fonts publishes (ofl/outfit); JetBrains Mono is the
+   project's own webfonts (JetBrains/JetBrainsMono, fonts/webfonts). */
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/Outfit-Variable.ttf") format("truetype");
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/JetBrainsMono-Medium.woff2") format("woff2");
+}

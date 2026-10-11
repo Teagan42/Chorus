@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -367,32 +368,36 @@ func (s *server) replayPage(w http.ResponseWriter, r *http.Request) {
 // runPage handles GET /replays/{id}/runs/{run}: a kept re-run, with the form
 // holding what it ran under, ready to tweak.
 func (s *server) runPage(w http.ResponseWriter, r *http.Request) {
-	rp, run, ok := s.keptRun(w, r)
-	if !ok {
+	rp, run, err := s.keptRun(r.Context(), r.PathValue("id"), r.PathValue("run"))
+	switch {
+	case errors.Is(err, errNoRun):
+		http.NotFound(w, r)
+		return
+	case err != nil:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	s.renderReplay(w, rp, overrides{run.Versions.Model, run.SystemPrompt, run.ToolSchema}, s.compared(rp, run))
 }
 
-// keptRun reads the conversation and the re-run its path names, answering
-// the request itself when either is not there.
-func (s *server) keptRun(w http.ResponseWriter, r *http.Request) (replayable, curation.Rerun, bool) {
-	id, err := strconv.ParseUint(r.PathValue("run"), 10, 64)
+// errNoRun says a path names no kept re-run of a conversation with turns.
+var errNoRun = errors.New("no such re-run")
+
+// keptRun reads the conversation and the re-run named run.
+func (s *server) keptRun(ctx context.Context, conv, run string) (replayable, curation.Rerun, error) {
+	id, err := strconv.ParseUint(run, 10, 64)
 	if err != nil {
-		http.NotFound(w, r)
-		return replayable{}, curation.Rerun{}, false
+		return replayable{}, curation.Rerun{}, errNoRun
 	}
-	rp, err := s.readReplayable(r.Context(), r.PathValue("id"))
+	rp, err := s.readReplayable(ctx, conv)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return replayable{}, curation.Rerun{}, false
+		return replayable{}, curation.Rerun{}, err
 	}
 	i := slices.IndexFunc(rp.runs, func(run curation.Rerun) bool { return run.ID == id })
 	if i < 0 || len(rp.turns) == 0 {
-		http.NotFound(w, r)
-		return replayable{}, curation.Rerun{}, false
+		return replayable{}, curation.Rerun{}, errNoRun
 	}
-	return rp, rp.runs[i], true
+	return rp, rp.runs[i], nil
 }
 
 func (s *server) renderReplay(w http.ResponseWriter, rp replayable, form overrides, result replayResult) {
@@ -455,21 +460,22 @@ func (s *server) renderReplay(w http.ResponseWriter, rp replayable, form overrid
 }
 
 func (s *server) replayRun(w http.ResponseWriter, r *http.Request) {
+	// A refusal is a sentence: the page shows the reviewer this body.
 	if s.engineFor == nil {
-		http.Error(w, "no model configured: set OLLAMA_URL and OLLAMA_MODEL", http.StatusServiceUnavailable)
+		http.Error(w, "No model is configured, so nothing can be re-run: set OLLAMA_URL and OLLAMA_MODEL and start the review UI again.", http.StatusServiceUnavailable)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "The form did not read: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	rp, err := s.readReplayable(r.Context(), r.PathValue("id"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "The conversation would not read: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if len(rp.turns) == 0 {
-		http.NotFound(w, r)
+		http.Error(w, fmt.Sprintf("%s has no turn to re-run. Reload the page.", rp.id), http.StatusNotFound)
 		return
 	}
 	// A refusal is still swapped in: htmx drops a 4xx body, and a button
@@ -551,23 +557,29 @@ func promoteButton(run string, seq uint64) *ui.Button {
 // what the turn recorded, accepted, since the reviewer just judged it
 // (SPEC §9.2). No model is asked, so a run is promotable long after.
 func (s *server) promote(w http.ResponseWriter, r *http.Request) {
+	// A refusal is a sentence: the page shows the reviewer this body.
 	seq, err := strconv.ParseUint(r.PathValue("seq"), 10, 64)
 	if err != nil {
-		http.NotFound(w, r)
+		http.Error(w, fmt.Sprintf("%q is not a turn number, so there is nothing to promote.", r.PathValue("seq")), http.StatusNotFound)
 		return
 	}
-	rp, run, ok := s.keptRun(w, r)
-	if !ok {
+	rp, run, err := s.keptRun(r.Context(), r.PathValue("id"), r.PathValue("run"))
+	switch {
+	case errors.Is(err, errNoRun):
+		http.Error(w, fmt.Sprintf("No kept re-run %s of %s, so there is nothing to promote. Reload the page.", r.PathValue("run"), r.PathValue("id")), http.StatusNotFound)
+		return
+	case err != nil:
+		http.Error(w, "The conversation would not read: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	i := slices.IndexFunc(rp.turns, func(t rerun.Turn) bool { return t.Seq == seq })
 	st, reached := run.Turn(seq)
 	if i < 0 || !reached {
-		http.NotFound(w, r)
+		http.Error(w, fmt.Sprintf("Turn #%d is not one this re-run reached, so there is nothing to promote. Reload the page.", seq), http.StatusNotFound)
 		return
 	}
 	if !promotable(rp.turns[i].Recorded, replayed(st)) {
-		http.Error(w, "a promotion needs a take that changed and said or called something", http.StatusBadRequest)
+		http.Error(w, "A promotion needs a take that changed and said or called something; this turn's re-run did neither.", http.StatusBadRequest)
 		return
 	}
 	p := curation.Promotion{
@@ -584,7 +596,7 @@ func (s *server) promote(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "The promotion was not stored: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

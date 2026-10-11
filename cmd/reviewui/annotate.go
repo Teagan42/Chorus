@@ -127,14 +127,15 @@ func (s *server) turnOf(ctx context.Context, conv string, seq uint64) (bool, err
 // annotate handles POST /conversations/{id}/turns/{seq}/labels/{label} and
 // /conversations/{id}/turns/{seq}/note, and swaps the turn's annotation back.
 func (s *server) annotate(w http.ResponseWriter, r *http.Request) {
+	// A refusal is a sentence: the page shows the reviewer this body.
 	conv := r.PathValue("id")
 	seq, err := strconv.ParseUint(r.PathValue("seq"), 10, 64)
 	if err != nil {
-		http.NotFound(w, r)
+		http.Error(w, fmt.Sprintf("%q is not a turn number, so there is nothing to label.", r.PathValue("seq")), http.StatusNotFound)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "The form did not read: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -143,16 +144,16 @@ func (s *server) annotate(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	ok, err := s.turnOf(ctx, conv, seq)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "The conversation would not read: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if !ok {
-		http.NotFound(w, r)
+		http.Error(w, fmt.Sprintf("Turn #%d of %s is not an utterance, so it takes no label. Reload the page.", seq, conv), http.StatusNotFound)
 		return
 	}
 	all, err := s.decisions.Annotations(ctx, conv)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "The turn's labels would not read: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	before, ok := all[seq]
@@ -162,7 +163,7 @@ func (s *server) annotate(w http.ResponseWriter, r *http.Request) {
 	after := before
 	if l := curation.Label(r.PathValue("label")); l != "" {
 		if _, known := labelNames[l]; !known {
-			http.NotFound(w, r)
+			http.Error(w, fmt.Sprintf("%q is not a label this UI knows.", l), http.StatusNotFound)
 			return
 		}
 		after = before.Toggle(l)
@@ -173,7 +174,7 @@ func (s *server) annotate(w http.ResponseWriter, r *http.Request) {
 		again, err = askedAgain(d)
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "The conversation would not read: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if _, drafted := r.PostForm["should_have"]; drafted {
@@ -181,7 +182,7 @@ func (s *server) annotate(w http.ResponseWriter, r *http.Request) {
 	}
 	after.AnnotatedAt = s.now()
 	if err := s.decisions.PutAnnotation(ctx, after); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "The labels were not stored: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	// A verdict judged the pair the annotation made; a new chosen side, no
@@ -189,7 +190,7 @@ func (s *server) annotate(w http.ResponseWriter, r *http.Request) {
 	if before.Faulted() != after.Faulted() || before.ShouldHave != after.ShouldHave ||
 		before.Has(curation.LabelWrongTool) != after.Has(curation.LabelWrongTool) {
 		if err := s.decisions.Delete(ctx, annotationPairID(conv, seq)); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "The labels are stored, but the old verdict on their pair was not cleared: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}

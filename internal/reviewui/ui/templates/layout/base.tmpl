@@ -1,8 +1,9 @@
 {{/*
   Document shell. A page template does:
     {{template "doc-start" .Doc}} … components … {{template "doc-end"}}
-  .Doc is a ui.Doc. htmx is vendored under static/js so the controls work
-  with no internet; the fonts degrade to the system stack when offline.
+  .Doc is a ui.Doc. htmx and the fonts are under static so a page asks
+  nothing of the internet: the controls work offline, and no third party
+  learns the UI was opened.
 */}}
 {{define "doc-start"}}<!doctype html>
 <html lang="en">
@@ -11,14 +12,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} · Chorus</title>
 <link rel="icon" href="{{.Static}}/img/chorus-icon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="{{.Static}}/css/chorus.css">
+<meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
 <script src="{{.Static}}/js/htmx.min.js" defer></script>
+<script src="{{.Static}}/js/chorus.js" defer></script>
 </head>
 <body>
 <div class="page">
 {{with .Notice}}{{template "notice" .}}{{end}}
+<div id="alerts" class="alerts" aria-live="assertive"></div>
 {{end}}
 
 {{define "doc-end"}}
