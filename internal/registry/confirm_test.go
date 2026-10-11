@@ -82,6 +82,76 @@ func TestTheGarageWaitsForAYesAndTheBlindsDoNot(t *testing.T) {
 	}
 }
 
+// homeassistant.turn_on reaches whatever the entity is. On the front door
+// or the alarm it is held by the entity's domain, on the garage by its
+// class, and on the kitchen lights not at all; a target that cannot be read
+// is held. Scripts, buttons, switches and automations stay open: nothing in
+// the call or the entity says what they do (ADR-0063).
+//
+// verifies SPEC §6
+func TestTheGenericServicesAreHeldByWhatTheyActOn(t *testing.T) {
+	ha := registry.Specs["ha_call_service"]
+	on := func(domain string, classes ...string) registry.TargetReader {
+		return func() (registry.Target, error) { return registry.Target{Domain: domain, Classes: classes}, nil }
+	}
+	unreadable := func() (registry.Target, error) {
+		return registry.Target{}, errors.New("get state lock.front_door: 503 Service Unavailable")
+	}
+	generic := func(service, entity string) string {
+		return `{"domain":"homeassistant","service":"` + service + `","entity_id":"` + entity + `"}`
+	}
+	cases := []struct {
+		why    string
+		args   string
+		target registry.TargetReader
+		want   bool
+	}{
+		{"turning the front door on", generic("turn_on", "lock.front_door"), on("lock"), true},
+		{"turning the front door off", generic("turn_off", "lock.front_door"), on("lock"), true},
+		{"toggling the alarm", generic("toggle", "alarm_control_panel.house"), on("alarm_control_panel"), true},
+		{"turning the garage door on", generic("turn_on", "cover.garage_door"), on("cover", "garage"), true},
+		{"toggling the side gate", generic("toggle", "cover.side_gate"), on("cover", "gate"), true},
+		{"toggling the living-room blinds", generic("toggle", "cover.living_room_blinds"), on("cover", "blind"), false},
+		{"turning the kitchen lights on", generic("turn_on", "light.kitchen"), on("light"), false},
+		{"turning the porch light off", generic("turn_off", "switch.porch_light"), on("switch", "outlet"), false},
+		{"a front door nobody can read", generic("turn_on", "lock.front_door"), unreadable, true},
+		{"a front door nothing can read", generic("turn_on", "lock.front_door"), nil, true},
+		{"opening the gas valve", `{"domain":"valve","service":"open_valve","entity_id":"valve.gas_main"}`, on("valve", "gas"), true},
+		{"closing the gas valve", `{"domain":"valve","service":"close_valve","entity_id":"valve.gas_main"}`, on("valve", "gas"), false},
+		{"running the goodnight script", `{"domain":"script","service":"turn_on","entity_id":"script.goodnight"}`, on("script"), false},
+		{"pressing the doorbell button", `{"domain":"button","service":"press","entity_id":"button.doorbell"}`, on("button"), false},
+		{"triggering the leaving automation", `{"domain":"automation","service":"trigger","entity_id":"automation.leaving"}`, on("automation"), false},
+		{"the garage opener on its own relay", `{"domain":"switch","service":"turn_on","entity_id":"switch.garage_opener"}`, on("switch"), false},
+	}
+	for _, c := range cases {
+		if got := ha.NeedsConfirmationFor(c.args, c.target); got != c.want {
+			t.Errorf("%s: NeedsConfirmationFor = %t, want %t", c.why, got, c.want)
+		}
+	}
+
+	// A reader of classes alone cannot say the domain, so an entry that
+	// asks for one holds the call.
+	classed := func() ([]string, error) { return nil, nil }
+	if !ha.NeedsConfirmationOf(generic("turn_on", "lock.front_door"), classed) {
+		t.Error("the front door with a domain nothing read should be held")
+	}
+	if ha.NeedsConfirmationOf(`{"domain":"cover","service":"open_cover","entity_id":"cover.living_room_blinds"}`, func() ([]string, error) { return []string{"blind"}, nil }) {
+		t.Error("the blinds, classed by a reader of classes alone, should still open")
+	}
+
+	// The domain entry and the class entry both match the call; the target
+	// is still read once.
+	reads := 0
+	counted := func() (registry.Target, error) {
+		reads++
+		return registry.Target{Domain: "cover", Classes: []string{"blind"}}, nil
+	}
+	ha.NeedsConfirmationFor(generic("toggle", "cover.living_room_blinds"), counted)
+	if reads != 1 {
+		t.Errorf("the blinds were read %d times, want once", reads)
+	}
+}
+
 // The garage's class is read once per call, and not at all for a call no
 // class could change: every read is a round trip to Home Assistant before
 // the person hears anything.
