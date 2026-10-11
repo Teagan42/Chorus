@@ -21,6 +21,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"path"
 	"strings"
 )
 
@@ -46,14 +47,23 @@ func MustTemplates() *template.Template {
 }
 
 // Static serves tokens.css, base.css, the component CSS, chorus.css (which
-// imports all of them), the small chorus.js and the brand images.
+// imports all of them), the fonts, the small chorus.js and the brand images.
 func Static() http.Handler {
 	sub, err := fs.Sub(assets, "static")
 	if err != nil {
 		panic(err)
 	}
-	return http.FileServer(http.FS(sub))
+	files := http.FileServer(http.FS(sub))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Go's mime table has no fonts, and a sniffed font is octet-stream.
+		if t := fontTypes[path.Ext(r.URL.Path)]; t != "" {
+			w.Header().Set("Content-Type", t)
+		}
+		files.ServeHTTP(w, r)
+	})
 }
+
+var fontTypes = map[string]string{".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf"}
 
 // StaticFS exposes the same files, e.g. for copying into a build step.
 func StaticFS() fs.FS {

@@ -3,6 +3,8 @@ package ui_test
 import (
 	"bytes"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path"
 	"strings"
@@ -283,5 +285,45 @@ func TestTheShellCarriesANoticeOnlyWhenGivenOne(t *testing.T) {
 		"Alice and Alan&#39;s Thursday", `href="https://teagan42.github.io/Chorus/">About Chorus ↗</a>`)
 	if h := render(t, "doc-start", ui.Doc{Title: "Browse", Static: "/static"}); strings.Contains(h, "notice") {
 		t.Error("a review box with no notice still renders the strip")
+	}
+}
+
+// A page about a household's recordings tells no third party it was opened:
+// the fonts are in the binary beside htmx, with their licences, and the
+// shell names nothing on Google.
+//
+// verifies SPEC §1
+func TestTheFontsComeFromTheBinary(t *testing.T) {
+	h := render(t, "doc-start", ui.Doc{Title: "Browse", Static: "/static"})
+	for _, leak := range []string{"googleapis", "gstatic"} {
+		if strings.Contains(h, leak) {
+			t.Errorf("the shell still reaches for %s", leak)
+		}
+	}
+	for _, f := range []string{
+		"css/fonts.css",
+		"fonts/Outfit-Variable.ttf", "fonts/OFL-Outfit.txt",
+		"fonts/JetBrainsMono-Regular.woff2", "fonts/JetBrainsMono-Medium.woff2", "fonts/OFL-JetBrainsMono.txt",
+	} {
+		if _, err := fs.Stat(ui.StaticFS(), f); err != nil {
+			t.Errorf("%s is not in the bundle: %v", f, err)
+		}
+	}
+	css, err := fs.ReadFile(ui.StaticFS(), "css/chorus.css")
+	if err != nil || !strings.Contains(string(css), `@import "fonts.css"`) {
+		t.Errorf("chorus.css does not import fonts.css (%v):\n%s", err, css)
+	}
+	faces, _ := fs.ReadFile(ui.StaticFS(), "css/fonts.css")
+	for _, want := range []string{"font-family: 'Outfit'", "font-family: 'JetBrains Mono'", "../fonts/Outfit-Variable.ttf", "../fonts/JetBrainsMono-Regular.woff2", "../fonts/JetBrainsMono-Medium.woff2"} {
+		if !strings.Contains(string(faces), want) {
+			t.Errorf("fonts.css lacks %q", want)
+		}
+	}
+	for file, typ := range map[string]string{"fonts/JetBrainsMono-Regular.woff2": "font/woff2", "fonts/Outfit-Variable.ttf": "font/ttf"} {
+		w := httptest.NewRecorder()
+		ui.Static().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/"+file, nil))
+		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != typ {
+			t.Errorf("GET %s = %d %s, want 200 %s", file, w.Code, w.Header().Get("Content-Type"), typ)
+		}
 	}
 }

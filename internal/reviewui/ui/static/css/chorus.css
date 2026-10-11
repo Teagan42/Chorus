@@ -1,4 +1,5 @@
 /* Chorus review UI — everything. Link this one file, or import the pieces you use. */
+@import "fonts.css";
 @import "tokens.css";
 @import "base.css";
 @import "components/alert.css";

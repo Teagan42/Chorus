@@ -1,6 +1,6 @@
 /* Chorus review UI — base. Load after tokens.css.
-   Fonts: Outfit and JetBrains Mono from Google Fonts (see layout/base.tmpl),
-   or self-host them and drop the <link>. */
+   Fonts: Outfit and JetBrains Mono, declared in fonts.css and served from
+   static/fonts beside this file; nothing is fetched from Google. */
 
 *, *::before, *::after { box-sizing: border-box; }
 

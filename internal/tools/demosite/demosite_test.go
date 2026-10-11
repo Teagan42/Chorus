@@ -47,6 +47,16 @@ func TestTheSiteHoldsEverythingTheShellAsksFor(t *testing.T) {
 			t.Errorf("the shell asks for %s, which the site does not have", f)
 		}
 	}
+	// The fonts come with the kit's static files, so the page asks no third
+	// party for them, and tells none it was opened.
+	if m := regexp.MustCompile(`(?:src|href)="https?://[^"]+"`).FindAll(page, -1); m != nil {
+		t.Errorf("the shell reaches off the site for %s", m)
+	}
+	for _, f := range []string{"static/css/fonts.css", "static/fonts/Outfit-Variable.ttf", "static/fonts/JetBrainsMono-Regular.woff2"} {
+		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
+			t.Errorf("the site lacks %s, so the demo falls back to system fonts", f)
+		}
+	}
 
 	gz, err := os.ReadFile(filepath.Join(out, wasmName))
 	if err != nil {

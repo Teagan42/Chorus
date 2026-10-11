@@ -96,8 +96,8 @@ func openOn(t *testing.T, h http.Handler) *page {
 		case *runtime.EventExceptionThrown:
 			p.fail("script error: %s", ev.ExceptionDetails.Error())
 		case *network.EventResponseReceived:
-			// Only our own routes: the shell also asks Google for fonts, and
-			// a throttled font is not a broken screen.
+			// Only our own routes: a page asks nothing else, but a Chrome
+			// of its own accord might.
 			if ev.Response.Status >= 400 && strings.HasPrefix(ev.Response.URL, p.base+"/") && !p.expected(int(ev.Response.Status), ev.Response.URL) {
 				p.fail("%d from %s", ev.Response.Status, ev.Response.URL)
 			}

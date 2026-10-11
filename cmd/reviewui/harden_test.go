@@ -149,3 +149,45 @@ func TestTheAllowListKeepsTheCrossOriginCheck(t *testing.T) {
 		t.Errorf("a cross-site post through the allow-list = %d, want 403", w.Code)
 	}
 }
+
+// getAs is one GET to h addressed to the box's own name.
+func getAs(h http.Handler, target string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodGet, target, nil)
+	r.Host = "127.0.0.1:8080"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+// Every screen, and everything a screen loads, comes from this server: a
+// review box tells no third party which evening someone sat down to listen.
+//
+// verifies SPEC §1
+func TestNoScreenReachesForGoogle(t *testing.T) {
+	s, _ := newHouseholdServer(t)
+	h := s.handler(defaultHosts(defaultAddr))
+	for _, target := range []string{
+		"/conversations", "/conversations/" + convZeppel, "/queue", "/review", "/replays",
+		"/replays/" + convZeppel, "/curate/pairs", "/export", "/static/css/chorus.css", "/static/css/fonts.css",
+	} {
+		w := getAs(h, target)
+		if w.Code != http.StatusOK {
+			t.Errorf("GET %s = %d", target, w.Code)
+		}
+		for _, leak := range []string{"googleapis", "gstatic", "unpkg.com", "https://"} {
+			if strings.Contains(w.Body.String(), leak) {
+				t.Errorf("GET %s names %s", target, leak)
+			}
+		}
+	}
+	for file, typ := range map[string]string{
+		"/static/fonts/Outfit-Variable.ttf":         "font/ttf",
+		"/static/fonts/JetBrainsMono-Regular.woff2": "font/woff2",
+		"/static/fonts/JetBrainsMono-Medium.woff2":  "font/woff2",
+	} {
+		w := getAs(h, file)
+		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != typ {
+			t.Errorf("GET %s = %d %s, want 200 %s", file, w.Code, w.Header().Get("Content-Type"), typ)
+		}
+	}
+}
