@@ -324,3 +324,34 @@ func TestAPausedCallThatNeverResumesKeepsWhatWasHeard(t *testing.T) {
 		t.Errorf("forecast = %+v, want settled with the words heard", got)
 	}
 }
+
+// Teagan heard "Let me check." and half of the answer before she cut it
+// off and said "say that again". What she last heard is that turn's heard
+// words, the cut half included and its unheard tail not; the earlier turn,
+// and the stray pending call, are no part of it.
+//
+// verifies SPEC §4.3, §4.4
+func TestWhatWasLastSaidIsTheLatestTurnAsItWasHeard(t *testing.T) {
+	s := reduceAll(t, []journal.Event{
+		ev(journal.KindSessionOpened, map[string]string{"satellite": "kitchen", "speaker_id": "teagan"}),
+		ev(journal.KindUtteranceTranscribed, map[string]string{"text": "good morning", "speaker_id": "teagan"}),
+		ev(journal.KindToolCalled, map[string]string{"tool": "speak", "call_id": "call_s0", "args_json": `{"text":"Morning, Teagan.","mode":"queue"}`}),
+		ev(journal.KindSpeechSpoken, map[string]string{"text": "Morning, Teagan.", "frames_played": "16000", "call_id": "call_s0"}),
+		ev(journal.KindUtteranceTranscribed, map[string]string{"text": "is the garage door closed", "speaker_id": "teagan"}),
+		ev(journal.KindToolCalled, map[string]string{"tool": "speak", "call_id": "call_s1", "args_json": `{"text":"Let me check.","mode":"queue"}`}),
+		ev(journal.KindSpeechSpoken, map[string]string{"text": "Let me check.", "frames_played": "19200", "call_id": "call_s1"}),
+		ev(journal.KindToolCalled, map[string]string{"tool": "speak", "call_id": "call_s2", "args_json": `{"mode":"queue","streamed":true}`}),
+		ev(journal.KindSpeechTruncated, map[string]string{
+			"spoken_text": "The garage door is open,", "unspoken_text": " do you want me to close it?",
+			"frames_played": "10240", "call_id": "call_s2", "reason": "barge_in",
+		}),
+		ev(journal.KindToolCalled, map[string]string{"tool": "speak", "call_id": "call_s3", "args_json": `{"text":"Closing it now.","mode":"queue"}`}),
+		ev(journal.KindUtteranceTranscribed, map[string]string{"text": "say that again", "speaker_id": "teagan"}),
+	})
+	if got, want := s.LastSaid(), "Let me check. The garage door is open,"; got != want {
+		t.Errorf("LastSaid = %q, want %q", got, want)
+	}
+	if got := (journal.State{}).LastSaid(); got != "" {
+		t.Errorf("LastSaid of nothing = %q", got)
+	}
+}

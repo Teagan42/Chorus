@@ -1,6 +1,9 @@
 package journal
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // EntryKind is what one step of the dialogue was.
 type EntryKind string
@@ -191,4 +194,21 @@ func cloneEntries(d []Entry) []Entry {
 	out := make([]Entry, len(d))
 	copy(out, d)
 	return out
+}
+
+// LastSaid is what the person last heard the assistant say: the heard words
+// of the latest turn that said anything, cut ones included. Empty when
+// nothing has been heard yet.
+func (s State) LastSaid() string {
+	var said []string
+	for i := len(s.Dialogue) - 1; i >= 0; i-- {
+		e := s.Dialogue[i]
+		if e.Kind == EntryHeard && len(said) > 0 {
+			break
+		}
+		if e.Kind == EntrySaid && !e.Pending && e.Text != "" {
+			said = append([]string{e.Text}, said...)
+		}
+	}
+	return strings.Join(said, " ")
 }

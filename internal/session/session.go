@@ -191,6 +191,10 @@ type Transcript struct {
 	// matched anyone so voices can be clustered later (SPEC §5). Nil when the
 	// embedder was unavailable.
 	Embedding []float32
+
+	// BargedIn is an utterance the gate let stop speech, or a working turn,
+	// while it was said. A stop that stopped something is not answered.
+	BargedIn bool
 }
 
 // Session is the supervisor of one conversation's concurrent children. It
@@ -330,11 +334,19 @@ func (s *Session) State(ctx context.Context) (journal.State, error) {
 	return journal.Replay(ctx, s.sup.cfg.Store, s.convID, journal.Overrides{})
 }
 
-// Heard journals an utterance and runs a turn over it.
+// Heard journals an utterance and runs a turn over it, unless it is a hot
+// phrase the session answers itself (ADR-0064).
 func (s *Session) Heard(ctx context.Context, t Transcript) error {
+	hot, again, err := s.answeredAs(ctx, t)
+	if err != nil {
+		return err
+	}
 	fields := map[string]string{"text": t.Text, "speaker_id": t.SpeakerID}
 	if t.SpeakerMatch != "" {
 		fields["speaker_match"] = t.SpeakerMatch
+	}
+	if hot != "" {
+		fields["hot_word"] = string(hot)
 	}
 	if len(t.Embedding) > 0 {
 		// Fails only on a non-finite value, which the matcher refuses upstream.
@@ -360,7 +372,69 @@ func (s *Session) Heard(ctx context.Context, t Transcript) error {
 	s.mu.Unlock()
 	s.sup.cfg.Conversations.Touch(s.convID)
 	s.poke()
+	switch hot {
+	case HotStop, HotNeverMind:
+		// The cut was the answer: asking the model would talk over it.
+		return nil
+	case HotRepeat:
+		return s.repeat(t, again)
+	}
 	return s.turn(ctx, t)
+}
+
+// answeredAs is the hot phrase the session answers t as itself, and for a
+// repeat what is said again. A stop that stopped nothing, or a repeat with
+// nothing to repeat, is the model's to answer, as it was before.
+func (s *Session) answeredAs(ctx context.Context, t Transcript) (HotWord, string, error) {
+	switch hot := Hot(t.Text); hot {
+	case HotStop, HotNeverMind:
+		if t.BargedIn {
+			return hot, "", nil
+		}
+	case HotRepeat:
+		st, err := s.State(ctx)
+		if err != nil {
+			return "", "", err
+		}
+		if again := st.LastSaid(); again != "" {
+			return hot, again, nil
+		}
+	}
+	return "", "", nil
+}
+
+// repeat says again what the person last heard, through the speech channel
+// like any speech, as a speak call marked repeats. The model is not asked:
+// the words are already in the log.
+func (s *Session) repeat(t Transcript, text string) error {
+	s.speech.resume(t.Ended)
+	s.mu.Lock()
+	// A turn with no model to cancel, so a lost write is returned.
+	s.turnCancel, s.turnErr = func() {}, nil
+	s.mu.Unlock()
+
+	id := "rp_" + newID()[:8]
+	// Strings and a bool: marshalling cannot fail.
+	args, _ := json.Marshal(struct {
+		Text    string `json:"text"`
+		Mode    Mode   `json:"mode"`
+		Repeats bool   `json:"repeats"`
+	}{Text: text, Mode: ModeQueue, Repeats: true})
+	if err := s.record(journal.Record{
+		Kind:   journal.KindToolCalled,
+		Fields: map[string]string{"tool": toolSpeak, "call_id": id, "args_json": string(args)},
+	}); err != nil {
+		s.fail(err)
+	} else if !s.speech.deliver(SpeechDelta{CallID: id, Text: text, Mode: ModeQueue, Last: true}) {
+		s.discardSpeech(id, text)
+	}
+	s.speech.waitIdle()
+	s.poke()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turnCancel = nil
+	return s.turnErr
 }
 
 // turn runs the Thinking child over one utterance. Each ask dispatches the
