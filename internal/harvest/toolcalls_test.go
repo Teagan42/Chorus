@@ -22,7 +22,7 @@ type exported struct {
 func exportRows(t *testing.T, pairs ...harvest.Pair) []exported {
 	t.Helper()
 	var buf bytes.Buffer
-	if err := harvest.Export(&buf, pairs); err != nil {
+	if err := harvest.Export(&buf, pairs, harvest.Options{}); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	var rows []exported
@@ -112,12 +112,12 @@ func TestAPromotedReRunThatOnlyCallsIsAPair(t *testing.T) {
 
 	silent := replayed
 	silent.ChosenCalls = nil
-	if err := harvest.Export(&bytes.Buffer{}, []harvest.Pair{silent}); err == nil || !strings.Contains(err.Error(), silent.ID) {
+	if err := harvest.Export(&bytes.Buffer{}, []harvest.Pair{silent}, harvest.Options{}); err == nil || !strings.Contains(err.Error(), silent.ID) {
 		t.Errorf("a curated re-run that neither says nor calls anything exported: err = %v", err)
 	}
 	noted := aliceAsks(t).Pair("conv-1", harvest.SourceAnnotation, "")
 	noted.Curated, noted.Labels = true, []string{"too_slow"}
-	if err := harvest.Export(&bytes.Buffer{}, []harvest.Pair{noted}); err == nil {
+	if err := harvest.Export(&bytes.Buffer{}, []harvest.Pair{noted}, harvest.Options{}); err == nil {
 		t.Error("an empty note exported on the strength of the turn's own calls")
 	}
 }

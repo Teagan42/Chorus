@@ -519,7 +519,7 @@ func TestPairCarriesHowMuchOfTheBargeInBlobWasJudged(t *testing.T) {
 		t.Errorf("barge-in = %q to frame %d, want the correction's blob to frame 8000", p.Audio.BargeIn, p.BargeInFrames)
 	}
 	var out strings.Builder
-	if err := harvest.Export(&out, []harvest.Pair{p}); err != nil {
+	if err := harvest.Export(&out, []harvest.Pair{p}, harvest.Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), `"barge_in_frames":8000`) {

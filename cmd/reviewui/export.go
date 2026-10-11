@@ -72,7 +72,7 @@ func (s *server) exportJSONL(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/jsonl")
 	w.Header().Set("Content-Disposition", `attachment; filename="chorus-dpo.jsonl"`)
-	if err := harvest.Export(w, rows); err != nil {
+	if err := harvest.Export(w, rows, harvest.Options{}); err != nil {
 		abortStream("export", err)
 	}
 }
@@ -118,7 +118,7 @@ const previewRows = 3
 // indented for reading.
 func preview(rows []harvest.Pair) (string, error) {
 	var raw bytes.Buffer
-	if err := harvest.Export(&raw, rows[:min(len(rows), previewRows)]); err != nil {
+	if err := harvest.Export(&raw, rows[:min(len(rows), previewRows)], harvest.Options{}); err != nil {
 		return "", err
 	}
 	var out bytes.Buffer

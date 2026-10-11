@@ -52,7 +52,7 @@ func TestAPairSaysWhichOfItsClipsAreGone(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := harvest.Export(&buf, res.Pairs); err != nil {
+	if err := harvest.Export(&buf, res.Pairs, harvest.Options{}); err != nil {
 		t.Fatal(err)
 	}
 	var row struct {
@@ -77,11 +77,33 @@ func TestAPairSaysWhichOfItsClipsAreGone(t *testing.T) {
 func TestAPairWithEveryClipKeptExportsNoGoneList(t *testing.T) {
 	store := conversation(t, versions(), concat([]journal.Record{opened("kitchen")}, cutTurn(), correctedTurn()))
 	var buf bytes.Buffer
-	if err := harvest.Export(&buf, scan(t, store).Pairs); err != nil {
+	if err := harvest.Export(&buf, scan(t, store).Pairs, harvest.Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Contains(buf.Bytes(), []byte(`"gone"`)) {
 		t.Errorf("export names gone clips when none are: %s", buf.Bytes())
+	}
+}
+
+// A reviewer's pair is cut from a turn, not the walk, so the turn carries
+// which of its clips are gone: a note's row and an exemplar's say so too.
+//
+// verifies SPEC §8, §9.2
+func TestATurnSaysWhichOfItsClipsAreGone(t *testing.T) {
+	store := conversation(t, versions(), concat(
+		[]journal.Record{opened("kitchen")}, cutTurn(), correctedTurn(),
+		[]journal.Record{dropped("blob://tts/s1", "retention"), dropped("blob://mic/3", "retention")},
+	))
+	res := scan(t, store)
+	if !slices.Equal(res.Turns[0].Gone, []string{"blob://tts/s1"}) || !slices.Equal(res.Turns[1].Gone, []string{"blob://mic/3"}) {
+		t.Errorf("turns' gone = %v and %v", res.Turns[0].Gone, res.Turns[1].Gone)
+	}
+	note := res.Turns[0].Pair("conv-1", harvest.SourceAnnotation, "Three albums. Want the first?")
+	if !slices.Equal(note.Audio.Gone, []string{"blob://tts/s1"}) {
+		t.Errorf("the note's pair says gone %v", note.Audio.Gone)
+	}
+	if !res.Gone["blob://mic/3"] || len(res.Gone) != 2 {
+		t.Errorf("the scan's gone = %v", res.Gone)
 	}
 }
 
