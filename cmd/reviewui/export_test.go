@@ -51,15 +51,34 @@ func evening(t *testing.T) *server {
 }
 
 // goldenJSONL compares JSONL with a file in testdata by JSON shape.
-// CHORUS_UPDATE_GOLDEN=1 rewrites the file instead.
+// CHORUS_UPDATE_GOLDEN=1 rewrites the file instead. Each row's tools come
+// from the live registry, which other changes grow, so the file holds a
+// placeholder for them; the tests check what they offer by name.
 func goldenJSONL(t *testing.T, name, got string) {
 	t.Helper()
+	var rows []any
+	var norm strings.Builder
+	for _, line := range strings.Split(strings.TrimSpace(got), "\n") {
+		var v map[string]any
+		if err := json.Unmarshal([]byte(line), &v); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, ok := v["tools"]; ok {
+			v["tools"] = "the registry's declarations"
+		}
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		norm.Write(append(b, '\n'))
+		rows = append(rows, any(v))
+	}
 	path := filepath.Join("testdata", name)
 	if os.Getenv("CHORUS_UPDATE_GOLDEN") != "" {
 		if err := os.MkdirAll("testdata", 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(norm.String()), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -67,19 +86,20 @@ func goldenJSONL(t *testing.T, name, got string) {
 	if err != nil {
 		t.Fatalf("golden: %v", err)
 	}
-	decode := func(data string) []any {
-		var out []any
-		for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
-			var v any
-			if err := json.Unmarshal([]byte(line), &v); err != nil {
-				t.Fatalf("%s: %v", name, err)
-			}
-			out = append(out, v)
+	var wantRows []any
+	for _, line := range strings.Split(strings.TrimSpace(string(want)), "\n") {
+		var v map[string]any
+		if err := json.Unmarshal([]byte(line), &v); err != nil {
+			t.Fatalf("%s: %v", name, err)
 		}
-		return out
+		wantRows = append(wantRows, any(v))
 	}
-	if !reflect.DeepEqual(decode(got), decode(string(want))) {
-		t.Errorf("export differs from %s; rerun with CHORUS_UPDATE_GOLDEN=1 and read the diff\n got: %s", path, got)
+	// Round-trip the got side, so both are the same Go types.
+	b, _ := json.Marshal(rows)
+	var gotRows []any
+	_ = json.Unmarshal(b, &gotRows)
+	if !reflect.DeepEqual(gotRows, wantRows) {
+		t.Errorf("export differs from %s; rerun with CHORUS_UPDATE_GOLDEN=1 and read the diff\n got: %s", path, norm.String())
 	}
 }
 
