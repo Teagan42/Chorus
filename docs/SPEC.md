@@ -798,6 +798,10 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
 - ~~Health, readiness and metrics~~ **Done — ADR-0068.**
 - ~~Say failures the household would meet as silence~~ **Done — ADR-0069.**
   What cannot be said is shown on the ring.
+- ~~A Voice PE configuration~~ **Done — ADR-0073.** `esphome/voice-pe.yaml`
+  gives the Voice PE the Satellite1's entities, under the same names; its dial
+  turns the Speaker Volume and its centre button wakes it. Validated, not yet
+  compiled or flashed.
 - Wake-word retraining from the harvested negative corpus. The firmware
   wakes on the household's "Hey Eddie" model (§13) and the rejected wakes export
   as their own corpus (ADR-0058); nothing retrains from them yet.
