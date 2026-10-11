@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/teagan42/chorus/internal/contexts"
 	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
 )
@@ -55,7 +56,8 @@ func run(ctx context.Context, ids []string, out, report io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if err := harvest.Export(out, res.Pairs); err != nil {
+		// Raw candidates, unsplit: a training set is cut from curated rows.
+		if err := harvest.Export(out, res.Pairs, harvest.Options{Contexts: contexts.Default()}); err != nil {
 			return err
 		}
 		fmt.Fprintf(report, "%s: %d candidates, %d uncorrected cuts, %d hushed\n", id, len(res.Pairs), res.Uncorrected, res.Hushed)

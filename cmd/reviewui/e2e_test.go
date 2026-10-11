@@ -638,10 +638,13 @@ func TestE2EReplayWithoutAModelCannotRun(t *testing.T) {
 // verifies SPEC §9.1
 func TestE2EExportDownloadsTheAcceptedPair(t *testing.T) {
 	s, decisions := newTestServer(t)
+	// The fixture ran under the household's made-up versions; give them text.
+	s.contexts = household.Contexts()
 	accept(t, decisions, "Playing the first Led Zeppelin album.")
 	p := open(t, s)
 	p.visit("/export")
 	p.waitText("body", "Playing the first Led Zeppelin album.")
+	p.waitText("pre", `"role": "system"`)
 	p.shot("export")
 
 	var rows int

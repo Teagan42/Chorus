@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 
+	"github.com/teagan42/chorus/internal/contexts"
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/reviewui/household"
 	"github.com/teagan42/chorus/internal/reviewui/ui"
@@ -33,6 +34,7 @@ func newDemoServer(ctx context.Context) (*server, error) {
 	}
 	s := newServer(j, curation.NewMemStore(), blobs, household.ReviewedAt)
 	s.engineFor = household.NewModel(j).Engines
+	s.contexts = contexts.Chain{contexts.Default(), household.Contexts()}
 	s.notice = demoNotice()
 	return s, nil
 }

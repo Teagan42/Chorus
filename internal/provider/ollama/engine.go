@@ -114,24 +114,32 @@ func New(cfg Config) (*Engine, error) {
 		cfg.Location = time.Local
 	}
 
-	tools := wireTools(cfg.Specs)
-	schema, err := json.Marshal(tools)
-	if err != nil {
-		return nil, fmt.Errorf("ollama: encode tools: %w", err)
-	}
 	return &Engine{
 		cfg:   cfg,
 		url:   strings.TrimSuffix(cfg.BaseURL, "/") + "/api/chat",
-		tools: tools,
+		tools: wireTools(cfg.Specs),
 		dec:   decoder{speakInlineContent: cfg.SpeakInlineContent},
 		versions: journal.Versions{
-			Model: cfg.Model,
-			// Both prompts: a conversation_summarized is attributed to the
-			// same versions as the turns, and its words come from the other.
-			Prompt:     fingerprint([]byte(cfg.Prompt + "\x00" + SummaryPrompt)),
-			ToolSchema: fingerprint(schema),
+			Model:      cfg.Model,
+			Prompt:     PromptVersion(cfg.Prompt),
+			ToolSchema: ToolSchemaVersion(cfg.Specs),
 		},
 	}, nil
+}
+
+// PromptVersion is the Prompt version an engine given prompt records. Both
+// prompts count: a conversation_summarized is attributed to the same
+// versions as the turns, and its words come from SummaryPrompt.
+func PromptVersion(prompt string) string {
+	return fingerprint([]byte(prompt + "\x00" + SummaryPrompt))
+}
+
+// ToolSchemaVersion is the ToolSchema version an engine offered specs
+// records: a hash of the declarations exactly as the wire carries them.
+func ToolSchemaVersion(specs map[string]registry.ToolSpec) string {
+	// Strings and slices of them cannot fail to encode.
+	schema, _ := json.Marshal(wireTools(specs))
+	return fingerprint(schema)
 }
 
 // Versions attributes every event of a turn. The journal refuses to record a

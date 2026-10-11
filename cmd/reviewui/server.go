@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/teagan42/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/contexts"
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
@@ -53,6 +54,10 @@ type server struct {
 
 	// logs is what each log derives, read again only once it has grown.
 	logs logs
+
+	// contexts resolves the versions an exported row ran under; nil is
+	// contexts.Default.
+	contexts contexts.Source
 
 	// One reviewer at a time is the household reality; the lock keeps a
 	// read-modify-write on a pair from racing itself.
@@ -94,6 +99,8 @@ func (s *server) routes() http.Handler {
 	mux.Handle("GET /audio", audio.Handler(s.blobs))
 	mux.HandleFunc("GET "+ui.Routes[ui.StepExport], s.export)
 	mux.HandleFunc("GET /export/dpo.jsonl", s.exportJSONL)
+	mux.HandleFunc("GET /export/sft.jsonl", s.exportSFT)
+	mux.HandleFunc("GET /export/dataset.zip", s.exportArchive)
 	mux.HandleFunc("GET /export/wake-negatives.jsonl", s.exportWake)
 	mux.HandleFunc("POST /pairs/{rest...}", s.pairAction)
 	return http.NewCrossOriginProtection().Handler(mux)

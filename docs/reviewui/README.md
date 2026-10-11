@@ -411,20 +411,118 @@ and TTS identities ride along in `meta.versions` but are not checked: a pair
 without them still exports (ADR-0032). The page counts what each gate
 holds back (unreviewed, still being edited, discarded, unfixed, unattributed)
 and previews the first rows exactly as `/export/dpo.jsonl` writes them
-(`harvest.Export`). This is the only curated export: `task harvest` writes
-the same shape but raw, every candidate with `meta.curated=false` and no
-chosen side, which a DPO loader cannot train on. An annotation's row carries
-its labels in `meta.labels`; a replay's carries the re-run's configuration
-and calls in `meta.chosen_versions` and `meta.chosen_calls`, and is
-attributed only when both sides are. Each side's message carries its
-`tool_calls` beside its content: a correction or a note keeps the turn's
-calls on both sides, a replay's chosen side calls what the re-run would, and
-a *wrong tool / args* note carries none and says `meta.speech_only`
-(ADR-0054).
+(`harvest.Build`). `task harvest` writes the same shape raw: every candidate
+with `meta.curated=false` and no chosen side, which a DPO loader cannot
+train on.
 
-A row that cannot be written partway through the download aborts it, so the
-browser reports a failed download rather than saving a short file that looks
-whole. The server log names the row.
+#### Format 2
+
+Every row is one self-contained JSON object (ADR-0071). Abbreviated, the
+household's Zeppelin cut, accepted with the reviewer's fix:
+
+```json
+{
+  "schema_version": 2,
+  "prompt": [
+    {"role": "system", "content": "You are a voice assistant in a home. Everything you say is spoken aloud, …"},
+    {"role": "user", "content": "play something by zeppelin", "name": "alice"}
+  ],
+  "chosen": [{"role": "assistant", "content": "I found three albums by Led Zeppelin. Playing the first, Led Zeppelin one.",
+              "tool_calls": [{"type": "function", "function": {"name": "media_search", "arguments": {"query": "Led Zeppelin", "limit": 5, "acknowledgement": "Let me find that."}}}]}],
+  "rejected": [{"role": "assistant", "content": "I found three albums by that artist: Led Zeppelin, Led Zeppelin II and Led Zeppelin IV.",
+                "tool_calls": [{"type": "function", "function": {"name": "media_search", "arguments": {"query": "Led Zeppelin", "limit": 5, "acknowledgement": "Let me find that."}}}]}],
+  "tools": [{"type": "function", "function": {"name": "announce", "description": "Say something out loud on other satellites …", "parameters": {"type": "object", "properties": {"…": {}}}}}, "…"],
+  "meta": {
+    "id": "conv-0853-kitchen/11", "conversation_id": "conv-0853-kitchen", "source": "barge-in",
+    "curated": true, "attributed": true,
+    "versions": {"model": "qwen3-32b@1", "prompt": "sys@3", "tool_schema": "tools@7", "stt": "istupakov/parakeet-tdt-0.6b-v2-onnx", "tts": "kokoro/af_heart"},
+    "seq": {"prompt": 2, "barge_in": 10, "cut": 11, "correction": 14},
+    "audio": {"rejected": ["blob://tts/zeppelin-list"], "barge_in": "blob://mic/zeppelin-bargein", "correction": "blob://mic/zeppelin-first", "as_said": ["blob://tts/zeppelin-playing"]},
+    "labels": ["misunderstood_intent"],
+    "verdict": "accepted", "decided_at": "2025-10-09T22:30:00Z",
+    "context": {"prompt": "sys@3", "tool_schema": "tools@7"},
+    "split": "train",
+    "duplicates": [{"id": "conv-0853-kitchen/2/annotation", "source": "annotation"}],
+    "…": "heard, as_said, calls, recalled, heard_at and the rest, as before"
+  }
+}
+```
+
+- **`schema_version`** is 2. Rows from before it carry none and are
+  format 1.
+- **`prompt`** opens with a `system` message: the persona the turn ran
+  under. **`tools`** is the declarations it was offered, in the
+  function-call shape `/api/chat` was sent. Together these are what TRL's
+  conversational loaders read. The engine also told the turn the speaker,
+  room, time, memories and recent conversations; those ride in
+  `meta.heard_speaker`, `meta.heard_at`, `meta.recalled` and
+  `meta.recalled_conversations`, not in the system message.
+- **`meta.context`** names the versions the text is for: the rejected
+  turn's, or for a promoted re-run (`source: replay`) the edited prompt
+  and schema its chosen side ran under, as the promotion kept them.
+- **`meta.context_missing`** lists `prompt` and/or `tool_schema` when no
+  source holds that version's text. The row still ships, without the
+  system message or `tools` it lacks; nothing is guessed. A version's text
+  comes from the running build or from `internal/contexts`, which archives
+  every version main has built, each filed by the hash the journal
+  records. A build that changes the prompt or a tool must file the new
+  version (`CHORUS_UPDATE_CONTEXTS=1 go test ./internal/contexts`), or
+  `task test` fails.
+- **Provenance**: `source` (`barge-in`, `annotation`, `replay`),
+  `verdict` and `decided_at` from the stored decision, `conversation_id`
+  and `seq`, and the model, STT and TTS identities in `versions`. Who
+  decided is not recorded: the review UI has no accounts (ADR-0034).
+- **`meta.duplicates`**: a turn can make a barge-in pair, a note's pair
+  and a replay's pair. Rows that share conversation, turn, context, and
+  rejected and chosen sides (speech, whitespace collapsed, and calls) are
+  one preference. The barge-in is kept over the note, and the note over the
+  replay. The kept row names the others here and carries their labels.
+- **`meta.split`** is `train` or `validation`, by the SHA-256 of the
+  conversation id: its first eight bytes, as a fraction of 2^64, below the
+  validation fraction is held out. A conversation never straddles the
+  split, and the same export splits the same way every time.
+  `?validation=0.2` sets the fraction (0.1 by default, 0 to 1), and
+  `?split=train` or `?split=validation` downloads one side.
+
+An annotation's row carries its labels in `meta.labels`; a replay's carries
+the re-run's configuration and calls in `meta.chosen_versions` and
+`meta.chosen_calls`, and is attributed only when both sides are. Each
+side's message carries its `tool_calls` beside its content: a correction or
+a note keeps the turn's calls on both sides, a replay's chosen side calls
+what the re-run would, and a *wrong tool / args* note carries none and says
+`meta.speech_only` (ADR-0054).
+
+#### SFT exemplars
+
+A turn labelled *good — exemplar* on Browse, with no fault label beside
+it, is one row of `/export/sft.jsonl`. It has the same `schema_version`,
+`prompt` and `tools`, and a `completion`: one assistant message holding
+the turn as generated, with its calls. `meta.source` and `meta.verdict`
+are `exemplar`, `decided_at` is when it was labelled, and `meta.audio` has
+the ask's clip and what it said. An unattributed or silent exemplar is
+held, and the page counts it. Weak positives nobody labelled are not
+exported (ADR-0058).
+
+#### The archive
+
+*Download everything with audio* is `/export/dataset.zip`:
+
+```
+manifest.json            schema_version, exported_at, validation_fraction, the split and dedupe rules, row counts, clips, gone
+dpo/train.jsonl          dpo/validation.jsonl
+sft/train.jsonl          sft/validation.jsonl
+audio/<blob key>.wav     every clip a row names, 16 kHz 16-bit mono
+```
+
+In the archive, each row's `meta.audio.paths` maps a ref to its WAV. A
+clip the log says is gone, or that the blob store no longer has, is not in
+the zip, has no path, and is listed in `meta.audio.gone`. `?validation=`
+applies here too.
+
+A row that cannot be built is a 500 naming it, before any of the file is
+sent. One that fails partway through the download aborts it, so the
+browser reports a failed download rather than saving a short file that
+looks whole. The server log names the row.
 
 Below the dataset is the wake corpus: every wake a satellite rejected at
 stage two, auto-labelled a hard negative (SPEC §9.3), as its own file at
@@ -445,10 +543,11 @@ so a trainer can keep or drop each kind (ADR-0058).
 
 Retention may remove a clip, and the disk guard may never write one
 (ADR-0065). The log then records `audio_dropped`, and the page shows
-*audio pruned* or *audio not kept: disk full* where the player was. A DPO row
-keeps each ref in place and lists the gone ones in `meta.audio.gone`; a wake
-row whose clip is gone says `"audio_gone":true`, and a gone second channel
-is left out of `second_audio`.
+*audio pruned* or *audio not kept: disk full* where the player was. A DPO or
+SFT row keeps each ref in place and lists the gone ones in
+`meta.audio.gone`; a wake row whose clip is gone says `"audio_gone":true`,
+and a gone second channel is left out of `second_audio`. The wake corpus is
+not in the zip.
 
 ![Export, the wake corpus](e2e/journey-wake-export.png)
 
@@ -497,7 +596,7 @@ CHORUS_E2E_CHROME=$(command -v chromium) CHORUS_E2E_SHOTS=/tmp/shots task test:e
 `e2e_signals_test.go` walk a reviewer through a whole day, start to finish:
 
 - triage a barge-in, open it in Review, fix the chosen side, and accept it;
-- curate every pair, discarding one, then download the dataset;
+- curate every pair, discarding one, then download the dataset, each row opening with the prompt its turn ran under, and the zip beside it;
 - export holds back the unfixed and unattributed pairs;
 - cancel and undo leave no verdict behind;
 - Review walks every cut in turn;
@@ -509,7 +608,7 @@ CHORUS_E2E_CHROME=$(command -v chromium) CHORUS_E2E_SHOTS=/tmp/shots task test:e
 - a re-run is promoted, lands accepted, and ships saying which prompt wrote it.
 - a rejected wake is opened from its tick, heard on both channels, confirmed, and shipped in the wake corpus;
 - the answer Alan had to repeat is labelled from the repeat, and ships with the repeat as evidence;
-- a weak positive is found in its own pile and labelled an exemplar, making no pair;
+- a weak positive is found in its own pile and labelled an exemplar, making no pair, and ships as the one SFT row;
 - the database goes away under a label, the page says so in the server's words, and the next press lands once it is back.
 
 Every browser test runs behind the real server's Host allow-list and

@@ -390,6 +390,20 @@ func TestVersionsFollowWhatWasSent(t *testing.T) {
 	}
 }
 
+// A reader that names a version without building an engine, as the export
+// does, must name the one an engine records.
+//
+// verifies SPEC §8, §13
+func TestTheVersionsAreNamedWithoutAnEngine(t *testing.T) {
+	v := engineOn(t, &roundTrip{}, Config{}).Versions()
+	if got := PromptVersion(DefaultPrompt); got != v.Prompt {
+		t.Errorf("PromptVersion(DefaultPrompt) = %s, the engine records %s", got, v.Prompt)
+	}
+	if got := ToolSchemaVersion(registry.Offered()); got != v.ToolSchema {
+		t.Errorf("ToolSchemaVersion(Offered) = %s, the engine records %s", got, v.ToolSchema)
+	}
+}
+
 func TestNewRejectsIncompleteWiring(t *testing.T) {
 	for name, cfg := range map[string]Config{
 		"no url":   {Model: "qwen3:14b"},

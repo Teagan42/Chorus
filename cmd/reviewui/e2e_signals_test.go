@@ -184,6 +184,15 @@ func TestE2EJourneyAWeakPositiveIsLabelledAnExemplar(t *testing.T) {
 	if strings.Contains(p.text("#pair-rows"), "Added oat milk.") {
 		t.Error("an exemplar made a pair")
 	}
+	// It ships instead as the one SFT row, beside the DPO file (ADR-0071).
+	p.visit("/export")
+	p.waitText(`a[href="/export/sft.jsonl"]`, "Download 1 exemplar (JSONL)")
+	var sft string
+	p.eval(`fetch("/export/sft.jsonl").then(r => r.text())`, &sft)
+	if lines := strings.Split(strings.TrimSpace(sft), "\n"); len(lines) != 1 ||
+		!strings.Contains(lines[0], `"completion":[{"role":"assistant","content":"Added oat milk."`) || !strings.Contains(lines[0], `"source":"exemplar"`) {
+		t.Errorf("the SFT download is %q, want the oat milk turn", sft)
+	}
 
 	empty := open(t, emptyServer())
 	empty.visit("/queue?tab=weak-positive")

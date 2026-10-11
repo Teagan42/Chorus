@@ -36,7 +36,7 @@ func TestAPairCarriesWhatTheRejectedTurnRemembered(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := harvest.Export(&buf, []harvest.Pair{p}); err != nil {
+	if err := harvest.Export(&buf, []harvest.Pair{p}, harvest.Options{}); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	var row struct {
@@ -71,7 +71,7 @@ func TestATurnWithNoRecallOfItsOwnWasToldTheLastOne(t *testing.T) {
 		[]journal.Record{opened("kitchen")}, cutTurn(), correctedTurn(),
 	))))
 	var buf bytes.Buffer
-	if err := harvest.Export(&buf, []harvest.Pair{plain}); err != nil {
+	if err := harvest.Export(&buf, []harvest.Pair{plain}, harvest.Options{}); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	if bytes.Contains(buf.Bytes(), []byte(`"recalled"`)) {
@@ -108,7 +108,7 @@ func TestAPairCarriesTheConversationsAndTimeTheRejectedTurnWasTold(t *testing.T)
 	}
 
 	var buf bytes.Buffer
-	if err := harvest.Export(&buf, []harvest.Pair{p}); err != nil {
+	if err := harvest.Export(&buf, []harvest.Pair{p}, harvest.Options{}); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	var row struct {

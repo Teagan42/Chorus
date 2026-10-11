@@ -1,0 +1,87 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "end_session",
+      "description": "Close the conversation. Call when the task is complete rather than waiting for silence.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "media_search",
+      "description": "Search the media library. Takes several seconds to return.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results."
+          },
+          "query": {
+            "type": "string",
+            "description": "Free-text search."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "remember",
+      "description": "Store a durable fact about the current speaker.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "fact": {
+            "type": "string",
+            "description": "The fact to retain."
+          },
+          "shareable": {
+            "type": "boolean",
+            "description": "Whether other household members may see this."
+          }
+        },
+        "required": [
+          "fact"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "speak",
+      "description": "Say something to the user. Runs concurrently with other tools; the model chooses when and whether to speak.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "description": "queue appends after current speech; preempt cancels it; interject ducks and cuts in.",
+            "enum": [
+              "queue",
+              "preempt",
+              "interject"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "description": "What to say."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    }
+  }
+]

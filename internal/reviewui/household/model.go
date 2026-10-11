@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/teagan42/chorus/internal/contexts"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/ollama"
 	"github.com/teagan42/chorus/internal/registry"
@@ -81,6 +82,19 @@ func unsearched(text string) (rerun.Take, bool) {
 // offeredSchema is the version of registry.Offered as the household's model
 // knows it: the tools chorusd offers today, not the day's tools@7.
 const offeredSchema = "tools@8"
+
+// Contexts is the text behind the day's made-up versions, as the archive
+// holds a real build's (SPEC §13): sys@3 is the default prompt, tools@7 the
+// registry with media_search still offered, tools@8 what chorusd offers now.
+func Contexts() contexts.Table {
+	return contexts.Table{
+		Prompts: map[string]string{Versions().Prompt: ollama.DefaultPrompt},
+		ToolSchemas: map[string]string{
+			Versions().ToolSchema: ollama.ToolSchema(registry.Specs),
+			offeredSchema:         ollama.ToolSchema(registry.Offered()),
+		},
+	}
+}
 
 // Engines builds Replay's engine for a model, prompt and tools, as
 // reviewui's engine factory does against Ollama.

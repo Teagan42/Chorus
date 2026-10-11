@@ -1,0 +1,190 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "end_session",
+      "description": "Close the conversation. Call when the task is complete rather than waiting for silence.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "forget",
+      "description": "Forget something you remember about the person you are speaking with, so it is never recalled again. Name it by the id shown beside it in what you remember.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "memory_id": {
+            "type": "string",
+            "description": "The id of the memory to forget, e.g. m_3f9c2a10."
+          }
+        },
+        "required": [
+          "memory_id"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ha_call_service",
+      "description": "Act on the home through a Home Assistant service: lights, switches, covers, media players, scripts. Target an entity_id from ha_find_entities, or an area_id. Returns the entities whose state changed; an empty list means nothing matched or nothing needed to change. Some calls need the person's yes: they return confirmation_required with a nonce. Ask them, and once they agree, call again with the same arguments and confirmation set to the nonce.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "area_id": {
+            "type": "string",
+            "description": "Area to act on, e.g. kitchen. Required unless entity_id is given."
+          },
+          "confirmation": {
+            "type": "string",
+            "description": "The nonce from a confirmation_required result, once the person has said yes. Omit it otherwise."
+          },
+          "data": {
+            "type": "object",
+            "description": "Extra service fields, e.g. {\"brightness_pct\": 50}."
+          },
+          "domain": {
+            "type": "string",
+            "description": "Service domain, e.g. light, switch, script."
+          },
+          "entity_id": {
+            "type": "string",
+            "description": "Entity to act on, e.g. light.kitchen. Required unless area_id is given."
+          },
+          "service": {
+            "type": "string",
+            "description": "Service within the domain, e.g. turn_on, turn_off, toggle."
+          }
+        },
+        "required": [
+          "domain",
+          "service"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ha_find_entities",
+      "description": "Find Home Assistant entities by domain and name. Call this first when you do not know an entity_id; never guess one.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Only entities in this domain, e.g. light."
+          },
+          "name": {
+            "type": "string",
+            "description": "Only entities whose name or id contains this text, e.g. kitchen."
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ha_get_state",
+      "description": "Read one entity's current state and attributes from Home Assistant.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "entity_id": {
+            "type": "string",
+            "description": "Entity to read, e.g. sensor.living_room_temperature."
+          }
+        },
+        "required": [
+          "entity_id"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "media_search",
+      "description": "Search the media library. Takes several seconds to return.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "acknowledgement": {
+            "type": "string",
+            "description": "A few words said aloud while this runs, e.g. \"Searching the library.\" They are spoken for you as it starts; do not also call speak for them."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results."
+          },
+          "query": {
+            "type": "string",
+            "description": "Free-text search."
+          }
+        },
+        "required": [
+          "query",
+          "acknowledgement"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "remember",
+      "description": "Keep a lasting fact about the person you are speaking with, to recall in later conversations. Use it when they ask you to remember something, or tell you a preference that will still hold tomorrow.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "fact": {
+            "type": "string",
+            "description": "The fact, as one plain sentence that makes sense on its own later, e.g. Takes oat milk in coffee."
+          },
+          "shareable": {
+            "type": "boolean",
+            "description": "True only when they say the rest of the household may know it."
+          }
+        },
+        "required": [
+          "fact"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "speak",
+      "description": "Say something to the user. Runs concurrently with other tools; the model chooses when and whether to speak.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "description": "queue appends after current speech; preempt cancels it; interject ducks and cuts in.",
+            "enum": [
+              "queue",
+              "preempt",
+              "interject"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "description": "What to say."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    }
+  }
+]

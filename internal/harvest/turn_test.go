@@ -84,7 +84,7 @@ func TestExportCarriesWhereAReviewersChosenSideCameFrom(t *testing.T) {
 	replayed.ChosenCalls = []journal.Call{{Tool: "media_search", Args: `{"query":"Led Zeppelin","limit":5}`}}
 
 	var buf bytes.Buffer
-	if err := harvest.Export(&buf, []harvest.Pair{res.Pairs[0], labelled, replayed}); err != nil {
+	if err := harvest.Export(&buf, []harvest.Pair{res.Pairs[0], labelled, replayed}, harvest.Options{}); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	var rows []struct {

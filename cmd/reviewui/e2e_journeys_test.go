@@ -164,13 +164,21 @@ func contains(xs []string, x string) bool {
 
 // dpoRow is the part of a downloaded JSONL row the journeys check.
 type dpoRow struct {
+	SchemaVersion            int `json:"schema_version"`
 	Prompt, Chosen, Rejected []struct{ Role, Content string }
-	Meta                     struct {
-		ID             string `json:"id"`
-		ConversationID string `json:"conversation_id"`
-		Curated        bool   `json:"curated"`
-		Attributed     bool   `json:"attributed"`
-		Heard          string `json:"heard"`
+	Tools                    []struct {
+		Function struct{ Name string } `json:"function"`
+	} `json:"tools"`
+	Meta struct {
+		ID             string   `json:"id"`
+		ConversationID string   `json:"conversation_id"`
+		Curated        bool     `json:"curated"`
+		Attributed     bool     `json:"attributed"`
+		Heard          string   `json:"heard"`
+		Verdict        string   `json:"verdict"`
+		DecidedAt      string   `json:"decided_at"`
+		Split          string   `json:"split"`
+		ContextMissing []string `json:"context_missing"`
 	}
 }
 
@@ -376,6 +384,24 @@ func TestE2EJourneyCurateEveryPairThenDownloadTheDataset(t *testing.T) {
 		if n := len(r.Prompt); n == 0 || r.Prompt[n-1].Content != w.prompt {
 			t.Errorf("row %d prompt = %+v, want it to end on %q", i, r.Prompt, w.prompt)
 		}
+		// The context the turn ran under ships with it (ADR-0071).
+		if r.SchemaVersion != 2 || r.Prompt[0].Role != "system" || r.Prompt[0].Content != ollama.DefaultPrompt || len(r.Tools) == 0 || r.Meta.ContextMissing != nil {
+			t.Errorf("row %d: schema %d, opens with %q, %d tools, missing %v", i, r.SchemaVersion, r.Prompt[0].Role, len(r.Tools), r.Meta.ContextMissing)
+		}
+		if r.Meta.Verdict != "accepted" || r.Meta.DecidedAt == "" || (r.Meta.Split != "train" && r.Meta.Split != "validation") {
+			t.Errorf("row %d provenance: verdict %q at %q, split %q", i, r.Meta.Verdict, r.Meta.DecidedAt, r.Meta.Split)
+		}
+	}
+
+	// The archive is the same rows with the clips beside them.
+	var zip struct {
+		Type, Disposition string
+		Size              int
+	}
+	p.eval(`fetch(document.querySelector('a[href="/export/dataset.zip"]').href).then(async r => ({
+		Type: r.headers.get("content-type"), Disposition: r.headers.get("content-disposition"), Size: (await r.arrayBuffer()).byteLength}))`, &zip)
+	if zip.Type != "application/zip" || !strings.Contains(zip.Disposition, `filename="chorus-dataset.zip"`) || zip.Size < 1000 {
+		t.Errorf("archive is %q / %q, %d bytes", zip.Type, zip.Disposition, zip.Size)
 	}
 }
 

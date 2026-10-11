@@ -96,17 +96,32 @@ type Audio struct {
 	// retention, or never written on a full disk (ADR-0065). Each stays in
 	// place, beside the text it is the clip of.
 	Gone []string `json:"gone,omitempty"`
+
+	// Paths is where each kept clip is inside an export archive, by ref;
+	// absent outside one (ADR-0071).
+	Paths map[string]string `json:"paths,omitempty"`
 }
 
-// mark lists which of the audio's refs gone names, sorted.
-func (a *Audio) mark(gone map[string]bool) {
-	a.Gone = nil
-	for _, ref := range slices.Concat(a.Rejected, []string{a.BargeIn, a.Correction}, a.AsSaid) {
-		if gone[ref] && !slices.Contains(a.Gone, ref) {
-			a.Gone = append(a.Gone, ref)
+// refs is every clip the audio names, in the order its fields list them.
+func (a Audio) refs() []string {
+	return slices.Concat(a.Rejected, []string{a.BargeIn, a.Correction}, a.AsSaid)
+}
+
+// Mark lists which of the audio's refs gone names, sorted.
+func (a *Audio) Mark(gone map[string]bool) {
+	a.Gone = goneOf(a.refs(), gone)
+}
+
+// goneOf is which of refs gone names, sorted and once each.
+func goneOf(refs []string, gone map[string]bool) []string {
+	var out []string
+	for _, ref := range refs {
+		if gone[ref] && !slices.Contains(out, ref) {
+			out = append(out, ref)
 		}
 	}
-	slices.Sort(a.Gone)
+	slices.Sort(out)
+	return out
 }
 
 // Pair is one barge-in harvested as a preference candidate. Rejected,
@@ -188,6 +203,16 @@ type Pair struct {
 	// came from: the re-run's configuration and the calls it would make.
 	ChosenVersions journal.Versions
 	ChosenCalls    []journal.Call
+
+	// ChosenPrompt and ChosenToolSchema are the edited system prompt and
+	// tool declarations a replay's chosen side ran under, as the promotion
+	// kept them. Empty resolves ChosenVersions from the archive instead.
+	ChosenPrompt, ChosenToolSchema string
+
+	// Verdict and DecidedAt are the reviewer's word on a curated pair and
+	// when they gave it (ADR-0034); empty on a raw candidate.
+	Verdict   string
+	DecidedAt time.Time
 }
 
 // Turn is one turn as the rejected side of a pair would carry it: what it
@@ -212,6 +237,10 @@ type Turn struct {
 	Recalled          []journal.Memory
 	RecalledSummaries []journal.Summary
 	HeardAt           time.Time
+
+	// Gone are the turn's clips, its ask's and its speech's, that are no
+	// longer kept (ADR-0065).
+	Gone []string
 }
 
 // Pair is the turn as the rejected side of a pair whose chosen side came
@@ -234,8 +263,16 @@ func (t Turn) Pair(conversationID string, source Source, chosen string) Pair {
 		RecalledSummaries: t.RecalledSummaries,
 		HeardAt:           t.HeardAt,
 		Seq:               Seq{Prompt: t.Seq},
-		Audio:             Audio{Rejected: t.Audio},
+		Audio:             Audio{Rejected: t.Audio, Gone: goneOf(t.Audio, set(t.Gone))},
 	}
+}
+
+func set(refs []string) map[string]bool {
+	out := make(map[string]bool, len(refs))
+	for _, r := range refs {
+		out[r] = true
+	}
+	return out
 }
 
 // Result is one conversation's harvest. Uncorrected cuts are counted, not
@@ -253,6 +290,9 @@ type Result struct {
 	// Hushed counts cuts answered by a hot phrase: a stop has no chosen side,
 	// and a repeat says the answer went unheard, not wrong (ADR-0064).
 	Hushed int
+
+	// Gone is every clip the log says is no longer kept (ADR-0065).
+	Gone map[string]bool
 }
 
 // Harvest returns the conversation's candidates in log order.
@@ -282,8 +322,12 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) (Resu
 	}
 	w.closeTurn(nil)
 	for i := range w.result.Pairs {
-		w.result.Pairs[i].Audio.mark(w.gone)
+		w.result.Pairs[i].Audio.Mark(w.gone)
 	}
+	for i, t := range w.result.Turns {
+		w.result.Turns[i].Gone = goneOf(append([]string{t.AskAudio}, t.Audio...), w.gone)
+	}
+	w.result.Gone = w.gone
 	return w.result, nil
 }
 
