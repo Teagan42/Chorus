@@ -1,5 +1,16 @@
 # Copy to devices.yaml (gitignored) and fill in real values.
 # psk is the base64 `api: encryption: key:` from the device's ESPHome config.
+
+# How long the house keeps its recordings and logs (SPEC §8, ADR-0065).
+# Horizons are days, written 30d; absent or 0 keeps forever, which is the
+# default. audio is the PCM a log names, journal a conversation after its
+# last event. Anything a reviewer curated is kept past both unless
+# prune_curated is true.
+# retention:
+#   audio: 30d
+#   journal: 365d
+#   prune_curated: false
+
 # name is the device's node name as it reports it, MAC suffix included: the
 # audio link's auth frame carries it, and must come from this address (SPEC §3.2.2).
 satellites:
@@ -8,3 +19,5 @@ satellites:
     psk: BASE64_32_BYTE_KEY_HERE
     room: kitchen # told to the model, so "the lights" means this room's
     profile: satellite1 # satellite1 | voice-pe
+    # retention: # this satellite's own horizons; what it leaves out is the house's
+    #   audio: 7d
