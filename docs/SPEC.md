@@ -515,8 +515,13 @@ timing to the millisecond relative to TTS position.
 what keeps the reducer honest — if it ever breaks, the system has silently
 become instrumented-code-with-logs again.
 
-OpenTelemetry emitted alongside, so Langfuse/Jaeger give free exploration
-without ceding ownership of the annotation layer.
+Operational metrics are read off the log as it is written: an observer on
+the journal's append path counts what each event records, and `chorusd`
+serves the counts in Prometheus's text format beside its health and
+readiness (§13, ADR-0068). They are derived, never a second record, and a
+write that fails is counted by the kind it would have been. OpenTelemetry
+export is deferred (§14); the annotation layer stays in the journal either
+way.
 
 ## 9. Learning loop
 
@@ -667,6 +672,13 @@ Do not build the S2S path until the cascade works end to end.
   does not resolve hostnames, so the device cannot dial an mDNS name. The
   orchestrator needs a static lease; `chorus_bridge` enforces this at
   `esphome config` time via `cv.ipaddress`.
+- **Watching it run.** `chorusd` serves `/healthz`, `/readyz` and
+  `/metrics` on `CHORUS_OPS_LISTEN`, loopback by default, since nothing
+  there asks who is asking (ADR-0068). Readiness fails while a dependency
+  `chorusd` requires at startup is down (Postgres, STT, TTS, the LLM), and
+  only degrades for the optional sidecars, Home Assistant, and each
+  inventory satellite whose audio link or native API is not connected.
+  Dependencies are probed on an interval, never on a request.
 - Wake word: existing trained "Hey Eddie" model, gated by two-stage
   confirmation (§9.3). Swappable without touching anything else.
 - Persona lives in the system prompt as a **versioned artifact** — because
@@ -724,6 +736,7 @@ Speculative execution · S2S adapter · eval replay suites.
 ### Explicitly deferred
 
 Media playback on satellites. Session survival across restart. Multi-tenancy.
+OpenTelemetry export (§8, ADR-0068).
 
 ## 15. Decisions that cannot be retrofitted
 
