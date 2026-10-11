@@ -74,6 +74,7 @@ numbered 0028 was ever committed or dropped.
 | [0061](0061-direction-of-arrival-uses-the-kits-four-mics-and-is-estimated-on-the-satellite.md) | Proposed, amends 0053: direction of arrival uses the kit's four mics and is estimated on the ESP32-S3 by SRP-PHAT, sent as an additive `direction` frame; the raw array frame stays, opt-in, for journalling and tuning where the link carries it | §3.2, §3.3.2, §4.3, §5, §8 |
 | [0062](0062-the-review-ui-derives-a-log-again-only-once-it-has-grown.md) | Refines 0026 and 0052: the review UI keeps what each log derives by the seq it was read to, and reads and derives a log again only once its last seq has moved; a reviewer's verdicts and labels are read on every request | §8, §9.1 |
 | [0063](0063-the-yes-is-the-askers-and-a-guests-yes-runs-nothing.md) | Refines 0038 and 0041: a held call's nonce is redeemed only by the person who asked, when identified, and never by a voice that matched nobody; the generic `homeassistant` services are held by their target's domain and class, and `valve.open_valve` outright | §5, §6 |
+| [0066](0066-the-device-proves-which-satellite-it-is-before-any-audio.md) | Refines 0010 and 0033: the audio link authenticates the device before any audio, by its node name and an HMAC over a fresh challenge under a key derived from its API PSK, from its inventory address; one live link per satellite; protocol version 3; encryption deferred | §3.2.2, §13 |
 
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
