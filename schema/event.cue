@@ -66,6 +66,7 @@ events: {
 			{name: "embedding_json", type: "string", description: "The utterance's speaker embedding as a JSON array of numbers, stored whether or not it matched anyone (SPEC §5). Empty when the embedder was unavailable."},
 			{name: "second_audio_ref", type: "string", description: "The same span from the XMOS's second, lighter-processed output (SPEC §8). Empty when the device streams one channel."},
 			{name: "speaker_match", type: "string", description: "How the voice matched the household (SPEC §5). below_threshold and ambiguous make the utterance a guest's, whoever spoke before it. Empty when nothing judged the voice (no speaker identification, or the embedder failed) and in logs from before it was recorded: the current speaker keeps the turn.", enum: ["identified", "below_threshold", "ambiguous", "nobody_enrolled"]},
+			{name: "hot_word", type: "string", description: "The hot phrase this utterance was answered as, without asking the model (SPEC §4.3, ADR-0064). stop and never_mind stopped speech or a working turn and are not answered; repeat said again what was last heard. It is no correction, so no preference pair is cut from the turn it stopped. Absent for an utterance the model was asked about.", enum: ["stop", "never_mind", "repeat"]},
 		]
 	}
 	speech_started: {
@@ -211,6 +212,7 @@ events: {
 		fields: [
 			{name: "tts_position_ms", type: "integer", description: "Playback offset at detection.", required: true},
 			{name: "speaker_stage_skipped", type: "boolean", description: "The gate's speaker-ID stage did not run, because nothing identifies speakers: the voice was never checked against the household (ADR-0031). Absent when the stage ran and passed, and in logs from before it was recorded."},
+			{name: "hot_word", type: "string", description: "The hot phrase the partial was, which admitted it on one or two words past the partial-length stage; energy and the speaker stage still ran (SPEC §4.3, ADR-0064). The final utterance may say more: whether it was answered as a hot phrase is its own hot_word. Absent when the partial was no hot phrase.", enum: ["stop", "never_mind", "repeat"]},
 			{name: "audio_frames", type: "integer", description: "How much of the audio the gate judged, in device frames from the blob's start. The candidate refers to its utterance's blob, which runs on past it and is written once the utterance ends, so a long overlap keeps its audio once. Absent in logs from before it was recorded, where the blob is the candidate's own."},
 		]
 	}
@@ -220,6 +222,7 @@ events: {
 		has_audio:   true
 		fields: [
 			{name: "stage", type: "string", description: "Gate that rejected it.", required: true, enum: ["vad", "speaker_id", "partial_length"]},
+			{name: "hot_word", type: "string", description: "The hot phrase the partial was, refused all the same by energy or the speaker stage: the television saying stop (ADR-0064). Absent when the partial was no hot phrase.", enum: ["stop", "never_mind", "repeat"]},
 			{name: "audio_frames", type: "integer", description: "How much of the audio the gate judged, in device frames from the blob's start. The candidate refers to its utterance's blob, which runs on past it and is written once the utterance ends, so a long overlap keeps its audio once. Absent in logs from before it was recorded, where the blob is the candidate's own."},
 		]
 	}
