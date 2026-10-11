@@ -541,3 +541,8 @@ type brokenStore struct{ journal.Store }
 func (brokenStore) Events(context.Context, string) ([]journal.Event, error) {
 	return nil, errors.New("connection refused")
 }
+
+// LastSeq fails too: a start asks it first, to read the log's tail alone.
+func (brokenStore) LastSeq(context.Context, string) (uint64, error) {
+	return 0, errors.New("connection refused")
+}

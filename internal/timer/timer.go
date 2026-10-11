@@ -66,6 +66,9 @@ type Scheduler struct {
 
 	mu    sync.Mutex
 	state journal.State
+	// startedAt is each running timer's timer_started seq: where a start
+	// must replay from to rebuild it (ADR-0065).
+	startedAt map[string]uint64
 	// armed holds each running timer's stop. One that is going off has left
 	// it, so a cancel cannot race the announcement into a log that ends a
 	// timer twice.
@@ -87,17 +90,76 @@ func Start(ctx context.Context, cfg Config) (*Scheduler, error) {
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
-	st, err := journal.Replay(ctx, cfg.Store, journal.HouseTimers, journal.Overrides{})
+	st, startedAt, err := replay(ctx, cfg.Store)
 	if err != nil {
 		return nil, fmt.Errorf("timer: %w", err)
 	}
-	s := &Scheduler{cfg: cfg, ctx: ctx, state: st, armed: map[string]chan struct{}{}}
+	s := &Scheduler{cfg: cfg, ctx: ctx, state: st, startedAt: startedAt, armed: map[string]chan struct{}{}}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, t := range st.Running() {
 		s.armLocked(t)
 	}
 	return s, nil
+}
+
+// replay rebuilds the house's timers from the seq the log's last event says
+// every earlier timer had ended by, so a start reads the timers that may
+// still be running and not the house's history. A log from before
+// replay_from replays whole (ADR-0065).
+func replay(ctx context.Context, store journal.Store) (journal.State, map[string]uint64, error) {
+	st := journal.State{ConversationID: journal.HouseTimers}
+	last, err := store.LastSeq(ctx, journal.HouseTimers)
+	if err != nil || last == 0 {
+		return st, map[string]uint64{}, err
+	}
+	tail, err := journal.EventsAfter(ctx, store, journal.HouseTimers, last-1)
+	if err != nil {
+		return st, nil, err
+	}
+	from := uint64(1)
+	if len(tail) == 1 {
+		if n, err := strconv.ParseUint(tail[0].Fields["replay_from"], 10, 64); err == nil && n >= 1 && n <= last+1 {
+			from = n
+		}
+	}
+	events, err := journal.EventsAfter(ctx, store, journal.HouseTimers, from-1)
+	if err != nil {
+		return st, nil, err
+	}
+	startedAt := map[string]uint64{}
+	for _, e := range events {
+		if st, err = journal.Reduce(st, e); err != nil {
+			return st, nil, fmt.Errorf("replay %s seq %d: %w", journal.HouseTimers, e.Seq, err)
+		}
+		if e.Kind == journal.KindTimerStarted {
+			startedAt[e.Fields["timer_id"]] = e.Seq
+		}
+	}
+	// Nothing past from when nothing runs: the next seq is still the log's.
+	st.LastSeq = last
+	return st, startedAt, nil
+}
+
+// replayFromLocked is where a start may replay from once an event of kind
+// k on timer id is written next: the earliest start of a timer still
+// running after it, or past it when none is. The scheduler is the house
+// log's one writer, so the next seq is its state's last plus one.
+func (s *Scheduler) replayFromLocked(k journal.Kind, id string) uint64 {
+	next := s.state.LastSeq + 1
+	from := next + 1
+	if k == journal.KindTimerStarted {
+		from = next
+	}
+	for _, t := range s.state.Running() {
+		if t.ID == id {
+			continue
+		}
+		if at, ok := s.startedAt[t.ID]; ok && at < from {
+			from = at
+		}
+	}
+	return from
 }
 
 // Wait blocks until every armed timer's goroutine has exited, which they do
@@ -265,6 +327,7 @@ func (s *Scheduler) recordLocked(ctx context.Context, k journal.Kind, fields map
 			delete(fields, f)
 		}
 	}
+	fields["replay_from"] = strconv.FormatUint(s.replayFromLocked(k, fields["timer_id"]), 10)
 	e, err := s.cfg.Journal.Append(ctx, journal.HouseTimers, journal.Record{Kind: k, Fields: fields})
 	if err != nil {
 		return fmt.Errorf("record %s: %w", k, err)
@@ -274,6 +337,11 @@ func (s *Scheduler) recordLocked(ctx context.Context, k journal.Kind, fields map
 		return fmt.Errorf("fold %s seq %d: %w", k, e.Seq, err)
 	}
 	s.state = st
+	if k == journal.KindTimerStarted {
+		s.startedAt[fields["timer_id"]] = e.Seq
+	} else {
+		delete(s.startedAt, fields["timer_id"])
+	}
 	return nil
 }
 
