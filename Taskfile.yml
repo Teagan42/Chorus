@@ -18,6 +18,7 @@ env:
 
 tasks:
   default:
+    desc: Same as `task check`
     cmds: [task: check]
 
   # ---------------------------------------------------------------- toolchain
@@ -48,7 +49,7 @@ tasks:
 
   # ------------------------------------------------------------------- codegen
   gen:
-    desc: Regenerate everything derived from schemas
+    desc: Regenerate the proto bindings, the CUE outputs and each board's netlist and BOM
     cmds: [task: gen:proto, task: gen:cue, task: gen:hardware]
 
   gen:proto:
@@ -119,7 +120,7 @@ tasks:
       - go tool cover -func=coverage.out | tail -1
 
   test:db:
-    desc: Requires Postgres. Start one with `task db:up`.
+    desc: The db-tagged tests, against Postgres. Start one with `task db:up`.
     cmds:
       # -p 1: every package shares one database, and the store conformance
       # suites truncate their tables, which would wipe a conversation another
@@ -146,7 +147,7 @@ tasks:
       - docker compose stop postgres
 
   test:models:
-    desc: Requires model sidecars. Each skips until pointed at one.
+    desc: The models-tagged tests, against real sidecars and Home Assistant. Each skips until pointed at one.
     cmds:
       # No endpoint is committed, so an endpoint flag comes from the caller --
       # and one package at a time, since a test binary rejects a flag it does
@@ -258,7 +259,7 @@ tasks:
       - uv run --script sidecars/smartturn/corpus.py {{.CLI_ARGS}}
 
   test:hardware:
-    desc: Requires a reachable satellite from devices.yaml.
+    desc: The hardware-tagged smoke tests, against a reachable satellite from devices.yaml.
     cmds:
       - go test -count=1 -tags=hardware ./...
 
@@ -351,7 +352,7 @@ tasks:
     cmds: [go run ./internal/tools/spectrace docs/SPEC.md]
 
   spec:check:
-    desc: Fail on spec clauses that claim coverage but have none (CI gate)
+    desc: Fail on tests citing a SPEC clause that is gone, or a §15 clause no test covers (CI gate)
     cmds: [go run ./internal/tools/spectrace -strict docs/SPEC.md]
 
   # --------------------------------------------------------------------- hygiene
@@ -363,6 +364,7 @@ tasks:
       - sh -c 'command -v uv >/dev/null && uv run ruff format sidecars || true'
 
   lint:
+    desc: go vet, gofumpt, cue vet -c and golangci-lint. Fails if a tool is missing.
     cmds:
       # Fail loudly on a missing tool. Piping `gofumpt -l` into a guard made an
       # absent binary look like a clean tree.
@@ -375,7 +377,7 @@ tasks:
       - golangci-lint run ./...
 
   commit:check:
-    desc: Enforce atomic-commit rules on HEAD (or RANGE=a..b)
+    desc: Enforce atomic-commit rules on HEAD, or on a range, e.g. -- origin/main..HEAD
     cmds: ["go run ./internal/tools/atomic {{.CLI_ARGS}}"]
 
   check:
@@ -401,7 +403,7 @@ tasks:
   # mbedTLS and checked on the golden frames the Go side is (ADR-0066). No
   # ESPHome, no ESP-IDF: chorus_auth.h includes neither.
   firmware:test:
-    desc: Check the firmware's handshake MAC on the host against the Go golden frames
+    desc: Check the firmware's handshake MAC on the host against the Go golden frames (needs c++ and mbedTLS)
     cmds:
       - >-
         sh -c 'out=$(mktemp -d) && trap "rm -rf $out" EXIT &&
@@ -416,7 +418,7 @@ tasks:
       - uvx --from 'esphome=={{.ESPHOME_VERSION}}' esphome compile {{.CLI_ARGS | default "satellite1.yaml"}}
 
   firmware:upload:
-    desc: Flash a satellite over the air
+    desc: Flash the last firmware:compile build over the air; it does not compile
     dir: esphome
     cmds:
       - uvx --from 'esphome=={{.ESPHOME_VERSION}}' esphome upload {{.CLI_ARGS | default "satellite1.yaml"}}
