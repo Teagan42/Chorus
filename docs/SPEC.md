@@ -190,7 +190,7 @@ Entities that matter, all usable from the orchestrator over the native API:
 
 | Entity | Use |
 |---|---|
-| `light` **LED Ring** | Shows the session listening, working or speaking, and goes dark when it closes. Stock firmware animates it from `voice_assistant`'s state, so `esphome/satellite1.yaml` declares it as a plain light with a `Listening`, `Thinking` and `Speaking` effect, and chorusd sets one per session state over the native API. A ring without those effects is left to its firmware (ADR-0056) |
+| `light` **LED Ring** | Shows the session listening, working or speaking, and goes dark when it closes. Shows the device muted over everything, and an error when no session is open and something the satellite needs last failed: the ear, the voice, the model or the journal, until it next answers. Stock firmware animates it from `voice_assistant`'s state, so `esphome/satellite1.yaml` declares it as a plain light with a `Listening`, `Thinking` and `Speaking` effect, plus `Muted` and `Error`, and chorusd sets one per state over the native API. A ring without the first three is left to its firmware (ADR-0056); one without `Muted` or `Error` goes dark in that state (ADR-0069) |
 | `select` **Wake word sensitivity** (3 levels) | **Immediate relief for cough false-accepts, no retraining** (§9.3) |
 | `switch` **Capture wake-word audio** | Stock corpus capture hook — inspect before building our own |
 | `binary_sensor` **Room Presence** + mmWave radar suite | Journalled to the device's log as `presence_changed` and drawn on Browse (ADR-0050). Presence-gated sessions and occupancy-aware routing are not built |
@@ -452,16 +452,33 @@ infrastructure failures get canned speech.** A tool timeout returns
 `{error: "timed_out"}` and the model says something true and useful, instead of
 the orchestrator barging in with "sorry, something went wrong."
 
-Canned fallback reserved for LLM-unavailable and TTS-unavailable, where there is
-no model left to reason with. Failures are first-class event types — they are
-training data too.
+Canned fallback reserved for LLM-unavailable, TTS-unavailable and
+STT-unavailable, where there is no model left to reason with, or nothing it
+could reason over. Failures are first-class event types — they are training
+data too. What a household would otherwise meet as silence is said, or, where
+nothing can be said, shown on the LED ring (§3.3.1, ADR-0069).
 
 - A model that is unreachable, breaks mid-stream, or emits nothing past its
   deadline is `model_failed`. The turn ends with one canned line.
 - A voice that fails mid-utterance is `speech_failed`, and the truncation or
   discard it caused names it, never `barge_in`: a dead synthesiser is not a
-  preference (§9.1). The voice's canned line is rendered at startup, so it can
-  still be said once the synthesiser is down.
+  preference (§9.1).
+- An ear that fails on what someone said in a session is answered with one
+  canned line, marked `unheard`. No event holds words nothing decoded, so
+  nothing is transcribed. A wake whose first words it fails on is rejected
+  as `transcription_failed` (§9.3), and when the voice would have passed
+  stage three the canned line follows the rejection in the device's log,
+  which names it; the television's wake stays silent.
+- A journal that refuses a write is shown, never said. The log is the runtime
+  (ADR-0007), so a word it cannot record is not spoken: a wake whose session
+  the journal will not open, or whose rejection it will not take, gets the
+  ring's error state and no speech.
+- An utterance whose audio the blob store fails to write is still heard; its
+  clip is recorded as `audio_dropped` with `write_failed` straight after. A
+  disk below its floor writes nothing and fails nothing (ADR-0065).
+- Every canned line is rendered at startup, and until that succeeds is said
+  from audio built into the binary, rendered from Kokoro by `task
+  canned:voice`, so it exists before the synthesiser has ever answered.
 - A canned line is a speak call marked `canned`. The model is not shown it as
   its own words, and no pair is cut from it (ADR-0051).
 
@@ -559,7 +576,8 @@ corpus fills itself with precisely the negatives the model lacks — no manual
 labeling, no retraining needed to get immediate relief. A first utterance STT
 could not decode at all is rejected too, as `transcription_failed`: nothing
 confirmed the wake, but nothing judged the audio either, so it is no hard
-negative.
+negative. It is the one rejection the user may perceive: a voice stage three
+would have let in is told the ear failed (§7), rather than left in silence.
 
 The one exception is a wake that failed only the speaker check: that is likely
 the wake word from a guest, so it is held until a reviewer confirms it
