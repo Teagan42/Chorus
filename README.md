@@ -45,6 +45,7 @@ satellite. What exists today:
 | `internal/retention` — prunes audio and logs by each satellite's horizon, and the deletion path the review UI shares | under test; the Postgres delete path in the db tier |
 | `internal/ops` — `chorusd`'s `/healthz`, `/readyz` and `/metrics` on loopback | under test |
 | `esphome/components/chorus_bridge` — firmware component, with the on-device "Hey Eddie" wake word, a Speaker Volume number, the HAT's mute switch and the ring's Muted and Error effects | an earlier protocol ran full duplex on a Satellite1; this firmware is validated by `esphome config` and its handshake MAC on the host, and has not been flashed |
+| `esphome/voice-pe.yaml` — the Home Assistant Voice PE, wired from its stock firmware: the same bridge, wake word, ring effects, Speaker Volume (which its dial turns) and mute switch as the Satellite1, and a centre button that wakes it | validated by `esphome config`; not compiled or flashed (ADR-0073) |
 | `cmd/probe` — connect to a satellite and dump what it exposes | works |
 | LLM — `internal/provider/ollama`, the turn engine | dials a real endpoint; asked again with each tool result and the conversation so far |
 | TTS — `internal/provider/kokoro`, resampled to the device's rate | dials a real endpoint |
@@ -53,7 +54,7 @@ satellite. What exists today:
 | `cmd/enroll` — adds, lists and removes the household's voiceprints in `identities.yaml` | under test; enrolls from WAV files through the speaker-ID sidecar |
 | endpointing — `listen.Semantic` over `internal/provider/smartturn` and `sidecars/smartturn` (Smart Turn v3.2 on ONNX) | ends a turn ~340 ms after the last word on CPU; right on 76 of 88 synthetic household takes, not yet measured on recorded speech |
 | `internal/hass` — the one real tool (SPEC §14 item 5) | verified against Home Assistant 2026.10; unlocking a door or disarming the alarm waits for a yes from whoever asked |
-| `internal/listen` — the Listening child: mic stream to utterances, barge-in candidates, attribution | under test |
+| `internal/listen` — the Listening child: mic stream to utterances, barge-in candidates, attribution, and the arbiter that lets only the loudest of several satellites answer one wake | under test |
 | `internal/timer`, `internal/announce` — timers that go off where they were set, and announcements to other rooms, answerable with no wake word | under test; timers survive a restart |
 | `internal/volume` — `set_volume`: a satellite's speaker level, by level or step, in the turn's room or one named | under test |
 | `internal/memory` — what each person asked to be remembered, and a summary of each conversation for the people in it | under test |
@@ -160,6 +161,12 @@ satellite whenever the host moves to a new protocol**, in step with it.
 the firmware tasks build by default. Set `orchestrator_host` in it to the
 machine running the orchestrator — a literal IP on a static lease, because
 ESPHome cannot resolve hostnames for an outbound socket.
+
+A Voice PE builds from `voice-pe.yaml` the same way, named after the task:
+`task firmware:compile -- voice-pe.yaml`, then `firmware:upload` with the
+same argument. Every device YAML reads the one `secrets.yaml`, so satellites
+built from it share an API key unless you change it between builds; each
+satellite's `psk` in `devices.yaml` is whatever its build used.
 
 **Do not flash `satellite1.example.yaml`.** Its I²S pins are generic ESP32-S3
 placeholders, there so the file validates standalone — they are not any real

@@ -89,7 +89,7 @@ func checkKey(key string) error {
 }
 
 // Dir stores blobs under a filesystem root. This is the deployment default:
-// one household generates ~115 MB/day (SPEC §8), which wants a disk and a
+// one satellite's continuous capture is ~115 MB an hour (SPEC §8), which wants a disk and a
 // retention policy rather than an object store.
 type Dir struct{ root string }
 
