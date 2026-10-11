@@ -29,6 +29,7 @@ import (
 
 	"github.com/teagan42/chorus/internal/blob"
 	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/esphome"
 	"github.com/teagan42/chorus/internal/identity"
 	"github.com/teagan42/chorus/internal/journal"
@@ -97,10 +98,25 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 	if err := memory.Migrate(ctx, pool); err != nil {
 		return fmt.Errorf("migrate memory: %w", err)
 	}
+	// Retention reads what reviewers curated, so the tables must exist even
+	// before the review UI has first run.
+	if err := curation.Migrate(ctx, pool); err != nil {
+		return fmt.Errorf("migrate curation: %w", err)
+	}
 
-	blobs, err := blob.NewDir(cfg.BlobDir)
+	dir, err := blob.NewDir(cfg.BlobDir)
 	if err != nil {
 		return fmt.Errorf("%s: %w", blobDirEnv, err)
+	}
+	// Validated with the rest of the environment, so this cannot fail.
+	floor, _ := cfg.blobFloor()
+	var (
+		blobs blob.Store = dir
+		prune            = &pruneDeps{Curation: curation.NewPgStore(pool), Blobs: dir}
+	)
+	if floor > 0 {
+		g := blob.Guard(dir, blob.GuardConfig{Disk: blob.DirFree(cfg.BlobDir), Floor: floor, Clock: wallClock{}, Log: log})
+		blobs, prune.NotKept = g, g
 	}
 
 	ln, err := net.Listen("tcp", cfg.Listen)
@@ -119,6 +135,7 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 		Store:     journal.NewPgStore(pool),
 		Memories:  memory.NewPgStore(pool),
 		Blobs:     blobs,
+		Prune:     prune,
 		Clock:     wallClock{},
 		Timers:    wallTimers{},
 		providers: prov,

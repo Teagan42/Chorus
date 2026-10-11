@@ -50,7 +50,8 @@ func Handler(store blob.Store) http.Handler {
 		switch {
 		case err == nil:
 		case errors.Is(err, fs.ErrNotExist):
-			http.NotFound(w, r)
+			// The journal names it, so it was pruned or never written (ADR-0065).
+			http.Error(w, "audio no longer kept: pruned by retention, or not written on a full disk", http.StatusNotFound)
 			return
 		default:
 			// Open validates the ref before touching the filesystem, so any

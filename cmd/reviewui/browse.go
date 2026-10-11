@@ -62,8 +62,9 @@ func summarize(id string, events []journal.Event, sigs []triage.Signal) convSumm
 		if c.start.IsZero() {
 			c.start = e.At
 		}
-		// A summary is written after the close, as long after as the model took.
-		if e.Kind != journal.KindConversationSummarized {
+		// A summary is written after the close, as long after as the model
+		// took; dropped audio is recorded a horizon later (ADR-0065).
+		if e.Kind != journal.KindConversationSummarized && e.Kind != journal.KindAudioDropped {
 			c.end = e.At
 		}
 		switch e.Kind {
@@ -218,6 +219,7 @@ func (s *server) household(r *http.Request, u *unread) ([]convSummary, map[strin
 	if err != nil {
 		return nil, nil, 0, err
 	}
+	s.logs.retain(ids)
 	var convs []convSummary
 	devices := map[string]*deviceLog{}
 	for _, id := range ids {

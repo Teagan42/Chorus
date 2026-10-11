@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -74,6 +75,18 @@ func (l *logs) of(ctx context.Context, store journal.Store, id string) (*derived
 		l.byID[id] = d
 	}
 	return d, nil
+}
+
+// retain forgets every log the listing no longer names: retention deleted
+// it, and what it derived must go with it (ADR-0062, ADR-0065).
+func (l *logs) retain(ids []string) {
+	listed := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		listed[id] = true
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	maps.DeleteFunc(l.byID, func(id string, _ *derived) bool { return !listed[id] })
 }
 
 func derive(ctx context.Context, id string, events []journal.Event) *derived {

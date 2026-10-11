@@ -27,15 +27,48 @@ type Lister interface {
 	Conversations(ctx context.Context) ([]string, error)
 }
 
+// Deleter is a Store retention may delete from (ADR-0065). Nothing else
+// deletes: the log is append-only to everything that runs a conversation.
+type Deleter interface {
+	// DeleteLog removes one log whole.
+	DeleteLog(ctx context.Context, conversationID string) error
+	// DeleteEvents removes the named events of one log but never its last,
+	// so the next seq is never one handed out before.
+	DeleteEvents(ctx context.Context, conversationID string, seqs []uint64) error
+}
+
+// Ranger reads a log's tail without its head: what a long-lived log's
+// reader needs, so its history is not read again at every start.
+type Ranger interface {
+	// EventsAfter returns the events past seq, in sequence order.
+	EventsAfter(ctx context.Context, conversationID string, seq uint64) ([]Event, error)
+}
+
+// EventsAfter reads through a Ranger, or reads the whole log and drops the
+// events up to seq.
+func EventsAfter(ctx context.Context, s Store, conversationID string, seq uint64) ([]Event, error) {
+	if r, ok := s.(Ranger); ok {
+		return r.EventsAfter(ctx, conversationID, seq)
+	}
+	events, err := s.Events(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(events, func(e Event) bool { return e.Seq <= seq }), nil
+}
+
 // MemStore is the in-memory Store used by tests and the replay harness.
 type MemStore struct {
 	byConv map[string][]Event
-	mu     sync.RWMutex
+	// last is each log's last seq, apart from its length: retention deletes
+	// events, and a deleted seq is never handed out again.
+	last map[string]uint64
+	mu   sync.RWMutex
 }
 
 // NewMemStore returns an empty in-memory store.
 func NewMemStore() *MemStore {
-	return &MemStore{byConv: map[string][]Event{}}
+	return &MemStore{byConv: map[string][]Event{}, last: map[string]uint64{}}
 }
 
 // Append enforces the monotonic, gapless sequence the reducer relies on.
@@ -43,12 +76,41 @@ func (m *MemStore) Append(_ context.Context, e Event) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	log := m.byConv[e.ConversationID]
-	if want := uint64(len(log)) + 1; e.Seq != want {
+	if want := m.last[e.ConversationID] + 1; e.Seq != want {
 		return fmt.Errorf("seq %d for %s: want %d", e.Seq, e.ConversationID, want)
 	}
-	m.byConv[e.ConversationID] = append(log, detach(truncateClock(e)))
+	m.byConv[e.ConversationID] = append(m.byConv[e.ConversationID], detach(truncateClock(e)))
+	m.last[e.ConversationID] = e.Seq
 	return nil
+}
+
+// DeleteLog removes the log. Its id is never reused, as no log's is.
+func (m *MemStore) DeleteLog(_ context.Context, conversationID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.byConv, conversationID)
+	delete(m.last, conversationID)
+	return nil
+}
+
+// DeleteEvents removes the named events, keeping the log's last.
+func (m *MemStore) DeleteEvents(_ context.Context, conversationID string, seqs []uint64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	last := m.last[conversationID]
+	m.byConv[conversationID] = slices.DeleteFunc(m.byConv[conversationID], func(e Event) bool {
+		return e.Seq != last && slices.Contains(seqs, e.Seq)
+	})
+	return nil
+}
+
+// EventsAfter returns a copy of the events past seq.
+func (m *MemStore) EventsAfter(ctx context.Context, conversationID string, seq uint64) ([]Event, error) {
+	events, err := m.Events(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(events, func(e Event) bool { return e.Seq <= seq }), nil
 }
 
 // StoredClockResolution is what a Store preserves of Event.At. Postgres
@@ -86,7 +148,7 @@ func detach(e Event) Event {
 func (m *MemStore) LastSeq(_ context.Context, conversationID string) (uint64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return uint64(len(m.byConv[conversationID])), nil
+	return m.last[conversationID], nil
 }
 
 // Conversations breaks a tie on the latest clock by id, so the order is stable.

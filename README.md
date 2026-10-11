@@ -238,6 +238,35 @@ from the command line: every barge-in, uncurated, with no `chosen` side
 (`meta.curated=false`), so it is for inspection, not training. The curated
 dataset comes from the Export screen.
 
+### Retention
+
+Nothing is deleted until `devices.yaml` says how long to keep it. Horizons
+are days; absent or `0` keeps forever. A satellite's own block overrides the
+house's, horizon by horizon:
+
+```yaml
+retention:          # the house
+  audio: 30d        # the PCM a log names
+  journal: 365d     # a conversation, after its last event
+  prune_curated: false
+satellites:
+  - name: kitchen
+    # ...
+    retention:
+      audio: 7d
+```
+
+`chorusd` prunes at startup and hourly. A clip past its satellite's audio
+horizon is deleted and its log says `audio_dropped`, so the review UI shows
+*audio pruned* where the player was. A conversation goes whole once its
+journal horizon has passed, and the device and house logs lose their oldest
+events. What a reviewer accepted, edited, labelled, promoted or confirmed is
+kept unless `prune_curated` is true, and a live session is never touched.
+Separately, below `CHORUS_BLOB_MIN_FREE_MIB` (1024 by default) free on the
+blob directory's disk, audio is not written; the turn goes on, and the log
+says the clip was not kept. [ADR-0065](docs/adr/0065-retention-prunes-by-each-satellites-horizon-and-records-what-it-drops.md)
+has the rules.
+
 ## Tests
 
 Six tiers, separated because five of them cannot run everywhere. `task check`

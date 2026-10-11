@@ -597,7 +597,7 @@ func decision(pairID string, status curation.Status) curation.Decision {
 
 func runStoreConformance(t *testing.T, open newStore) {
 	t.Helper()
-	for _, suite := range []map[string]func(*testing.T, curation.Store){storeConformance, annotationConformance, promotionConformance, rerunConformance, wakeConformance} {
+	for _, suite := range []map[string]func(*testing.T, curation.Store){storeConformance, annotationConformance, promotionConformance, rerunConformance, wakeConformance, forgetConformance} {
 		for name, run := range suite {
 			t.Run(name, func(t *testing.T) { run(t, open(t)) })
 		}

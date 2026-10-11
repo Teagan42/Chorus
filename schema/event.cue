@@ -3,8 +3,9 @@
 // data (SPEC §8).
 package schema
 
-// #Actor is which supervisor child produced the event (SPEC §4).
-#Actor: "session" | "listening" | "thinking" | "speaking" | "tool" | "device"
+// #Actor is which supervisor child produced the event (SPEC §4). store is
+// the log and its audio themselves, outside any session (ADR-0065).
+#Actor: "session" | "listening" | "thinking" | "speaking" | "tool" | "device" | "store"
 
 #Event: {
 	name!:        =~"^[a-z][a-z0-9_.]*$"
@@ -249,6 +250,16 @@ events: {
 		]
 	}
 
+	audio_dropped: {
+		name:        "audio_dropped", actor: "store"
+		description: "Audio an earlier event names is not kept: retention removed it past its satellite's horizon, or the disk was too full to write it. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065)."
+		fields: [
+			{name: "audio_ref", type: "string", description: "The blob reference the earlier events name, as they name it.", required: true},
+			{name: "reason", type: "string", description: "retention: removed once older than its satellite's audio horizon. disk_low: never written, because the blob directory's filesystem was below its free-space floor.", required: true, enum: ["retention", "disk_low"]},
+			{name: "days", type: "integer", description: "The audio horizon it outlived, in days. Empty for disk_low."},
+		]
+	}
+
 	// Timers belong to the house, not the conversation that set them: they
 	// outlive its session, and the daemon (ADR-0045).
 	timer_started: {
@@ -264,6 +275,7 @@ events: {
 			{name: "person", type: "string", description: "Who set it. Empty for a guest."},
 			{name: "conversation_id", type: "string", description: "The conversation that set it.", required: true},
 			{name: "call_id", type: "string", description: "The timer_start call that set it.", required: true},
+			{name: "replay_from", type: "integer", description: "The seq a start replays the house log from: every timer started before it had ended once this event was written, so the log after it rebuilds every timer still running (ADR-0065). Absent in logs from before it was recorded, which replay whole."},
 		]
 	}
 	timer_cancelled: {
@@ -273,6 +285,7 @@ events: {
 			{name: "timer_id", type: "string", description: "The timer cancelled.", required: true},
 			{name: "conversation_id", type: "string", description: "The conversation that cancelled it.", required: true},
 			{name: "call_id", type: "string", description: "The timer_cancel call that cancelled it.", required: true},
+			{name: "replay_from", type: "integer", description: "The seq a start replays the house log from: every timer started before it had ended once this event was written, so the log after it rebuilds every timer still running (ADR-0065). Absent in logs from before it was recorded, which replay whole."},
 		]
 	}
 	timer_finished: {
@@ -283,6 +296,7 @@ events: {
 			{name: "outcome", type: "string", description: "announced: said on its satellite. unannounced: its satellite was not connected, or would not say it. missed: it came due while the daemon was down, too long ago to be worth saying.", required: true, enum: ["announced", "unannounced", "missed"]},
 			{name: "conversation_id", type: "string", description: "The conversation it was announced in. Empty unless announced."},
 			{name: "error", type: "string", description: "Why it was not announced. Empty when it was."},
+			{name: "replay_from", type: "integer", description: "The seq a start replays the house log from: every timer started before it had ended once this event was written, so the log after it rebuilds every timer still running (ADR-0065). Absent in logs from before it was recorded, which replay whole."},
 		]
 	}
 }

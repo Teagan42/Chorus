@@ -142,6 +142,19 @@ func (d *Dir) Open(_ context.Context, ref string) (io.ReadCloser, error) {
 	return f, nil
 }
 
+// Remove deletes a committed blob; one already gone is no error. Only
+// retention removes, past a satellite's audio horizon (ADR-0065).
+func (d *Dir) Remove(_ context.Context, ref string) error {
+	key, err := KeyFor(ref)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(d.root, filepath.FromSlash(key))); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("blob: remove %q: %w", ref, err)
+	}
+	return nil
+}
+
 type dirWriter struct {
 	key   string
 	root  string

@@ -443,6 +443,13 @@ clips stay under the blob store's retention. `second_audio` is empty
 when the satellite kept no second channel. `reason` is what stage two said,
 so a trainer can keep or drop each kind (ADR-0058).
 
+Retention may remove a clip, and the disk guard may never write one
+(ADR-0065). The log then records `audio_dropped`, and the page shows
+*audio pruned* or *audio not kept: disk full* where the player was. A DPO row
+keeps each ref in place and lists the gone ones in `meta.audio.gone`; a wake
+row whose clip is gone says `"audio_gone":true`, and a gone second channel
+is left out of `second_audio`.
+
 ![Export, the wake corpus](e2e/journey-wake-export.png)
 
 ## The UI kit

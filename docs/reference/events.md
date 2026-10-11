@@ -7,6 +7,7 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | Event | Actor | Audio | Training signal | Description |
 |---|---|---|---|---|
 | `announcement_made` | session |  |  | Something was said that nobody in this conversation asked for: a timer going off, or someone in another room asking for it to be said here. Recorded in the conversation it was said in, ahead of the speak call that says it (SPEC §4). |
+| `audio_dropped` | store |  |  | Audio an earlier event names is not kept: retention removed it past its satellite's horizon, or the disk was too full to write it. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065). |
 | `barge_in_detected` | listening | yes |  | Interruption passed the detection gate. Timing is milliseconds into TTS playback, not wall clock, so replay reproduces the cut. |
 | `barge_in_rejected` | listening | yes |  | Candidate interruption failed the detection gate. Tuning corpus for SPEC §4.3. |
 | `confirmation_given` | session |  |  | A held call came back with its nonce after the person answered, and ran. What they said is the utterance the nonce was redeemed after (SPEC §6). |
@@ -47,6 +48,18 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 | `from_satellite` | string |  | Where it was asked for, or where the timer was set. |
 | `from_conversation` | string |  | The conversation that asked for it, or that set the timer. |
 | `start_conversation` | boolean |  | Whoever is in the room may answer with no wake word. |
+
+## `audio_dropped`
+
+Audio an earlier event names is not kept: retention removed it past its satellite's horizon, or the disk was too full to write it. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065).
+
+Actor: `store`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `audio_ref` | string | yes | The blob reference the earlier events name, as they name it. |
+| `reason` | string | yes | retention: removed once older than its satellite's audio horizon. disk_low: never written, because the blob directory's filesystem was below its free-space floor. One of: `retention`, `disk_low`. |
+| `days` | integer |  | The audio horizon it outlived, in days. Empty for disk_low. |
 
 ## `barge_in_detected`
 
@@ -255,6 +268,7 @@ Actor: `tool`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requi
 | `timer_id` | string | yes | The timer cancelled. |
 | `conversation_id` | string | yes | The conversation that cancelled it. |
 | `call_id` | string | yes | The timer_cancel call that cancelled it. |
+| `replay_from` | integer |  | The seq a start replays the house log from: every timer started before it had ended once this event was written, so the log after it rebuilds every timer still running (ADR-0065). Absent in logs from before it was recorded, which replay whole. |
 
 ## `timer_finished`
 
@@ -268,6 +282,7 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 | `outcome` | string | yes | announced: said on its satellite. unannounced: its satellite was not connected, or would not say it. missed: it came due while the daemon was down, too long ago to be worth saying. One of: `announced`, `unannounced`, `missed`. |
 | `conversation_id` | string |  | The conversation it was announced in. Empty unless announced. |
 | `error` | string |  | Why it was not announced. Empty when it was. |
+| `replay_from` | integer |  | The seq a start replays the house log from: every timer started before it had ended once this event was written, so the log after it rebuilds every timer still running (ADR-0065). Absent in logs from before it was recorded, which replay whole. |
 
 ## `timer_started`
 
@@ -286,6 +301,7 @@ Actor: `tool`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requi
 | `person` | string |  | Who set it. Empty for a guest. |
 | `conversation_id` | string | yes | The conversation that set it. |
 | `call_id` | string | yes | The timer_start call that set it. |
+| `replay_from` | integer |  | The seq a start replays the house log from: every timer started before it had ended once this event was written, so the log after it rebuilds every timer still running (ADR-0065). Absent in logs from before it was recorded, which replay whole. |
 
 ## `tool_called`
 

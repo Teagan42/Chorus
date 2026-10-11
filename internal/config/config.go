@@ -26,10 +26,16 @@ type Satellite struct {
 	PSK     string `yaml:"psk"`
 	Room    string `yaml:"room"`
 	Profile string `yaml:"profile"`
+
+	// Retention overrides the house's horizons for this satellite's audio
+	// and logs; what it leaves out is the house's (SPEC §8).
+	Retention *Retention `yaml:"retention"`
 }
 
 type Config struct {
-	Satellites []Satellite `yaml:"satellites"`
+	// Retention is the house-wide default; absent keeps everything forever.
+	Retention  HouseRetention `yaml:"retention"`
+	Satellites []Satellite    `yaml:"satellites"`
 }
 
 func Load(path string) (*Config, error) {
@@ -45,10 +51,20 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("%s lists no satellites", path)
 	}
 
+	if err := c.Retention.parse(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := c.Retention.check(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+
 	seen := make(map[string]bool, len(c.Satellites))
 	for i := range c.Satellites {
 		s := &c.Satellites[i]
 		if err := s.validate(); err != nil {
+			return nil, fmt.Errorf("%s: satellite %d (%s): %w", path, i, s.describe(), err)
+		}
+		if err := c.RetentionFor(s.Name).check(); err != nil {
 			return nil, fmt.Errorf("%s: satellite %d (%s): %w", path, i, s.describe(), err)
 		}
 		if seen[s.Name] {
@@ -73,6 +89,11 @@ func (s *Satellite) validate() error {
 	}
 	if err := validateAddress(s.Address); err != nil {
 		return err
+	}
+	if s.Retention != nil {
+		if err := s.Retention.parse(); err != nil {
+			return err
+		}
 	}
 	return validatePSK(s.PSK)
 }

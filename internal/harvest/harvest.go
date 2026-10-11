@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -90,6 +91,22 @@ type Audio struct {
 	Correction string `json:"correction"`
 	// AsSaid is every clip the user heard in the answering turn, in order.
 	AsSaid []string `json:"as_said"`
+
+	// Gone are the refs above whose audio is no longer kept: pruned by
+	// retention, or never written on a full disk (ADR-0065). Each stays in
+	// place, beside the text it is the clip of.
+	Gone []string `json:"gone,omitempty"`
+}
+
+// mark lists which of the audio's refs gone names, sorted.
+func (a *Audio) mark(gone map[string]bool) {
+	a.Gone = nil
+	for _, ref := range slices.Concat(a.Rejected, []string{a.BargeIn, a.Correction}, a.AsSaid) {
+		if gone[ref] && !slices.Contains(a.Gone, ref) {
+			a.Gone = append(a.Gone, ref)
+		}
+	}
+	slices.Sort(a.Gone)
 }
 
 // Pair is one barge-in harvested as a preference candidate. Rejected,
@@ -264,6 +281,9 @@ func Scan(ctx context.Context, store journal.Store, conversationID string) (Resu
 		}
 	}
 	w.closeTurn(nil)
+	for i := range w.result.Pairs {
+		w.result.Pairs[i].Audio.mark(w.gone)
+	}
 	return w.result, nil
 }
 
@@ -339,6 +359,9 @@ type walker struct {
 	// hot is the hot phrase each turn's utterance was answered as, by its
 	// seq: an answer that is no correction (ADR-0064).
 	hot map[uint64]string
+
+	// gone are the clips audio_dropped says are not kept (ADR-0065).
+	gone map[string]bool
 }
 
 // skip marks a speak call as said by nobody's turn.
@@ -483,6 +506,11 @@ func (w *walker) fold(e journal.Event) error {
 			w.cur.versions = e.Versions
 			w.cur.completed = true
 		}
+	case journal.KindAudioDropped:
+		if w.gone == nil {
+			w.gone = map[string]bool{}
+		}
+		w.gone[e.Fields["audio_ref"]] = true
 	case journal.KindSessionOpened, journal.KindBargeInRejected, journal.KindWakeRejected, journal.KindSpeechStarted,
 		journal.KindConfirmationRequested, journal.KindConfirmationGiven, journal.KindConversationSummarized,
 		journal.KindTimerStarted, journal.KindTimerCancelled, journal.KindTimerFinished,

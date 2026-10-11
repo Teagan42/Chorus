@@ -471,9 +471,15 @@ rather than new plumbing.
 
 Storage: Postgres `JSONB`, partitioned by conversation, plus MinIO/filesystem
 for audio blobs (mic PCM, both channels, the second named by
-`second_audio_ref`; synthesized TTS). Keep everything;
-retention configurable per satellite. 16 kHz mono is ~115 MB/day of continuous
-capture.
+`second_audio_ref`; synthesized TTS). 16 kHz mono is ~115 MB/day of continuous
+capture. Everything is kept unless `devices.yaml` sets a retention: an audio
+and a journal horizon in days, house-wide and per satellite (ADR-0065). A clip
+past its satellite's audio horizon is removed, and the log that named it
+records `audio_dropped`; a conversation is deleted whole once its journal
+horizon has passed since its last activity, and the device and house logs lose
+the events older than theirs. What a reviewer curated is kept unless the house
+opts in to pruning it, and a live session's conversation is never touched. While the blob disk is below its free-space
+floor audio is not written, the log says so, and the turn goes on.
 
 Every event carries a monotonic sequence number, wall clock, the model /
 prompt / tool-schema versions in effect, and the STT and TTS identities

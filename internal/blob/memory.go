@@ -42,6 +42,18 @@ func (m *Memory) Open(_ context.Context, ref string) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(b)), nil
 }
 
+// Remove deletes a committed blob; one already gone is no error.
+func (m *Memory) Remove(_ context.Context, ref string) error {
+	key, err := KeyFor(ref)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.blobs, key)
+	return nil
+}
+
 // Refs lists what has been committed, in order, for assertions.
 func (m *Memory) Refs() []string {
 	m.mu.Lock()
