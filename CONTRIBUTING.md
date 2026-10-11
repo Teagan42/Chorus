@@ -21,16 +21,17 @@ Requires Go 1.27+, `uv` for Python sidecars. `task` and `cue` install via `task 
 
 ## 1. TDD
 
-Six tiers, separated because five of them cannot run everywhere.
+Seven tiers, separated because six of them cannot run everywhere.
 
 | Task | Needs | Runs |
 |---|---|---|
-| `task test` | nothing | every push, every commit, pre-commit hook |
+| `task test` | nothing | every push, in `task check` |
 | `task test:db` | Postgres (`task db:up`) | every push, its own CI job |
 | `task test:e2e` | Chrome or Chromium | every push, its own CI job |
 | `task test:sidecars` | `uv`; fetches the two pinned sidecar models | every push, its own CI job |
-| `task test:models` | GPU sidecars | self-hosted runner |
-| `task test:hardware` | a real satellite | self-hosted runner, manual |
+| `task firmware:test` | a C++ compiler and mbedTLS | every push, in the firmware CI job |
+| `task test:models` | GPU sidecars | self-hosted runner: nightly, on dispatch, or a PR labelled `ci:self-hosted` |
+| `task test:hardware` | a real satellite | self-hosted runner: nightly, on dispatch, or a PR labelled `ci:self-hosted` |
 
 Hermetic means hermetic: no network, no wall clock, no GPU, no device. A test
 that reaches the network is a bug in the test.
@@ -99,9 +100,11 @@ What is generated, in order of how badly drift hurts:
 2. **Tool registry** → Go interfaces, LLM-facing JSON Schema, policy enforcement
    middleware, docs. One declaration yields both the model's view and the
    interrupt/confirm/scope enforcement, so they cannot disagree. (SPEC §6)
-3. **Device profiles** → capability matrix, `chorus_bridge` YAML, Go expectations. (SPEC §3)
-4. **Provider capabilities** → build-time check that a configured pipeline is viable. (SPEC §10)
-5. **Config schema** → validation with usable errors, plus reference docs. (SPEC §13)
+
+Those two are all `schema/` holds. Device profiles (SPEC §3), provider
+capabilities (SPEC §10) and the config schema (SPEC §13) are not in CUE:
+`devices.yaml` is validated in Go by `internal/config` when it loads, and
+nothing checks a pipeline's viability at build time.
 
 Constraints CUE enforces that a type system cannot — these are why we chose it:
 
@@ -118,8 +121,16 @@ Constraints CUE enforces that a type system cannot — these are why we chose it
 
 CI fails if `task gen` produces a diff (`task gen:check`). Two reasons: the
 generator cannot silently rot, and a reviewer sees the actual blast radius of a
-schema change. Generated files carry a header and live at `*.gen.go` or under
-`schema/json/`.
+schema change. `task commit:check` counts these paths as generated:
+
+- `*.gen.go` and `schema/json/`, from CUE, and `docs/reference/`, its docs;
+- `internal/pb/`, from the vendored ESPHome protos;
+- `hardware/*/*.net` and `hardware/*/bom.csv`, from each board's netlist data;
+- `internal/satellite/fallback/`, the canned lines' audio, which `task
+  canned:voice` renders with Kokoro, so it is not part of `task gen` or
+  `task gen:check`.
+
+The Go and Markdown ones carry a `DO NOT EDIT` header.
 
 Never hand-edit a generated file. Change the schema.
 
@@ -228,7 +239,7 @@ regenerated and 20 change behavior.
 <type>(<scope>): <subject>
 ```
 
-Types: `feat` `fix` `refactor` `perf` `test` `docs` `style` `chore` `build` `ci`.
+Types: `feat` `fix` `refactor` `perf` `test` `docs` `style` `chore` `build` `ci` `revert`.
 
 `task commit:check` enforces path rules on `HEAD`, or a range with
 `task commit:check -- origin/main..HEAD`:
@@ -245,11 +256,18 @@ So a schema change is two commits: `feat(schema): …` for the CUE, then
 commit is reviewable at a glance precisely because the first one isn't mixed
 into it.
 
-Install the hooks once:
+Install the hooks once (`task tools` does this too):
 
 ```sh norun
 git config core.hooksPath .githooks
 ```
+
+`pre-commit` is deliberately fast and runs no tests. It refuses a staged
+`devices.yaml`, `identities.yaml` or `.env`; refuses staged Go, generated
+Go aside, that `gofumpt -l` flags (`gofmt -l` without it); and runs
+`cue vet -c ./schema/` when a `.cue` file is staged and `cue` is installed.
+`commit-msg` refuses a subject that is not Conventional Commits, which
+includes one naming two scopes, and one over 72 characters.
 
 ## 5. Project layout
 
