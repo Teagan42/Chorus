@@ -55,7 +55,7 @@ func TestAnAnnouncementIsASessionWithNoWakeWord(t *testing.T) {
 		t.Fatalf("log = %v, want %v", got, want)
 	}
 	opened := r.eventOf(t, s.ConversationID(), journal.KindSessionOpened)
-	if opened.Fields["announced"] != "true" || opened.Fields["speaker_id"] != "" || opened.Fields["satellite"] != "kitchen" {
+	if opened.Fields["announced"] != "true" || opened.Fields["speaker_id"] != "" || opened.Fields["satellite"] != "kitchen" || opened.Fields["wake_word"] != "" {
 		t.Errorf("session_opened = %v", opened.Fields)
 	}
 	made := r.eventOf(t, s.ConversationID(), journal.KindAnnouncementMade)

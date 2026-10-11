@@ -168,6 +168,10 @@ type Wake struct {
 	Satellite  string
 	PersonID   string
 	Confidence float64
+
+	// Word is the name the wake frame carried: the wake model's, or
+	// bridge.WakeButton for a press. Empty when no wake opened it.
+	Word string
 }
 
 // Transcript is a final STT result.
@@ -301,6 +305,9 @@ func (sup *Supervisor) open(ctx context.Context, w Wake, announced bool) (*Sessi
 	}
 	if room := sup.cfg.Rooms[w.Satellite]; room != "" {
 		fields["room"] = room
+	}
+	if w.Word != "" {
+		fields["wake_word"] = w.Word
 	}
 	if err := s.record(journal.Record{Kind: journal.KindSessionOpened, Fields: fields}); err != nil {
 		sup.cfg.Conversations.release(convID, s)
