@@ -301,6 +301,9 @@ func TestDroppingTheGuestsAskRedactsItsClip(t *testing.T) {
 	if strings.Contains(page, `action="`+dropAudioHref(convGuest, guestAskSeq)+`"`) {
 		t.Error("the page still offers to drop a clip that is gone")
 	}
+	if row := rowOf(page, guestAskSeq); !strings.Contains(row, "audio redacted") {
+		t.Errorf("her ask's own row does not say its audio went:\n%s", row)
+	}
 	r := httptest.NewRequest(http.MethodGet, "/audio?ref="+url.QueryEscape(guestAsk), nil)
 	played := httptest.NewRecorder()
 	v.s.routes().ServeHTTP(played, r)
