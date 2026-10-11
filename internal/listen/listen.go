@@ -29,10 +29,19 @@ import (
 )
 
 // Opener opens a session for a confirmed wake, or for an announcement with
-// no wake at all. *session.Supervisor fills it.
+// no wake at all, and apologises for a wake the ear failed on, which opens
+// none. *session.Supervisor fills it.
 type Opener interface {
 	Open(ctx context.Context, w session.Wake) (*session.Session, error)
 	Announce(ctx context.Context, satellite string, a session.Announcement) (*session.Session, error)
+	Misheard(ctx context.Context, satellite, log string, rejected journal.Record) error
+}
+
+// Indicator shows what the listener knows and cannot say: the device's
+// mute, and the ear or the journal failing. *session.Panel fills it.
+type Indicator interface {
+	Mute(on bool)
+	session.Faults
 }
 
 // ErrLinkClosed is an announcement for a satellite whose link has gone.
@@ -80,6 +89,10 @@ type Config struct {
 	// Journal takes the wake rejections, which belong to no conversation.
 	Journal *journal.Journal
 
+	// Indicator is the satellite's ring, shown the mute and what failed.
+	// Nil shows nothing.
+	Indicator Indicator
+
 	// Endpointer defaults to NewEnergy. A Semantic one asks its judge on
 	// the listener's goroutines, which end with the link.
 	Endpointer Endpointer
@@ -99,6 +112,13 @@ type Config struct {
 	// Log receives what a goroutine with no caller cannot return. Nil discards.
 	Log *slog.Logger
 }
+
+// unlit is the Indicator of a listener with no ring.
+type unlit struct{}
+
+func (unlit) Mute(bool)             {}
+func (unlit) Fault(session.Fault)   {}
+func (unlit) Recover(session.Fault) {}
 
 // DeviceConversation is the log a satellite's wake rejections go to. A
 // rejected wake opened no conversation, and the audio stream belongs to the
@@ -166,6 +186,9 @@ func Open(ctx context.Context, cfg Config) (*Listener, error) {
 	}
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
+	}
+	if cfg.Indicator == nil {
+		cfg.Indicator = unlit{}
 	}
 	heard := make(chan struct{})
 	close(heard)
@@ -330,7 +353,7 @@ func (l *Listener) awaitSpeechLocked(pcm []byte) {
 	audio, second := l.wake, l.wake2
 	l.wake, l.wake2, l.woken = nil, nil, false
 	l.cfg.Endpointer.Reset()
-	l.spawnLocked(func() { l.rejectWake(audio, second, "no_speech") })
+	l.spawnLocked(func() { l.rejectWake(audio, second, "no_speech", false) })
 }
 
 // startLocked opens an utterance on the chunk speech began in.
@@ -544,15 +567,17 @@ func (l *Listener) OnPlayed(p bridge.Played) error {
 
 // OnMute is authoritative (CONTRIBUTING §7). Muted, audio is dropped on the
 // floor, an open utterance ends with no transcript, a pending wake is spent,
-// and nothing is buffered through to the other side.
+// and nothing is buffered through to the other side. The ring shows it.
 func (l *Listener) OnMute(m bridge.Mute) error {
+	muted := m.Hardware || m.Software
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.muted = m.Hardware || m.Software
+	l.muted = muted
 	if l.muted {
 		l.abortLocked()
 		l.woken, l.wake, l.wake2 = false, nil, nil
 	}
+	l.mu.Unlock()
+	l.cfg.Indicator.Mute(muted)
 	return nil
 }
 
@@ -743,21 +768,19 @@ func (l *Listener) offset(played uint64) time.Duration {
 func (l *Listener) complete(u *utterance) {
 	res, err := u.stt.Finish(l.ctx)
 	if err != nil {
-		l.warn("finish utterance", err)
-		// Nothing decoded the words, so nothing confirmed the wake. A link
-		// that closed mid-decode is no verdict on it at all.
-		if u.first && l.ctx.Err() == nil {
-			pcm, _ := u.snapshot()
-			l.rejectWake(pcm, u.seconds(), "transcription_failed")
+		// A link that closed mid-decode is no verdict on anything.
+		if l.ctx.Err() == nil {
+			l.misheard(u, err)
 		}
 		return
 	}
+	l.cfg.Indicator.Recover(session.FaultEar)
 	pcm, _ := u.snapshot()
 	second := u.seconds()
 	if res.Text == "" {
 		// Silence is not a request; after a wake it is a false accept.
 		if u.first {
-			l.rejectWake(pcm, second, "no_speech")
+			l.rejectWake(pcm, second, "no_speech", false)
 		}
 		return
 	}
@@ -768,12 +791,16 @@ func (l *Listener) complete(u *utterance) {
 	if overheard(u, out) {
 		return
 	}
-	ref, err := l.store(u.key(), pcm)
-	if err != nil {
-		l.warn("store utterance audio", err)
-		return
-	}
+	// Kept either way: a judged prefix written now would contradict the
+	// record that the clip is gone.
+	ref, lost := l.store(u.key(), pcm)
 	u.kept = true
+	if lost != nil {
+		// The words were decoded, so the turn goes on without its clip,
+		// and the session records that it is gone (ADR-0069).
+		l.warn("store utterance audio", lost)
+		ref = blob.RefFor(u.key())
+	}
 	secondRef := l.storeSecond(u.key(), second)
 
 	select {
@@ -790,10 +817,39 @@ func (l *Listener) complete(u *utterance) {
 	err = sess.Heard(l.ctx, session.Transcript{
 		Text: res.Text, SpeakerID: out.PersonID, SpeakerMatch: string(out.Reason),
 		AudioRef: ref, Embedding: out.Embedding, Ended: u.stopped, SecondAudioRef: secondRef,
-		BargedIn: u.bargedIn,
+		BargedIn: u.bargedIn, AudioLost: lost,
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		l.warn("hear utterance", err)
+	}
+}
+
+// misheard is an utterance the ear failed on (SPEC §7). Nothing decoded the
+// words, so a first utterance confirmed nothing and is rejected; but a voice
+// stage three would have let in is told the ear failed, rather than left in
+// silence. In a session the person is told, in turn. The television the
+// gate refused over speech is neither, as when the ear works (ADR-0049).
+func (l *Listener) misheard(u *utterance, err error) {
+	l.warn("finish utterance", err)
+	l.cfg.Indicator.Fault(session.FaultEar)
+	pcm, _ := u.snapshot()
+	if u.first {
+		out := l.resolve(pcm)
+		heard := out.Reason != identity.BelowThreshold && out.Reason != identity.Ambiguous
+		l.rejectWake(pcm, u.seconds(), "transcription_failed", heard)
+		return
+	}
+	select {
+	case <-u.prev:
+	case <-l.ctx.Done():
+		return
+	}
+	sess := l.Session()
+	if sess == nil || (u.refused && overheard(u, l.resolve(pcm))) {
+		return
+	}
+	if err := sess.Unheard(l.ctx, u.stopped); err != nil && !errors.Is(err, context.Canceled) {
+		l.warn("apologise for an utterance the ear failed on", err)
 	}
 }
 
@@ -828,7 +884,7 @@ func (l *Listener) confirm(pcm, second []byte, out identity.Outcome) bool {
 	case identity.BelowThreshold, identity.Ambiguous:
 		// Stage three. Nobody enrolled, or no resolver, cannot judge and does
 		// not: the fresh install must answer someone (SPEC §5).
-		l.rejectWake(pcm, second, "unknown_speaker")
+		l.rejectWake(pcm, second, "unknown_speaker", false)
 		return false
 	}
 	l.opening.Lock()
@@ -867,26 +923,55 @@ func (l *Listener) confirm(pcm, second []byte, out identity.Outcome) bool {
 }
 
 // rejectWake journals a failed confirmation to the device's log, with the
-// audio of both channels: the hard negative is the point (SPEC §9.3).
-func (l *Listener) rejectWake(pcm, second []byte, reason string) {
+// audio of both channels: the hard negative is the point (SPEC §9.3). With
+// apologise, the ear's canned line follows it there (ADR-0069).
+func (l *Listener) rejectWake(pcm, second []byte, reason string, apologise bool) {
 	key := "wake/" + rand.Text()
-	ref, err := l.store(key, pcm)
-	if err != nil {
-		l.warn("store rejected wake audio", err)
-		return
+	ref, lost := l.store(key, pcm)
+	if lost != nil {
+		// The rejection is still the record of a false accept.
+		l.warn("store rejected wake audio", lost)
+		ref = blob.RefFor(key)
 	}
 	fields := map[string]string{"reason": reason}
 	if ref2 := l.storeSecond(key, second); ref2 != "" {
 		fields["second_audio_ref"] = ref2
 	}
+	rec := journal.Record{Kind: journal.KindWakeRejected, AudioRef: ref, Fields: fields}
 	// WithoutCancel, as the session records: a link that just dropped still
 	// gets its negative written.
-	_, err = l.cfg.Journal.Append(context.WithoutCancel(l.ctx), DeviceConversation(l.cfg.Satellite), journal.Record{
-		Kind: journal.KindWakeRejected, AudioRef: ref, Fields: fields,
-	})
-	if err != nil {
-		l.warn("journal rejected wake", err)
+	ctx := context.WithoutCancel(l.ctx)
+	if apologise {
+		// One speaker: no announcement opens on it while this plays.
+		l.opening.Lock()
+		// The link's own context, so its drop cuts the apology; the
+		// rejection is written whatever.
+		err := l.cfg.Sessions.Misheard(l.ctx, l.cfg.Satellite, DeviceConversation(l.cfg.Satellite), rec)
+		l.opening.Unlock()
+		if err != nil {
+			l.warn("apologise for a wake the ear failed on", err)
+		}
+	} else if !l.append(ctx, rec) {
+		return
 	}
+	if lost != nil {
+		l.append(ctx, journal.Record{
+			Kind: journal.KindAudioDropped, Fields: map[string]string{"audio_ref": ref, "reason": "write_failed"},
+		})
+	}
+}
+
+// append writes r to the device's log, telling the ring whether the journal
+// took it.
+func (l *Listener) append(ctx context.Context, r journal.Record) bool {
+	_, err := l.cfg.Journal.Append(ctx, DeviceConversation(l.cfg.Satellite), r)
+	if err != nil {
+		l.cfg.Indicator.Fault(session.FaultJournal)
+		l.warn("journal "+string(r.Kind), err)
+		return false
+	}
+	l.cfg.Indicator.Recover(session.FaultJournal)
+	return true
 }
 
 // resolve attributes audio. A resolver that fails yields a guest: a sidecar
