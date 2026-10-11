@@ -3,7 +3,7 @@
 // Command reviewui serves the review screens over the journal (SPEC §9.2):
 // harvested barge-in candidates, the pair flow, the barge-in timeline with
 // each clip playable, verdicts in the curation table, and Replay. It reads
-// CHORUS_POSTGRES_DSN and CHORUS_BLOB_DIR like chorusd, and migrates both
+// CHORUS_POSTGRES_DSN and CHORUS_BLOB_DIR like chorusd, and migrates its
 // schemas on start; OLLAMA_URL and OLLAMA_MODEL let Replay re-run turns.
 package main
 
@@ -22,7 +22,9 @@ import (
 
 	"github.com/teagan42/chorus/internal/blob"
 	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/erasure"
 	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/memory"
 )
 
 // blobDirEnv is where the journal's audio lives, the same variable chorusd
@@ -47,6 +49,12 @@ const defaultAddr = "127.0.0.1:8080"
 func main() {
 	addr := flag.String("addr", defaultAddr, "listen address")
 	hosts := flag.String("hosts", os.Getenv(hostsEnv), "comma-separated host names and IPs the UI answers as; default: the listen address's host, or localhost, 127.0.0.1 and ::1 when it binds loopback or every interface ($"+hostsEnv+")")
+	readOnlyDefault, err := parseReadOnly(os.Getenv(readOnlyEnv))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "reviewui: %v\n", err)
+		os.Exit(2)
+	}
+	readOnly := flag.Bool("read-only", readOnlyDefault, "hide and refuse every deletion: conversations, clips, memories and summaries ($"+readOnlyEnv+")")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -56,13 +64,13 @@ func main() {
 	if len(allowed) == 0 {
 		allowed = defaultHosts(*addr)
 	}
-	if err := run(ctx, *addr, allowed); err != nil {
+	if err := run(ctx, *addr, allowed, *readOnly); err != nil {
 		fmt.Fprintf(os.Stderr, "reviewui: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, addr string, hosts []string) error {
+func run(ctx context.Context, addr string, hosts []string, readOnly bool) error {
 	log.Printf("reviewui %s", version)
 	pool, err := pgxpool.New(ctx, journal.DSN())
 	if err != nil {
@@ -75,6 +83,12 @@ func run(ctx context.Context, addr string, hosts []string) error {
 	if err := curation.Migrate(ctx, pool); err != nil {
 		return err
 	}
+	if err := memory.Migrate(ctx, pool); err != nil {
+		return err
+	}
+	if err := erasure.Migrate(ctx, pool); err != nil {
+		return err
+	}
 	blobs, err := blob.NewDir(os.Getenv(blobDirEnv))
 	if err != nil {
 		return fmt.Errorf("%s: %w", blobDirEnv, err)
@@ -82,6 +96,7 @@ func run(ctx context.Context, addr string, hosts []string) error {
 
 	s := newServer(pgJournal{journal.NewPgStore(pool)}, curation.NewPgStore(pool), blobs, time.Now)
 	s.engineFor = ollamaEngines(os.Getenv(ollamaURLEnv), os.Getenv(ollamaModelEnv))
+	s.memories, s.erasures, s.readOnly = memory.NewPgStore(pool), erasure.NewPgStore(pool), readOnly
 	srv := &http.Server{Addr: addr, Handler: s.handler(hosts), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -90,6 +105,9 @@ func run(ctx context.Context, addr string, hosts []string) error {
 		_ = srv.Shutdown(shutdown)
 	}()
 	log.Printf("Browse on %s; answering as %s", browseURL(addr), strings.Join(hosts, ", "))
+	if readOnly {
+		log.Printf("read-only: every deletion is hidden and refused")
+	}
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
