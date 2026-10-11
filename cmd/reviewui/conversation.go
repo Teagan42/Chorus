@@ -165,6 +165,9 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) (row logRow)
 		if f["resumed"] == "true" {
 			row.Note += " · resumed"
 		}
+		if f["wake_word"] == bridge.WakeButton {
+			row.Note += " · opened by the button"
+		}
 		if f["announced"] == "true" {
 			row.Text, row.Note = "opened on "+f["satellite"]+" to announce", "no wake word"
 		}
