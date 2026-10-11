@@ -527,7 +527,9 @@ way.
 
 Primary target: **the LLM's tool-calling and speech-interleaving decisions.**
 STT adaptation on household voices and vocabulary is a free byproduct. Wake word
-is phase 2 (§10).
+is phase 2 (§10). What a reviewer accepts exports as a versioned dataset: DPO
+pairs and SFT exemplars, each row with its context, provenance and a split by
+conversation, optionally zipped with its audio (ADR-0071).
 
 ### 9.1 Barge-in as a free DPO pair
 
@@ -683,7 +685,9 @@ Do not build the S2S path until the cascade works end to end.
   confirmation (§9.3). Swappable without touching anything else.
 - Persona lives in the system prompt as a **versioned artifact** — because
   prompt versions are recorded per event, persona changes are A/B-testable
-  against replayed traces.
+  against replayed traces. Every version's text, and every tool schema's,
+  is kept in the repository by the hash an event records, so the dataset
+  export ships the prompt and tools each turn ran under (ADR-0071).
 
 ## 14. Phase plan
 
