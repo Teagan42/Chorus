@@ -35,6 +35,11 @@ api:
   encryption:
     key: !secret api_encryption_key
 
+# Password-protected, as satellite1.yaml's is: the device carries a microphone.
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
