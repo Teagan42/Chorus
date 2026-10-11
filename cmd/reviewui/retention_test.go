@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -91,5 +92,42 @@ func TestADeletedLogIsForgottenByTheReviewUI(t *testing.T) {
 	}
 	if strings.Contains(h, conversationHref(convZeppel)) {
 		t.Error("Browse still lists the deleted conversation")
+	}
+}
+
+// rowOf is the markup of one event's row on a conversation page, up to the
+// next row.
+func rowOf(page string, seq int) string {
+	anchor := fmt.Sprintf(`id="seq-%d"`, seq)
+	i := strings.Index(page, anchor)
+	if i < 0 {
+		return ""
+	}
+	row := page[i:]
+	if j := strings.Index(row[len(anchor):], `id="seq-`); j >= 0 {
+		row = row[:len(anchor)+j]
+	}
+	return row
+}
+
+// The row that named a pruned clip says so itself, where its player was,
+// not only the audio_dropped line at the bottom of the log.
+//
+// verifies SPEC §8, §9.2
+func TestAPrunedClipsOwnRowSaysItIsGone(t *testing.T) {
+	s, store := prunedHousehold(t)
+	events, err := store.Events(context.Background(), convZeppel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq := 0
+	for _, e := range events {
+		if e.AudioRef == zeppelinPlaying && e.Kind == journal.KindSpeechSpoken {
+			seq = int(e.Seq)
+		}
+	}
+	row := rowOf(get(t, s, conversationHref(convZeppel)), seq)
+	if !strings.Contains(row, "Playing Led Zeppelin one.") || !strings.Contains(row, "audio pruned") {
+		t.Errorf("the pruned clip's row #%d does not say it is gone:\n%s", seq, row)
 	}
 }

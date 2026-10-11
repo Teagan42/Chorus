@@ -137,9 +137,9 @@ func hotPhrase(word string) string { return "hot phrase: " + strings.ReplaceAll(
 // logRowOf says what one event means in a line, with its audio when the
 // event has some. A truncation plays only what the DAC reached. lc, nil for
 // the house log, holds what came before.
-func logRowOf(e journal.Event, start journal.Event, lc *logContext) logRow {
+func logRowOf(e journal.Event, start journal.Event, lc *logContext) (row logRow) {
 	f := e.Fields
-	row := logRow{
+	row = logRow{
 		Anchor: fmt.Sprintf("seq-%d", e.Seq), Seq: e.Seq, Ref: fmt.Sprintf("#%d", e.Seq),
 		Offset: fmt.Sprintf("+%.1f s", e.At.Sub(start.At).Seconds()),
 		Kind:   ui.SigTag{Text: strings.ReplaceAll(string(e.Kind), "_", " "), Tone: kindTones[e.Kind]},
