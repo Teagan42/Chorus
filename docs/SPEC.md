@@ -631,8 +631,9 @@ Two rejections are no negative at all, and never enter the corpus. A wake
 another satellite heard louder is arbitrated before stage two (§4.5): the
 loser's `arbitrated` rejection is the wake word said farther away. And a
 push-to-talk press, whose frame names the wake `button`, never fired the wake
-model, so whatever becomes of it says nothing about the model. Each rejection
-records the name its wake frame carried as `wake_word` (ADR-0072).
+model, so whatever becomes of it says nothing about the model. Each rejection,
+and each session a wake opens, records the name its wake frame carried as
+`wake_word` (ADR-0072).
 
 Dual-channel capture means the corpus carries the fully processed stream and
 the XMOS's lighter-processed second output, so retraining can target either.
@@ -807,6 +808,9 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
   gives the Voice PE the Satellite1's entities, under the same names; its dial
   turns the Speaker Volume and its centre button wakes it. Validated, not yet
   compiled or flashed.
+- ~~Record the wake word on `session_opened`~~ **Done.** A session names
+  the wake that opened it, as a rejection does; the review UI marks one a
+  button press opened.
 - Wake-word retraining from the harvested negative corpus. The firmware
   wakes on the household's "Hey Eddie" model (§13) and the rejected wakes export
   as their own corpus (ADR-0058); nothing retrains from them yet.
@@ -825,8 +829,6 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
   them no hard negative, and the harvester still ships them
 - Check arbitration's choice against the journalled levels: channel 0 is
   AGC'd, which narrows the gap between a near and a far satellite (ADR-0072)
-- Record the wake word on `session_opened`, not only on `wake_rejected`
-  (ADR-0072)
 - Drop a clip from a satellite's own log, such as a guest's rejected wake,
   from the review UI; retention removes it by its horizon meanwhile
   (ADR-0070)
