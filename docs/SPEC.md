@@ -798,6 +798,11 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
 - ~~Health, readiness and metrics~~ **Done — ADR-0068.**
 - ~~Say failures the household would meet as silence~~ **Done — ADR-0069.**
   What cannot be said is shown on the ring.
+- ~~Wake arbitration across satellites~~ **Done — ADR-0072.** A wake several
+  satellites hear within a 200 ms window is answered by the one whose
+  processed channel was loudest before it; the others journal that they lost.
+  A button press beats a spoken wake. `CHORUS_WAKE_ARBITRATION_MS=0` turns it
+  off.
 - ~~A Voice PE configuration~~ **Done — ADR-0073.** `esphome/voice-pe.yaml`
   gives the Voice PE the Satellite1's entities, under the same names; its dial
   turns the Speaker Volume and its centre button wakes it. Validated, not yet
@@ -816,6 +821,12 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
 - A ring effect for a satellite that cannot reach `chorusd`, driven by the
   bridge's connection state (ADR-0069)
 - Teach the harvester the ear's `unheard` canned line (ADR-0069)
+- Keep `transcription_failed` rejections out of the wake corpus: §9.3 calls
+  them no hard negative, and the harvester still ships them
+- Check arbitration's choice against the journalled levels: channel 0 is
+  AGC'd, which narrows the gap between a near and a far satellite (ADR-0072)
+- Record the wake word on `session_opened`, not only on `wake_rejected`
+  (ADR-0072)
 - Drop a clip from a satellite's own log, such as a guest's rejected wake,
   from the review UI; retention removes it by its horizon meanwhile
   (ADR-0070)
