@@ -390,6 +390,18 @@ tasks:
       - test -f secrets.yaml || { echo "copy secrets.example.yaml to secrets.yaml first" >&2; exit 1; }
       - uvx --from 'esphome=={{.ESPHOME_VERSION}}' esphome config {{.CLI_ARGS | default "satellite1.yaml"}}
 
+  # The handshake MAC as the firmware computes it, built for the host against
+  # mbedTLS and checked on the golden frames the Go side is (ADR-0066). No
+  # ESPHome, no ESP-IDF: chorus_auth.h includes neither.
+  firmware:test:
+    desc: Check the firmware's handshake MAC on the host against the Go golden frames
+    cmds:
+      - >-
+        sh -c 'out=$(mktemp -d) && trap "rm -rf $out" EXIT &&
+        c++ -std=c++17 -Wall -Wextra -Werror -I esphome/components/chorus_bridge
+        esphome/test/chorus_auth_test.cpp -lmbedcrypto -o "$out/chorus_auth_test" &&
+        "$out/chorus_auth_test" internal/bridge/testdata/handshake-v3.hex'
+
   firmware:compile:
     desc: Compile the satellite firmware. Downloads ESP-IDF on first run.
     dir: esphome
