@@ -9,7 +9,9 @@
 # exists to prove. The mmWave radar is kept: its "Room Presence" is what the
 # orchestrator journals presence from (ADR-0050). The LED ring is kept as a
 # plain light the orchestrator drives, since their animations of it run off
-# voice_assistant's state (ADR-0056).
+# voice_assistant's state (ADR-0056). Their media player carried the volume;
+# a Speaker Volume number carries it here, for the orchestrator to set
+# (ADR-0067).
 #
 # Hardware facts that are not obvious from the pin numbers:
 #   - The XMOS XU316 is the I2S master (`i2s_mode: secondary`). The ESP32 does
@@ -223,7 +225,25 @@ script:
             - tas2780.activate:
                 mode: !lambda 'return id(pd_power_contract) >= 9 || id(poe_supply) ? 2 : 0;'
             - lambda: id(tas2780_active) = true;
-      - audio_dac.mute_off: speaker_dac
+      # Unmuted at the household's level, or kept muted at 0.
+      - script.execute: apply_speaker_volume
+
+  # The Speaker Volume number onto the amplifier, through the i2s speaker
+  # that owns it: it defers the DAC's I2C writes to its own loop. 0 mutes
+  # the DAC outright rather than leaving the quietest audible level.
+  - id: apply_speaker_volume
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: return id(speaker_volume).state <= 0;
+          then:
+            - speaker.mute_on: i2s_audio_speaker
+          else:
+            - speaker.volume_set:
+                id: i2s_audio_speaker
+                volume: !lambda return id(speaker_volume).state / 100.0f;
+            - speaker.mute_off: i2s_audio_speaker
 
 # The XMOS handshake and the PD negotiation both complete in the first seconds
 # of boot, before a log client can attach. Reported periodically so the state
@@ -303,6 +323,28 @@ chorus_bridge:
 satellite1_radar:
   id: sat1_radar
   uart_id: uart_mmwave
+
+# ------------------------------------------------------------- speaker volume
+
+# How loud the satellite is, 0 to 100, where 0 mutes it. The orchestrator
+# finds it by this name and sets it over the native API when someone asks
+# (ADR-0067); Home Assistant can set it the same way. Kept across reboots.
+# 50 is where the stock firmware's media player starts.
+number:
+  - platform: template
+    id: speaker_volume
+    name: Speaker Volume
+    icon: mdi:volume-high
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 100
+    step: 1
+    mode: slider
+    optimistic: true
+    restore_value: true
+    initial_value: 50
+    on_value:
+      - script.execute: apply_speaker_volume
 
 # ------------------------------------------------------------------ LED ring
 
