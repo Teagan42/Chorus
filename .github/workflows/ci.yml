@@ -158,6 +158,46 @@ jobs:
 
       - run: task test:sidecars
 
+  # The satellite configs through ESPHome's own validator, which is the only
+  # check the firmware gets short of a compile: the chorus_bridge schema, the
+  # board vendor's components and the wake-word model, every one resolved as
+  # a flash would resolve it. Separate from gate because that resolution
+  # fetches, and `task test` must keep proving it fetches nothing. The
+  # secrets are stand-ins: validation reads them and nothing else does.
+  firmware:
+    name: firmware:config (esphome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+
+      - name: Install task
+        run: go install github.com/go-task/task/v3/cmd/task@v3.54.0
+
+      # From the template, so a secret the configs start needing without a
+      # line in the template is a red build here, not a surprise on a device.
+      - name: Stand-in secrets
+        run: |
+          sed -e 's/^api_encryption_key: .*/api_encryption_key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=/' \
+              -e 's/^ota_password: .*/ota_password: ci-stand-in/' \
+              -e 's/^wifi_ssid: .*/wifi_ssid: ci/' \
+              -e 's/^wifi_password: .*/wifi_password: ci-stand-in/' \
+              esphome/secrets.example.yaml > esphome/secrets.yaml
+
+      - run: task firmware:config -- satellite1.yaml
+
+      - run: task firmware:config -- satellite1-main.yaml
+
+      - run: task firmware:config -- satellite1.example.yaml
+
   # Blocking since every SPEC §15 critical clause has coverage. It was advisory
   # while the runtime did not exist. If it goes red, add the test — do not
   # weaken spectrace or drop a citation.
