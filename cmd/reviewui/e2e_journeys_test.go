@@ -1031,7 +1031,7 @@ func TestE2EDeadLinksAreRefused(t *testing.T) {
 		{"/replays/conv-0000-attic", 404, "404 page not found"},
 		{runHref(convZeppel, 9), 404, "404 page not found"},
 		{"/conversations?day=thursday", 400, "day: want YYYY-MM-DD"},
-		{"/audio?ref=blob://mic/never-recorded", 404, "404 page not found"},
+		{"/audio?ref=blob://mic/never-recorded", 404, "audio no longer kept"},
 		{"/audio?ref=blob://mic/zeppelin-first&to=4611686018427387904", 400, "past the longest blob"},
 		{"/audio?ref=blob://mic/zeppelin-first&from=16000&to=2080", 400, "empty range"},
 	} {
