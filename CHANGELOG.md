@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.16.0](https://github.com/Teagan42/Chorus/compare/v0.15.0...v0.16.0) (2026-10-11)
+
+
+### Features
+
+* **enroll:** add, list and remove voiceprints from the command line ([#88](https://github.com/Teagan42/Chorus/issues/88)) ([51e72b1](https://github.com/Teagan42/Chorus/commit/51e72b1506f952e7b9fa207f5b0743cd5d7d054c))
+* **firmware:** wake the bridge from micro_wake_word, password OTA, bound frames, validate in CI ([#89](https://github.com/Teagan42/Chorus/issues/89)) ([da76912](https://github.com/Teagan42/Chorus/commit/da76912717ebb43e25055783ab2057b378a23e55))
+* **journal:** bind a held call's yes to the person who asked, and hold the generic services by their target ([#91](https://github.com/Teagan42/Chorus/issues/91)) ([233ec27](https://github.com/Teagan42/Chorus/commit/233ec27008ca943267e0dfca035d354178cfdea9))
+
+
+### Bug Fixes
+
+* **triage,reviewui:** review follow-ups from [#82](https://github.com/Teagan42/Chorus/issues/82) ([#84](https://github.com/Teagan42/Chorus/issues/84)) ([6ce1269](https://github.com/Teagan42/Chorus/commit/6ce1269f522669901ebfe67d0e63e20d4282828e))
+
 ## [0.15.0](https://github.com/Teagan42/Chorus/compare/v0.14.0...v0.15.0) (2026-10-10)
 
 
