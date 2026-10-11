@@ -399,8 +399,10 @@ announcement that asked for an answer. Whether a guest should be able to wake
 the house is open (ADR-0030). The embedding is stored on every trace record
 regardless, which gives implicit clustering for free later.
 
-Memory: explicit `remember` / `forget` tools plus an auto rolling summary per
-person, both injected by relevance. Person context is global across satellites;
+Memory: explicit `remember` / `forget` tools plus a summary of each
+conversation for the people in it (ADR-0043). Past what a turn is told, both
+are chosen by relevance and recency, or newest first without an embedding
+model (ADR-0044). Person context is global across satellites;
 the satellite contributes **location as turn metadata, not identity**: the
 inventory's room, recorded when a session opens there and told to every turn
 from the log (ADR-0050).
@@ -421,7 +423,8 @@ vocabulary for:
 - `requires_confirmation` (optional, per-tool, default off)
 - latency hints
 
-MCP-sourced tools get conservative default policies.
+MCP-sourced tools get conservative default policies. The MCP provider is
+not built yet (§14).
 
 Person scoping is one of three. A `household` tool runs for anyone, a guest
 included. A `person` tool needs an identified speaker, unless it declares that
@@ -503,17 +506,18 @@ not instrumentation; it *is* the runtime. Get this invariant right and the
 review UI, replay harness, and dataset export become readers of existing data
 rather than new plumbing.
 
-Storage: Postgres `JSONB`, partitioned by conversation, plus MinIO/filesystem
-for audio blobs (mic PCM, both channels, the second named by
-`second_audio_ref`; synthesized TTS). 16 kHz mono is ~115 MB/day of continuous
-capture. Everything is kept unless `devices.yaml` sets a retention: an audio
-and a journal horizon in days, house-wide and per satellite (ADR-0065). A clip
-past its satellite's audio horizon is removed, and the log that named it
-records `audio_dropped`; a conversation is deleted whole once its journal
-horizon has passed since its last activity, and the device and house logs lose
-the events older than theirs. What a reviewer curated is kept unless the house
-opts in to pruning it, and a live session's conversation is never touched. While the blob disk is below its free-space
-floor audio is not written, the log says so, and the turn goes on.
+Storage: Postgres `JSONB`, partitioned by conversation, plus a filesystem
+directory for audio blobs (mic PCM, both channels, the second named by
+`second_audio_ref`; synthesized TTS). 16 kHz 16-bit mono is ~115 MB an hour of
+continuous capture. Everything is kept unless `devices.yaml` sets a retention:
+an audio and a journal horizon in days, house-wide and per satellite
+(ADR-0065). A clip past its satellite's audio horizon is removed, and the log
+that named it records `audio_dropped`; a conversation is deleted whole once
+its journal horizon has passed since its last activity, and the device and
+house logs lose the events older than theirs. What a reviewer curated is kept
+unless the house opts in to pruning it, and a live session's conversation is
+never touched. While the blob disk is below its free-space floor audio is not
+written, the log says so, and the turn goes on.
 
 A reviewer may also delete a conversation, or drop one event's audio, from the
 review UI, by the path retention takes: never a live session's conversation,
@@ -634,14 +638,14 @@ provider.
 | LLM | Qwen3 32B (or 30B-A3B) on **vLLM** | vLLM streams tool-call parsing, a hard requirement of §4.1. Ollama/llama.cpp are weaker at exactly this seam. |
 | TTS | Kokoro-82M | Sentence-level streaming, sub-200 ms first chunk. Orpheus if more expression is wanted. Piper as degraded fallback. |
 | Speaker ID | ECAPA-TDNN / TitaNet-L | Embeddings + cosine. |
-| Endpointing | Smart Turn v2 | Purpose-built; avoids prompting the big model. |
+| Endpointing | Smart Turn v3.2 | Purpose-built; avoids prompting the big model. |
 
 Biggest standing risk: **local tool-calling quality.** The provider abstraction
 exists so a frontier model can be dropped into the LLM seam without touching
 the orchestrator.
 
-A degraded local profile exists for "lights off" when everything else is down,
-but local-model limits do not get to dictate the architecture.
+A degraded local profile for "lights off" when everything else is down is
+not built, and local-model limits do not get to dictate the architecture.
 
 ## 11. Latency
 
@@ -674,9 +678,12 @@ Do not build the S2S path until the cascade works end to end.
 - **Monorepo.** The device component, orchestrator, and sidecars share a
   protocol contract that must version together. Split repos mean a coordinated
   release dance for a one-person project.
-- **docker-compose**, model sidecars pinned to GPU.
+- **docker-compose** runs `chorusd`, Postgres and the four model sidecars,
+  on CPU images; a household may run the sidecars on a GPU box instead, and
+  `chorusd` reaches them by URL. Ollama is not in it.
 - **Satellite inventory:** static YAML for each satellite's address, Noise
-  PSK, room assignment, and capability profile. Secrets stay out of a database
+  PSK, room assignment, and capability profile, and the house's and each
+  satellite's retention horizons (§8). Secrets stay out of a database
   that would need separate backup. On the audio link a satellite is its name,
   its PSK and its address together (§3.2.2): the device proves its ESPHome
   node name with a MAC under the PSK, and must dial from the address the
