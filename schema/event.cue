@@ -253,11 +253,11 @@ events: {
 
 	audio_dropped: {
 		name:        "audio_dropped", actor: "store"
-		description: "Audio an earlier event names is not kept: retention removed it past its satellite's horizon, the disk was too full to write it, or the write failed. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065, ADR-0069)."
+		description: "Audio an earlier event names is not kept: retention removed it past its satellite's horizon, the disk was too full to write it, the write failed, or a reviewer dropped it. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065, ADR-0069, ADR-0070)."
 		fields: [
 			{name: "audio_ref", type: "string", description: "The blob reference the earlier events name, as they name it.", required: true},
-			{name: "reason", type: "string", description: "retention: removed once older than its satellite's audio horizon. disk_low: never written, because the blob directory's filesystem was below its free-space floor. write_failed: never written, because the blob store failed the write; recorded at once, after the event that names it (ADR-0069).", required: true, enum: ["retention", "disk_low", "write_failed"]},
-			{name: "days", type: "integer", description: "The audio horizon it outlived, in days. Empty for disk_low."},
+			{name: "reason", type: "string", description: "retention: removed once older than its satellite's audio horizon. disk_low: never written, because the blob directory's filesystem was below its free-space floor. write_failed: never written, because the blob store failed the write; recorded at once, after the event that names it (ADR-0069). redacted: removed on a reviewer's word in the review UI (ADR-0070).", required: true, enum: ["retention", "disk_low", "write_failed", "redacted"]},
+			{name: "days", type: "integer", description: "The audio horizon it outlived, in days. Empty for disk_low, write_failed and redacted."},
 		]
 	}
 
