@@ -109,7 +109,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           set -euo pipefail
-          for cmd in probe chorusd harvest reviewui; do
+          for cmd in probe chorusd harvest reviewui enroll; do
             out="${cmd}_${{ needs.release-please.outputs.version }}_${GOOS}_${GOARCH}"
             mkdir -p "dist/$out"
             go build -trimpath \
