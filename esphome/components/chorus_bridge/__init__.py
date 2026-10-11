@@ -1,6 +1,9 @@
 """Full-duplex audio bridge between an ESPHome satellite and the Chorus
 orchestrator. See docs/SPEC.md §3 and docs/adr/0010."""
 
+import base64
+import binascii
+
 import esphome.codegen as cg
 from esphome.components import microphone, speaker
 from esphome.components.mixer.speaker import SourceSpeaker
@@ -22,14 +25,33 @@ CODEOWNERS = ["@Teagan42"]
 
 CONF_DUCKING_SPEAKER = "ducking_speaker"
 CONF_HOST = "host"
+CONF_PSK = "psk"
 CONF_RECONNECT_INTERVAL = "reconnect_interval"
 
 # Two sources on one mic: channel 0 fully processed, channel 1 the XMOS's
 # second output (SPEC §3.2).
 MAX_MICROPHONE_SOURCES = 2
 
+# The satellite's api.encryption.key: the device proves it holds it before
+# the host takes any audio (docs/adr/0066). Same length as Noise's PSK.
+PSK_BYTES = 32
+
 chorus_bridge_ns = cg.esphome_ns.namespace("chorus_bridge")
 ChorusBridge = chorus_bridge_ns.class_("ChorusBridge", cg.Component)
+
+
+def _validate_psk(value: str) -> str:
+    """Decodes the base64 key here, so a typo or a short key fails at
+    `esphome config` rather than as a refused link on the device. Returns
+    the string, so `esphome config` still prints it as the secret's name."""
+    value = cv.string_strict(value)
+    try:
+        decoded = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as err:
+        raise cv.Invalid("psk is not base64; use api_encryption_key's value") from err
+    if len(decoded) != PSK_BYTES:
+        raise cv.Invalid(f"psk decodes to {len(decoded)} bytes, want {PSK_BYTES}")
+    return value
 
 
 def _validate_distinct_channels(config: ConfigType) -> ConfigType:
@@ -60,6 +82,9 @@ CONFIG_SCHEMA = cv.All(
             # IP, not a hostname: ESPHome's set_sockaddr does not resolve.
             cv.Required(CONF_HOST): cv.ipaddress,
             cv.Required(CONF_PORT): cv.port,
+            # The same base64 key as api: encryption: key: and devices.yaml's
+            # psk; the component derives its own link key from it.
+            cv.Required(CONF_PSK): _validate_psk,
             cv.Required(CONF_MICROPHONE): cv.All(
                 cv.ensure_list(
                     microphone.microphone_source_schema(
@@ -104,6 +129,7 @@ async def to_code(config: ConfigType) -> None:
     cg.add(var.set_host(str(config[CONF_HOST])))
     cg.add(var.set_port(config[CONF_PORT]))
     cg.add(var.set_reconnect_interval(config[CONF_RECONNECT_INTERVAL]))
+    cg.add(var.set_psk(list(base64.b64decode(config[CONF_PSK]))))
 
     for source in config[CONF_MICROPHONE]:
         # passive=False is load-bearing: a passive source only receives audio

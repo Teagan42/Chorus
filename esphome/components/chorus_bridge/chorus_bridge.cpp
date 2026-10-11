@@ -7,6 +7,7 @@
 #include <cinttypes>
 #include <cstring>
 
+#include "esphome/core/application.h"
 #include "esphome/core/log.h"
 
 namespace esphome::chorus_bridge {
@@ -34,11 +35,6 @@ static void put_be16(std::vector<uint8_t> &out, uint16_t v) {
   out.push_back(v & 0xff);
 }
 
-static void put_be32(std::vector<uint8_t> &out, uint32_t v) {
-  for (int shift = 24; shift >= 0; shift -= 8)
-    out.push_back((v >> shift) & 0xff);
-}
-
 static void put_be64(std::vector<uint8_t> &out, uint64_t v) {
   for (int shift = 56; shift >= 0; shift -= 8)
     out.push_back((v >> shift) & 0xff);
@@ -52,6 +48,14 @@ void ChorusBridge::add_microphone_source(microphone::MicrophoneSource *source, u
 }
 
 void ChorusBridge::setup() {
+  // Derived once, then the PSK is wiped: the link never needs the API's key.
+  if (!auth::derive_link_key(this->psk_.data(), this->link_key_.data())) {
+    ESP_LOGE(TAG, "Link key derivation failed");
+    this->mark_failed();
+    return;
+  }
+  mbedtls_platform_zeroize(this->psk_.data(), this->psk_.size());
+
   this->tx_.reserve(TX_CAPACITY);
   this->rx_.reserve(RX_CAPACITY);
   this->speaker_pending_.reserve(RX_CAPACITY);
@@ -124,10 +128,16 @@ void ChorusBridge::loop() {
   if (this->socket_ == nullptr) {
     return;
   }
-  this->publish_mute_();
-  this->publish_played_();
-  this->pump_uplink_();
-  this->pump_speaker_();
+  if (this->authenticated_) {
+    this->publish_mute_();
+    this->publish_played_();
+    this->pump_uplink_();
+    this->pump_speaker_();
+  } else if (millis() - this->connected_at_ >= HANDSHAKE_TIMEOUT_MS) {
+    // millis(), not now: finish_connect_ above may have stamped a later one.
+    this->disconnect_("no challenge from the host");
+    return;
+  }
   if (this->tx_urgent_ || this->tx_.size() >= UPLINK_COALESCE_BYTES ||
       now - this->last_flush_ms_ >= UPLINK_FLUSH_MS) {
     this->tx_urgent_ = false;
@@ -184,21 +194,52 @@ bool ChorusBridge::finish_connect_() {
   this->connecting_ = false;
 
   // The device states its format rather than letting the host assume it: a
-  // YAML change can alter the channel count.
-  std::vector<uint8_t> hello;
-  hello.push_back(PROTOCOL_VERSION);
-  put_be32(hello, SAMPLE_RATE_HZ);
-  hello.push_back(8 * sizeof(int16_t));
-  hello.push_back(this->mic_channels_.size());
-  this->queue_frame_(FrameType::HELLO, 0, hello.data(), hello.size());
+  // YAML change can alter the channel count. Nothing else goes out until the
+  // host's challenge is answered (answer_challenge_).
+  uint8_t hello[auth::HELLO_SIZE];
+  this->encode_hello_(hello);
+  this->queue_frame_(FrameType::HELLO, 0, hello, sizeof(hello));
   this->handshake_sent_ = true;
-  this->last_mute_flags_ = 0xff;  // force a mute report on the new connection
+  this->connected_at_ = millis();
 
-  ESP_LOGI(TAG, "Connected to %s:%u", this->host_.c_str(), this->port_);
+  ESP_LOGI(TAG, "Connected to %s:%u, awaiting the challenge", this->host_.c_str(), this->port_);
+  return true;
+}
+
+void ChorusBridge::encode_hello_(uint8_t out[auth::HELLO_SIZE]) const {
+  auth::encode_hello(PROTOCOL_VERSION, SAMPLE_RATE_HZ, 8 * sizeof(int16_t), this->mic_channels_.size(), out);
+}
+
+void ChorusBridge::answer_challenge_(const uint8_t *nonce, size_t length) {
+  if (length != auth::NONCE_SIZE) {
+    this->disconnect_("malformed challenge");
+    return;
+  }
+  // The node name, as devices.yaml names this satellite: MAC suffix included.
+  const StringRef &name = App.get_name();
+  if (name.size() == 0 || name.size() > auth::MAX_NAME_SIZE) {
+    this->disconnect_("node name does not fit the auth frame");
+    return;
+  }
+  // Covers the hello as sent, so the host knows the format is ours too.
+  uint8_t hello[auth::HELLO_SIZE];
+  this->encode_hello_(hello);
+  uint8_t payload[auth::MAC_SIZE + auth::MAX_NAME_SIZE];
+  if (!auth::compute_mac(this->link_key_.data(), nonce, name.c_str(), name.size(), hello, payload)) {
+    this->disconnect_("auth MAC failed");
+    return;
+  }
+  std::memcpy(payload + auth::MAC_SIZE, name.c_str(), name.size());
+  // A control frame: it either queues or tears the link down.
+  if (!this->queue_frame_(FrameType::AUTH, 0, payload, auth::MAC_SIZE + name.size())) {
+    return;
+  }
+  this->authenticated_ = true;
+  this->last_mute_flags_ = 0xff;  // force a mute report on the new connection
+  ESP_LOGI(TAG, "Answered the host's challenge as %s", name.c_str());
   if (this->mic_requested_) {
     this->start_microphones_();
   }
-  return true;
 }
 
 void ChorusBridge::disconnect_(const char *reason) {
@@ -209,6 +250,7 @@ void ChorusBridge::disconnect_(const char *reason) {
   }
   this->connecting_ = false;
   this->handshake_sent_ = false;
+  this->authenticated_ = false;
   // Before stop(), so no straggling callback is attributed to the next link.
   this->playing_.store(false, std::memory_order_release);
   this->tx_.clear();
@@ -230,6 +272,11 @@ void ChorusBridge::disconnect_(const char *reason) {
 
 bool ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length) {
   if (this->socket_ == nullptr || this->connecting_) {
+    return false;
+  }
+  // Nothing but the hello and the answer goes out before the host has
+  // challenged: audio from a link nobody has verified is not ours to send.
+  if (!this->authenticated_ && type != FrameType::HELLO && type != FrameType::AUTH) {
     return false;
   }
   // Append whole frames only: a truncated header leaves the host unable to
@@ -376,6 +423,15 @@ void ChorusBridge::pump_downlink_() {
 }
 
 void ChorusBridge::handle_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length) {
+  // The host challenges first, always. Anything else first is not a v3 host.
+  if (!this->authenticated_) {
+    if (type != FrameType::CHALLENGE) {
+      this->disconnect_("host frame before the challenge");
+      return;
+    }
+    this->answer_challenge_(payload, length);
+    return;
+  }
   switch (type) {
     case FrameType::TTS:
       if (this->speaker_ == nullptr) {
@@ -436,6 +492,10 @@ void ChorusBridge::handle_frame_(FrameType type, uint8_t flags, const uint8_t *p
       } else {
         this->stop_microphones_();
       }
+      return;
+
+    case FrameType::CHALLENGE:
+      this->disconnect_("a second challenge");
       return;
 
     default:
@@ -520,6 +580,7 @@ void ChorusBridge::dump_config() {
   ESP_LOGCONFIG(TAG, "  Orchestrator: %s:%u", this->host_.c_str(), this->port_);
   ESP_LOGCONFIG(TAG, "  Mic channels: %u", (unsigned) this->mic_channels_.size());
   ESP_LOGCONFIG(TAG, "  Speaker: %s", YESNO(this->speaker_ != nullptr));
+  ESP_LOGCONFIG(TAG, "  Protocol: %u, authenticates as %s", PROTOCOL_VERSION, App.get_name().c_str());
   for (auto &ch : this->mic_channels_) {
     // A passive source receives audio only while something else started the
     // mic, which ships a silently dead bridge (SPEC §3.2).

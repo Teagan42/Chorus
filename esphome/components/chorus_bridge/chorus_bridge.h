@@ -2,6 +2,7 @@
 
 #ifdef USE_ESP32
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -17,6 +18,8 @@
 #include "esphome/components/ring_buffer/ring_buffer.h"
 #include "esphome/components/socket/socket.h"
 #include "esphome/components/speaker/speaker.h"
+
+#include "chorus_auth.h"
 
 #ifdef USE_CHORUS_BRIDGE_DUCKING
 #include "esphome/components/mixer/speaker/mixer_speaker.h"
@@ -40,8 +43,14 @@ static const size_t SPEAKER_BUFFER_SIZE = 16 * 1024;
 static const size_t RX_CHUNK_SIZE = 4 * 1024;
 static const size_t RX_CAPACITY = SPEAKER_BUFFER_SIZE + RX_CHUNK_SIZE;
 
-static const uint8_t PROTOCOL_VERSION = 2;
+// Version 3 answers the host's challenge before sending anything else
+// (ADR-0066). internal/bridge/frame.go's ProtocolVersion moves with it.
+static const uint8_t PROTOCOL_VERSION = 3;
 static const size_t HEADER_SIZE = 4;
+
+// How long the link may sit unauthenticated before the device redials. The
+// host's own bound is 10 s; a host that never challenges is not ours.
+static const uint32_t HANDSHAKE_TIMEOUT_MS = 15000;
 
 // Frame types. See internal/bridge/frame.go, which must stay in step.
 enum class FrameType : uint8_t {
@@ -50,12 +59,14 @@ enum class FrameType : uint8_t {
   WAKE = 0x03,
   PLAYED = 0x04,
   MUTE = 0x05,
+  AUTH = 0x06,
 
   TTS = 0x10,
   STOP = 0x11,
   FINISH = 0x12,
   DUCK = 0x13,
   MIC_ENABLE = 0x14,
+  CHALLENGE = 0x15,
 };
 
 static const uint8_t MUTE_HARDWARE = 1 << 0;
@@ -84,6 +95,9 @@ class ChorusBridge : public Component {
   void set_host(const std::string &host) { this->host_ = host; }
   void set_port(uint16_t port) { this->port_ = port; }
   void set_reconnect_interval(uint32_t ms) { this->reconnect_interval_ = ms; }
+  /// The satellite's api.encryption.key, decoded. Only the link key derived
+  /// from it in setup() is kept.
+  void set_psk(const std::array<uint8_t, auth::PSK_SIZE> &psk) { this->psk_ = psk; }
   void set_microphone(microphone::Microphone *mic) { this->mic_ = mic; }
   void set_speaker(speaker::Speaker *spk) { this->speaker_ = spk; }
   void add_microphone_source(microphone::MicrophoneSource *source, uint8_t channel);
@@ -95,7 +109,7 @@ class ChorusBridge : public Component {
   /// of voice_assistant, so it reaches us through an automation (SPEC §3.2).
   void on_wake_word(const std::string &wake_word);
 
-  bool is_connected() const { return this->socket_ != nullptr && this->handshake_sent_; }
+  bool is_connected() const { return this->socket_ != nullptr && this->authenticated_; }
 
  protected:
   void start_connect_();
@@ -115,6 +129,8 @@ class ChorusBridge : public Component {
   void publish_mute_();
 
   void handle_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length);
+  void answer_challenge_(const uint8_t *nonce, size_t length);
+  void encode_hello_(uint8_t out[auth::HELLO_SIZE]) const;
   void start_microphones_();
   void stop_microphones_();
 
@@ -128,6 +144,13 @@ class ChorusBridge : public Component {
   socklen_t connect_addrlen_{0};
   bool connecting_{false};
   bool handshake_sent_{false};
+  // The challenge is answered. Until then nothing but the hello leaves, and
+  // nothing but a challenge is accepted.
+  bool authenticated_{false};
+  uint32_t connected_at_{0};
+
+  std::array<uint8_t, auth::PSK_SIZE> psk_{};
+  std::array<uint8_t, auth::KEY_SIZE> link_key_{};
 
   microphone::Microphone *mic_{nullptr};
   speaker::Speaker *speaker_{nullptr};
