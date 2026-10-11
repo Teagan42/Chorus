@@ -113,3 +113,81 @@ func TestTheRingGoesDarkWhenTheSessionCloses(t *testing.T) {
 		t.Errorf("the ring showed %v, want %v: dark from the close on", got, want)
 	}
 }
+
+// Bob mutes the office mid-conversation. The ring shows the mute over the
+// listening session, since nothing he says can be heard, and listens again
+// once he unmutes.
+//
+// verifies SPEC §3.3.1
+func TestTheRingShowsTheMuteOverTheSession(t *testing.T) {
+	lights := &ring{}
+	panel := session.NewPanel(lights)
+	r := newRigWith(t, nil, nil, nil, func(c *session.Config) { c.Ring = panel })
+
+	s := r.open(t, "bob")
+	lights.await(t, session.RingListening)
+	panel.Mute(true)
+	lights.await(t, session.RingMuted)
+	panel.Mute(false)
+	lights.await(t, session.RingListening)
+
+	if err := s.Close(t.Context(), "model_ended"); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	panel.Mute(true)
+	want := []session.RingState{
+		session.RingListening, session.RingMuted, session.RingListening, session.RingOff, session.RingMuted,
+	}
+	if got := lights.states(); !slices.Equal(got, want) {
+		t.Errorf("the ring showed %v, want %v: the mute shown with or without a session", got, want)
+	}
+}
+
+// The speech-to-text sidecar fails while the kitchen is idle. The ring
+// shows the error, a session opened meanwhile shows what it is doing over
+// it, and the error stays until the ear answers again.
+//
+// verifies SPEC §3.3.1, §7
+func TestTheRingShowsAFaultWhileNoSessionIsOpen(t *testing.T) {
+	lights := &ring{}
+	panel := session.NewPanel(lights)
+	r := newRigWith(t, nil, nil, nil, func(c *session.Config) { c.Ring = panel })
+
+	panel.Fault(session.FaultEar)
+	lights.await(t, session.RingError)
+
+	s := r.open(t, "alice")
+	lights.await(t, session.RingListening)
+	if err := s.Close(t.Context(), "model_ended"); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	lights.await(t, session.RingError)
+
+	panel.Recover(session.FaultEar)
+	panel.Recover(session.FaultEar)
+	want := []session.RingState{session.RingError, session.RingListening, session.RingError, session.RingOff}
+	if got := lights.states(); !slices.Equal(got, want) {
+		t.Errorf("the ring showed %v, want %v", got, want)
+	}
+}
+
+// The mute outranks a fault: a muted kitchen is the household's choice,
+// and the one thing the ring must never hide.
+//
+// verifies SPEC §3.3.1
+func TestTheMuteOutranksAFault(t *testing.T) {
+	lights := &ring{}
+	panel := session.NewPanel(lights)
+
+	panel.Fault(session.FaultJournal)
+	panel.Mute(true)
+	panel.Fault(session.FaultModel)
+	panel.Mute(false)
+	panel.Recover(session.FaultJournal)
+	panel.Recover(session.FaultModel)
+
+	want := []session.RingState{session.RingError, session.RingMuted, session.RingError, session.RingOff}
+	if got := lights.states(); !slices.Equal(got, want) {
+		t.Errorf("the ring showed %v, want %v", got, want)
+	}
+}
