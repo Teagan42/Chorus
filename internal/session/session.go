@@ -734,14 +734,25 @@ func (s *Session) confirmed(tc ToolCall, args registry.Orchestrated) bool {
 		Nonce    string `json:"nonce"`
 		Refused  string `json:"refused,omitempty"`
 		Note     string `json:"note"`
-	}{
-		Required: true, Nonce: fresh, Refused: refused,
-		Note: "Not done. Ask the person; if they say yes, call again with the same arguments and confirmation set to this nonce.",
-	}
+	}{Required: true, Nonce: fresh, Refused: refused, Note: confirmationNote(refused)}
 	// Strings and a bool: marshalling cannot fail.
 	b, _ := json.Marshal(held)
 	s.result(tc.ID, "confirmation_required", string(b))
 	return false
+}
+
+// confirmationNote tells the model what a held call still waits for. A
+// refusal over who answered names the situation and nobody: the model is
+// not told who else is in the room (ADR-0063).
+func confirmationNote(refused string) string {
+	const again = "call again with the same arguments and confirmation set to this nonce."
+	switch refused {
+	case journal.RefusedWrongPerson:
+		return "Not done: someone else answered, and only the person who asked can confirm this. Ask them; if they say yes, " + again
+	case journal.RefusedGuest:
+		return "Not done: the answer came from a voice the household has not enrolled, which cannot confirm this. Ask the person who asked; if they say yes, " + again
+	}
+	return "Not done. Ask the person; if they say yes, " + again
 }
 
 // acknowledge speaks what a slow call said to say while it works, as a speak

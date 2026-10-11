@@ -411,3 +411,105 @@ func TestAYesTheLogCannotKeepOpensNothing(t *testing.T) {
 		t.Errorf("call = %+v, want it failed", c)
 	}
 }
+
+// askerModel is frontDoorModel for a room with more than one voice in it:
+// whenever anyone says yes it calls the lock again with the newest nonce,
+// each call under its own id, and asks again whenever it is held.
+func askerModel() func(session.Input) []session.Action {
+	n := 1
+	return func(in session.Input) []session.Action {
+		last := in.Dialogue[len(in.Dialogue)-1]
+		switch {
+		case last.Kind == journal.EntryHeard && last.Text == "unlock the front door":
+			return []session.Action{session.ToolCall{ID: "call_c1", Tool: "ha_call_service", Args: unlockFrontDoor}, done}
+		case last.Kind == journal.EntryResult && last.Outcome == "confirmation_required":
+			return []session.Action{said(fmt.Sprintf("call_s%d", len(in.Dialogue)), "Unlock the front door?"), done}
+		case last.Kind == journal.EntryHeard && strings.HasPrefix(last.Text, "yes"):
+			nonce, _ := held(session.Input{Dialogue: in.Dialogue[:len(in.Dialogue)-2]})
+			n++
+			return []session.Action{session.ToolCall{ID: fmt.Sprintf("call_c%d", n), Tool: "ha_call_service", Args: withNonce(unlockFrontDoor, nonce)}, done}
+		case last.Kind == journal.EntryResult && last.Outcome == "ok":
+			return []session.Action{said("call_s_done", "Done, the front door is unlocked."), done}
+		}
+		return []session.Action{done}
+	}
+}
+
+// refusedThenRedeemed checks the log of a front door asked for once,
+// refused once for why, and unlocked on the yes that followed.
+func refusedThenRedeemed(t *testing.T, r *rig, convID, why string) {
+	t.Helper()
+	requested, given := r.confirmations(t, convID)
+	if len(requested) != 2 || requested[1]["refused"] != why || requested[1]["presented"] != requested[0]["nonce"] {
+		t.Errorf("requested = %v, want the first nonce refused as %s and a fresh one handed out", requested, why)
+	}
+	if len(given) != 1 || given[0]["nonce"] != requested[1]["nonce"] || given[0]["call_id"] != "call_c3" {
+		t.Errorf("given = %v, want call_c3 to redeem the fresh nonce", given)
+	}
+	st := r.state(t, convID)
+	for _, c := range st.Confirmations {
+		if c.AskedBy != "teagan" {
+			t.Errorf("confirmation %+v, want Teagan's question", c)
+		}
+	}
+}
+
+// Teagan asks the kitchen to unlock the front door, and Alice, from across
+// the room, says yes. The question was Teagan's: the lock is not sent, the
+// model is told someone else answered and handed a fresh nonce, and Teagan's
+// own yes then unlocks the door.
+//
+// verifies SPEC §5, §6
+func TestAlicesYesDoesNotUnlockWhatTeaganAsked(t *testing.T) {
+	lock := &lockTool{}
+	m := &model{answer: askerModel()}
+	r := modelRig(t, m, map[string]session.Tool{"ha_call_service": lock})
+	s := r.open(t, "teagan")
+
+	wait(t, voiced(s, "unlock the front door", "teagan", "identified"))
+	wait(t, voiced(s, "yes please", "alice", "identified"))
+	if got := lock.calls(); len(got) != 0 {
+		t.Fatalf("the lock was sent %q on Alice's yes to Teagan's question", got)
+	}
+	c := callByID(t, r.state(t, s.ConversationID()), "call_c2")
+	if c.Outcome != "confirmation_required" || !strings.Contains(c.Result, `"refused":"wrong_person"`) || !strings.Contains(c.Result, "someone else answered") {
+		t.Errorf("Alice's yes = %+v, want it refused as wrong_person with a note saying someone else answered", c)
+	}
+	if strings.Contains(c.Result, "alice") || strings.Contains(c.Result, "teagan") {
+		t.Errorf("the model was told who: %s", c.Result)
+	}
+
+	wait(t, voiced(s, "yes, go ahead", "teagan", "identified"))
+	if got := lock.calls(); len(got) != 1 || got[0] != `{"domain":"lock","entity_id":"lock.front_door","service":"unlock"}` {
+		t.Fatalf("the lock was sent %q, want the front door once on Teagan's yes", got)
+	}
+	refusedThenRedeemed(t, r, s.ConversationID(), journal.RefusedWrongPerson)
+}
+
+// A dinner guest says yes to Teagan's question. Their voice matched nobody
+// the household enrolled, so the lock is not sent and the model is told a
+// guest cannot confirm it; Teagan's yes then unlocks the door.
+//
+// verifies SPEC §5, §6
+func TestAGuestsYesUnlocksNothing(t *testing.T) {
+	lock := &lockTool{}
+	m := &model{answer: askerModel()}
+	r := modelRig(t, m, map[string]session.Tool{"ha_call_service": lock})
+	s := r.open(t, "teagan")
+
+	wait(t, voiced(s, "unlock the front door", "teagan", "identified"))
+	wait(t, voiced(s, "yes", "", "below_threshold"))
+	if got := lock.calls(); len(got) != 0 {
+		t.Fatalf("the lock was sent %q on a guest's yes", got)
+	}
+	c := callByID(t, r.state(t, s.ConversationID()), "call_c2")
+	if c.Outcome != "confirmation_required" || !strings.Contains(c.Result, `"refused":"guest"`) || !strings.Contains(c.Result, "not enrolled") {
+		t.Errorf("the guest's yes = %+v, want it refused as guest with a note saying so", c)
+	}
+
+	wait(t, voiced(s, "yes please", "teagan", "identified"))
+	if got := lock.calls(); len(got) != 1 {
+		t.Fatalf("the lock was sent %q, want the front door once on Teagan's yes", got)
+	}
+	refusedThenRedeemed(t, r, s.ConversationID(), journal.RefusedGuest)
+}
