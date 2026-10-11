@@ -17,6 +17,7 @@ import (
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/listen"
 	"github.com/teagan42/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/ops"
 	"github.com/teagan42/chorus/internal/satellite"
 	"github.com/teagan42/chorus/internal/session"
 	"github.com/teagan42/chorus/internal/timer"
@@ -82,6 +83,9 @@ type deps struct {
 	// told anything (SPEC §5).
 	Memories memory.Store
 
+	// Ops serves health, readiness and metrics. Nil serves none (ADR-0068).
+	Ops *opsDeps
+
 	Log *slog.Logger
 }
 
@@ -120,6 +124,9 @@ type daemon struct {
 	// live is each satellite's verified audio link, under linksMu: a newer
 	// verified connection closes it (SPEC §3.2.2).
 	live map[string]*liveLink
+
+	// ops is what the ops endpoints read, nil when none are served.
+	ops *ops.Ops
 
 	// wg also counts the summaries still being written, which outlive the
 	// link whose conversation ended: run returns only once they are kept.
@@ -166,6 +173,7 @@ func newDaemon(inv *config.Config, d deps) (*daemon, error) {
 		dm.volumes[sat.Name] = &speakerVolume{log: d.Log.With("satellite", sat.Name, "address", sat.Address)}
 		dm.panels[sat.Name] = session.NewPanel(dm.rings[sat.Name])
 	}
+	dm.wireOps()
 	return dm, nil
 }
 
@@ -200,6 +208,9 @@ func (d *daemon) run(ctx context.Context) error {
 		return err
 	}
 	defer timers.Wait()
+	if d.ops != nil {
+		d.wg.Go(func() { d.serveOps(ctx) })
+	}
 	if d.Prune != nil {
 		d.wg.Add(1)
 		go func() {
@@ -492,7 +503,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	// Logged once the link can take an announcement, not at the hello.
 	log.Info("satellite connected", "mic_channels", link.Hello().MicChannels)
 
-	err = link.Serve(linkCtx, handlers{speaker, lst})
+	err = link.Serve(linkCtx, d.linkHandlers(sat.Name, speaker, lst))
 	cancel()
 	// Nothing reads the link now, so speech cut on the way out takes the
 	// position it has rather than waiting for a report.
@@ -510,6 +521,7 @@ func (d *daemon) link(name string, lst *listen.Listener) {
 	d.linksMu.Lock()
 	defer d.linksMu.Unlock()
 	d.links[name] = lst
+	d.opsLinked(name, true)
 }
 
 // unlink forgets lst, unless a newer link has already replaced it.
@@ -518,6 +530,7 @@ func (d *daemon) unlink(name string, lst *listen.Listener) {
 	defer d.linksMu.Unlock()
 	if d.links[name] == lst {
 		delete(d.links, name)
+		d.opsLinked(name, false)
 	}
 }
 

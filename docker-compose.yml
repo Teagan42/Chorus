@@ -21,9 +21,20 @@ services:
       STT_URL: http://speaches:8000
       SPEAKERID_URL: http://speakerid:8890
       SMARTTURN_URL: http://smartturn:8891
+      # Every interface inside the container, so a scraper on the compose
+      # network reaches it; published on the host's loopback only (ADR-0068).
+      CHORUS_OPS_LISTEN: ":6056"
     # The satellites dial in from the LAN, so this one is not loopback.
     ports:
       - "6055:6055"
+      - "127.0.0.1:6056:6056"
+    # The image has no shell or curl: the binary asks its own /healthz.
+    healthcheck:
+      test: ["CMD", "/chorusd", "-healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     volumes:
       # The inventory holds the PSKs and is gitignored; mount identities.yaml
       # beside it the same way once someone is enrolled.
@@ -55,6 +66,7 @@ services:
       retries: 15
     volumes:
       - journal:/var/lib/postgresql/data
+    restart: unless-stopped
 
   # TTS (SPEC §10). The CPU image: a dev box has no GPU, and the API is the
   # same one the GPU image serves, so only the render time differs -- roughly a
@@ -71,6 +83,7 @@ services:
       timeout: 5s
       retries: 12
       start_period: 60s
+    restart: unless-stopped
 
   # STT (SPEC §10). Parakeet TDT 0.6B v2 behind speaches' OpenAI-compatible
   # /v1/audio/transcriptions, as an ONNX export on CPU. 0.9.0-rc.1 is the
@@ -100,6 +113,7 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+    restart: unless-stopped
 
   # Speaker ID (SPEC §10, §5). Built here rather than pulled: there is no
   # published image for this contract, which is the repo's own
@@ -124,6 +138,7 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+    restart: unless-stopped
 
   # End-of-turn detection (SPEC §4.5, §10), built like speakerid: the
   # contract is the repo's own (sidecars/smartturn/README.md), and the model
@@ -141,6 +156,7 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+    restart: unless-stopped
 
 volumes:
   journal:

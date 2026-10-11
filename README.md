@@ -267,6 +267,32 @@ blob directory's disk, audio is not written; the turn goes on, and the log
 says the clip was not kept. [ADR-0065](docs/adr/0065-retention-prunes-by-each-satellites-horizon-and-records-what-it-drops.md)
 has the rules.
 
+### Watching it run
+
+`chorusd` serves three endpoints on `CHORUS_OPS_LISTEN`, `127.0.0.1:6056`
+by default (`off` turns them off). Nothing there asks who is asking, so it
+stays on loopback unless you choose otherwise; `docker compose` publishes it
+on the host's loopback only.
+
+```sh norun
+curl -s localhost:6056/healthz            # the process and its probe loop; calls nothing
+curl -s localhost:6056/readyz | jq        # each dependency and each satellite
+curl -s localhost:6056/metrics            # Prometheus text
+```
+
+`/readyz` answers 503 while Postgres, STT, TTS or the LLM is down, and 200
+with `"status": "degraded"` while only speaker ID, Smart Turn, Home
+Assistant or a satellite is: the house still answers without those, and a
+restart would not bring a satellite back. Each satellite shows whether its
+audio link and native API are connected and when it last sent a frame.
+Dependencies are probed every 15 s in the background, so a hung sidecar
+never holds the request. `/metrics` counts what the journal records as it
+is written (sessions, barge-ins, model and voice failures, tool calls, the
+first-audio wait) beside the blob disk, the satellites and each
+dependency. The compose healthcheck is `chorusd -healthcheck`, since the
+image has no shell. [ADR-0068](docs/adr/0068-chorusd-serves-health-readiness-and-metrics-derived-from-the-journal-on-loopback.md)
+has the metric names and why OpenTelemetry waits.
+
 ## Tests
 
 Six tiers, separated because five of them cannot run everywhere. `task check`

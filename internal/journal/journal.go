@@ -78,7 +78,24 @@ type Journal struct {
 	// same conversation (SPEC §4.5), and a lock held by one of those sessions
 	// does not cover the other.
 	seq seqLocks
+
+	observer Observer
 }
+
+// Observer hears the outcome of each append once the store has answered.
+// It derives from the log and never writes to it, so the log stays the one
+// source of truth (ADR-0007, ADR-0068). It runs on the writer's goroutine,
+// so it must not block.
+type Observer interface {
+	// Appended is an event as stamped and stored.
+	Appended(Event)
+	// AppendFailed is a record that did not reach the log.
+	AppendFailed(Kind, error)
+}
+
+// Observe makes o hear every append from now on. Call it before the
+// journal is shared.
+func (j *Journal) Observe(o Observer) { j.observer = o }
 
 // seqLocks hands out one lock per conversation.
 //
@@ -137,6 +154,18 @@ func New(store Store, clock Clock, v Versions) *Journal {
 
 // Append validates r against the generated taxonomy and writes it.
 func (j *Journal) Append(ctx context.Context, conversationID string, r Record) (Event, error) {
+	e, err := j.append(ctx, conversationID, r)
+	switch {
+	case j.observer == nil:
+	case err != nil:
+		j.observer.AppendFailed(r.Kind, err)
+	default:
+		j.observer.Appended(e)
+	}
+	return e, err
+}
+
+func (j *Journal) append(ctx context.Context, conversationID string, r Record) (Event, error) {
 	meta, ok := Meta[r.Kind]
 	if !ok {
 		return Event{}, fmt.Errorf("append %q: undeclared event kind", r.Kind)
