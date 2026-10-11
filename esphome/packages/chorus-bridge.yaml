@@ -58,13 +58,13 @@ micro_wake_word:
     microphone: ${microphone_id}
     channels: [0]
   models:
-    # A stock model, so the config validates without a file this repo cannot
-    # carry: ESPHome's `okay_nabu` shorthand resolves to this manifest, but at
-    # whatever main holds, so the commit is pinned, as satellite1.yaml pins the
-    # board vendor's components. The household's trained "Hey Eddie" model is
-    # swapped in here, as a local manifest path or a URL; the select below
-    # follows whichever model is loaded.
-    - model: https://raw.githubusercontent.com/esphome/micro-wake-word-models/40ff33f57f8fc6ad71a75ef085abbf742495b225/models/v2/okay_nabu.json
+    # The household's own "Hey Eddie" (SPEC §13), served from its Home
+    # Assistant's www folder: ESPHome reads the manifest at config time and
+    # fetches the .tflite it names beside it. The URL is the household's to
+    # change, so nothing pins it the way a commit pins a stock model; a
+    # retrained model lands on the next compile. The select below follows
+    # whichever model is loaded, so its three levels survive a retrain.
+    - model: https://automation.constructorfleet.stream/local/hey_eddie/hey_eddie.json
       id: wake_model
   # Full duplex: the detector keeps running through the session and through
   # playback, so it never releases the mic (SPEC §3.1). Whether a detection
