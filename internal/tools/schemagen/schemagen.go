@@ -39,15 +39,19 @@ type Tool struct {
 	ConfirmWhen []ConfirmRule `json:"confirm_when,omitempty"`
 }
 
-// targetClassKey names the classes in a confirm_when entry; every other key
-// is a string parameter.
-const targetClassKey = "target_class"
+// targetClassKey and targetDomainKey name the classes and the domains of
+// target in a confirm_when entry; every other key is a string parameter.
+const (
+	targetClassKey  = "target_class"
+	targetDomainKey = "target_domain"
+)
 
 // ConfirmRule is one confirm_when entry, split into the arguments it matches
-// and the classes of target it holds (ADR-0041).
+// and the classes (ADR-0041) and domains (ADR-0063) of target it holds.
 type ConfirmRule struct {
-	Args        map[string]string
-	TargetClass []string
+	Args         map[string]string
+	TargetClass  []string
+	TargetDomain []string
 }
 
 func (r *ConfirmRule) UnmarshalJSON(b []byte) error {
@@ -57,8 +61,13 @@ func (r *ConfirmRule) UnmarshalJSON(b []byte) error {
 	}
 	r.Args = map[string]string{}
 	for k, v := range raw {
-		if k == targetClassKey {
-			if err := json.Unmarshal(v, &r.TargetClass); err != nil {
+		switch k {
+		case targetClassKey, targetDomainKey:
+			into := &r.TargetClass
+			if k == targetDomainKey {
+				into = &r.TargetDomain
+			}
+			if err := json.Unmarshal(v, into); err != nil {
 				return fmt.Errorf("confirm_when %s: %w", k, err)
 			}
 			continue
@@ -326,11 +335,13 @@ type ToolSpec struct {
 }
 
 // ConfirmRule is one confirm_when entry. A call matches when its arguments
-// carry every value in Args and, when TargetClass names any, what it acts
-// on has one of those classes (ADR-0041).
+// carry every value in Args and, when TargetClass or TargetDomain names
+// any, what it acts on has one of those classes (ADR-0041) and is in one
+// of those domains (ADR-0063).
 type ConfirmRule struct {
-	Args        map[string]string
-	TargetClass []string
+	Args         map[string]string
+	TargetClass  []string
+	TargetDomain []string
 }
 
 `)
@@ -398,12 +409,18 @@ func renderConfirmWhen(when []ConfirmRule) string {
 			pairs = append(pairs, fmt.Sprintf("%q: %q", k, r.Args[k]))
 		}
 		b.WriteString(fmt.Sprintf("\t\t\t{Args: map[string]string{%s}", strings.Join(pairs, ", ")))
-		if len(r.TargetClass) > 0 {
-			quoted := make([]string, len(r.TargetClass))
-			for i, c := range r.TargetClass {
+		for _, f := range []struct {
+			name   string
+			values []string
+		}{{"TargetClass", r.TargetClass}, {"TargetDomain", r.TargetDomain}} {
+			if len(f.values) == 0 {
+				continue
+			}
+			quoted := make([]string, len(f.values))
+			for i, c := range f.values {
 				quoted[i] = fmt.Sprintf("%q", c)
 			}
-			b.WriteString(fmt.Sprintf(", TargetClass: []string{%s}", strings.Join(quoted, ", ")))
+			b.WriteString(fmt.Sprintf(", %s: []string{%s}", f.name, strings.Join(quoted, ", ")))
 		}
 		b.WriteString("},\n")
 	}
@@ -501,12 +518,18 @@ func renderConfirmDocs(when []ConfirmRule) string {
 			pairs = append(pairs, fmt.Sprintf("`%s` `%s`", k, r.Args[k]))
 		}
 		line := "- " + strings.Join(pairs, ", ")
-		if len(r.TargetClass) > 0 {
-			classes := make([]string, len(r.TargetClass))
-			for i, c := range r.TargetClass {
-				classes[i] = "`" + c + "`"
+		for _, f := range []struct {
+			phrase string
+			values []string
+		}{{", on a target in domain ", r.TargetDomain}, {", on a target of class ", r.TargetClass}} {
+			if len(f.values) == 0 {
+				continue
 			}
-			line += ", on a target of class " + strings.Join(classes, ", ")
+			ticked := make([]string, len(f.values))
+			for i, c := range f.values {
+				ticked[i] = "`" + c + "`"
+			}
+			line += f.phrase + strings.Join(ticked, ", ")
 		}
 		b.WriteString(line + "\n")
 	}

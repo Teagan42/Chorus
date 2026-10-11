@@ -394,7 +394,11 @@ blocks execution and returns a synthetic `confirmation_required` tool result
 carrying a nonce; the model phrases the confirmation itself and re-calls with
 the nonce after an affirmative. Hard safety guarantee without the orchestrator
 owning the dialogue — and the nonce makes "did the user actually say yes"
-auditable in the trace.
+auditable in the trace. The yes is the asker's: the nonce is redeemed only by
+the person whose turn made the held call, when speaker identification named
+them, and never by a voice that matched nobody in the household (§5). A
+household nothing identifies is answered by the next thing said, as before
+(ADR-0063).
 
 ## 7. Failure semantics
 

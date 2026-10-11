@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/registry"
 )
 
 // Mode selects how a speak call joins the speech channel (SPEC §4.2).
@@ -117,9 +118,11 @@ func (f ToolFunc) Invoke(ctx context.Context, args string) (string, error) {
 	return f(ctx, args)
 }
 
-// Classifier is a Tool that can say what a call acts on before it runs, so
-// a confirm_when entry naming target classes holds the garage door and not
-// the blinds (ADR-0041). The orchestrator's arguments are already off.
+// Classifier is a Tool that can say what a call acts on before it runs: the
+// domain of the entity and its classes, so a confirm_when entry naming
+// either holds the garage door and not the blinds (ADR-0041), and the front
+// door under a generic service (ADR-0063). The orchestrator's arguments are
+// already off.
 type Classifier interface {
-	Classify(ctx context.Context, args string) ([]string, error)
+	Classify(ctx context.Context, args string) (registry.Target, error)
 }

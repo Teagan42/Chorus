@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -34,24 +35,25 @@ type coverTool struct {
 	opened []string
 }
 
-func (c *coverTool) Classify(_ context.Context, args string) ([]string, error) {
+func (c *coverTool) Classify(_ context.Context, args string) (registry.Target, error) {
 	var a struct {
 		EntityID string `json:"entity_id"`
 	}
 	if err := json.Unmarshal([]byte(args), &a); err != nil {
-		return nil, err
+		return registry.Target{}, err
 	}
 	c.mu.Lock()
 	c.asked = append(c.asked, a.EntityID)
 	down := c.down
 	c.mu.Unlock()
 	if down != nil {
-		return nil, down
+		return registry.Target{}, down
 	}
+	target := registry.Target{Domain: strings.SplitN(a.EntityID, ".", 2)[0]}
 	if class, ok := c.classes[a.EntityID]; ok {
-		return []string{class}, nil
+		target.Classes = []string{class}
 	}
-	return nil, nil
+	return target, nil
 }
 
 func (c *coverTool) Invoke(_ context.Context, args string) (string, error) {
@@ -250,10 +252,10 @@ type stalledCovers struct {
 	gaveUp atomic.Bool
 }
 
-func (c *stalledCovers) Classify(ctx context.Context, _ string) ([]string, error) {
+func (c *stalledCovers) Classify(ctx context.Context, _ string) (registry.Target, error) {
 	<-ctx.Done()
 	c.gaveUp.Store(true)
-	return nil, ctx.Err()
+	return registry.Target{}, ctx.Err()
 }
 
 func (c *stalledCovers) abandoned() bool {

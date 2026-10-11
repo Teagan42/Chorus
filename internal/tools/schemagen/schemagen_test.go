@@ -490,3 +490,40 @@ func TestATargetClassReachesTheRegistryAsAClassNotAnArgument(t *testing.T) {
 		t.Error("a target_class that is not a list was accepted")
 	}
 }
+
+// homeassistant.turn_on reaches whatever domain the entity is in, so its
+// entry names the domains it holds. They reach the registry as the target's
+// domains, beside its classes, never as an argument (ADR-0063).
+//
+// verifies SPEC §6
+func TestATargetDomainReachesTheRegistryAsADomainNotAnArgument(t *testing.T) {
+	var tool Tool
+	exported := `{"name":"ha_call_service","description":"Act on the home.","on_interrupt":"detach","scope":"household","timeout_ms":10000,"latency":"fast",
+		"params":[{"name":"domain","type":"string","description":"Service domain.","required":true},{"name":"service","type":"string","description":"Service.","required":true}],
+		"confirm_when":[{"target_domain":["lock","alarm_control_panel"],"domain":"homeassistant","service":"turn_on"},{"target_class":["door","garage","gate"],"domain":"homeassistant","service":"toggle"}]}`
+	if err := json.Unmarshal([]byte(exported), &tool); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := []ConfirmRule{
+		{Args: map[string]string{"domain": "homeassistant", "service": "turn_on"}, TargetDomain: []string{"lock", "alarm_control_panel"}},
+		{Args: map[string]string{"domain": "homeassistant", "service": "toggle"}, TargetClass: []string{"door", "garage", "gate"}},
+	}
+	if !reflect.DeepEqual(tool.ConfirmWhen, want) {
+		t.Errorf("confirm_when = %+v, want %+v", tool.ConfirmWhen, want)
+	}
+
+	tools := map[string]Tool{"ha_call_service": tool}
+	src := renderToolsGo(tools)
+	parses(t, src)
+	line := `{Args: map[string]string{"domain": "homeassistant", "service": "turn_on"}, TargetDomain: []string{"lock", "alarm_control_panel"}},`
+	if !strings.Contains(src, line) {
+		t.Errorf("the generated registry is missing %s", line)
+	}
+	doc := renderToolDocs(tools)
+	if line := "- `domain` `homeassistant`, `service` `turn_on`, on a target in domain `lock`, `alarm_control_panel`\n"; !strings.Contains(doc, line) {
+		t.Errorf("tool docs are missing %q", line)
+	}
+	if err := json.Unmarshal([]byte(`{"target_domain":"lock","domain":"homeassistant"}`), new(ConfirmRule)); err == nil {
+		t.Error("a target_domain that is not a list was accepted")
+	}
+}

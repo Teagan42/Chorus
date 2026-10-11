@@ -18,9 +18,15 @@ const (
 // handed a nonce; the model asks, and Teagan's answer is the next thing the
 // log hears.
 func heldFrontDoor() []journal.Event {
+	return heldFrontDoorAskedBy("teagan", "teagan", "")
+}
+
+// heldFrontDoorAskedBy is the front door held in a session opened for
+// opened, asked for by a voice that matched speaker as match says.
+func heldFrontDoorAskedBy(opened, speaker, match string) []journal.Event {
 	return []journal.Event{
-		ev(journal.KindSessionOpened, map[string]string{"satellite": "kitchen", "speaker_id": "teagan"}),
-		ev(journal.KindUtteranceTranscribed, map[string]string{"text": "unlock the front door", "speaker_id": "teagan"}),
+		ev(journal.KindSessionOpened, map[string]string{"satellite": "kitchen", "speaker_id": opened}),
+		voiced("unlock the front door", speaker, match),
 		ev(journal.KindToolCalled, map[string]string{"tool": "ha_call_service", "call_id": "call_c1", "args_json": frontDoor}),
 		ev(journal.KindConfirmationRequested, map[string]string{"call_id": "call_c1", "nonce": "cf_4c1e9a07"}),
 		ev(journal.KindToolResult, map[string]string{"call_id": "call_c1", "outcome": "confirmation_required", "result_json": `{"confirmation_required":true,"nonce":"cf_4c1e9a07"}`}),
@@ -31,7 +37,27 @@ func heldFrontDoor() []journal.Event {
 }
 
 func answer(text, speaker string) journal.Event {
-	return ev(journal.KindUtteranceTranscribed, map[string]string{"text": text, "speaker_id": speaker})
+	return voiced(text, speaker, "")
+}
+
+// voiced is an utterance as the session records one: who the voice matched,
+// and how, the match left out when nothing judged it.
+func voiced(text, speaker, match string) journal.Event {
+	fields := map[string]string{"text": text, "speaker_id": speaker}
+	if match != "" {
+		fields["speaker_match"] = match
+	}
+	return ev(journal.KindUtteranceTranscribed, fields)
+}
+
+// refusedOn is the model presenting nonce for the front door again in call
+// callID, refused for why, and handed fresh in its place.
+func refusedOn(callID, nonce, fresh, why string) []journal.Event {
+	return []journal.Event{
+		ev(journal.KindToolCalled, map[string]string{"tool": "ha_call_service", "call_id": callID, "args_json": `{"domain":"lock","service":"unlock","entity_id":"lock.front_door","confirmation":"` + nonce + `"}`}),
+		ev(journal.KindConfirmationRequested, map[string]string{"call_id": callID, "nonce": fresh, "presented": nonce, "refused": why}),
+		ev(journal.KindToolResult, map[string]string{"call_id": callID, "outcome": "confirmation_required", "result_json": `{"confirmation_required":true,"nonce":"` + fresh + `","refused":"` + why + `"}`}),
+	}
 }
 
 // A nonce is good for the call it was handed to, in the turn of the next
@@ -99,15 +125,15 @@ func TestARefusedNonceCannotRideTheNextAnswer(t *testing.T) {
 //
 // verifies SPEC §6, §8
 func TestTheLogSaysWhoSaidYesToWhat(t *testing.T) {
-	s := reduceAll(t, append(heldFrontDoor(),
-		answer("yep", "teagan"),
+	s := reduceAll(t, append(heldFrontDoorAskedBy("teagan", "teagan", "identified"),
+		voiced("yep", "teagan", "identified"),
 		ev(journal.KindToolCalled, map[string]string{"tool": "ha_call_service", "call_id": "call_c2", "args_json": `{"confirmation":"cf_4c1e9a07","entity_id":"lock.front_door","service":"unlock","domain":"lock"}`}),
 		ev(journal.KindConfirmationGiven, map[string]string{"call_id": "call_c2", "nonce": "cf_4c1e9a07"}),
-		answer("and turn the porch light on", "alan"),
+		voiced("and turn the porch light on", "alan", "identified"),
 	))
 	want := []journal.Confirmation{{
-		Nonce: "cf_4c1e9a07", CallID: "call_c1", Tool: "ha_call_service", Args: frontDoorRest,
-		Heard: 1, Answer: "yep", AnsweredBy: "teagan", RedeemedBy: "call_c2",
+		Nonce: "cf_4c1e9a07", CallID: "call_c1", Tool: "ha_call_service", Args: frontDoorRest, AskedBy: "teagan",
+		Heard: 1, Answer: "yep", AnsweredBy: "teagan", AnswerMatch: "identified", RedeemedBy: "call_c2",
 	}}
 	if len(s.Confirmations) != 1 || s.Confirmations[0] != want[0] {
 		t.Errorf("confirmations = %+v, want %+v", s.Confirmations, want)
@@ -126,5 +152,59 @@ func TestAConfirmationNeedsItsCall(t *testing.T) {
 	_, err = journal.Reduce(s, journal.Event{Seq: 1, Kind: journal.KindConfirmationGiven, Fields: map[string]string{"call_id": "call_c9", "nonce": "cf_4c1e9a07"}})
 	if err == nil {
 		t.Error("a yes on an unissued nonce reduced")
+	}
+}
+
+// The question was Teagan's, so the yes must be hers. Alice's yes to it is
+// refused, and so is a dinner guest's, whose voice matched nobody; a voice
+// nothing judged stays Teagan's, as every turn does (ADR-0049), and a
+// household that identifies nobody is answered by whoever speaks next.
+//
+// verifies SPEC §5, §6
+func TestTheYesIsTheAskersAndAGuestsYesRunsNothing(t *testing.T) {
+	teagans := heldFrontDoorAskedBy("teagan", "teagan", "identified")
+	cases := []struct {
+		why    string
+		held   []journal.Event
+		answer journal.Event
+		want   string
+	}{
+		{"Teagan, identified, says yes", teagans, voiced("yes please", "teagan", "identified"), ""},
+		{"Alice says yes to Teagan's question", teagans, voiced("yes please", "alice", "identified"), journal.RefusedWrongPerson},
+		{"a dinner guest says yes to Teagan's question", teagans, voiced("yes please", "", "below_threshold"), journal.RefusedGuest},
+		{"a voice between Teagan and Alice says yes", teagans, voiced("yes please", "", "ambiguous"), journal.RefusedGuest},
+		{"a yes the embedder never judged", teagans, voiced("yes please", "", ""), ""},
+		{"a household without speaker identification", heldFrontDoorAskedBy("teagan", "", ""), voiced("yes please", "", ""), ""},
+		{"a household that has enrolled nobody", heldFrontDoorAskedBy("", "", "nobody_enrolled"), voiced("yes please", "", "nobody_enrolled"), ""},
+		{"a guest asked, and the guest says yes", heldFrontDoorAskedBy("alice", "", "below_threshold"), voiced("yes please", "", "below_threshold"), journal.RefusedGuest},
+		{"a guest asked, and Alice says yes", heldFrontDoorAskedBy("alice", "", "below_threshold"), voiced("yes please", "alice", "identified"), ""},
+	}
+	for _, c := range cases {
+		s := reduceAll(t, append(append([]journal.Event(nil), c.held...), c.answer))
+		if got := s.Redeemable("cf_4c1e9a07", "ha_call_service", frontDoorRest); got != c.want {
+			t.Errorf("%s: Redeemable = %q, want %q", c.why, got, c.want)
+		}
+	}
+}
+
+// Alice's yes was refused, and the front door was handed a fresh nonce in
+// her turn. The question is still Teagan's: Alice's second yes is refused
+// on the fresh nonce too, and Teagan's redeems it.
+//
+// verifies SPEC §6
+func TestAFreshNonceStillWaitsForTheAsker(t *testing.T) {
+	refused := append(heldFrontDoorAskedBy("teagan", "teagan", "identified"), voiced("yes please", "alice", "identified"))
+	refused = append(refused, refusedOn("call_c2", "cf_4c1e9a07", "cf_9d02b5e1", journal.RefusedWrongPerson)...)
+
+	alice := reduceAll(t, append(append([]journal.Event(nil), refused...), voiced("yes, I said yes", "alice", "identified")))
+	if got := alice.Redeemable("cf_9d02b5e1", "ha_call_service", frontDoorRest); got != journal.RefusedWrongPerson {
+		t.Errorf("Alice's second yes = %q, want %q", got, journal.RefusedWrongPerson)
+	}
+	teagan := reduceAll(t, append(append([]journal.Event(nil), refused...), voiced("yes please", "teagan", "identified")))
+	if got := teagan.Redeemable("cf_9d02b5e1", "ha_call_service", frontDoorRest); got != "" {
+		t.Errorf("Teagan's yes on the fresh nonce = %q, want it redeemable", got)
+	}
+	if c := teagan.Confirmations[1]; c.AskedBy != "teagan" || c.AnsweredBy != "teagan" {
+		t.Errorf("fresh confirmation = %+v, want Teagan's question answered by Teagan", c)
 	}
 }

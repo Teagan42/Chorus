@@ -48,11 +48,13 @@ import "struct"
 	// the tool as a whole does not: "unlock the front door" is the same
 	// service call as "turn on the kitchen lights". An entry matches when
 	// every string parameter it names has that value (ADR-0038), and, when
-	// it names target_class, the thing the call acts on has one of those
-	// classes, as its executor reads them (ADR-0041).
+	// it names target_class or target_domain, the thing the call acts on
+	// has one of those classes and is in one of those domains, as its
+	// executor reads them (ADR-0041, ADR-0063).
 	confirm_when?: [...close({
 		for p in params if p.type == "string" {(p.name)?: string & !=""}
 		target_class?: [string & !="", ...string & !=""]
+		target_domain?: [string & !="", ...string & !=""]
 	}) & struct.MinFields(1)]
 
 	// Latency hint lets the model decide whether to speak before results land.
@@ -88,6 +90,15 @@ tools: [string]: #Tool
 // _waysIn are the cover device classes that let someone into the house when
 // they open. Home Assistant sets them per entity ("Show as" in its UI).
 _waysIn: ["door", "garage", "gate"]
+
+// _guarded are the domains whose every entity is a way in or the alarm: a
+// generic homeassistant service on one of them is held whatever Home
+// Assistant's dispatch does with it (ADR-0063).
+_guarded: ["lock", "alarm_control_panel"]
+
+// _generic are the homeassistant services that reach whatever domain the
+// entity is in.
+_generic: ["turn_on", "turn_off", "toggle"]
 
 tools: {
 	speak: {
@@ -195,20 +206,28 @@ tools: {
 		// undo it and would leave the model not knowing what the home did, so
 		// the call runs to completion and keeps its result (SPEC §4.4).
 		on_interrupt: "detach"
-		// Opening the house to whoever is at the door, or switching the alarm
-		// off, is not undone by "never mind" (ADR-0038). A garage opens with
-		// the same cover.open_cover as a blind, so those entries hold only
-		// the covers Home Assistant classes as a way in (ADR-0041).
+		// Opening the house to whoever is at the door, switching the alarm
+		// off, or opening a valve, is not undone by "never mind" (ADR-0038).
+		// A garage opens with the same cover.open_cover as a blind, so those
+		// entries hold only the covers Home Assistant classes as a way in
+		// (ADR-0041). The generic homeassistant services reach whatever the
+		// entity is, so they are held by its domain and its class as the
+		// domain's own services are; what each Home Assistant version does
+		// with turn_on on a lock is not the gate's to know (ADR-0063).
 		confirm_when: [
 			{domain: "lock", service: "unlock"},
 			{domain: "lock", service: "open"},
 			{domain: "alarm_control_panel", service: "alarm_disarm"},
+			{domain: "valve", service: "open_valve"},
 			for s in ["open_cover", "toggle", "set_cover_position"] {
 				{domain: "cover", service: s, target_class: _waysIn}
 			},
-			// homeassistant.toggle reaches cover.toggle; turn_on does not
-			// support covers.
-			{domain: "homeassistant", service: "toggle", target_class: _waysIn},
+			for s in _generic {
+				{domain: "homeassistant", service: s, target_domain: _guarded}
+			},
+			for s in _generic {
+				{domain: "homeassistant", service: s, target_class: _waysIn}
+			},
 		]
 		params: [
 			{name: "domain", type: "string", description: "Service domain, e.g. light, switch, script.", required: true},
