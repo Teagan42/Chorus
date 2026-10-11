@@ -11,6 +11,9 @@ decision rather than by clause: facets of one choice share one record.
 There is no 0028. The number was skipped when 0029 was written, and no record
 numbered 0028 was ever committed or dropped.
 
+There is no 0057 either. The record after 0056 was committed as 0058, and no
+record numbered 0057 was ever committed or dropped.
+
 | ADR | Decision | Source |
 |---|---|---|
 | [0001](0001-scope-single-household.md) | Target one household, not a product | §1 |
