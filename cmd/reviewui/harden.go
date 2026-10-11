@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -16,6 +17,23 @@ import (
 // listed is a page that re-pointed its own domain at the box (DNS rebinding),
 // and the same-origin check would otherwise let it through.
 const hostsEnv = "CHORUS_REVIEWUI_HOSTS"
+
+// readOnlyEnv is -read-only's default: a box for a reviewer who should not
+// delete anything (ADR-0070).
+const readOnlyEnv = "CHORUS_REVIEWUI_READ_ONLY"
+
+// parseReadOnly reads readOnlyEnv. Unset is false; a value that is not a
+// boolean is refused, since guessing would guess the wrong way for someone.
+func parseReadOnly(v string) (bool, error) {
+	if strings.TrimSpace(v) == "" {
+		return false, nil
+	}
+	b, err := strconv.ParseBool(strings.TrimSpace(v))
+	if err != nil {
+		return false, fmt.Errorf("%s=%q: want true or false", readOnlyEnv, v)
+	}
+	return b, nil
+}
 
 // loopbackHosts is how a box names itself in its own browser.
 var loopbackHosts = []string{"localhost", "127.0.0.1", "::1"}

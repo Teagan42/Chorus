@@ -390,7 +390,9 @@ func (s *server) browse(w http.ResponseWriter, r *http.Request) {
 		"Head": ui.PageHead{
 			Eyebrow: "01 · Browse", Title: "The household's day",
 			Subtitle: "Every conversation, on the satellite it happened at. Flags come from Triage's signals.",
+			Actions:  []ui.Button{{Label: "Memory ›", Href: memoryRoute}, {Label: "Deletions ›", Href: deletionsRoute}},
 		},
+		"Deleted":   s.deletedAlert(r.Context(), r.URL.Query().Get("deleted")),
 		"DayLabel":  day.Format("Monday 2 January"),
 		"Today":     day.Equal(today),
 		"Nav":       nav,
