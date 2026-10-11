@@ -748,18 +748,50 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
 
 ### Phase 2
 
-- ~~Review UI~~ **Done — ADR-0034, [the review UI guide](reviewui/README.md).**
+- ~~Review UI~~ **Done — ADR-0034, ADR-0070, ADR-0071, [the review UI
+  guide](reviewui/README.md).** A reviewer can delete a conversation, drop a
+  clip and forget a memory, and the export is format 2, each row with the
+  prompt and tools its turn ran under.
 - ~~Memory~~ **Done — ADR-0040, ADR-0043, ADR-0044, ADR-0049.** Summaries are
   kept per conversation, not as one rolling summary per person.
 - MCP provider
-- ~~Confirmation gates~~ **Done — ADR-0038, ADR-0041.** Garage, gate and door
-  covers are held by the class Home Assistant gives them.
+- ~~Confirmation gates~~ **Done — ADR-0038, ADR-0041, ADR-0063.** Garage, gate
+  and door covers are held by the class Home Assistant gives them, and a yes
+  counts only from the person who asked, when they were identified, and
+  never from a guest.
 - ~~Timers~~ **Done — ADR-0045.** A timer belongs to the house, outlives the
   conversation and the process, and goes off where it was set.
 - ~~Announcements with `start_conversation`~~ **Done — ADR-0045.**
 - ~~Semantic endpointing~~ **Done — ADR-0036.**
-- Wake-word retraining from the harvested negative corpus
+- ~~Hot phrases~~ **Done — ADR-0064.** Stop, never mind and say that again
+  skip the barge-in gate's word count, never its speaker check; English
+  only.
+- ~~Retention~~ **Done — ADR-0065.** Audio and journal horizons per
+  satellite in `devices.yaml`; everything is kept until they are set.
+- ~~Authenticate the audio link~~ **Done — ADR-0066.** Protocol 3: the
+  device proves its node name with its PSK before any audio. Not yet
+  flashed onto a satellite.
+- ~~Speaker volume and the hardware mute switch~~ **Done — ADR-0067.**
+- ~~Health, readiness and metrics~~ **Done — ADR-0068.**
+- ~~Say failures the household would meet as silence~~ **Done — ADR-0069.**
+  What cannot be said is shown on the ring.
+- Wake-word retraining from the harvested negative corpus. The firmware
+  wakes on the household's "Hey Eddie" model (§13) and the rejected wakes export
+  as their own corpus (ADR-0058); nothing retrains from them yet.
 - Near-miss buffer if false rejects surface
+- Encrypt the audio link, and authenticate the host to the device: the
+  stream is still plaintext, and a satellite sends its microphone to
+  whoever holds `orchestrator_host` (ADR-0066)
+- Stop the uplink in firmware while the mute switch is on; today the host
+  drops the frames (ADR-0067)
+- Confirm a volume level: `set_volume` reports the level it sent, not the
+  one the device reports back (ADR-0067)
+- A ring effect for a satellite that cannot reach `chorusd`, driven by the
+  bridge's connection state (ADR-0069)
+- Teach the harvester the ear's `unheard` canned line (ADR-0069)
+- Drop a clip from a satellite's own log, such as a guest's rejected wake,
+  from the review UI; retention removes it by its horizon meanwhile
+  (ADR-0070)
 
 ### Phase 3
 
