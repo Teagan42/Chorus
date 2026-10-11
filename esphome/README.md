@@ -34,6 +34,14 @@ type:u8  flags:u8  length:u16  payload[length]
 `length` makes an unknown type skippable, so newer firmware can add frames
 without breaking an older host.
 
+The field allows 65,535 bytes; the device does not. Its receive buffer is
+20 KB (`RX_CAPACITY`) and is never grown, because an allocation failure on
+ESP-IDF is an abort, so a host frame's payload may be at most 20,476 bytes
+(`RX_CAPACITY - HEADER_SIZE`). The device drops the link with `frame too
+large` on a longer one rather than wait for a frame it can never hold. The
+host sends TTS in 1,024-byte chunks (`internal/bridge/link.go`), so only a
+peer that is not the host gets near the bound.
+
 | Type | Dir | Payload |
 |---|---|---|
 | `0x01` hello | device | version:u8, sample_rate:u32, bits:u8, mic_channels:u8 |
