@@ -36,6 +36,8 @@ type GuardConfig struct {
 	Clock Clock
 	// Log hears each crossing of the floor once. Nil discards.
 	Log *slog.Logger
+	// OnDecline hears each blob not written, once. It must not block.
+	OnDecline func(ref string)
 }
 
 // Guarded writes nothing while the disk is below its floor, and holds each
@@ -138,6 +140,9 @@ func (w *declinedWriter) Commit() (string, error) {
 		w.guard.mu.Lock()
 		w.guard.declined[ref] = w.guard.cfg.Clock.Now()
 		w.guard.mu.Unlock()
+		if w.guard.cfg.OnDecline != nil {
+			w.guard.cfg.OnDecline(ref)
+		}
 	}
 	return ref, nil
 }

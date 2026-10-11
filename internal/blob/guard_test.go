@@ -163,3 +163,37 @@ func keys(m map[string]time.Time) []string {
 	slices.Sort(out)
 	return out
 }
+
+// Each write the guard declines is told to whoever counts them, once per
+// blob however often its writer commits, so the house can see audio going
+// unkept before anyone listens back for it (ADR-0068).
+//
+// verifies SPEC §8
+func TestEachDeclinedWriteIsToldOnce(t *testing.T) {
+	d := &disk{free: 512 << 20}
+	var told []string
+	g := blob.Guard(blob.NewMemory(), blob.GuardConfig{
+		Disk: d, Floor: blob.DefaultFloor,
+		Clock:     &clock{now: time.Date(2026, 10, 9, 7, 42, 0, 0, time.UTC)},
+		OnDecline: func(ref string) { told = append(told, ref) },
+	})
+
+	w, err := g.Create(context.Background(), "mic/kitchen-kettle")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := w.Write([]byte("turn on the kettle")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	for range 2 {
+		if _, err := w.Commit(); err != nil {
+			t.Fatalf("commit: %v", err)
+		}
+	}
+	d.free = 4 << 30
+	put(t, g, "mic/office-lights", []byte("lights off in the office"))
+
+	if !slices.Equal(told, []string{"blob://mic/kitchen-kettle"}) {
+		t.Errorf("declines told = %q, want the kitchen's one blob", told)
+	}
+}
