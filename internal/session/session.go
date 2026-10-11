@@ -895,7 +895,11 @@ func (s *Session) BargeIn(_ context.Context, c Candidate) (bool, error) {
 	if c.AudioFrames > 0 {
 		fields["audio_frames"] = strconv.Itoa(c.AudioFrames)
 	}
-	if stage, ok := s.sup.cfg.Gate.admit(c, speaker); !ok {
+	stage, hot, ok := s.sup.cfg.Gate.admit(c, speaker)
+	if hot != "" {
+		fields["hot_word"] = string(hot)
+	}
+	if !ok {
 		fields["stage"] = stage
 		return false, s.record(journal.Record{
 			Kind: journal.KindBargeInRejected, AudioRef: c.AudioRef, Fields: fields,
