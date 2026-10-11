@@ -122,10 +122,11 @@ func (r *rig) line(text string, who []float32) int16 {
 	return amp
 }
 
-// join connects a device from ip and returns it with its own end of the
-// link, once the daemon can reach it: the hello alone is not that, and an
-// announcement made before then finds nothing connected. An address the
-// inventory does not name is refused, so nothing waits for it.
+// join connects a device from ip, proving the identity the inventory gives
+// that address, and returns it once the daemon can reach it: the handshake
+// alone is not that, and an announcement made before then finds nothing
+// connected. An address the inventory does not name is refused, so nothing
+// waits for it.
 func (r *rig) join(t *testing.T, ip string) *bridgetest.Device {
 	t.Helper()
 	sat := r.dm.byHost[ip]
@@ -134,7 +135,7 @@ func (r *rig) join(t *testing.T, ip string) *bridgetest.Device {
 	}
 	// A reconnect may find the old link not yet forgotten.
 	old := r.dm.linked(sat.Name)
-	dev := bridgetest.Connect(r.ln.dial(t, ip), 2)
+	dev := bridgetest.Connect(r.ln.dial(t, ip), 2, as(t, sat))
 	await(t, sat.Name+"'s link", func() bool {
 		lst := r.dm.linked(sat.Name)
 		return lst != nil && lst != old
@@ -202,10 +203,11 @@ func gone(t *testing.T, dev *bridgetest.Device, what string) {
 	}
 }
 
-// The inventory is the authority on which devices exist (SPEC §13), and the
-// audio link's hello carries no name, so the source address is what a
-// satellite is known by. Anything else dialing the audio port is refused
-// before a frame is read, and the refusal is logged with the address.
+// The inventory is the authority on which devices exist (SPEC §13), and a
+// satellite must dial from its own address as well as prove its name.
+// Anything dialing the audio port from an address the inventory does not
+// name is refused before a frame is read, and the refusal is logged with
+// the address.
 //
 // verifies SPEC §13
 func TestAnAddressNotInTheInventoryIsRefused(t *testing.T) {
@@ -331,7 +333,7 @@ func TestTheSecondMicChannelIsJournalledBesideTheFirst(t *testing.T) {
 func TestADroppedLinkClosesTheSessionAndAReconnectResumesIt(t *testing.T) {
 	r := newRig(t, inventory())
 	first := r.ln.dial(t, kitchenIP)
-	dev := bridgetest.Connect(first, 2)
+	dev := bridgetest.Connect(first, 2, as(t, r.dm.byHost[kitchenIP]))
 
 	dev.SendWake(t, "hey_eddie")
 	r.utter(t, dev, r.line("find zeppelin", alan))
