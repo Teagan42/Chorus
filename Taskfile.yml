@@ -422,7 +422,7 @@ tasks:
     cmds: ["go run ./cmd/probe {{.CLI_ARGS}}"]
 
   reviewui:
-    desc: Serve the review UI on :8080 (needs .env and `task db:up`)
+    desc: Serve the review UI on 127.0.0.1:8080 (needs .env and `task db:up`; `-- -addr :8080` opens it to the LAN)
     # Same .env as `run`: the journal DSN, the blob directory, and the model
     # Replay re-runs turns against.
     dotenv: [".env"]
