@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"runtime"
@@ -29,13 +30,60 @@ func newPipe(t *testing.T) (host, device net.Conn) {
 	return host, device
 }
 
-func deviceHello(channels uint8) bridge.Frame {
+func helloOf(channels uint8) bridge.Hello {
 	return bridge.Hello{
 		Version:       bridge.ProtocolVersion,
 		SampleRate:    bridge.SampleRate,
 		BitsPerSample: bridge.BitsPerSample,
 		MicChannels:   channels,
-	}.Frame()
+	}
+}
+
+// The satellite every raw-device test speaks as, and the inventory of one
+// its host checks it against.
+const kitchen = "satellite1-4b2c10"
+
+func kitchenPSK() []byte { return []byte("kitchen satellite pre-shared key") }
+
+func keys(name string) ([]byte, bool) {
+	if name != kitchen {
+		return nil, false
+	}
+	return kitchenPSK(), true
+}
+
+// handshake is the firmware's half of the opening exchange: hello, then the
+// MAC over the host's nonce, as name under psk.
+func handshake(conn net.Conn, h bridge.Hello, name string, psk []byte) error {
+	w := bridge.NewWriter(conn)
+	if err := w.WriteFrame(h.Frame()); err != nil {
+		return err
+	}
+	c, err := readChallenge(conn)
+	if err != nil {
+		return err
+	}
+	key, err := bridge.LinkKey(psk)
+	if err != nil {
+		return err
+	}
+	return w.WriteFrame(bridge.AnswerChallenge(key, c, name, h).Frame())
+}
+
+func readChallenge(conn net.Conn) (bridge.Challenge, error) {
+	f, err := bridge.NewReader(conn).ReadFrame()
+	if err != nil {
+		return bridge.Challenge{}, err
+	}
+	if f.Type != bridge.TypeChallenge {
+		return bridge.Challenge{}, fmt.Errorf("host sent %s, want challenge", f.Type)
+	}
+	return bridge.ParseChallenge(f.Payload)
+}
+
+// joins answers as the kitchen with a channels-wide hello.
+func joins(conn net.Conn, channels uint8) error {
+	return handshake(conn, helloOf(channels), kitchen, kitchenPSK())
 }
 
 // collector records what Serve dispatched. Guarded because Serve's read loop
@@ -130,9 +178,9 @@ func serve(t *testing.T, l *bridge.Link, h bridge.Handler) <-chan error {
 // verifies SPEC §3.1
 func TestNewLinkReadsHello(t *testing.T) {
 	host, device := newPipe(t)
-	go func() { _ = bridge.NewWriter(device).WriteFrame(deviceHello(2)) }()
+	go func() { _ = joins(device, 2) }()
 
-	l, err := bridge.NewLink(host)
+	l, err := bridge.NewLink(host, keys)
 	if err != nil {
 		t.Fatalf("NewLink: %v", err)
 	}
@@ -159,7 +207,7 @@ func TestNewLinkRejectsBadProtocolVersion(t *testing.T) {
 	}
 	go func() { _ = bridge.NewWriter(device).WriteFrame(bad.Frame()) }()
 
-	if _, err := bridge.NewLink(host); err == nil {
+	if _, err := bridge.NewLink(host, keys); err == nil {
 		t.Fatal("NewLink accepted a mismatched protocol version")
 	}
 }
@@ -192,7 +240,7 @@ func TestNewLinkRejectsIncompatibleAudioFormat(t *testing.T) {
 			host, device := newPipe(t)
 			go func() { _ = bridge.NewWriter(device).WriteFrame(tc.hello.Frame()) }()
 
-			if _, err := bridge.NewLink(host); err == nil {
+			if _, err := bridge.NewLink(host, keys); err == nil {
 				t.Fatal("NewLink accepted an incompatible audio format")
 			}
 		})
@@ -204,12 +252,12 @@ func TestNewLinkRejectsNonHelloFirstFrame(t *testing.T) {
 	// A payload that would parse as a valid hello body, so only the frame type
 	// can reject it. A short payload would fail ParseHello's length check and
 	// pass this test even with the type check gone.
-	body := deviceHello(1).Payload
+	body := helloOf(1).Frame().Payload
 	go func() {
 		_ = bridge.NewWriter(device).WriteFrame(bridge.Frame{Type: bridge.TypeMic, Payload: body})
 	}()
 
-	if _, err := bridge.NewLink(host); err == nil {
+	if _, err := bridge.NewLink(host, keys); err == nil {
 		t.Fatal("NewLink accepted a mic frame before hello")
 	}
 }
@@ -219,9 +267,9 @@ func TestServeDispatchesDeviceFrames(t *testing.T) {
 	host, device := newPipe(t)
 	w := bridge.NewWriter(device)
 	go func() {
-		_ = w.WriteFrame(deviceHello(2))
+		_ = joins(device, 2)
 	}()
-	l, err := bridge.NewLink(host)
+	l, err := bridge.NewLink(host, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +343,7 @@ func newFakeDevice(conn net.Conn) *fakeDevice {
 // intent: a blocked write leaves it frozen.
 func (d *fakeDevice) streamMic() {
 	w := bridge.NewWriter(d.conn)
-	if err := w.WriteFrame(deviceHello(1)); err != nil {
+	if err := joins(d.conn, 1); err != nil {
 		d.closed.Store(true)
 		return
 	}
@@ -398,7 +446,7 @@ func TestLinkIsFullDuplex(t *testing.T) {
 	go d.streamMic()
 	go d.readDownlink()
 
-	l, err := bridge.NewLink(host)
+	l, err := bridge.NewLink(host, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +505,7 @@ func TestHostControlFrames(t *testing.T) {
 	go d.streamMic()
 	go d.readDownlink()
 
-	l, err := bridge.NewLink(host)
+	l, err := bridge.NewLink(host, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,8 +552,8 @@ func TestHostControlFrames(t *testing.T) {
 // the previous barge-in could pass for this one's.
 func TestStopTagsEachStopDistinctlyAndNeverZero(t *testing.T) {
 	host, device := newPipe(t)
-	go func() { _ = bridge.NewWriter(device).WriteFrame(deviceHello(1)) }()
-	l, err := bridge.NewLink(host)
+	go func() { _ = joins(device, 1) }()
+	l, err := bridge.NewLink(host, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,8 +605,8 @@ func TestStopTagsEachStopDistinctlyAndNeverZero(t *testing.T) {
 // every chunk must stay frame-aligned: a half sample desynchronises the device.
 func TestSendTTSChunksOnSampleBoundaries(t *testing.T) {
 	host, device := newPipe(t)
-	go func() { _ = bridge.NewWriter(device).WriteFrame(deviceHello(1)) }()
-	l, err := bridge.NewLink(host)
+	go func() { _ = joins(device, 1) }()
+	l, err := bridge.NewLink(host, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -621,8 +669,8 @@ func TestSendTTSChunksOnSampleBoundaries(t *testing.T) {
 // not interleave into an unparseable stream.
 func TestConcurrentSendsDoNotInterleave(t *testing.T) {
 	host, device := newPipe(t)
-	go func() { _ = bridge.NewWriter(device).WriteFrame(deviceHello(1)) }()
-	l, err := bridge.NewLink(host)
+	go func() { _ = joins(device, 1) }()
+	l, err := bridge.NewLink(host, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -679,8 +727,8 @@ func TestConcurrentSendsDoNotInterleave(t *testing.T) {
 // rather than hold a dead link (SPEC §7).
 func TestServeReturnsOnDeviceClose(t *testing.T) {
 	host, device := newPipe(t)
-	go func() { _ = bridge.NewWriter(device).WriteFrame(deviceHello(1)) }()
-	l, err := bridge.NewLink(host)
+	go func() { _ = joins(device, 1) }()
+	l, err := bridge.NewLink(host, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,8 +750,8 @@ func TestServeReturnsOnDeviceClose(t *testing.T) {
 // outlive it.
 func TestServeStopsOnContextCancel(t *testing.T) {
 	host, device := newPipe(t)
-	go func() { _ = bridge.NewWriter(device).WriteFrame(deviceHello(1)) }()
-	l, err := bridge.NewLink(host)
+	go func() { _ = joins(device, 1) }()
+	l, err := bridge.NewLink(host, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -730,10 +778,10 @@ func TestServeReturnsHandlerError(t *testing.T) {
 	host, device := newPipe(t)
 	w := bridge.NewWriter(device)
 	go func() {
-		_ = w.WriteFrame(deviceHello(1))
+		_ = joins(device, 1)
 		_ = w.WriteFrame(bridge.Frame{Type: bridge.TypeMic, Payload: []byte{0, 0}})
 	}()
-	l, err := bridge.NewLink(host)
+	l, err := bridge.NewLink(host, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -762,11 +810,11 @@ func TestServeIgnoresUnknownFrameTypes(t *testing.T) {
 	host, device := newPipe(t)
 	w := bridge.NewWriter(device)
 	go func() {
-		_ = w.WriteFrame(deviceHello(1))
+		_ = joins(device, 1)
 		_ = w.WriteFrame(bridge.Frame{Type: 0x7f, Payload: []byte("from the future")})
 		_ = w.WriteFrame(bridge.Frame{Type: bridge.TypeWake, Payload: []byte("hey_eddie")})
 	}()
-	l, err := bridge.NewLink(host)
+	l, err := bridge.NewLink(host, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -780,7 +828,7 @@ func TestServeIgnoresUnknownFrameTypes(t *testing.T) {
 // being the client for the native API (SPEC §13). Loopback only: no external
 // network, so this stays in the hermetic tier.
 func TestListenerAcceptsADialingDevice(t *testing.T) {
-	ln, err := bridge.Listen("127.0.0.1:0")
+	ln, err := bridge.Listen("127.0.0.1:0", keys)
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -794,7 +842,7 @@ func TestListenerAcceptsADialingDevice(t *testing.T) {
 			return
 		}
 		defer func() { _ = conn.Close() }()
-		dialed <- bridge.NewWriter(conn).WriteFrame(deviceHello(2))
+		dialed <- joins(conn, 2)
 		<-time.After(50 * time.Millisecond)
 	}()
 
@@ -816,7 +864,7 @@ func TestListenerAcceptsADialingDevice(t *testing.T) {
 
 // Accept must not block forever when no device ever dials.
 func TestListenerAcceptHonoursContext(t *testing.T) {
-	ln, err := bridge.Listen("127.0.0.1:0")
+	ln, err := bridge.Listen("127.0.0.1:0", keys)
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -844,7 +892,7 @@ func TestListenerAcceptHonoursContext(t *testing.T) {
 // for. Abandoning an in-flight net.Listener.Accept leaves it queued, so the
 // next device to dial is handed to a caller that has already given up.
 func TestListenerAcceptCancellationDoesNotStealTheNextDevice(t *testing.T) {
-	ln, err := bridge.Listen("127.0.0.1:0")
+	ln, err := bridge.Listen("127.0.0.1:0", keys)
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -865,7 +913,7 @@ func TestListenerAcceptCancellationDoesNotStealTheNextDevice(t *testing.T) {
 			return
 		}
 		defer func() { _ = conn.Close() }()
-		dialed <- bridge.NewWriter(conn).WriteFrame(deviceHello(2))
+		dialed <- joins(conn, 2)
 		<-time.After(50 * time.Millisecond)
 	}()
 
@@ -893,8 +941,8 @@ func TestListenerAcceptCancellationDoesNotStealTheNextDevice(t *testing.T) {
 // being written rather than merely queue behind its next chunk.
 func TestStopAbandonsTheUtteranceBeingWritten(t *testing.T) {
 	host, device := newPipe(t)
-	go func() { _ = bridge.NewWriter(device).WriteFrame(deviceHello(1)) }()
-	l, err := bridge.NewLink(host)
+	go func() { _ = joins(device, 1) }()
+	l, err := bridge.NewLink(host, keys)
 	if err != nil {
 		t.Fatal(err)
 	}

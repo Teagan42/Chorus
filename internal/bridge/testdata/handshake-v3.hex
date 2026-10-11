@@ -1,0 +1,13 @@
+# The chorus_bridge v3 handshake on fixed inputs (ADR-0066). The first
+# three lines are inputs; every line after them is derived. Frames are whole,
+# header included. Checked by internal/bridge/auth_test.go and, on the
+# firmware's side, by esphome/test/chorus_auth_test.cpp.
+# Regenerate with: go test ./internal/bridge -run Golden -update
+psk 6b69746368656e20736174656c6c697465207072652d736861726564206b6579
+nonce 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+name satellite1-4b2c10
+hello 010000070300003e801002
+challenge 15000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+link_key 2474e587845aafb488a30059198637c22d364c817c9d57c03913975be8d23667
+mac ee1f47f02c10959ae86211edb090bc658b45746cbd8da079eb19d6eede21d03c
+auth 06000031ee1f47f02c10959ae86211edb090bc658b45746cbd8da079eb19d6eede21d03c736174656c6c697465312d346232633130

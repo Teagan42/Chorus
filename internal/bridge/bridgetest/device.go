@@ -8,6 +8,7 @@
 package bridgetest
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -21,6 +22,35 @@ import (
 // producing, so a timeout means it is wrong rather than slow.
 const patience = 5 * time.Second
 
+// Name is the satellite a device proves it is unless told otherwise: the
+// living-room Satellite1, named as ESPHome names it, MAC suffix and all.
+const Name = "satellite1-4b2c10"
+
+// pskText is Name's key. Thirty-two bytes, as api.encryption.key decodes to.
+const pskText = "kitchen satellite pre-shared key"
+
+// PSK is Name's key, a fresh copy each call.
+func PSK() []byte { return []byte(pskText) }
+
+// Keys is an inventory of one: Name, under PSK. Dial's host checks with it.
+func Keys() bridge.Keys {
+	return func(name string) ([]byte, bool) {
+		if name != Name {
+			return nil, false
+		}
+		return PSK(), true
+	}
+}
+
+// Option changes what a device claims in the handshake.
+type Option func(*Device)
+
+// As makes the device answer the challenge as name, under psk. A psk that is
+// not the inventory's is how a test plays a device that is not who it says.
+func As(name string, psk []byte) Option {
+	return func(d *Device) { d.name, d.psk = name, psk }
+}
+
 // bytesPerFrame is one mono 16-bit sample.
 const bytesPerFrame = bridge.BitsPerSample / 8
 
@@ -28,15 +58,20 @@ const bytesPerFrame = bridge.BitsPerSample / 8
 // until Play emits it, and discards it on a stop, which is what makes the
 // heard/unheard split assertable.
 type Device struct {
-	conn net.Conn
+	conn  net.Conn
+	hello bridge.Hello
+	name  string
+	psk   []byte
 
 	// wmu serialises the test goroutine's frames against the read loop's own
-	// reports; ready holds every frame behind the hello.
-	wmu     sync.Mutex
-	w       *bridge.Writer
-	ready   chan struct{}
-	holding bool           // HoldUplink is in force
-	held    []bridge.Frame // frames in flight, in order, until released
+	// reports; ready holds every frame behind the auth answer.
+	wmu      sync.Mutex
+	w        *bridge.Writer
+	ready    chan struct{}
+	answered chan error // the auth answer was written, or why it never was
+	answer   sync.Once
+	holding  bool           // HoldUplink is in force
+	held     []bridge.Frame // frames in flight, in order, until released
 
 	mu         sync.Mutex
 	tts        []byte
@@ -52,7 +87,7 @@ type Device struct {
 }
 
 // Dial returns a host Link joined to a device that has completed the
-// handshake. Both ends close with the test.
+// handshake, as Name under PSK. Both ends close with the test.
 func Dial(t *testing.T, channels uint8) (*bridge.Link, *Device) {
 	t.Helper()
 	host, device := net.Pipe()
@@ -61,13 +96,13 @@ func Dial(t *testing.T, channels uint8) (*bridge.Link, *Device) {
 		_ = device.Close()
 	})
 
-	d, hello := connect(device, channels)
-	l, err := bridge.NewLink(host)
+	d := connect(device, channels)
+	l, err := bridge.NewLink(host, Keys())
 	if err != nil {
 		t.Fatalf("host link: %v", err)
 	}
-	if err := <-hello; err != nil {
-		t.Fatalf("device hello: %v", err)
+	if err := <-d.answered; err != nil {
+		t.Fatalf("device handshake: %v", err)
 	}
 	t.Cleanup(func() { _ = l.Close() })
 	return l, d
@@ -76,41 +111,76 @@ func Dial(t *testing.T, channels uint8) (*bridge.Link, *Device) {
 // Connect joins a device to a connection the host side already holds, the
 // way a satellite reaches a daemon that accepted it: the host completes the
 // handshake on its own schedule, and a host that refuses the connection
-// first is observed through Gone rather than reported here.
-func Connect(conn net.Conn, channels uint8) *Device {
-	d, _ := connect(conn, channels)
-	return d
+// is observed through Gone rather than reported here. The device is Name
+// under PSK unless an option says otherwise.
+func Connect(conn net.Conn, channels uint8, opts ...Option) *Device {
+	return connect(conn, channels, opts...)
 }
 
 // connect starts the device on conn. The hello is written from a goroutine
 // because net.Pipe is an unbuffered rendezvous: the host's read of it would
 // otherwise deadlock against this write. Reading starts right after, so the
-// host's downlink never blocks on the pipe and the pacing under test is the
-// host's own, not the fake's.
-func connect(conn net.Conn, channels uint8) (*Device, <-chan error) {
+// challenge is answered there, and the host's downlink never blocks on the
+// pipe: the pacing under test is the host's own, not the fake's.
+func connect(conn net.Conn, channels uint8, opts ...Option) *Device {
 	d := &Device{
 		conn: conn, w: bridge.NewWriter(conn),
-		ready: make(chan struct{}), notify: make(chan struct{}), gone: make(chan struct{}),
-	}
-	hello := make(chan error, 1)
-	go func() {
-		err := d.w.WriteFrame(bridge.Hello{
+		hello: bridge.Hello{
 			Version:       bridge.ProtocolVersion,
 			SampleRate:    bridge.SampleRate,
 			BitsPerSample: bridge.BitsPerSample,
 			MicChannels:   channels,
-		}.Frame())
-		close(d.ready)
-		hello <- err
+		},
+		name: Name, psk: PSK(),
+		ready: make(chan struct{}), answered: make(chan error, 1),
+		notify: make(chan struct{}), gone: make(chan struct{}),
+	}
+	for _, o := range opts {
+		o(d)
+	}
+	go func() {
+		if err := d.w.WriteFrame(d.hello.Frame()); err != nil {
+			d.answer.Do(func() { d.answered <- fmt.Errorf("hello: %w", err) })
+		}
 		d.read()
 	}()
-	return d, hello
+	return d
 }
 
-// write emits one frame after the hello, one at a time. A test that sends
-// before the host has read the hello must not overtake it on the wire.
+// answerChallenge sends the auth frame the firmware would, then lets every
+// frame queued behind it through. Called from the read loop only.
+func (d *Device) answerChallenge(p []byte) {
+	d.answer.Do(func() {
+		err := d.writeAuth(p)
+		if err == nil {
+			close(d.ready)
+		}
+		d.answered <- err
+	})
+}
+
+func (d *Device) writeAuth(p []byte) error {
+	c, err := bridge.ParseChallenge(p)
+	if err != nil {
+		return err
+	}
+	key, err := bridge.LinkKey(d.psk)
+	if err != nil {
+		return err
+	}
+	d.wmu.Lock()
+	defer d.wmu.Unlock()
+	return d.w.WriteFrame(bridge.AnswerChallenge(key, c, d.name, d.hello).Frame())
+}
+
+// write emits one frame after the auth answer, one at a time. A test that
+// sends before the host has challenged must not overtake the handshake.
 func (d *Device) write(f bridge.Frame) error {
-	<-d.ready
+	select {
+	case <-d.ready:
+	case <-d.gone:
+		return fmt.Errorf("write %s: the host hung up before the handshake finished", f.Type)
+	}
 	d.wmu.Lock()
 	defer d.wmu.Unlock()
 	if d.holding {
@@ -171,16 +241,21 @@ func (d *Device) writeHeldLocked(n int) {
 }
 
 // Gone closes once the host has hung up: the downlink read failed, which is
-// also what a host refusing the connection before the hello looks like.
+// also what a host refusing the connection or its answer looks like.
 func (d *Device) Gone() <-chan struct{} { return d.gone }
 
 func (d *Device) read() {
 	defer close(d.gone)
+	defer d.answer.Do(func() { d.answered <- errors.New("the host hung up before it challenged") })
 	r := bridge.NewReader(d.conn)
 	for {
 		f, err := r.ReadFrame()
 		if err != nil {
 			return
+		}
+		if f.Type == bridge.TypeChallenge {
+			d.answerChallenge(f.Payload)
+			continue
 		}
 		// Reported after the lock is released: writing a frame while holding mu
 		// would deadlock against a concurrent Play on an unbuffered pipe.

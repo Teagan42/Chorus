@@ -89,7 +89,12 @@ func requireDevice(t *testing.T) *config.Satellite {
 // chorus_bridge, or its orchestrator_host does not point here.
 func acceptDevice(t *testing.T, sat *config.Satellite) *bridge.Link {
 	t.Helper()
-	ln, err := bridge.Listen(*listenAddr)
+	psk, err := sat.PSKBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The device must prove it is this satellite, under the key the native API uses.
+	ln, err := bridge.Listen(*listenAddr, func(name string) ([]byte, bool) { return psk, name == sat.Name })
 	if err != nil {
 		t.Fatalf("listen %s: %v", *listenAddr, err)
 	}
@@ -101,7 +106,8 @@ func acceptDevice(t *testing.T, sat *config.Satellite) *bridge.Link {
 	l, err := ln.Accept(ctx)
 	if err != nil {
 		t.Fatalf("satellite %s answered its native API but never dialled %s within %v: %v\n"+
-			"check that chorus_bridge firmware is flashed and its orchestrator_host is this machine",
+			"check that chorus_bridge firmware is flashed and its orchestrator_host is this machine; "+
+			"a refused auth means its node name or api_encryption_key differs from devices.yaml",
 			sat.Name, *listenAddr, dialIn, err)
 	}
 	t.Cleanup(func() { _ = l.Close() })
