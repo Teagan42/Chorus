@@ -165,7 +165,7 @@ func Reduce(s State, e Event) (State, error) {
 		s.Dialogue = appendEntry(s.Dialogue, Entry{Kind: EntryHeard, Text: e.Fields["text"], Speaker: s.Speaker})
 		s.HeardAt = e.At.UTC()
 		s.Participants = participate(s.Participants, e.Fields["speaker_id"])
-		s.Confirmations = s.answered(e.Fields["text"], e.Fields["speaker_id"])
+		s.Confirmations = s.answered(e.Fields["text"], s.Speaker, e.Fields["speaker_match"])
 	case KindModelCompleted:
 		s.Completions = append(s.Completions, e.Fields["completion_json"])
 	case KindMemoryRecalled:
