@@ -3,8 +3,9 @@
 // data (SPEC §8).
 package schema
 
-// #Actor is which supervisor child produced the event (SPEC §4).
-#Actor: "session" | "listening" | "thinking" | "speaking" | "tool" | "device"
+// #Actor is which supervisor child produced the event (SPEC §4). store is
+// the log and its audio themselves, outside any session (ADR-0065).
+#Actor: "session" | "listening" | "thinking" | "speaking" | "tool" | "device" | "store"
 
 #Event: {
 	name!:        =~"^[a-z][a-z0-9_.]*$"
@@ -246,6 +247,16 @@ events: {
 			{name: "from_satellite", type: "string", description: "Where it was asked for, or where the timer was set."},
 			{name: "from_conversation", type: "string", description: "The conversation that asked for it, or that set the timer."},
 			{name: "start_conversation", type: "boolean", description: "Whoever is in the room may answer with no wake word."},
+		]
+	}
+
+	audio_dropped: {
+		name:        "audio_dropped", actor: "store"
+		description: "Audio an earlier event names is not kept: retention removed it past its satellite's horizon, or the disk was too full to write it. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065)."
+		fields: [
+			{name: "audio_ref", type: "string", description: "The blob reference the earlier events name, as they name it.", required: true},
+			{name: "reason", type: "string", description: "retention: removed once older than its satellite's audio horizon. disk_low: never written, because the blob directory's filesystem was below its free-space floor.", required: true, enum: ["retention", "disk_low"]},
+			{name: "days", type: "integer", description: "The audio horizon it outlived, in days. Empty for disk_low."},
 		]
 	}
 
