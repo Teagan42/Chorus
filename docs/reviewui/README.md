@@ -8,6 +8,8 @@ on request, never copied out of it (SPEC §8, ADR-0007). What it writes is
 a reviewer's word: a verdict on a pair, a turn's labels, a promoted re-run,
 and whether a rejected wake ships as a hard negative. Those live in their
 own tables beside the journal, not in it (ADR-0034, ADR-0052, ADR-0058).
+It also deletes, on a reviewer's word: a conversation, a clip, a remembered
+fact (ADR-0070).
 
 Inline audio is the point. A voice assistant cannot be judged from
 transcripts (SPEC §9.2), so every clip on every screen plays, and a truncated
@@ -16,13 +18,15 @@ turn plays only what the speaker actually reached.
 ## Running it
 
 It needs the journal database and the blob directory `chorusd` records into.
-Both schemas, the journal's and the curation table's, migrate at startup.
+Its schemas migrate at startup: the journal's, the curation tables', the
+memory store's and the [deletion trail's](#deletions).
 
 ```sh norun
 task db:up                     # the journal
 task reviewui                  # go run ./cmd/reviewui, loads .env; http://127.0.0.1:8080
 task reviewui -- -addr 127.0.0.1:9090                      # somewhere other than :8080
 task reviewui -- -addr :8080 -hosts review.home,10.0.0.5   # on the LAN, by those names
+task reviewui -- -read-only    # for a reviewer who should not delete anything
 ```
 
 Without a checkout, each [release](https://github.com/Teagan42/Chorus/releases)
@@ -35,6 +39,7 @@ carries its templates and htmx, so it needs only the variables below.
 | `CHORUS_BLOB_DIR` | yes | The audio the journal refers to; served to the browser as WAV. |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | no | What Replay re-runs turns against. Unset, Replay shows the recorded turns and says it has nothing to ask. |
 | `CHORUS_REVIEWUI_HOSTS` | no | The names the UI answers as, like `-hosts`. Unset, the listen address's host, or `localhost`, `127.0.0.1` and `::1` when it binds loopback or every interface. |
+| `CHORUS_REVIEWUI_READ_ONLY` | no | `true` starts it [read-only](#read-only-mode), like `-read-only`. A value that is not a boolean stops it from starting. |
 
 The first three are the same variables `chorusd` reads, so the `.env`
 copied from `.env.example` already serves both. `/` opens [Browse](#browse).
@@ -80,6 +85,15 @@ pair is gone, what was not stored and what the database said), shown in an
 alert above the header until it is dismissed or the next request lands.
 
 ![A label pressed while the database was away](e2e/conversation-post-failed.png)
+
+### Read-only mode
+
+`-read-only` (or `CHORUS_REVIEWUI_READ_ONLY=true`) is a review box for
+someone who should not delete anything. No screen offers to delete a
+conversation, drop a clip or forget a memory, and each of those routes
+answers 403 naming the flag, so a crafted form does nothing either. The
+conversation page and the memory screen say *Read-only* where the controls
+would be. Verdicts, labels and promotions are not deletions, and still work.
 
 ## The hosted demo
 
@@ -163,6 +177,8 @@ server log says why.
 | [Replay](#replay) | `/replays` | Would a different prompt or model have done better? |
 | [Curate](#curate) | `/curate/pairs` | Does this pair go in the dataset, and as which answer? |
 | [Export](#export) | `/export` | What ships, and what is being held back? |
+| [Memory](#memory) | `/memory` | What does it remember about each person? |
+| [Deletions](#deletions) | `/deletions` | What was deleted here, and when? |
 
 ### Browse
 
@@ -551,6 +567,77 @@ not in the zip.
 
 ![Export, the wake corpus](e2e/journey-wake-export.png)
 
+### Deleting a conversation
+
+At the bottom of a conversation's page, *Delete this conversation…* opens a
+panel that says what goes: its events, its clips, every verdict, label and
+re-run on it, and the summaries kept of it. Nothing keeps a copy, so it
+cannot be restored. Only the button inside the panel deletes, so one stray
+click cannot. Facts someone asked to be remembered in it stay until they
+are forgotten on the [memory screen](#memory).
+
+![Deleting the guest's visit](e2e/journey-delete-confirm.png)
+
+The deletion takes retention's own path (`retention.Eraser`, ADR-0065):
+the clips, then the curation rows, then the summaries, then the log. The
+browser then lands on that day in Browse, which says the conversation went.
+It is gone from every screen and from both exports, and
+[Deletions](#deletions) keeps a line saying so.
+
+![Browse, after the visit was deleted](e2e/journey-delete-done.png)
+
+Some conversations are not offered for deletion, and the page says why
+where the panel would be:
+
+- a live session's, which chorusd is still writing (ADR-0022);
+- one that ended under two minutes ago, which its person may still resume
+  on another satellite;
+- a satellite's or the house's own log, which chorusd writes all day and
+  retention trims instead.
+
+The server refuses the same deletions if a request asks anyway, and the
+alert region says why.
+
+### Dropping a clip
+
+Under each player on a conversation's page, *Drop audio…* removes that
+event's clip, and its second channel when it has one, keeping the rest of
+the conversation. The log records each as `audio_dropped` with reason
+`redacted`, and the page reloads with *audio redacted* where the players
+were. The words stay, since an event in the log never changes; to remove
+them too, delete the conversation. A dropped clip is gone from the exports
+as a pruned one is: listed in `meta.audio.gone`, or `"audio_gone":true` on
+a wake row. The same refusals apply as for a deletion.
+
+![The guest's ask, its clip dropped](e2e/journey-drop-audio.png)
+
+### Memory
+
+`/memory`, linked from Browse, lists what the assistant remembers about
+each person. Each fact someone asked it to `remember` is shown with whose
+it is, whether it is shared with the household or private to them, when it
+was kept, and the conversation it came from. Under the facts are the
+summaries of that person's conversations that later turns are told
+(ADR-0040, ADR-0043). It shows facts only: nothing on it can be edited.
+
+Each item has *Forget…*, behind the same second press. A fact is forgotten
+through the memory store's own `Forget`, the call the `forget` tool makes,
+so the assistant stops recalling it from its next turn. The `remember`
+call that kept it stays in its conversation's log as history (ADR-0040),
+and the panel says so.
+
+![Forgetting Alice's allergy](e2e/journey-memory-forget.png)
+
+### Deletions
+
+`/deletions` lists every conversation deleted, clip dropped, fact and
+summary forgotten in this review UI, newest first. Each line gives the
+kind, the conversation, the clips' refs or the memory's id, whose it was,
+how much went with it and when, and why it cannot come back. It never
+says what was said or remembered: a trail that kept the content would
+undo the deletion. The lines are rows in the `erasures` table beside the
+journal, which nothing deletes (ADR-0070).
+
 ## The UI kit
 
 `internal/reviewui/ui` is the component kit the screens are built from:
@@ -580,7 +667,7 @@ cut them.
 |---|---|---|
 | handlers | `cmd/reviewui/*_test.go`, in `task test` | what the server writes, against in-memory stores |
 | database | `replay_db_test.go`, `internal/curation`, in `task test:db` | the same screens over real Postgres |
-| browser | `e2e_test.go`, `e2e_journeys_test.go`, `e2e_signals_test.go`, in `task test:e2e` | what a reviewer gets: htmx loaded and swapping, audio a browser decodes, links that land where they say |
+| browser | `e2e_test.go`, `e2e_journeys_test.go`, `e2e_signals_test.go`, `e2e_erase_test.go`, in `task test:e2e` | what a reviewer gets: htmx loaded and swapping, audio a browser decodes, links that land where they say |
 
 The browser tier drives a headless Chrome with chromedp and skips unless
 `CHORUS_E2E_CHROME` names a browser; CI sets it, so there it fails rather
@@ -609,6 +696,10 @@ CHORUS_E2E_CHROME=$(command -v chromium) CHORUS_E2E_SHOTS=/tmp/shots task test:e
 - a rejected wake is opened from its tick, heard on both channels, confirmed, and shipped in the wake corpus;
 - the answer Alan had to repeat is labelled from the repeat, and ships with the repeat as evidence;
 - a weak positive is found in its own pile and labelled an exemplar, making no pair, and ships as the one SFT row;
+- the guest's visit is deleted from its page and gone from Browse, and Deletions keeps the line;
+- her ask's clip is dropped and shown redacted where it played;
+- Alice's allergy is forgotten from the memory screen;
+- a deletion the log refused at the last moment is said in the alert region;
 - the database goes away under a label, the page says so in the server's words, and the next press lands once it is back.
 
 Every browser test runs behind the real server's Host allow-list and

@@ -397,7 +397,8 @@ inventory's room, recorded when a session opens there and told to every turn
 from the log (ADR-0050).
 Cross-person visibility off by default, with an explicit per-memory `shareable`
 flag — this is a household, not a tenancy, but surprising disclosure is how a
-voice assistant loses trust.
+voice assistant loses trust. Everything kept about a person, facts and
+summaries alike, can be read and forgotten from the review UI (ADR-0070).
 
 ## 6. Tool registry
 
@@ -504,6 +505,13 @@ horizon has passed since its last activity, and the device and house logs lose
 the events older than theirs. What a reviewer curated is kept unless the house
 opts in to pruning it, and a live session's conversation is never touched. While the blob disk is below its free-space
 floor audio is not written, the log says so, and the turn goes on.
+
+A reviewer may also delete a conversation, or drop one event's audio, from the
+review UI, by the path retention takes: never a live session's conversation,
+one its person may still resume, or a satellite's or the house's own log. A
+dropped clip is recorded as `audio_dropped` with reason `redacted`, and each
+deletion leaves a line beside the journal naming what went and how much, never
+what it held (ADR-0070).
 
 Every event carries a monotonic sequence number, wall clock, the model /
 prompt / tool-schema versions in effect, and the STT and TTS identities
