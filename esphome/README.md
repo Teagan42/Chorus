@@ -80,6 +80,12 @@ device still announcing 1.
   This is validated at config time.
 - **`voice_assistant:` must not also be present.** Its state machine would stop
   the mic during TTS, which is the limit being escaped.
+- **`micro_wake_word` does not start itself.** The stock firmware starts it
+  from `voice_assistant`, so the package starts it from `on_boot` instead, and
+  runs it with `stop_after_detection: false`: the host opens a session only on
+  a `wake` frame, and a detector that stopped after the first one would make
+  the second wake of the day silent. The package's model is a stock one, pinned
+  to a commit; the household's trained model replaces it under `models:`.
 
 ## Configuring a satellite
 
