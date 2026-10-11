@@ -54,7 +54,7 @@ satellite. What exists today:
 | `cmd/enroll` — adds, lists and removes the household's voiceprints in `identities.yaml` | under test; enrolls from WAV files through the speaker-ID sidecar |
 | endpointing — `listen.Semantic` over `internal/provider/smartturn` and `sidecars/smartturn` (Smart Turn v3.2 on ONNX) | ends a turn ~340 ms after the last word on CPU; right on 76 of 88 synthetic household takes, not yet measured on recorded speech |
 | `internal/hass` — the one real tool (SPEC §14 item 5) | verified against Home Assistant 2026.10; unlocking a door or disarming the alarm waits for a yes from whoever asked |
-| `internal/listen` — the Listening child: mic stream to utterances, barge-in candidates, attribution | under test |
+| `internal/listen` — the Listening child: mic stream to utterances, barge-in candidates, attribution, and the arbiter that lets only the loudest of several satellites answer one wake | under test |
 | `internal/timer`, `internal/announce` — timers that go off where they were set, and announcements to other rooms, answerable with no wake word | under test; timers survive a restart |
 | `internal/volume` — `set_volume`: a satellite's speaker level, by level or step, in the turn's room or one named | under test |
 | `internal/memory` — what each person asked to be remembered, and a summary of each conversation for the people in it | under test |
