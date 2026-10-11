@@ -14,6 +14,7 @@ See [SPEC §6](../SPEC.md). Policy is enforced by the orchestrator from these sa
 | `ha_get_state` | cancel | household | 10000ms | no | fast |
 | `media_search` | detach | household | 20000ms | no | slow |
 | `remember` | cancel | person | 10000ms | no | fast |
+| `set_volume` | detach | household | 10000ms | no | fast |
 | `speak` | cancel | household | 10000ms | no | fast |
 | `timer_cancel` | detach | household | 10000ms | no | fast |
 | `timer_list` | cancel | household | 10000ms | no | fast |
@@ -113,6 +114,16 @@ Unknown speaker: `deny`.
 |---|---|---|---|
 | `fact` | string | yes | The fact, as one plain sentence that makes sense on its own later, e.g. Takes oat milk in coffee. |
 | `shareable` | boolean |  | True only when they say the rest of the household may know it. |
+
+## `set_volume`
+
+Set how loud a satellite's own speaker is, 0 to 100, where 0 mutes it. Give level for an exact setting, or step to go up or down from where it is now; not both. Leave room out for the satellite you are speaking through. Returns each level set and the one before it.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `level` | integer |  | The new level, 0 to 100, e.g. 40. 0 mutes the speaker. |
+| `step` | integer |  | How far to move from the current level, negative for quieter, e.g. -10 for a bit quieter or 25 for a lot louder. |
+| `room` | string |  | Which satellite: a room or satellite name, e.g. office. Leave it out for this one. |
 
 ## `speak`
 
