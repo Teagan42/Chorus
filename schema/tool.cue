@@ -181,6 +181,21 @@ tools: {
 		]
 	}
 
+	// The satellite's own speaker, set over the native API (ADR-0067). The
+	// level is sent the moment the call runs, so a barge-in keeps the result
+	// rather than leaving the model unsure how loud the room now is. Muting
+	// the speaker is level 0: the result's previous level is how it comes back.
+	set_volume: {
+		name:         "set_volume"
+		description:  "Set how loud a satellite's own speaker is, 0 to 100, where 0 mutes it. Give level for an exact setting, or step to go up or down from where it is now; not both. Leave room out for the satellite you are speaking through. Returns each level set and the one before it."
+		on_interrupt: "detach"
+		params: [
+			{name: "level", type: "integer", description: "The new level, 0 to 100, e.g. 40. 0 mutes the speaker."},
+			{name: "step", type: "integer", description: "How far to move from the current level, negative for quieter, e.g. -10 for a bit quieter or 25 for a lot louder."},
+			{name: "room", type: "string", description: "Which satellite: a room or satellite name, e.g. office. Leave it out for this one."},
+		]
+	}
+
 	media_search: {
 		name:         "media_search"
 		description:  "Search the media library."
