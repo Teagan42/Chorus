@@ -65,11 +65,13 @@ type ToolSpec struct {
 }
 
 // ConfirmRule is one confirm_when entry. A call matches when its arguments
-// carry every value in Args and, when TargetClass names any, what it acts
-// on has one of those classes (ADR-0041).
+// carry every value in Args and, when TargetClass or TargetDomain names
+// any, what it acts on has one of those classes (ADR-0041) and is in one
+// of those domains (ADR-0063).
 type ConfirmRule struct {
-	Args        map[string]string
-	TargetClass []string
+	Args         map[string]string
+	TargetClass  []string
+	TargetDomain []string
 }
 
 // Specs is every declared tool, keyed by name.
@@ -149,9 +151,15 @@ var Specs = map[string]ToolSpec{
 			{Args: map[string]string{"domain": "lock", "service": "unlock"}},
 			{Args: map[string]string{"domain": "lock", "service": "open"}},
 			{Args: map[string]string{"domain": "alarm_control_panel", "service": "alarm_disarm"}},
+			{Args: map[string]string{"domain": "valve", "service": "open_valve"}},
 			{Args: map[string]string{"domain": "cover", "service": "open_cover"}, TargetClass: []string{"door", "garage", "gate"}},
 			{Args: map[string]string{"domain": "cover", "service": "toggle"}, TargetClass: []string{"door", "garage", "gate"}},
 			{Args: map[string]string{"domain": "cover", "service": "set_cover_position"}, TargetClass: []string{"door", "garage", "gate"}},
+			{Args: map[string]string{"domain": "homeassistant", "service": "turn_on"}, TargetDomain: []string{"lock", "alarm_control_panel"}},
+			{Args: map[string]string{"domain": "homeassistant", "service": "turn_off"}, TargetDomain: []string{"lock", "alarm_control_panel"}},
+			{Args: map[string]string{"domain": "homeassistant", "service": "toggle"}, TargetDomain: []string{"lock", "alarm_control_panel"}},
+			{Args: map[string]string{"domain": "homeassistant", "service": "turn_on"}, TargetClass: []string{"door", "garage", "gate"}},
+			{Args: map[string]string{"domain": "homeassistant", "service": "turn_off"}, TargetClass: []string{"door", "garage", "gate"}},
 			{Args: map[string]string{"domain": "homeassistant", "service": "toggle"}, TargetClass: []string{"door", "garage", "gate"}},
 		},
 	},
