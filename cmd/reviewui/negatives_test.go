@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -274,6 +275,43 @@ func TestASessionOpenedByAPressSaysSo(t *testing.T) {
 	}
 	if h := get(t, s, "/conversations/"+convWeather); strings.Contains(h, "opened by the button") {
 		t.Error("a spoken wake's opening says it was a press")
+	}
+}
+
+// Alan's "hey eddie" meets an STT box that is restarting. The kitchen's log
+// shows the rejected wake and why it has no verdict: nothing could decode
+// it, so nothing judged the audio, and it never ships as a hard negative
+// (SPEC §9.3, ADR-0060).
+//
+// verifies SPEC §9.3
+func TestAWakeNothingCouldDecodeIsShownAndNeverShips(t *testing.T) {
+	store := householdJournal(t)
+	j := journal.New(store, journal.FixedClock(household.Day().Add(18*time.Hour+5*time.Minute)), household.Versions())
+	r := journal.Record{Kind: journal.KindWakeRejected, AudioRef: "blob://wake/kitchen-oven", Fields: map[string]string{
+		"reason": "transcription_failed", "wake_word": "hey_eddie", "canned_call_id": "cn_0a1b2c3d",
+	}}
+	ev, err := j.Append(context.Background(), "device:kitchen", r)
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	seq := ev.Seq
+	s := newServer(store, curation.NewMemStore(), householdBlobs(t), household.ReviewedAt)
+
+	if got := ids(corpus(t, s)); strings.Join(got, " ") != "device:kitchen/7 device:office/1" {
+		t.Errorf("corpus = %v, want the dishwasher and the podcast alone", got)
+	}
+	h := get(t, s, "/conversations/device:kitchen")
+	i := strings.Index(h, fmt.Sprintf(`id="seq-%d"`, seq))
+	if i < 0 {
+		t.Fatal("the kitchen's log does not show the undecoded wake")
+	}
+	for _, want := range []string{"wake rejected: transcription_failed", "nothing could decode it"} {
+		if !strings.Contains(h[i:], want) {
+			t.Errorf("the undecoded wake's row is missing %q", want)
+		}
+	}
+	if strings.Contains(h, fmt.Sprintf(`id="wake-%d"`, seq)) {
+		t.Error("the undecoded wake offers a verdict, as though it were a negative")
 	}
 }
 
