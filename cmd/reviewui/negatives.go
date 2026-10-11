@@ -158,11 +158,12 @@ func wakeVerdictView(conv string, n negative) wakeView {
 // wakeVerdict handles POST /conversations/{id}/wakes/{seq}/{status}: a second
 // press of the same verdict takes it off.
 func (s *server) wakeVerdict(w http.ResponseWriter, r *http.Request) {
+	// A refusal is a sentence: the page shows the reviewer this body.
 	conv := r.PathValue("id")
 	seq, err := strconv.ParseUint(r.PathValue("seq"), 10, 64)
 	st := curation.WakeStatus(r.PathValue("status"))
 	if err != nil || !strings.HasPrefix(conv, devicePrefix) || (st != curation.WakeConfirmed && st != curation.WakeDiscarded) {
-		http.NotFound(w, r)
+		http.Error(w, "That names no rejected wake on a satellite's log, so there is nothing to judge.", http.StatusNotFound)
 		return
 	}
 
@@ -171,17 +172,17 @@ func (s *server) wakeVerdict(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	ns, err := harvest.Negatives(ctx, s.journal, conv)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "The satellite's log would not read: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	i := slices.IndexFunc(ns, func(n harvest.Negative) bool { return n.Seq == seq })
 	if i < 0 {
-		http.NotFound(w, r)
+		http.Error(w, fmt.Sprintf("No rejected wake #%d is in %s. Reload the page.", seq, conv), http.StatusNotFound)
 		return
 	}
 	vs, err := s.decisions.WakeVerdicts(ctx, conv)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "The verdicts on this log would not read: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if vs[seq].Status == st {
@@ -190,7 +191,7 @@ func (s *server) wakeVerdict(w http.ResponseWriter, r *http.Request) {
 	if err := s.decisions.PutWakeVerdict(ctx, curation.WakeVerdict{
 		ConversationID: conv, Seq: seq, Status: st, JudgedAt: s.now(),
 	}); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "The verdict on the wake was not stored: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

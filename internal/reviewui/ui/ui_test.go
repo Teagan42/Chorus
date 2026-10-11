@@ -327,3 +327,25 @@ func TestTheFontsComeFromTheBinary(t *testing.T) {
 		}
 	}
 }
+
+// A failed post is said out loud: the shell loads the script that listens
+// for htmx's errors and carries the region it writes into.
+//
+// verifies SPEC §9.2
+func TestTheShellSaysWhenARequestFails(t *testing.T) {
+	h := render(t, "doc-start", ui.Doc{Title: "Browse", Static: "/static"})
+	for _, want := range []string{`src="/static/js/chorus.js"`, `id="alerts"`, `aria-live="assertive"`} {
+		if !strings.Contains(h, want) {
+			t.Errorf("the shell lacks %s", want)
+		}
+	}
+	js, err := fs.ReadFile(ui.StaticFS(), "js/chorus.js")
+	if err != nil {
+		t.Fatalf("chorus.js is not in the bundle: %v", err)
+	}
+	for _, want := range []string{"htmx:responseError", "htmx:sendError", `getElementById("alerts")`, "alert__title", "alert__body"} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("chorus.js lacks %s", want)
+		}
+	}
+}

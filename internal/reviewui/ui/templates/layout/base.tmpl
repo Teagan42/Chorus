@@ -15,10 +15,12 @@
 <link rel="stylesheet" href="{{.Static}}/css/chorus.css">
 <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
 <script src="{{.Static}}/js/htmx.min.js" defer></script>
+<script src="{{.Static}}/js/chorus.js" defer></script>
 </head>
 <body>
 <div class="page">
 {{with .Notice}}{{template "notice" .}}{{end}}
+<div id="alerts" class="alerts" aria-live="assertive"></div>
 {{end}}
 
 {{define "doc-end"}}

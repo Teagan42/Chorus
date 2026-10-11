@@ -507,30 +507,31 @@ func (s *server) pairAction(w http.ResponseWriter, r *http.Request) {
 	}
 	id, action := rest[:i], rest[i+1:]
 
+	// A refusal is a sentence: the page shows the reviewer this body.
 	pairs, err := s.pairs(r.Context(), nil)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "The journal would not read: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	p, ok := find(pairs, id)
 	if !ok {
-		http.NotFound(w, r)
+		http.Error(w, fmt.Sprintf("No pair %q is in the journal this server reads, so there is nothing to act on. Reload the page: the list may have moved on.", id), http.StatusNotFound)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "The form did not read: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	mode, draft, err := p.Apply(action, r.PostForm)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "The pair cannot take that: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	// Only a done flow or a save changes the pair; the other modes are views.
 	if mode == ui.PairModeDone || action == "save" || action == "undo" {
 		if err := s.persist(r.Context(), p); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "The verdict was not stored: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -543,7 +544,7 @@ func (s *server) pairAction(w http.ResponseWriter, r *http.Request) {
 	// Re-read so the list and counts reflect the verdict just stored.
 	pairs, err = s.pairs(r.Context(), nil)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "The verdict is stored, but the list would not re-read: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	s.render(w, "pair-action-curate", map[string]any{

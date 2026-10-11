@@ -290,6 +290,42 @@ func TestE2EEveryScreenObeysItsOwnPolicy(t *testing.T) {
 	}
 }
 
+// Postgres goes away while Alice is labelling. Pressing a label stores
+// nothing, and the page says so in the server's words rather than leaving
+// a chip that looks pressed and is not; once the database is back, the
+// next press lands and takes the alert with it.
+//
+// verifies SPEC §9.2
+func TestE2EAFailedPostSaysSo(t *testing.T) {
+	s, broken := newBrokenHouseholdServer(t)
+	p := open(t, s)
+	p.visit("/conversations/" + convZeppel)
+	action := fmt.Sprintf("/conversations/%s/turns/%d/labels/too_slow", convZeppel, zeppelinAsk)
+	p.expect(http.StatusInternalServerError, action)
+
+	p.click(chip(zeppelinAsk, "too_slow"))
+	p.waitText("#alerts .alert", "“Too slow” did not go through.")
+	p.waitText("#alerts .alert", "The labels were not stored")
+	p.waitText("#alerts .alert", "connection refused")
+	p.waitText("#alerts .alert", "500 Internal Server Error from POST "+action)
+	p.pressed(chip(zeppelinAsk, "too_slow"), false)
+	p.shot("conversation-post-failed")
+
+	p.click("#alerts .alert button")
+	if p.has("#alerts .alert") {
+		t.Error("dismissing the alert left it on the page")
+	}
+
+	p.click(chip(zeppelinAsk, "too_slow"))
+	p.waitText("#alerts .alert", "did not go through")
+	broken.mend()
+	p.click(chip(zeppelinAsk, "too_slow"))
+	p.pressed(chip(zeppelinAsk, "too_slow"), true)
+	if p.has("#alerts .alert") {
+		t.Errorf("a label that landed left the old alert up: %q", p.text("#alerts .alert"))
+	}
+}
+
 // verifies SPEC §9.1
 func TestE2ECurateGuardsThenSavesAFix(t *testing.T) {
 	s, _ := newTestServer(t)

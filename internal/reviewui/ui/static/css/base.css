@@ -42,6 +42,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
   clip: rect(0 0 0 0); white-space: nowrap;
 }
 
+/* Where a failed request is said out loud (js/chorus.js). Empty, it takes
+   no room. */
+.alerts { padding: 14px 24px; }
+.alerts:empty { display: none; }
+
 /* htmx's own indicator rules, here because the page's policy lets no
    <style> element in; base.tmpl tells htmx not to inject them. */
 .htmx-indicator { opacity: 0; }
