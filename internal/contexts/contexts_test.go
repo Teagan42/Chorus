@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/teagan42/chorus/internal/provider/ollama"
@@ -160,5 +161,23 @@ func TestFileNamesRoundTripToLabels(t *testing.T) {
 		if _, ok := labelOf(name); ok {
 			t.Errorf("%s passed for a label", name)
 		}
+	}
+}
+
+// The build's own labels resolve to its own text, and an archived label from
+// before resolves too.
+//
+// verifies SPEC §13
+func TestDefaultResolvesTheBuildAndTheArchive(t *testing.T) {
+	d := Default()
+	if p, ok := d.Prompt(ollama.PromptVersion(ollama.DefaultPrompt)); !ok || p != ollama.DefaultPrompt {
+		t.Errorf("the build's prompt resolved to %q, %v", p, ok)
+	}
+	if s, ok := d.ToolSchema(ollama.ToolSchemaVersion(registry.Offered())); !ok || s != ollama.ToolSchema(registry.Offered()) {
+		t.Errorf("the build's tool schema resolved to %q, %v", s, ok)
+	}
+	// The first build that ran the cascade end to end.
+	if p, ok := d.Prompt("sha256:711b8a1af495"); !ok || !strings.HasPrefix(p, "You are a voice assistant in a home.") {
+		t.Errorf("an archived prompt resolved to %q, %v", p, ok)
 	}
 }
