@@ -35,28 +35,35 @@ satellite. What exists today:
 
 | Piece | State |
 |---|---|
-| `cmd/chorusd` — the orchestrator daemon: accepts satellites, one session supervisor per link over a shared journal, holds each device's native API open and drives its LED ring | under test against the in-process satellite; unproven on hardware |
+| `cmd/chorusd` — the orchestrator daemon: accepts satellites, one session supervisor per link over a shared journal, holds each device's native API open and drives its LED ring and speaker volume | under test against the in-process satellite; unproven on hardware |
 | `internal/esphome` — native API client, Noise transport | dials real hardware |
-| `internal/bridge` — the audio link, and `bridgetest`, the in-process satellite that is the primary test asset | under test; full duplex proven on hardware (§3.3.2) |
-| `internal/session` — actor/supervisor, speech channel, barge-in gate | under test |
+| `internal/bridge` — the audio link, which authenticates each device before any audio (protocol 3), and `bridgetest`, the in-process satellite that is the primary test asset | under test; full duplex proven on hardware (§3.3.2), the protocol 3 handshake not yet run against a device |
+| `internal/session` — actor/supervisor, speech channel, barge-in gate, hot phrases, what the ring shows | under test |
 | `internal/journal` — append-only log on Postgres, `replay()` | under test |
-| `internal/satellite` — renders speech onto a device; the truncation point is the DAC's | under test |
-| `internal/blob` — the audio a journal event refers to | under test |
-| `esphome/components/chorus_bridge` — firmware component | runs on a Satellite1 |
+| `internal/satellite` — renders speech onto a device; the truncation point is the DAC's; canned lines from audio built into the binary until Kokoro answers | under test |
+| `internal/blob` — the audio a journal event refers to, and the free-space floor below which it is not written | under test |
+| `internal/retention` — prunes audio and logs by each satellite's horizon, and the deletion path the review UI shares | under test; the Postgres delete path in the db tier |
+| `internal/ops` — `chorusd`'s `/healthz`, `/readyz` and `/metrics` on loopback | under test |
+| `esphome/components/chorus_bridge` — firmware component, with the on-device "Hey Eddie" wake word, a Speaker Volume number, the HAT's mute switch and the ring's Muted and Error effects | an earlier protocol ran full duplex on a Satellite1; this firmware is validated by `esphome config` and its handshake MAC on the host, and has not been flashed |
 | `cmd/probe` — connect to a satellite and dump what it exposes | works |
 | LLM — `internal/provider/ollama`, the turn engine | dials a real endpoint; asked again with each tool result and the conversation so far |
 | TTS — `internal/provider/kokoro`, resampled to the device's rate | dials a real endpoint |
 | STT — `internal/stt` partials over `internal/provider/speaches` | measured against real Parakeet TDT 0.6B v2 on CPU |
-| speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX); `cmd/enroll` writes the household's voiceprints | thresholds measured on 37 speakers; sidecar runs without Docker; enrollment from WAV files on the command line |
+| speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX) | thresholds measured on 37 speakers; sidecar runs without Docker |
+| `cmd/enroll` — adds, lists and removes the household's voiceprints in `identities.yaml` | under test; enrolls from WAV files through the speaker-ID sidecar |
 | endpointing — `listen.Semantic` over `internal/provider/smartturn` and `sidecars/smartturn` (Smart Turn v3.2 on ONNX) | ends a turn ~340 ms after the last word on CPU; right on 76 of 88 synthetic household takes, not yet measured on recorded speech |
-| `internal/hass` — the one real tool (SPEC §14 item 5) | verified against Home Assistant 2026.10; unlocking a door or disarming the alarm waits for a yes |
+| `internal/hass` — the one real tool (SPEC §14 item 5) | verified against Home Assistant 2026.10; unlocking a door or disarming the alarm waits for a yes from whoever asked |
 | `internal/listen` — the Listening child: mic stream to utterances, barge-in candidates, attribution | under test |
 | `internal/timer`, `internal/announce` — timers that go off where they were set, and announcements to other rooms, answerable with no wake word | under test; timers survive a restart |
-| `internal/harvest`, `cmd/harvest` — barge-ins as DPO candidates | under test |
-| `cmd/reviewui` — Browse, Triage, Review, Replay, Curate and Export over the journal ([guide](docs/reviewui/README.md), [demo](https://teagan42.github.io/Chorus/demo/)) | under test, in a headless Chrome too |
+| `internal/volume` — `set_volume`: a satellite's speaker level, by level or step, in the turn's room or one named | under test |
+| `internal/memory` — what each person asked to be remembered, and a summary of each conversation for the people in it | under test |
+| `internal/harvest`, `cmd/harvest` — barge-ins as DPO candidates, and the dataset export (format 2) | under test |
+| `internal/contexts` — the text of every prompt and tool-schema version, filed by the hash the journal records | under test; a test recomputes every hash |
+| `cmd/reviewui` — Browse, Triage, Review, Replay, Curate, Export, Memory and Deletions over the journal, on loopback unless told otherwise ([guide](docs/reviewui/README.md), [demo](https://teagan42.github.io/Chorus/demo/)) | under test, in a headless Chrome too |
 | `internal/triage` — barge-ins, failures, repeated asks, slow answers and speaker flips, derived on read | under test |
 | `internal/rerun` — edit-and-replay: a conversation's turns asked again under another prompt or model | under test |
 | `internal/curation` — a reviewer's verdicts, in a table beside the journal | under test |
+| `internal/erasure` — the trail of what a reviewer deleted, by id and count, never content | under test |
 
 `task spec` reports which spec clauses have tests behind them.
 
@@ -135,13 +142,19 @@ Flash the firmware, then point the probe at it.
 
 ```sh
 cd esphome
-cp secrets.example.yaml secrets.yaml      # wifi + api encryption key
+cp secrets.example.yaml secrets.yaml      # wifi, api encryption key, OTA password
 cd ..
 
 task firmware:config                      # validate before flashing
 task firmware:compile                     # downloads ESP-IDF on first run
 task firmware:upload                      # over the air
 ```
+
+`firmware:upload` flashes what the last `firmware:compile` built and does
+not compile, so compile after every change. The device asks for
+`ota_password` before it accepts a flash. The audio link is protocol 3
+(ADR-0066), and a host refuses a satellite on any other, so **reflash every
+satellite whenever the host moves to a new protocol**, in step with it.
 
 `satellite1.yaml` is the real FutureProofHomes Satellite1 wiring and is what
 the firmware tasks build by default. Set `orchestrator_host` in it to the
@@ -158,6 +171,11 @@ Then describe the device to the host side:
 cp devices.example.yaml devices.yaml       # gitignored; psk is the base64 api key
 task probe -- -listen 10s
 ```
+
+Each satellite's `name` in `devices.yaml` must be the node name the device
+reports, MAC suffix included (`satellite1-4b2c10`), and its `address` the
+IP it dials from: the audio link's handshake proves that name under that
+`psk`, and refuses a connection from anywhere else.
 
 `probe` completes the Noise handshake, prints the device info and entity list,
 and then streams incoming messages for as long as you asked. It is the phase-1
@@ -189,8 +207,9 @@ energy and words alone, so the television can interrupt (ADR-0031); without
 the second every turn ends after 800 ms of quiet (ADR-0036); without the third
 the `ha_*` tools answer `not_implemented`, which the model sees. Point
 `orchestrator_host` in the device YAML at this machine, and the satellites
-dial in on port 6055. `docker compose up chorusd` runs the same daemon as an
-image beside the database.
+dial in on port 6055 and prove who they are before any audio.
+`docker compose up chorusd` runs the same daemon as an image beside the
+database.
 
 The model services start locally one task each: `task stt:up`, `task tts:up`,
 `task speakerid:up` and `task smartturn:up` (or `task speakerid:serve` and
@@ -223,13 +242,22 @@ change, and the command says so.
 ### Review what happened
 
 ```sh
-task reviewui                             # http://localhost:8080, same .env
+task reviewui                             # http://127.0.0.1:8080, same .env
 ```
 
 The review UI reads the journal and the blob directory `chorusd` writes:
 browse the day per satellite, triage what's worth a look, listen to each
 barge-in cut where the speaker actually stopped, re-run a conversation under
-an edited prompt, curate the pairs, and download the DPO dataset.
+an edited prompt, curate the pairs, and download the dataset. It also reads
+and forgets what the house remembers about each person, and deletes a
+conversation or a clip, keeping a line of what went (ADR-0070).
+
+It has no login and plays every recording in the house, so it listens on
+loopback unless told otherwise: `task reviewui -- -addr :8080 -hosts
+review.home` opens it to the LAN by the names people will type, and it
+refuses a request addressed to any other. `-read-only` (or
+`CHORUS_REVIEWUI_READ_ONLY=true`) hides and refuses every deletion, for a
+reviewer who should label but not delete.
 [`docs/reviewui/README.md`](docs/reviewui/README.md) walks every screen, and
 the [demo](https://teagan42.github.io/Chorus/demo/) runs it in your browser
 over a made-up household's Thursday.
@@ -240,9 +268,9 @@ dataset comes from the Export screen.
 
 ### Retention
 
-Nothing is deleted until `devices.yaml` says how long to keep it. Horizons
-are days; absent or `0` keeps forever. A satellite's own block overrides the
-house's, horizon by horizon:
+Retention deletes nothing until `devices.yaml` says how long to keep it.
+Horizons are days; absent or `0` keeps forever. A satellite's own block
+overrides the house's, horizon by horizon:
 
 ```yaml
 retention:          # the house
@@ -295,7 +323,7 @@ has the metric names and why OpenTelemetry waits.
 
 ## Tests
 
-Six tiers, separated because five of them cannot run everywhere. `task check`
+Seven tiers, separated because six of them cannot run everywhere. `task check`
 is the gate; the others are what the gate can't demand of every machine.
 
 | Task | Needs | Runs |
@@ -304,8 +332,9 @@ is the gate; the others are what the gate can't demand of every machine.
 | `task test:db` | Postgres (`task db:up`) | separate CI job, every push |
 | `task test:e2e` | Chrome or Chromium (`CHORUS_E2E_CHROME`) | separate CI job, every push |
 | `task test:sidecars` | `uv`; fetches the two pinned sidecar models | separate CI job, every push |
-| `task test:models` | GPU sidecars | self-hosted runner |
-| `task test:hardware` | a real satellite | self-hosted runner, manual |
+| `task firmware:test` | a C++ compiler and mbedTLS | the firmware CI job, every push |
+| `task test:models` | GPU sidecars | self-hosted runner: nightly, on dispatch, or a PR labelled `ci:self-hosted` |
+| `task test:hardware` | a real satellite | self-hosted runner: nightly, on dispatch, or a PR labelled `ci:self-hosted` |
 
 Hermetic means hermetic: no network, no wall clock, no GPU, no device. A test
 that reaches the network is a bug in the test.
@@ -321,6 +350,7 @@ The site is these same files, rebuilt and republished on every push to `main`.
 | [`docs/adr/`](docs/adr/) | Every architectural decision, and why each one went that way. |
 | [`docs/reference/`](docs/reference/) | Generated from the CUE schemas — events, tools. |
 | [`docs/reviewui/`](docs/reviewui/README.md) | The review UI: running it, every screen, its browser tests. |
+| [`docs/hardware/`](docs/hardware/README.md) | The Chorus main board under the Satellite1 HAT: its design, and the XMOS firmware for four raw mics. |
 | [`esphome/README.md`](esphome/README.md) | The `chorus_bridge` wire protocol. |
 | [`sidecars/speakerid/README.md`](sidecars/speakerid/README.md) | The speaker-ID sidecar and its embed contract. |
 | [`sidecars/smartturn/README.md`](sidecars/smartturn/README.md) | The Smart Turn sidecar and its end-of-turn contract. |
@@ -328,9 +358,9 @@ The site is these same files, rebuilt and republished on every push to `main`.
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Five rules. Read before the first PR. |
 
 Docs are build artifacts or they are executed: `task test:docs` extracts and
-runs the code examples, `task spec:check` fails on spec clauses that claim
-coverage they don't have, and `task docs:build` fails on a link, anchor, or
-screenshot that no longer exists.
+runs the code examples, `task spec:check` fails on a test citing a spec
+clause that no longer exists or a §15 clause no test covers, and `task
+docs:build` fails on a link, anchor, or screenshot that no longer exists.
 
 ## Contributing
 
