@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/teagan42/chorus/internal/blob"
@@ -81,6 +82,27 @@ func TestAMissingBlobIs404AndABadRefIs400(t *testing.T) {
 	}
 	if w := get(t, h, "../../etc/passwd"); w.Code != http.StatusBadRequest {
 		t.Errorf("bad ref = %d, want 400", w.Code)
+	}
+}
+
+// A clip retention pruned, or the disk guard never wrote, is a plain 404
+// that says so, never a server error: the journal still names the ref.
+//
+// verifies SPEC §8, §9.2
+func TestAPrunedBlobIsANotFoundThatSaysWhy(t *testing.T) {
+	s, ref, _ := store(t)
+	if err := s.(*blob.Memory).Remove(context.Background(), ref); err != nil {
+		t.Fatal(err)
+	}
+	w := get(t, audio.Handler(s), ref)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("pruned blob = %d, want 404", w.Code)
+	}
+	if body := w.Body.String(); !strings.Contains(body, "no longer kept") {
+		t.Errorf("body = %q; want it to say the audio is no longer kept", body)
+	}
+	if cc := w.Header().Get("Cache-Control"); strings.Contains(cc, "immutable") {
+		t.Errorf("cache-control = %q on a missing clip", cc)
 	}
 }
 

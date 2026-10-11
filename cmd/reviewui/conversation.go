@@ -56,6 +56,7 @@ var kindTones = map[journal.Kind]ui.Tone{
 	journal.KindMemoryRecalled: ui.ToneConv, journal.KindConversationSummarized: ui.ToneConv,
 	journal.KindConfirmationRequested: ui.ToneHome, journal.KindConfirmationGiven: ui.ToneHome,
 	journal.KindModelFailed: ui.ToneMuted, journal.KindSpeechFailed: ui.ToneVoice,
+	journal.KindAudioDropped: ui.ToneMuted,
 }
 
 // logContext is what a row needs from the events before it: the call a
@@ -64,6 +65,39 @@ type logContext struct {
 	calls map[string]journal.Event
 	heard journal.Event
 	loc   *time.Location
+
+	// gone are the clips the log later says are not kept, and why
+	// (ADR-0065): read ahead, since the record comes long after the clip.
+	gone map[string]string
+}
+
+// goneClips is each ref an audio_dropped names, with its reason.
+func goneClips(events []journal.Event) map[string]string {
+	gone := map[string]string{}
+	for _, e := range events {
+		if e.Kind == journal.KindAudioDropped {
+			gone[e.Fields["audio_ref"]] = e.Fields["reason"]
+		}
+	}
+	return gone
+}
+
+// clip is where a row plays ref from, or empty with why when it is gone.
+func (lc *logContext) clip(ref string) (src, gone string) {
+	if lc != nil {
+		if reason, ok := lc.gone[ref]; ok {
+			return "", droppedBecause(reason)
+		}
+	}
+	return audioSrc(ref), ""
+}
+
+// droppedBecause says why a clip is not kept, as a note.
+func droppedBecause(reason string) string {
+	if reason == "disk_low" {
+		return "audio not kept: disk full"
+	}
+	return "audio pruned"
 }
 
 func (lc *logContext) see(e journal.Event) {
@@ -105,12 +139,18 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) logRow {
 		Kind:   ui.SigTag{Text: strings.ReplaceAll(string(e.Kind), "_", " "), Tone: kindTones[e.Kind]},
 		Who:    string(e.Actor),
 	}
+	var gone string
 	if e.AudioRef != "" {
-		row.Audio = audioSrc(e.AudioRef)
+		row.Audio, gone = lc.clip(e.AudioRef)
 	}
 	if ref := f["second_audio_ref"]; ref != "" {
-		row.Second = audioSrc(ref)
+		row.Second, _ = lc.clip(ref)
 	}
+	defer func() {
+		if gone != "" {
+			row.Note = strings.TrimPrefix(row.Note+" · "+gone, " · ")
+		}
+	}()
 	switch e.Kind {
 	case journal.KindSessionOpened:
 		row.Text = "opened on " + f["satellite"]
@@ -144,6 +184,11 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) logRow {
 		row.Text = "wake rejected: " + f["reason"]
 	case journal.KindPresenceChanged:
 		row.Text, row.Note = "presence: "+f["state"], f["sensor"]
+	case journal.KindAudioDropped:
+		row.Text, row.Note = droppedBecause(f["reason"]), f["audio_ref"]
+		if f["days"] != "" {
+			row.Text += " after " + f["days"] + " days"
+		}
 	case journal.KindSpeechStarted:
 		row.Text, row.Note = "first audio", "call "+f["call_id"]
 		if ms, err := strconv.Atoi(f["wait_ms"]); err == nil {
@@ -371,7 +416,7 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 	}
 	c := summarize(id, events, sigs)
 	rows := make([]logRow, 0, len(events)+len(house))
-	lc := logContext{loc: s.now().Location()}
+	lc := logContext{loc: s.now().Location(), gone: goneClips(events)}
 	for _, e := range events {
 		for len(house) > 0 && !house[0].At.After(e.At) {
 			rows = append(rows, houseRowOf(house[0], events[0]))
