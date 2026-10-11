@@ -47,7 +47,7 @@ satellite. What exists today:
 | LLM — `internal/provider/ollama`, the turn engine | dials a real endpoint; asked again with each tool result and the conversation so far |
 | TTS — `internal/provider/kokoro`, resampled to the device's rate | dials a real endpoint |
 | STT — `internal/stt` partials over `internal/provider/speaches` | measured against real Parakeet TDT 0.6B v2 on CPU |
-| speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX) | thresholds measured on 37 speakers; sidecar runs without Docker |
+| speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX); `cmd/enroll` writes the household's voiceprints | thresholds measured on 37 speakers; sidecar runs without Docker; enrollment from WAV files on the command line |
 | endpointing — `listen.Semantic` over `internal/provider/smartturn` and `sidecars/smartturn` (Smart Turn v3.2 on ONNX) | ends a turn ~340 ms after the last word on CPU; right on 76 of 88 synthetic household takes, not yet measured on recorded speech |
 | `internal/hass` — the one real tool (SPEC §14 item 5) | verified against Home Assistant 2026.10; unlocking a door or disarming the alarm waits for a yes |
 | `internal/listen` — the Listening child: mic stream to utterances, barge-in candidates, attribution | under test |
@@ -195,6 +195,30 @@ image beside the database.
 The model services start locally one task each: `task stt:up`, `task tts:up`,
 `task speakerid:up` and `task smartturn:up` (or `task speakerid:serve` and
 `task smartturn:serve` without Docker). Ollama is yours to run.
+
+### Enroll the household
+
+Speaker identification is only as good as who is enrolled: until someone is,
+every voice is a guest, person-scoped tools stay closed, and the barge-in
+gate cannot tell the household from the television (ADR-0031). `enroll`
+writes `identities.yaml`, gitignored beside `devices.yaml`, which is where
+`chorusd` looks for it. Each person records at least three guided phrases
+as WAV, 16 kHz mono 16-bit PCM, the satellite's own format; nothing is
+resampled, because the thresholds were measured on that audio.
+
+```sh norun
+task speakerid:up                         # the sidecar the phrases embed through
+task enroll -- add -id teagan -name "Teagan"     -wav one.wav -wav two.wav -wav three.wav
+task enroll -- list                       # id, name, how many phrases; never the vectors
+task enroll -- remove -id teagan
+```
+
+`task enroll` reads `SPEAKERID_URL` from the same `.env` as `task run`
+(`-speakerid-url` overrides it), and `-identities PATH` names another file.
+The file records the sidecar's model, so a person embedded under a different
+model than the file already holds is refused rather than matched as noise.
+`chorusd` reads the household at startup only: restart it after every
+change, and the command says so.
 
 ### Review what happened
 

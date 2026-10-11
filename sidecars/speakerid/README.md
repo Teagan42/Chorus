@@ -84,4 +84,6 @@ the review UI demo plays. `SPEAKERID_CORPUS` swaps in `<dir>/<speaker>/*.wav`
 ruff; CI runs that task on every push. The models tier of the Go tests covers the same ground
 over HTTP, and with `-speakerid-wavs` runs a real enrollment and
 identification pass, which is where the thresholds in `internal/identity`
-come from. `task test` runs nothing in Python.
+come from. That pass measures; `cmd/enroll` (`task enroll -- add ...`) is
+how a household actually enrolls, writing the `identities.yaml` chorusd
+reads. `task test` runs nothing in Python.
