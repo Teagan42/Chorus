@@ -58,6 +58,9 @@ type Config struct {
 
 	// BlobMinFreeMiB is the disk guard's floor as written; blobFloor reads it.
 	BlobMinFreeMiB string
+
+	// OpsListen is where health, readiness and metrics are served, or "off".
+	OpsListen string
 }
 
 // configFromEnv reads the environment through getenv, so a test never reads
@@ -78,8 +81,12 @@ func configFromEnv(getenv func(string) string) Config {
 		HassToken:    getenv(hass.TokenEnv),
 	}
 	cfg.BlobMinFreeMiB = getenv(blobMinFreeEnv)
+	cfg.OpsListen = getenv(opsListenEnv)
 	if cfg.Listen == "" {
 		cfg.Listen = defaultListen
+	}
+	if cfg.OpsListen == "" {
+		cfg.OpsListen = defaultOpsListen
 	}
 	if cfg.DSN == "" {
 		cfg.DSN = journal.DefaultDSN
@@ -105,6 +112,9 @@ func (c Config) validate() error {
 	}
 	if _, err := c.blobFloor(); err != nil {
 		missing = append(missing, fmt.Sprintf("  %-20s %v", blobMinFreeEnv, err))
+	}
+	if err := c.opsListenErr(); err != nil {
+		missing = append(missing, fmt.Sprintf("  %-20s %v", opsListenEnv, err))
 	}
 	// Half a Home Assistant configuration is a mistake, not a choice.
 	switch {

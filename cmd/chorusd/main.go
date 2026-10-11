@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -34,6 +35,7 @@ import (
 	"github.com/teagan42/chorus/internal/identity"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/ops"
 )
 
 // version is set by the release build (-X main.version=...).
@@ -42,9 +44,17 @@ var version = "dev"
 func main() {
 	devices := flag.String("devices", "devices.yaml", "satellite inventory path")
 	identities := flag.String("identities", "", "enrolled voiceprints path (default: identities.yaml beside the inventory; absent means nobody is enrolled)")
+	check := flag.Bool("healthcheck", false, "ask the running daemon's /healthz on $"+opsListenEnv+" and exit 0 if it is alive: the container's healthcheck, as the image has no shell")
 	flag.Parse()
 
 	cfg := configFromEnv(os.Getenv)
+	if *check {
+		if err := healthcheck(context.Background(), &http.Client{Timeout: ops.DefaultTimeout}, cfg.OpsListen); err != nil {
+			fmt.Fprintf(os.Stderr, "chorusd: healthcheck: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	cfg.Devices = *devices
 	cfg.Identities = *identities
 	if cfg.Identities == "" {
@@ -110,18 +120,34 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 	}
 	// Validated with the rest of the environment, so this cannot fail.
 	floor, _ := cfg.blobFloor()
+	metrics := ops.NewMetrics(version)
 	var (
-		blobs blob.Store = dir
-		prune            = &pruneDeps{Curation: curation.NewPgStore(pool), Blobs: dir}
+		blobs = metrics.MeterBlobs(dir)
+		prune = &pruneDeps{Curation: curation.NewPgStore(pool), Blobs: dir}
 	)
 	if floor > 0 {
-		g := blob.Guard(dir, blob.GuardConfig{Disk: blob.DirFree(cfg.BlobDir), Floor: floor, Clock: wallClock{}, Log: log})
+		g := blob.Guard(blobs, blob.GuardConfig{
+			Disk: blob.DirFree(cfg.BlobDir), Floor: floor, Clock: wallClock{}, Log: log,
+			OnDecline: metrics.BlobDeclined,
+		})
 		blobs, prune.NotKept = g, g
 	}
 
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return fmt.Errorf("listen for satellites (%s): %w", listenEnv, err)
+	}
+	var watch *opsDeps
+	if cfg.opsEnabled() {
+		opsLn, err := net.Listen("tcp", cfg.OpsListen)
+		if err != nil {
+			_ = ln.Close()
+			return fmt.Errorf("listen for ops (%s): %w", opsListenEnv, err)
+		}
+		// No client timeout: each probe is bounded by readiness's own.
+		watch = &opsDeps{Listener: opsLn, Metrics: metrics, Checks: opsChecks(cfg, &http.Client{}, pool.Ping)}
+	} else {
+		log.Warn("ops endpoints are off: " + opsListenEnv + "=off, so nothing serves health, readiness or metrics")
 	}
 	log.Info("chorusd listening", "version", version, "addr", ln.Addr().String(),
 		"satellites", len(inv.Satellites), "model", prov.versions.Model,
@@ -139,6 +165,7 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 		Clock:     wallClock{},
 		Timers:    wallTimers{},
 		providers: prov,
+		Ops:       watch,
 		Log:       log,
 	})
 }
