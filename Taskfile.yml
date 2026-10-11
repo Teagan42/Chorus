@@ -431,3 +431,10 @@ tasks:
   harvest:
     desc: Export a conversation's barge-in DPO candidates as JSONL (needs Postgres)
     cmds: ["go run ./cmd/harvest {{.CLI_ARGS}}"]
+
+  enroll:
+    desc: Add, list or remove the household's voiceprints in identities.yaml, e.g. -- add -id teagan -wav one.wav -wav two.wav -wav three.wav (needs the speaker-ID sidecar)
+    # Same .env as `run`: SPEAKERID_URL is where chorusd finds the sidecar, so
+    # a person enrolls against the model chorusd will match them with.
+    dotenv: [".env"]
+    cmds: ["go run ./cmd/enroll {{.CLI_ARGS}}"]
