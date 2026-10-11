@@ -45,6 +45,7 @@ events: {
 			{name: "resumed", type: "boolean", description: "Joined an existing conversation rather than starting one."},
 			{name: "announced", type: "boolean", description: "Opened with no wake word, to say an announcement: a timer going off, or something asked to be said in this room (SPEC §4)."},
 			{name: "room", type: "string", description: "Where the device is, as the inventory names it: what the model is told it is speaking from, so \"the lights\" can mean this room's (SPEC §5). Empty when the inventory names no room."},
+			{name: "wake_word", type: "string", description: "The name the device's wake frame carried, as wake_rejected records it: the wake model's, or button for a push-to-talk press (bridge.WakeButton). Empty for an announcement, which no wake opened, and in logs from before it was recorded."},
 		]
 	}
 	wake_rejected: {

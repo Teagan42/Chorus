@@ -248,6 +248,35 @@ func TestAButtonPressIsShownAndNeverShips(t *testing.T) {
 	}
 }
 
+// Bob presses the office Voice PE's button and asks for the porch light.
+// The conversation's first row says the session was opened by a press, so
+// a reviewer can tell it from a spoken wake (SPEC §9.3, ADR-0072).
+//
+// verifies SPEC §9.3
+func TestASessionOpenedByAPressSaysSo(t *testing.T) {
+	store := householdJournal(t)
+	j := journal.New(store, journal.FixedClock(household.Day().Add(21*time.Hour+45*time.Minute)), household.Versions())
+	r := journal.Record{Kind: journal.KindSessionOpened, Fields: map[string]string{
+		"satellite": "office", "speaker_id": "bob", "resumed": "false", "wake_word": "button",
+	}}
+	if _, err := j.Append(context.Background(), "conv_porch", r); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	s := newServer(store, curation.NewMemStore(), householdBlobs(t), household.ReviewedAt)
+
+	h := get(t, s, "/conversations/conv_porch")
+	i := strings.Index(h, `id="seq-1"`)
+	if i < 0 {
+		t.Fatal("the conversation does not show its opening")
+	}
+	if !strings.Contains(h[i:], "opened by the button") {
+		t.Errorf("the opening row does not say it was a press:\n%s", h[i:min(len(h), i+600)])
+	}
+	if h := get(t, s, "/conversations/"+convWeather); strings.Contains(h, "opened by the button") {
+		t.Error("a spoken wake's opening says it was a press")
+	}
+}
+
 // A verdict names a rejected wake in a satellite's log, or nothing.
 //
 // verifies SPEC §9.3

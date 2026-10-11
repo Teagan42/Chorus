@@ -18,7 +18,7 @@ func TestWakeWordOpensTheSession(t *testing.T) {
 	r := newRig(t, nil, nil)
 
 	s, err := r.sup.Open(t.Context(), session.Wake{
-		Satellite: "kitchen", PersonID: "alice", Confidence: 0.91,
+		Satellite: "kitchen", PersonID: "alice", Confidence: 0.91, Word: "hey_eddie",
 	})
 	if err != nil {
 		t.Fatalf("open: %v", err)
@@ -30,6 +30,9 @@ func TestWakeWordOpensTheSession(t *testing.T) {
 	}
 	if got := r.eventOf(t, s.ConversationID(), journal.KindSessionOpened).Fields["wake_confidence"]; got != "0.91" {
 		t.Errorf("wake_confidence = %q, want 0.91", got)
+	}
+	if got := r.eventOf(t, s.ConversationID(), journal.KindSessionOpened).Fields["wake_word"]; got != "hey_eddie" {
+		t.Errorf("wake_word = %q, want hey_eddie", got)
 	}
 }
 
