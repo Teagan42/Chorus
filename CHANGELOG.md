@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.17.0](https://github.com/Teagan42/Chorus/compare/v0.16.0...v0.17.0) (2026-10-11)
+
+
+### Features
+
+* **bridge:** authenticate the audio link device, protocol 3 (ADR-0066) ([#94](https://github.com/Teagan42/Chorus/issues/94)) ([5376049](https://github.com/Teagan42/Chorus/commit/5376049011162ae87a67e295b3ae6ce9affe2dd9))
+* **firmware:** wake on the household's own "Hey Eddie" ([#92](https://github.com/Teagan42/Chorus/issues/92)) ([026352f](https://github.com/Teagan42/Chorus/commit/026352f4e3d7422aba6a02b858dfaebe8f42ee31))
+* **retention:** prune audio and logs by per-satellite horizons ([#96](https://github.com/Teagan42/Chorus/issues/96)) ([8b823b4](https://github.com/Teagan42/Chorus/commit/8b823b4dea8df31c4e91bf06d762e86ec9bc69e1))
+
 ## [0.16.0](https://github.com/Teagan42/Chorus/compare/v0.15.0...v0.16.0) (2026-10-11)
 
 
