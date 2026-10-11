@@ -42,6 +42,8 @@ COPY --from=build --chown=nonroot:nonroot /out/blobs /var/lib/chorus/blobs
 ENV CHORUS_LISTEN=:6055 \
     CHORUS_BLOB_DIR=/var/lib/chorus/blobs
 
-EXPOSE 6055
+# 6056 is health, readiness and metrics, on loopback unless CHORUS_OPS_LISTEN
+# says otherwise (ADR-0068).
+EXPOSE 6055 6056
 ENTRYPOINT ["/chorusd"]
 CMD ["-devices", "/etc/chorus/devices.yaml"]
