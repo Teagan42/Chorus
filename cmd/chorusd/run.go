@@ -26,7 +26,8 @@ import (
 // that is not a satellite cannot hold a serve goroutine forever.
 const helloTimeout = 10 * time.Second
 
-// minBargeInWords is the gate's third stage: one word is usually "uh" (SPEC §4.3).
+// minBargeInWords is the gate's third stage: one word is usually "uh", and
+// a hot phrase such as "stop" skips it (SPEC §4.3, ADR-0064).
 const minBargeInWords = 2
 
 // rehearseEvery is how often rendering the canned lines is retried while the

@@ -367,18 +367,29 @@ func versions() journal.Versions {
 
 func newRig(t *testing.T, steps []step, tweak ...func(*listen.Config)) *rig {
 	t.Helper()
+	return newRigSession(t, steps, nil, tweak...)
+}
+
+// newRigSession also changes the supervisor's configuration, such as the
+// tools a turn may call.
+func newRigSession(t *testing.T, steps []step, sess func(*session.Config), tweak ...func(*listen.Config)) *rig {
+	t.Helper()
 	link, dev := bridgetest.Dial(t, 2)
 	store := journal.NewMemStore()
 	clk := journal.FixedClock(time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC))
 	jnl := journal.New(store, clk, versions())
 	engine := &scriptEngine{steps: steps}
 	speaker := newSpeaker()
-	sup, err := session.New(session.Config{
+	scfg := session.Config{
 		Journal: jnl, Store: store, Clock: clk, Timers: neverTimers{},
 		Engine: engine, Speaker: speaker,
 		Conversations: session.NewConversations(clk, session.MigrationWindow),
 		Gate:          session.Gate{MinEnergy: 0.1, MinWords: 2, Household: []string{"alan"}},
-	})
+	}
+	if sess != nil {
+		sess(&scfg)
+	}
+	sup, err := session.New(scfg)
 	if err != nil {
 		t.Fatalf("supervisor: %v", err)
 	}

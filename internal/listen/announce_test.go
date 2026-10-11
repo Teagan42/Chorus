@@ -54,6 +54,7 @@ func TestAnAnnouncementNobodyIsAskedToAnswerLeavesTheMicAlone(t *testing.T) {
 		t.Errorf("%d utterances heard by a timer going off", n)
 	}
 
+	await(t, "the timer's session to end", func() bool { return !r.l.Announcing() })
 	r.dev.SendWake(t, "hey_eddie")
 	r.utter(t, r.line("add two minutes to the oven", alan), 4*chunkBytes)
 	s := r.session(t)

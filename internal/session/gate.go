@@ -17,7 +17,8 @@ type Candidate struct {
 	SpeakerID string
 	Energy    float64
 
-	// Partial is the STT partial so far. One word is usually "uh".
+	// Partial is the STT partial so far. One word is usually "uh", unless
+	// it is a hot phrase such as "stop".
 	Partial string
 }
 
@@ -34,22 +35,24 @@ type Gate struct {
 	SpeakerIDUnavailable bool
 }
 
-// admit reports whether the candidate stops speech, and which stage rejected
-// it otherwise. There is deliberately no semantic check: it would spend
-// latency where latency is felt, and a wrong stop is cheap (ADR-0004).
-func (g Gate) admit(c Candidate, sessionSpeaker string) (string, bool) {
+// admit reports whether the candidate stops speech, which stage rejected it
+// otherwise, and the hot phrase it was. There is deliberately no semantic
+// check: it would spend latency where latency is felt (ADR-0004).
+func (g Gate) admit(c Candidate, sessionSpeaker string) (stage string, hot HotWord, ok bool) {
+	hot = Hot(c.Partial)
 	if c.Energy < g.MinEnergy {
-		return "vad", false
+		return "vad", hot, false
 	}
 	// Unidentified while identification runs is the television, not a
 	// missing sidecar.
 	if !g.SpeakerIDUnavailable && !g.known(c.SpeakerID, sessionSpeaker) {
-		return "speaker_id", false
+		return "speaker_id", hot, false
 	}
-	if len(strings.Fields(c.Partial)) < g.MinWords {
-		return "partial_length", false
+	// A hot phrase skips only this stage: "stop" is one word (ADR-0064).
+	if hot == "" && len(strings.Fields(c.Partial)) < g.MinWords {
+		return "partial_length", hot, false
 	}
-	return "", true
+	return "", hot, true
 }
 
 func (g Gate) known(speaker, sessionSpeaker string) bool {

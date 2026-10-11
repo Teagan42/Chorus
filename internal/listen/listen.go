@@ -241,7 +241,7 @@ func (l *Listener) onSecond(pcm []byte) {
 		l.cur.keepSecond(pcm)
 		return
 	}
-	if !l.woken && !l.confirming && !l.liveLocked() {
+	if !l.hearingLocked() {
 		l.lead2 = l.lead2[:0]
 		return
 	}
@@ -266,7 +266,7 @@ func (l *Listener) onAEC(pcm []byte) error {
 	if l.closed || l.muted {
 		return nil
 	}
-	if !l.woken && !l.confirming && !l.liveLocked() {
+	if !l.hearingLocked() {
 		// No session and no wake: the mic streams anyway (SPEC §3.2), and
 		// none of it is ours to keep.
 		l.abortLocked()
@@ -305,6 +305,12 @@ func (l *Listener) onAEC(pcm []byte) error {
 	return nil
 }
 
+// hearingLocked reports whether the mic is anyone's to segment: a wake, a
+// live session, or an announcement a hot phrase may silence (ADR-0064).
+func (l *Listener) hearingLocked() bool {
+	return l.woken || l.confirming || l.liveLocked() || l.announcingLocked() != nil
+}
+
 // leadLocked keeps the last LeadIn bytes before speech starts.
 func (l *Listener) leadLocked(pcm []byte) {
 	l.lead = tail(append(l.lead, pcm...), l.cfg.LeadIn)
@@ -341,6 +347,7 @@ func (l *Listener) startLocked(pcm []byte) {
 		first: l.woken, prev: l.last,
 		ticket: make(chan struct{}), ended: make(chan struct{}), aborted: make(chan struct{}),
 	}
+	u.overhearing = !l.woken && !l.confirming && !l.liveLocked()
 	// The wake is spent on this utterance, whatever becomes of it. A wake that
 	// a mute lands on is lost with it; the user muted the house.
 	l.confirming = l.confirming || u.first
@@ -559,6 +566,10 @@ type utterance struct {
 	// first marks the wake's first utterance, which confirms or rejects it.
 	first bool
 
+	// overhearing marks speech over an announcement nobody may answer: only
+	// a hot phrase that silences it is taken, and the rest is not kept.
+	overhearing bool
+
 	prev    <-chan struct{}
 	ticket  chan struct{}
 	ended   chan struct{}
@@ -638,7 +649,9 @@ func (l *Listener) run(u *utterance) {
 		case r := <-u.stt.Partials():
 			l.candidate(u, r)
 		case <-u.ended:
-			l.complete(u)
+			if !u.overhearing {
+				l.complete(u)
+			}
 			return
 		}
 	}
@@ -655,8 +668,11 @@ func (l *Listener) candidate(u *utterance, r stt.Result) {
 	if !l.liveLocked() {
 		sess = nil
 	}
+	if u.overhearing {
+		sess = l.announcingLocked()
+	}
 	l.mu.Unlock()
-	if sess == nil || !slices.Contains(sess.Children(), "speaking") {
+	if sess == nil || !offered(sess.Children(), session.Hot(r.Text), u.overhearing) {
 		return
 	}
 
@@ -680,6 +696,20 @@ func (l *Listener) candidate(u *utterance, r stt.Result) {
 	// One interruption per utterance: speech is already stopping, and a
 	// second detection would journal a cut that did not happen.
 	u.bargedIn, u.refused = ok, u.refused || !ok
+}
+
+// offered reports whether a partial is a candidate. Speech playing makes
+// every partial one; "never mind" also reaches a turn working in silence;
+// over an announcement only a phrase that stops it counts (ADR-0064).
+func offered(children []string, hot session.HotWord, overhearing bool) bool {
+	speaking := slices.Contains(children, "speaking")
+	switch {
+	case overhearing:
+		return speaking && (hot == session.HotStop || hot == session.HotNeverMind)
+	case speaking:
+		return true
+	}
+	return hot == session.HotNeverMind && slices.ContainsFunc(children, func(c string) bool { return c != "listening" })
 }
 
 // keepJudged writes what the gate judged when the utterance ended without
@@ -760,6 +790,7 @@ func (l *Listener) complete(u *utterance) {
 	err = sess.Heard(l.ctx, session.Transcript{
 		Text: res.Text, SpeakerID: out.PersonID, SpeakerMatch: string(out.Reason),
 		AudioRef: ref, Embedding: out.Embedding, Ended: u.stopped, SecondAudioRef: secondRef,
+		BargedIn: u.bargedIn,
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		l.warn("hear utterance", err)
