@@ -127,9 +127,10 @@ func TestTheKitchenSaysItLostItsVoiceWhenKokoroDiesMidAnswer(t *testing.T) {
 		d.engine = eng
 		d.Timers = pacingOnly{}
 	})
-	// The apologies are rendered while Kokoro still answers, the voice's last.
-	voice := session.DefaultCanned.Voice
-	last := voice[strings.LastIndex(voice, " ")+1:]
+	// The apologies are rendered while Kokoro still answers, in order.
+	lines := session.DefaultCanned.Lines()
+	final := lines[len(lines)-1]
+	last := final[strings.LastIndex(final, " ")+1:]
 	await(t, "the canned lines to be rendered", func() bool { return strings.HasSuffix(kokoro.rendered(), last) })
 
 	dev := r.join(t, kitchenIP)

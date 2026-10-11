@@ -144,6 +144,9 @@ func New(cfg Config) (*Supervisor, error) {
 	if cfg.Canned.Voice == "" {
 		cfg.Canned.Voice = DefaultCanned.Voice
 	}
+	if cfg.Canned.Ear == "" {
+		cfg.Canned.Ear = DefaultCanned.Ear
+	}
 	if cfg.Summarizer != nil && cfg.Memories == nil {
 		return nil, errors.New("session: a summarizer needs memories to keep summaries in")
 	}
@@ -195,6 +198,10 @@ type Transcript struct {
 	// BargedIn is an utterance the gate let stop speech, or a working turn,
 	// while it was said. A stop that stopped something is not answered.
 	BargedIn bool
+
+	// AudioLost is why AudioRef was never written. The words were decoded,
+	// so the turn goes on, and the log says the clip is gone (ADR-0069).
+	AudioLost error
 }
 
 // Session is the supervisor of one conversation's concurrent children. It
@@ -363,6 +370,15 @@ func (s *Session) Heard(ctx context.Context, t Transcript) error {
 		Kind: journal.KindUtteranceTranscribed, AudioRef: t.AudioRef, Fields: fields,
 	}); err != nil {
 		return err
+	}
+	if t.AudioLost != nil {
+		s.sup.cfg.Log.Warn("utterance audio not written", "conversation", s.convID, "audio_ref", t.AudioRef, "err", t.AudioLost)
+		if err := s.record(journal.Record{
+			Kind:   journal.KindAudioDropped,
+			Fields: map[string]string{"audio_ref": t.AudioRef, "reason": "write_failed"},
+		}); err != nil {
+			return err
+		}
 	}
 	s.mu.Lock()
 	// A confident mismatch flips attribution inside the conversation, and a
@@ -549,6 +565,9 @@ func (s *Session) ask(turnCtx context.Context, in Input) (bool, error) {
 			}))
 			broke, brokeWhy = act.FinishReason == FinishError, act.Error
 			finished = !broke
+			if finished {
+				s.sup.answered(FaultModel)
+			}
 		}
 	}
 	stalled := dog.stop() && !finished
@@ -1090,6 +1109,12 @@ func (s *Session) result(callID, outcome, result string) {
 // writer, which this session's children are only some of.
 func (s *Session) record(r journal.Record) error {
 	_, err := s.sup.cfg.Journal.Append(context.WithoutCancel(s.ctx), s.convID, r)
+	// Every write says whether the journal answers, so the ring is told.
+	if err != nil {
+		s.sup.fault(FaultJournal)
+	} else {
+		s.sup.answered(FaultJournal)
+	}
 	return err
 }
 

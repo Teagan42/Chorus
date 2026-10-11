@@ -144,3 +144,17 @@ func (s *Session) toolsLocked() bool {
 	}
 	return false
 }
+
+// fault tells a ring that shows faults that f failed.
+func (sup *Supervisor) fault(f Fault) {
+	if r, ok := sup.cfg.Ring.(Faults); ok {
+		r.Fault(f)
+	}
+}
+
+// answered tells a ring that shows faults that f answered.
+func (sup *Supervisor) answered(f Fault) {
+	if r, ok := sup.cfg.Ring.(Faults); ok {
+		r.Recover(f)
+	}
+}
