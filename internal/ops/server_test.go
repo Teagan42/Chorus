@@ -55,7 +55,7 @@ func TestHealthIsTheLoopGoingRound(t *testing.T) {
 func TestEachSatelliteIsNamedWithItsLinks(t *testing.T) {
 	hs := newHouse(t)
 	hs.run(t)
-	hs.awaitState(t, "speaker_id", "up")
+	hs.awaitFirstRound(t)
 
 	sats := hs.ops.Satellites()
 	sats.Linked("kitchen", true)

@@ -62,6 +62,22 @@ func (hs *house) nextRound(t *testing.T) {
 	hs.clk.advance(every)
 }
 
+// awaitFirstRound waits until every check has answered once. Each check's
+// answer is recorded as it lands, so one check's state says nothing about
+// the others'.
+func (hs *house) awaitFirstRound(t *testing.T) {
+	t.Helper()
+	await(t, "the first round to finish", func() bool {
+		_, doc := ready(t, hs.h)
+		for _, d := range doc.Dependencies {
+			if d.State == "unknown" {
+				return false
+			}
+		}
+		return len(doc.Dependencies) > 0
+	})
+}
+
 func (hs *house) awaitState(t *testing.T, name, want string) {
 	t.Helper()
 	await(t, name+" "+want, func() bool {
@@ -78,7 +94,7 @@ func (hs *house) awaitState(t *testing.T, name, want string) {
 func TestReadinessFollowsARequiredDependencyDownAndUp(t *testing.T) {
 	hs := newHouse(t)
 	hs.run(t)
-	hs.awaitState(t, "stt", "up")
+	hs.awaitFirstRound(t)
 	if code, doc := ready(t, hs.h); code != http.StatusOK || doc.state("postgres") != "up" {
 		t.Fatalf("with everything up /readyz = %d %+v, want 200", code, doc)
 	}
@@ -112,6 +128,7 @@ func TestAnOptionalDependencyDownDegradesWithoutFailing(t *testing.T) {
 	hs := newHouse(t)
 	hs.sid.set(errRefused)
 	hs.run(t)
+	hs.awaitFirstRound(t)
 	hs.awaitState(t, "speaker_id", "down")
 
 	code, doc := ready(t, hs.h)
@@ -129,7 +146,12 @@ func TestAHungProbeNeverHoldsTheEndpoint(t *testing.T) {
 	hs := newHouse(t)
 	hs.stt.hang = true
 	hs.run(t)
-	await(t, "the probe timeout to be armed", func() bool { return hs.clk.armed(timeout) > 0 })
+	// Every check arms its own timeout, and the hung one must have been
+	// asked before the clock moves: one armed timer is any check's, so
+	// advancing on it alone can time out a probe that never started.
+	await(t, "every probe's timeout armed and the hung sidecar asked", func() bool {
+		return hs.clk.armed(timeout) == 3 && hs.stt.probes() == 1
+	})
 
 	// Served now, while the probe is still waiting on the sidecar.
 	code, doc := ready(t, hs.h)
