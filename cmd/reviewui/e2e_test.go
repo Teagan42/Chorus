@@ -52,12 +52,13 @@ type page struct {
 	allowed  map[string]int // URL → the error status a test asked for
 }
 
-// open serves s on a loopback port and opens a fresh browser on it. Any
-// uncaught script error or failed request on the page fails the test: an
-// inert control is exactly the bug these tests exist for.
+// open serves s on a loopback port and opens a fresh browser on it, behind
+// everything the real server puts in front of the screens. Any uncaught
+// script error or failed request on the page fails the test: an inert
+// control is exactly the bug these tests exist for.
 func open(t *testing.T, s *server) *page {
 	t.Helper()
-	return openOn(t, s.routes())
+	return openOn(t, s.handler(defaultHosts(defaultAddr)))
 }
 
 // openOn is open for any handler, such as a static host serving the demo.
