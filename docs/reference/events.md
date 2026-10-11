@@ -268,6 +268,7 @@ Actor: `tool`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requi
 | `timer_id` | string | yes | The timer cancelled. |
 | `conversation_id` | string | yes | The conversation that cancelled it. |
 | `call_id` | string | yes | The timer_cancel call that cancelled it. |
+| `replay_from` | integer |  | The seq a start replays the house log from: every timer started before it had ended once this event was written, so the log after it rebuilds every timer still running (ADR-0065). Absent in logs from before it was recorded, which replay whole. |
 
 ## `timer_finished`
 
@@ -281,6 +282,7 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 | `outcome` | string | yes | announced: said on its satellite. unannounced: its satellite was not connected, or would not say it. missed: it came due while the daemon was down, too long ago to be worth saying. One of: `announced`, `unannounced`, `missed`. |
 | `conversation_id` | string |  | The conversation it was announced in. Empty unless announced. |
 | `error` | string |  | Why it was not announced. Empty when it was. |
+| `replay_from` | integer |  | The seq a start replays the house log from: every timer started before it had ended once this event was written, so the log after it rebuilds every timer still running (ADR-0065). Absent in logs from before it was recorded, which replay whole. |
 
 ## `timer_started`
 
@@ -299,6 +301,7 @@ Actor: `tool`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requi
 | `person` | string |  | Who set it. Empty for a guest. |
 | `conversation_id` | string | yes | The conversation that set it. |
 | `call_id` | string | yes | The timer_start call that set it. |
+| `replay_from` | integer |  | The seq a start replays the house log from: every timer started before it had ended once this event was written, so the log after it rebuilds every timer still running (ADR-0065). Absent in logs from before it was recorded, which replay whole. |
 
 ## `tool_called`
 
