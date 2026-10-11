@@ -71,6 +71,10 @@ type deps struct {
 	Timers session.Timers
 	providers
 
+	// Prune removes what the household's retention no longer keeps, and
+	// journals the audio the disk guard declined. Nil prunes nothing.
+	Prune *pruneDeps
+
 	// Memories keeps what each person asked to be remembered, and what their
 	// conversations were about. Nil remembers nothing: remember and forget
 	// answer not_implemented, no conversation is summarized, and no turn is
@@ -183,6 +187,13 @@ func (d *daemon) run(ctx context.Context) error {
 		return err
 	}
 	defer timers.Wait()
+	if d.Prune != nil {
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			d.prune(ctx)
+		}()
+	}
 	maps.Copy(tools, timer.Tools(timers))
 	tools["announce"] = announce.Tool(d, d.inv.Satellites)
 	d.tools = tools

@@ -55,6 +55,9 @@ type Config struct {
 	SmartTurnURL string
 	HassURL      string
 	HassToken    string
+
+	// BlobMinFreeMiB is the disk guard's floor as written; blobFloor reads it.
+	BlobMinFreeMiB string
 }
 
 // configFromEnv reads the environment through getenv, so a test never reads
@@ -74,6 +77,7 @@ func configFromEnv(getenv func(string) string) Config {
 		HassURL:      getenv(hass.URLEnv),
 		HassToken:    getenv(hass.TokenEnv),
 	}
+	cfg.BlobMinFreeMiB = getenv(blobMinFreeEnv)
 	if cfg.Listen == "" {
 		cfg.Listen = defaultListen
 	}
@@ -98,6 +102,9 @@ func (c Config) validate() error {
 		if r.value == "" {
 			missing = append(missing, fmt.Sprintf("  %-20s %s", r.name, r.purpose))
 		}
+	}
+	if _, err := c.blobFloor(); err != nil {
+		missing = append(missing, fmt.Sprintf("  %-20s %v", blobMinFreeEnv, err))
 	}
 	// Half a Home Assistant configuration is a mistake, not a choice.
 	switch {
