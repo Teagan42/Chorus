@@ -128,7 +128,7 @@ func exportedRows(t *testing.T, body string) []exportedRow {
 // registry's schema it ran under, the Zeppelin note ships once inside the
 // cut it duplicates, and the list turn is the one SFT row.
 //
-// verifies SPEC §9.1, §9.2, §13
+// verifies SPEC §9, §9.1, §9.2, §13
 func TestTheHouseholdsThursdayExportsAsItsGoldenFiles(t *testing.T) {
 	s := evening(t)
 	dpo := get(t, s, "/export/dpo.jsonl?validation=0.5")
