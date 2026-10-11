@@ -302,18 +302,27 @@ func (p *Pruner) conversation(ctx context.Context, id string, events []journal.E
 		// ADR-0022: one live session per conversation, and this is its log.
 		return now, nil
 	}
-	curated := false
-	if !p.cfg.Policy.PruneCurated {
-		var err error
-		if curated, err = curation.Curated(ctx, p.cfg.Curation, id); err != nil {
-			return time.Time{}, err
+	// Asked only once something is due: most logs a pass reads have nothing
+	// to prune, and curation is three queries.
+	var (
+		asked, curated bool
+		cerr           error
+	)
+	isCurated := func(string) bool {
+		if !asked && !p.cfg.Policy.PruneCurated {
+			asked = true
+			curated, cerr = curation.Curated(ctx, p.cfg.Curation, id)
 		}
+		return curated || cerr != nil
 	}
 	horizon := p.journalHorizon(events)
-	if horizon > 0 && now.Sub(last) >= horizon && !curated {
+	if horizon > 0 && now.Sub(last) >= horizon && !isCurated("") {
 		return time.Time{}, p.deleteLog(ctx, id, events, rep)
 	}
-	due, err := p.audio(ctx, id, events, now, declined, func(journal.Event) bool { return curated }, rep)
+	due, err := p.audio(ctx, id, events, now, declined, isCurated, rep)
+	if err == nil {
+		err = cerr
+	}
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -411,7 +420,15 @@ func (p *Pruner) device(ctx context.Context, id string, events []journal.Event, 
 			return time.Time{}, err
 		}
 	}
-	audioDue, err := p.audio(ctx, id, kept, now, declined, func(e journal.Event) bool { return confirmed[e.Seq] }, rep)
+	confirmedRefs := map[string]bool{}
+	for _, e := range kept {
+		if confirmed[e.Seq] {
+			for _, ref := range refsOf(e) {
+				confirmedRefs[ref] = true
+			}
+		}
+	}
+	audioDue, err := p.audio(ctx, id, kept, now, declined, func(ref string) bool { return confirmedRefs[ref] }, rep)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -587,20 +604,12 @@ func dropped(events []journal.Event) map[string]bool {
 }
 
 // audio journals each clip the disk guard declined, and removes each clip
-// past its satellite's audio horizon that nothing keeps, recording it in
+// past its satellite's audio horizon that keep does not, recording it in
 // the log that names it. It returns when the next clip comes due.
-func (p *Pruner) audio(ctx context.Context, id string, events []journal.Event, now time.Time, declined map[string]time.Time, keep func(journal.Event) bool, rep *Report) (time.Time, error) {
+func (p *Pruner) audio(ctx context.Context, id string, events []journal.Event, now time.Time, declined map[string]time.Time, keep func(ref string) bool, rep *Report) (time.Time, error) {
 	satellite := ""
 	if s, ok := strings.CutPrefix(id, devicePrefix); ok {
 		satellite = s
-	}
-	kept := map[string]bool{}
-	for _, e := range events {
-		if keep(e) {
-			for _, ref := range refsOf(e) {
-				kept[ref] = true
-			}
-		}
 	}
 	gone := dropped(events)
 	var due time.Time
@@ -620,11 +629,14 @@ func (p *Pruner) audio(ctx context.Context, id string, events []journal.Event, n
 			continue
 		}
 		h := p.cfg.Policy.For(c.satellite).Audio
-		if h == 0 || kept[c.ref] {
+		if h == 0 {
 			continue
 		}
 		if now.Sub(c.at) < h {
 			due = earliest(due, c.at.Add(h))
+			continue
+		}
+		if keep(c.ref) {
 			continue
 		}
 		if err := p.cfg.Blobs.Remove(ctx, c.ref); err != nil {
