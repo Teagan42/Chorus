@@ -666,8 +666,8 @@ cut them.
 | Layer | Where | Proves |
 |---|---|---|
 | handlers | `cmd/reviewui/*_test.go`, in `task test` | what the server writes, against in-memory stores |
-| database | `replay_db_test.go`, `internal/curation`, in `task test:db` | the same screens over real Postgres |
-| browser | `e2e_test.go`, `e2e_journeys_test.go`, `e2e_signals_test.go`, `e2e_erase_test.go`, in `task test:e2e` | what a reviewer gets: htmx loaded and swapping, audio a browser decodes, links that land where they say |
+| database | `replay_db_test.go`, and the stores in `internal/curation`, `internal/memory`, `internal/erasure` and `internal/retention`, in `task test:db` | the same screens over real Postgres |
+| browser | `e2e_test.go`, `e2e_journeys_test.go`, `e2e_annotate_test.go`, `e2e_signals_test.go`, `e2e_erase_test.go`, in `task test:e2e` | what a reviewer gets: htmx loaded and swapping, audio a browser decodes, links that land where they say |
 
 The browser tier drives a headless Chrome with chromedp and skips unless
 `CHORUS_E2E_CHROME` names a browser; CI sets it, so there it fails rather
@@ -679,8 +679,9 @@ CHORUS_E2E_CHROME=$(command -v chromium) task test:e2e
 CHORUS_E2E_CHROME=$(command -v chromium) CHORUS_E2E_SHOTS=/tmp/shots task test:e2e
 ```
 
-`e2e_test.go` checks each screen on its own. `e2e_journeys_test.go` and
-`e2e_signals_test.go` walk a reviewer through a whole day, start to finish:
+`e2e_test.go` checks each screen on its own. `e2e_journeys_test.go`,
+`e2e_annotate_test.go`, `e2e_signals_test.go` and `e2e_erase_test.go` walk a
+reviewer through a whole day, start to finish:
 
 - triage a barge-in, open it in Review, fix the chosen side, and accept it;
 - curate every pair, discarding one, then download the dataset, each row opening with the prompt its turn ran under, and the zip beside it;
