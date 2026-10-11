@@ -17,6 +17,7 @@ import (
 	"github.com/teagan42/chorus/internal/blob"
 	"github.com/teagan42/chorus/internal/contexts"
 	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/erasure"
 	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/rerun"
@@ -59,6 +60,9 @@ type server struct {
 	// contexts.Default.
 	contexts contexts.Source
 
+	// redaction is what deleting and forgetting need (ADR-0070).
+	redaction
+
 	// One reviewer at a time is the household reality; the lock keeps a
 	// read-modify-write on a pair from racing itself.
 	mu sync.Mutex
@@ -71,6 +75,7 @@ func newServer(j Journal, d curation.Store, b blob.Store, now func() time.Time) 
 		decisions: d,
 		blobs:     b,
 		now:       now,
+		redaction: redaction{erasures: erasure.NewMemStore()},
 	}
 }
 
@@ -103,6 +108,12 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /export/dataset.zip", s.exportArchive)
 	mux.HandleFunc("GET /export/wake-negatives.jsonl", s.exportWake)
 	mux.HandleFunc("POST /pairs/{rest...}", s.pairAction)
+	mux.HandleFunc("POST "+ui.Routes[ui.StepBrowse]+"/{id}/delete", s.deleteConversation)
+	mux.HandleFunc("POST "+ui.Routes[ui.StepBrowse]+"/{id}/events/{seq}/audio/drop", s.dropAudio)
+	mux.HandleFunc("GET "+memoryRoute, s.memoryPage)
+	mux.HandleFunc("POST "+memoryRoute+"/{person}/facts/{fact}/forget", s.forgetFact)
+	mux.HandleFunc("POST "+memoryRoute+"/{person}/summaries/{conv}/forget", s.forgetSummary)
+	mux.HandleFunc("GET "+deletionsRoute, s.deletions)
 	return http.NewCrossOriginProtection().Handler(mux)
 }
 

@@ -1,0 +1,49 @@
+{{/* Memory · what the assistant remembers, per person, and the trail of what was deleted (ADR-0070). */}}
+
+{{define "page-memory"}}{{template "doc-start" .Doc}}
+{{template "app-header" .Header}}
+{{template "page-head" .Head}}
+{{template "memory-list" .List}}
+{{template "doc-end"}}{{end}}
+
+{{/* memory-list · the screen's body; a forget swaps it whole. */}}
+{{define "memory-list"}}<section id="memory" aria-label="What it remembers">
+{{with .Note}}<div class="band pad"><span class="list__detail">{{.}}</span></div>{{end}}
+{{with .Empty}}{{template "empty-state" .}}{{end}}
+{{- range .People}}
+<section id="person-{{.Person}}" class="stack" aria-label="About {{.Person}}" style="gap: 0; margin-top: 18px">
+<div class="band pad"><h2 style="margin: 0; font-size: 18px; font-weight: 600">{{.Person}}</h2></div>
+{{with .Facts}}<div class="band pad"><span class="cap">Remembered · {{len .}}</span></div>{{end}}
+{{- range .Facts}}
+<div id="{{.Anchor}}" class="list__row" style="display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: flex-start">
+<span class="list__text" style="flex: 1 1 320px; min-width: 0"><span class="list__title" style="white-space: normal">{{.Fact}}</span><span class="list__detail" style="white-space: normal; word-break: break-word">kept {{.Kept}} · from {{if .FromHref}}<a href="{{.FromHref}}">{{.From}}</a>{{else}}{{.From}}{{end}}</span></span>
+<span style="flex: 0 0 auto">{{template "sig-tag" .Shared}}</span>
+{{with .Forget}}<span style="flex: 0 1 auto; max-width: 100%">{{template "confirm" .}}</span>{{end}}
+</div>
+{{- end}}
+{{with .Summaries}}<div class="band pad"><span class="cap">Conversations it was told of · {{len .}}</span></div>{{end}}
+{{- range .Summaries}}
+<div id="{{.Anchor}}" class="list__row" style="display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: flex-start">
+<span class="list__text" style="flex: 1 1 320px; min-width: 0"><span class="list__title" style="white-space: normal">{{.Text}}</span><span class="list__detail" style="white-space: normal; word-break: break-word">kept {{.Kept}} · from {{if .FromHref}}<a href="{{.FromHref}}">{{.From}}</a>{{else}}{{.From}}{{end}}</span></span>
+<span style="flex: 0 0 auto">{{template "sig-tag" .Tag}}</span>
+{{with .Forget}}<span style="flex: 0 1 auto; max-width: 100%">{{template "confirm" .}}</span>{{end}}
+</div>
+{{- end}}
+</section>
+{{- end}}
+</section>{{end}}
+
+{{define "page-deletions"}}{{template "doc-start" .Doc}}
+{{template "app-header" .Header}}
+{{template "page-head" .Head}}
+{{with .Empty}}{{template "empty-state" .}}{{end}}
+<section id="deletions" aria-label="Deletions">
+{{- range .Rows}}
+<div class="list__row" style="display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: flex-start">
+<span class="list__when" style="flex: 0 0 120px">{{.When}}</span>
+<span style="flex: 0 0 auto">{{template "sig-tag" .Kind}}</span>
+<span class="list__text" style="flex: 1 1 320px; min-width: 0"><span class="list__title" style="white-space: normal; word-break: break-word">{{.What}}</span>{{with .Counted}}<span class="list__detail" style="white-space: normal">{{.}}</span>{{end}}<span class="list__detail" style="white-space: normal">{{.Why}}</span></span>
+</div>
+{{- end}}
+</section>
+{{template "doc-end"}}{{end}}

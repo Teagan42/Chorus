@@ -130,3 +130,55 @@ func TestThePrunerDeletesFromPostgres(t *testing.T) {
 		t.Errorf("wake verdicts = %v, want only the confirmed one", vs)
 	}
 }
+
+// A reviewer's deletion and redaction end to end on Postgres, on a room no
+// other package's fixtures name: one turn's audio is dropped and recorded as
+// redacted, then the whole visit goes with its verdicts.
+//
+// verifies SPEC §8
+func TestTheEraserDeletesFromPostgres(t *testing.T) {
+	pool := openPg(t)
+	ctx := context.Background()
+	const visit = "conv-db-erase-conservatory"
+	for _, q := range []string{
+		`DELETE FROM journal_events WHERE conversation_id = $1`,
+		`DELETE FROM curation_decisions WHERE conversation_id = $1`,
+	} {
+		if _, err := pool.Exec(ctx, q, visit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store, verdicts, blobs := journal.NewPgStore(pool), curation.NewPgStore(pool), blob.NewMemory()
+	j := journal.New(store, journal.FixedClock(today.Add(-time.Hour)), versions)
+	for _, r := range weather("conservatory", "pg-erase") {
+		if _, err := j.Append(ctx, visit, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := verdicts.Put(ctx, curation.Decision{PairID: visit + "/3", ConversationID: visit, Status: curation.StatusDiscarded, Reason: "noise", DecidedAt: today}); err != nil {
+		t.Fatal(err)
+	}
+	clk := journal.FixedClock(today)
+	e := &retention.Eraser{Journal: journal.New(store, clk, journal.Versions{}), Store: store, Blobs: blobs, Curation: verdicts, Clock: clk}
+
+	if _, err := e.DropAudio(ctx, visit, 2); err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+	events, err := store.Events(ctx, visit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := events[len(events)-1]
+	if last.Kind != journal.KindAudioDropped || last.Fields["reason"] != "redacted" {
+		t.Errorf("last event = %s %v, want audio_dropped redacted", last.Kind, last.Fields)
+	}
+	if _, err := e.DeleteConversation(ctx, visit); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if events, _ := store.Events(ctx, visit); len(events) != 0 {
+		t.Errorf("the visit keeps %d events", len(events))
+	}
+	if ds, _ := verdicts.ForConversation(ctx, visit); len(ds) != 0 {
+		t.Errorf("the visit keeps verdicts %v", ds)
+	}
+}

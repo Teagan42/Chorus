@@ -12,7 +12,7 @@ type Actor string
 const (
 	// Something was said that nobody in this conversation asked for: a timer going off, or someone in another room asking for it to be said here. Recorded in the conversation it was said in, ahead of the speak call that says it (SPEC §4).
 	KindAnnouncementMade Kind = "announcement_made"
-	// Audio an earlier event names is not kept: retention removed it past its satellite's horizon, the disk was too full to write it, or the write failed. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065, ADR-0069).
+	// Audio an earlier event names is not kept: retention removed it past its satellite's horizon, the disk was too full to write it, the write failed, or a reviewer dropped it. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065, ADR-0069, ADR-0070).
 	KindAudioDropped Kind = "audio_dropped"
 	// Interruption passed the detection gate. Timing is milliseconds into TTS playback, not wall clock, so replay reproduces the cut.
 	KindBargeInDetected Kind = "barge_in_detected"

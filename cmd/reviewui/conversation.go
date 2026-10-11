@@ -43,6 +43,9 @@ type logRow struct {
 
 	// Wake is the reviewer's word on a rejected wake, under it.
 	Wake *wakeView
+
+	// Drop removes the row's audio, behind its second press (ADR-0070).
+	Drop *ui.Confirm
 }
 
 var kindTones = map[journal.Kind]ui.Tone{
@@ -94,8 +97,11 @@ func (lc *logContext) clip(ref string) (src, gone string) {
 
 // droppedBecause says why a clip is not kept, as a note.
 func droppedBecause(reason string) string {
-	if reason == "disk_low" {
+	switch reason {
+	case "disk_low":
 		return "audio not kept: disk full"
+	case "redacted":
+		return "audio redacted"
 	}
 	return "audio pruned"
 }
@@ -131,9 +137,9 @@ func hotPhrase(word string) string { return "hot phrase: " + strings.ReplaceAll(
 // logRowOf says what one event means in a line, with its audio when the
 // event has some. A truncation plays only what the DAC reached. lc, nil for
 // the house log, holds what came before.
-func logRowOf(e journal.Event, start journal.Event, lc *logContext) logRow {
+func logRowOf(e journal.Event, start journal.Event, lc *logContext) (row logRow) {
 	f := e.Fields
-	row := logRow{
+	row = logRow{
 		Anchor: fmt.Sprintf("seq-%d", e.Seq), Seq: e.Seq, Ref: fmt.Sprintf("#%d", e.Seq),
 		Offset: fmt.Sprintf("+%.1f s", e.At.Sub(start.At).Seconds()),
 		Kind:   ui.SigTag{Text: strings.ReplaceAll(string(e.Kind), "_", " "), Tone: kindTones[e.Kind]},
@@ -415,6 +421,7 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	c := summarize(id, events, sigs)
+	erasable, locked := s.deletable(id, events)
 	rows := make([]logRow, 0, len(events)+len(house))
 	lc := logContext{loc: s.now().Location(), gone: goneClips(events)}
 	for _, e := range events {
@@ -439,6 +446,9 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 			n := negative{Negative: harvest.Negative{Seq: e.Seq, Reason: e.Fields["reason"]}, status: wakes[e.Seq].Status}
 			v := wakeVerdictView(id, n)
 			row.Wake = &v
+		}
+		if erasable && (row.Audio != "" || row.Second != "") {
+			row.Drop = dropConfirm(id, e.Seq, row.Second != "")
 		}
 		if sig, ok := bySeq[e.Seq]; ok {
 			tag := signalTags[sig.Kind]
@@ -469,6 +479,11 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 	if title == "" {
 		title = id
 	}
+	var del *ui.Confirm
+	if erasable {
+		del = deleteConfirm(id, events)
+		del.Body += curatedNote(r.Context(), s.decisions, id)
+	}
 	s.render(w, "page-conversation", map[string]any{
 		"Doc":    s.doc("Conversation · " + id),
 		"Header": ui.NewAppHeader(ui.StepBrowse, unreviewedCount(pairs), "chorus · journal"),
@@ -477,7 +492,9 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 			Subtitle: fmt.Sprintf("%s · %s · %s · %s", id, c.who(), strings.Join(rooms, " → "), c.start.In(loc).Format("Mon 2 Jan 15:04")),
 			Actions:  actions,
 		},
-		"Rows": rows,
+		"Rows":   rows,
+		"Delete": del,
+		"Locked": locked,
 	})
 }
 

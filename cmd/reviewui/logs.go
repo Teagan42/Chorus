@@ -89,6 +89,13 @@ func (l *logs) retain(ids []string) {
 	maps.DeleteFunc(l.byID, func(id string, _ *derived) bool { return !listed[id] })
 }
 
+// forget drops what one log derived: a reviewer deleted it (ADR-0070).
+func (l *logs) forget(id string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.byID, id)
+}
+
 func derive(ctx context.Context, id string, events []journal.Event) *derived {
 	d := &derived{}
 	if len(events) > 0 {

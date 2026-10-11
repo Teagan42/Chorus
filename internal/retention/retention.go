@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -160,6 +159,8 @@ func (r Report) empty() bool { return r == Report{} }
 // at startup, has read every log.
 type Pruner struct {
 	cfg Config
+	// erase is the deletion path a reviewer's word takes too.
+	erase Eraser
 
 	mu   sync.Mutex
 	seen map[string]seen
@@ -186,7 +187,11 @@ func New(cfg Config) (*Pruner, error) {
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
-	return &Pruner{cfg: cfg, seen: map[string]seen{}}, nil
+	erase := Eraser{
+		Journal: cfg.Journal, Store: cfg.Store, Blobs: cfg.Blobs, Curation: cfg.Curation,
+		NotKept: cfg.NotKept, Clock: cfg.Clock, Live: cfg.Live,
+	}
+	return &Pruner{cfg: cfg, erase: erase, seen: map[string]seen{}}, nil
 }
 
 // Run passes once now, then every Every, until ctx ends.
@@ -274,10 +279,6 @@ func (p *Pruner) read(id string, seq uint64, now time.Time, declined bool) bool 
 	return true
 }
 
-func longLived(id string) bool {
-	return id == journal.HouseTimers || strings.HasPrefix(id, devicePrefix)
-}
-
 // prune handles one log and returns when it next needs a look; zero means
 // nothing in it will ever come due.
 func (p *Pruner) prune(ctx context.Context, id string, now time.Time, declined map[string]time.Time, rep *Report) (time.Time, error) {
@@ -297,11 +298,11 @@ func (p *Pruner) prune(ctx context.Context, id string, now time.Time, declined m
 // conversation deletes a session's log whole once its journal horizon has
 // passed since its last activity, or prunes its audio clip by clip.
 func (p *Pruner) conversation(ctx context.Context, id string, events []journal.Event, now time.Time, declined map[string]time.Time, rep *Report) (time.Time, error) {
-	last, open := activity(events)
-	if open && now.Sub(last) < p.cfg.Live {
+	if Live(events, now, p.cfg.Live) {
 		// ADR-0022: one live session per conversation, and this is its log.
 		return now, nil
 	}
+	last, _ := activity(events)
 	// Asked only once something is due: most logs a pass reads have nothing
 	// to prune, and curation is three queries.
 	var (
@@ -375,25 +376,9 @@ func (p *Pruner) journalHorizon(events []journal.Event) time.Duration {
 	return longest
 }
 
-// deleteLog removes a conversation's audio, its curation rows and then its
-// log, in that order: the log is what a failed pass finds it again by.
+// deleteLog removes a conversation by the path a reviewer's deletion takes.
 func (p *Pruner) deleteLog(ctx context.Context, id string, events []journal.Event, rep *Report) error {
-	gone := dropped(events)
-	for _, c := range clips(events) {
-		if gone[c.ref] {
-			continue
-		}
-		if err := p.cfg.Blobs.Remove(ctx, c.ref); err != nil {
-			return err
-		}
-		if p.cfg.NotKept != nil {
-			p.cfg.NotKept.Settle(c.ref)
-		}
-	}
-	if err := p.cfg.Curation.Forget(ctx, id); err != nil {
-		return err
-	}
-	if err := p.cfg.Store.DeleteLog(ctx, id); err != nil {
+	if _, err := p.erase.deleteLog(ctx, id, events); err != nil {
 		return err
 	}
 	rep.LogsDeleted++
@@ -652,12 +637,7 @@ func (p *Pruner) audio(ctx context.Context, id string, events []journal.Event, n
 
 // drop records that a clip is not kept, in the log that names it.
 func (p *Pruner) drop(ctx context.Context, id, ref, reason string, horizon time.Duration) error {
-	fields := map[string]string{"audio_ref": ref, "reason": reason}
-	if horizon > 0 {
-		fields["days"] = strconv.Itoa(int(horizon / (24 * time.Hour)))
-	}
-	_, err := p.cfg.Journal.Append(ctx, id, journal.Record{Kind: journal.KindAudioDropped, Fields: fields})
-	return err
+	return p.erase.drop(ctx, id, ref, reason, horizon)
 }
 
 // earliest is the sooner of two times, a zero one meaning none.
