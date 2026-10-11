@@ -382,12 +382,12 @@ func TestTheDemoGarageSaysItIsAGarage(t *testing.T) {
 	} {
 		start := time.Now()
 		got, err := c.Classify(ctx, `{"domain":"cover","service":"open_cover","entity_id":"`+entity+`"}`)
-		t.Logf("classify %s -> %q, %v in %v", entity, got, err, time.Since(start).Round(time.Millisecond))
-		if err != nil || !slices.Equal(got, want) {
-			t.Errorf("Classify(%s) = %q, %v; want %q", entity, got, err, want)
+		t.Logf("classify %s -> %+v, %v in %v", entity, got, err, time.Since(start).Round(time.Millisecond))
+		if err != nil || got.Domain != "cover" || !slices.Equal(got.Classes, want) {
+			t.Errorf("Classify(%s) = %+v, %v; want a cover classed %q", entity, got, err, want)
 		}
 	}
 	if got, err := c.Classify(ctx, `{"domain":"cover","service":"open_cover","entity_id":"cover.nope"}`); err == nil {
-		t.Errorf("Classify(cover.nope) = %q, want an error", got)
+		t.Errorf("Classify(cover.nope) = %+v, want an error", got)
 	}
 }

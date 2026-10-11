@@ -55,14 +55,15 @@ func tool(name string, h handler) session.Tool {
 }
 
 // classified is a tool that can say what a call acts on before it runs, so
-// the session can hold the garage door and not the blinds (ADR-0041).
+// the session can hold the garage door and not the blinds (ADR-0041), and
+// the front door under homeassistant.turn_on (ADR-0063).
 type classified struct {
 	session.Tool
-	classify func(ctx context.Context, raw string) ([]string, error)
+	classify func(ctx context.Context, raw string) (registry.Target, error)
 }
 
-// Classify reports the classes of what the call acts on.
-func (t classified) Classify(ctx context.Context, raw string) ([]string, error) {
+// Classify reports the domain and the classes of what the call acts on.
+func (t classified) Classify(ctx context.Context, raw string) (registry.Target, error) {
 	return t.classify(ctx, raw)
 }
 
@@ -243,38 +244,40 @@ func (c *Client) callService(ctx context.Context, a *args) (any, error) {
 	return out, nil
 }
 
-// classify reads the device_class Home Assistant gives the entity a call
-// names: "garage" for the garage door, nothing for a plain window. A target
-// it cannot read is an error, which holds the call: an area's members are
-// not on the REST API (see Client.States).
-func (c *Client) classify(ctx context.Context, raw string) ([]string, error) {
+// classify reads what the entity a call names is: the domain its id puts it
+// in, and the device_class Home Assistant gives it, "garage" for the garage
+// door and nothing for a plain window. A target it cannot read is an error,
+// which holds the call: an area's members are not on the REST API (see
+// Client.States), and an entity Home Assistant does not have is not read.
+func (c *Client) classify(ctx context.Context, raw string) (registry.Target, error) {
 	var a struct {
 		EntityID string         `json:"entity_id"`
 		AreaID   string         `json:"area_id"`
 		Data     map[string]any `json:"data"`
 	}
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
-		return nil, fmt.Errorf("classify: bad arguments: %w", err)
+		return registry.Target{}, fmt.Errorf("classify: bad arguments: %w", err)
 	}
 	if a.AreaID != "" {
-		return nil, fmt.Errorf("classify: area %q: its entities are not readable over REST", a.AreaID)
+		return registry.Target{}, fmt.Errorf("classify: area %q: its entities are not readable over REST", a.AreaID)
 	}
 	for _, k := range targetKeys {
 		if _, ok := a.Data[k]; ok {
-			return nil, fmt.Errorf("classify: %q in data names a target", k)
+			return registry.Target{}, fmt.Errorf("classify: %q in data names a target", k)
 		}
 	}
 	if !entityID.MatchString(a.EntityID) {
-		return nil, fmt.Errorf("classify: %q %q is not domain.object_id", "entity_id", a.EntityID)
+		return registry.Target{}, fmt.Errorf("classify: %q %q is not domain.object_id", "entity_id", a.EntityID)
 	}
 	st, err := c.EntityState(ctx, a.EntityID)
 	if err != nil {
-		return nil, fmt.Errorf("classify: %w", err)
+		return registry.Target{}, fmt.Errorf("classify: %w", err)
 	}
+	target := registry.Target{Domain: strings.SplitN(a.EntityID, ".", 2)[0]}
 	if class, _ := st.Attributes["device_class"].(string); class != "" {
-		return []string{class}, nil
+		target.Classes = []string{class}
 	}
-	return nil, nil
+	return target, nil
 }
 
 func (a *args) ident(name string) (string, error) {

@@ -10,22 +10,32 @@ import (
 
 	"github.com/teagan42/chorus/internal/hass"
 	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/session"
 )
 
 const (
 	openGarage = `{"domain":"cover","service":"open_cover","entity_id":"cover.garage_door"}`
 	openBlinds = `{"domain":"cover","service":"open_cover","entity_id":"cover.living_room_blinds"}`
+
+	// turnOnFrontDoor is the generic service on the front door, which a
+	// model that never learned lock.unlock reaches for.
+	turnOnFrontDoor = `{"domain":"homeassistant","service":"turn_on","entity_id":"lock.front_door"}`
+
+	// frontDoorLocked is the front door's state as HA 2026.10 answers it: a
+	// lock has no device_class.
+	frontDoorLocked = `{"entity_id":"lock.front_door","state":"locked","attributes":{"friendly_name":"Front Door","supported_features":1},"last_changed":"2026-10-09T22:14:03.512804+00:00","last_reported":"2026-10-09T22:14:03.512804+00:00","last_updated":"2026-10-09T22:14:03.512804+00:00","context":{"id":"01M4H2K9QX7D3F5B8N1V6C0P4R","parent_id":null,"user_id":null}}`
 )
 
-// coversOn is a Home Assistant with the garage door and the living-room
-// blinds and window, answering each as 2026.10 does.
+// coversOn is a Home Assistant with the garage door, the living-room blinds
+// and window, and the front door, answering each as 2026.10 does.
 func coversOn() *transport {
 	wire := newTransport(http.StatusOK, `[]`)
 	wire.route("/api/states/cover.garage_door", http.StatusOK, garageClosed)
 	wire.route("/api/states/cover.living_room_blinds", http.StatusOK, livingRoomBlinds)
 	wire.route("/api/states/cover.living_room_window", http.StatusOK, livingRoomWindow)
 	wire.route("/api/states/cover.shed_door", http.StatusNotFound, entityNotFound)
+	wire.route("/api/states/lock.front_door", http.StatusOK, frontDoorLocked)
 	wire.route("/api/services/cover/open_cover", http.StatusOK, garageOpened)
 	return wire
 }
@@ -41,30 +51,33 @@ func classifier(t *testing.T, wire *transport) session.Classifier {
 
 // The class is HA's own device_class, read from the entity the call names:
 // the garage door says garage, the blinds say blind, and the window, which
-// nobody classed, says nothing (ADR-0041).
+// nobody classed, says nothing (ADR-0041). The domain is the entity id's,
+// so the front door says lock under a generic service (ADR-0063).
 //
 // verifies SPEC §6
 func TestTheCoverSaysWhatItIs(t *testing.T) {
 	wire := coversOn()
 	c := classifier(t, wire)
+	cover := func(classes ...string) registry.Target { return registry.Target{Domain: "cover", Classes: classes} }
 	for _, tc := range []struct {
 		args string
-		want []string
+		want registry.Target
 	}{
-		{openGarage, []string{"garage"}},
-		{`{"domain":"cover","service":"open_cover","entity_id":"cover.garage_door","confirmation":"cf_9b2e4d71"}`, []string{"garage"}},
-		{openBlinds, []string{"blind"}},
-		{`{"domain":"cover","service":"open_cover","entity_id":"cover.living_room_window","area_id":null}`, nil},
+		{openGarage, cover("garage")},
+		{`{"domain":"cover","service":"open_cover","entity_id":"cover.garage_door","confirmation":"cf_9b2e4d71"}`, cover("garage")},
+		{openBlinds, cover("blind")},
+		{`{"domain":"cover","service":"open_cover","entity_id":"cover.living_room_window","area_id":null}`, cover()},
+		{turnOnFrontDoor, registry.Target{Domain: "lock"}},
 	} {
 		got, err := c.Classify(context.Background(), tc.args)
 		if err != nil || !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("Classify(%s) = %q, %v; want %q", tc.args, got, err, tc.want)
+			t.Errorf("Classify(%s) = %+v, %v; want %+v", tc.args, got, err, tc.want)
 		}
-		if req := wire.last(t); req.method != http.MethodGet || !strings.HasPrefix(req.path, "/api/states/cover.") {
-			t.Errorf("classifying %s asked %s %s, want the cover's state", tc.args, req.method, req.path)
+		if req := wire.last(t); req.method != http.MethodGet || !strings.HasPrefix(req.path, "/api/states/") {
+			t.Errorf("classifying %s asked %s %s, want the entity's state", tc.args, req.method, req.path)
 		}
 	}
-	if wire.count() != 4 {
+	if wire.count() != 5 {
 		t.Errorf("home assistant was asked %d times, want once per call", wire.count())
 	}
 }
@@ -87,13 +100,13 @@ func TestATargetThatCannotBeReadIsAnError(t *testing.T) {
 		`{"domain":"cover","service":"open_cover","entity_id":"cover.garage_d`,
 	} {
 		if got, err := c.Classify(context.Background(), args); err == nil {
-			t.Errorf("Classify(%s) = %q, want an error", args, got)
+			t.Errorf("Classify(%s) = %+v, want an error", args, got)
 		}
 	}
 
 	down := newTransport(http.StatusServiceUnavailable, "503: Service Unavailable")
 	if got, err := classifier(t, down).Classify(context.Background(), openGarage); err == nil {
-		t.Errorf("Classify with HA down = %q, want an error", got)
+		t.Errorf("Classify with HA down = %+v, want an error", got)
 	}
 }
 
@@ -191,6 +204,75 @@ func TestHomeAssistantIsNotAskedToOpenTheGarageUntilAliceSaysYes(t *testing.T) {
 	st := r.state(t, s.ConversationID())
 	if got := st.Confirmations; len(got) != 1 || got[0].Answer != "yes, open it" || got[0].AnsweredBy != "alice" || got[0].RedeemedBy != "call_c2" {
 		t.Errorf("confirmations = %+v, want Alice's yes redeemed by call_c2", got)
+	}
+}
+
+// genericModel reaches for homeassistant.turn_on on the front door, as a
+// model that never learned lock.unlock does, asks when the call is held, and
+// calls again with the nonce once Alice says yes.
+type genericModel struct{}
+
+func (genericModel) Turn(_ context.Context, in session.Input) (<-chan session.Action, error) {
+	done := session.TurnEnd{FinishReason: "stop", Completion: "{}"}
+	var acts []session.Action
+	last := in.Dialogue[len(in.Dialogue)-1]
+	switch {
+	case last.Kind == journal.EntryHeard && last.Text == "turn on the front door":
+		acts = []session.Action{session.ToolCall{ID: "call_c1", Tool: "ha_call_service", Args: turnOnFrontDoor}, done}
+	case last.Kind == journal.EntryResult && last.Outcome == "confirmation_required":
+		acts = []session.Action{session.SpeechDelta{CallID: "call_s1", Text: "Unlock the front door?", Last: true}, done}
+	case last.Kind == journal.EntryHeard && last.Text == "yes, open it":
+		var r struct {
+			Nonce string `json:"nonce"`
+		}
+		for _, e := range in.Dialogue {
+			if e.Outcome == "confirmation_required" {
+				_ = json.Unmarshal([]byte(e.Result), &r)
+			}
+		}
+		args := strings.TrimSuffix(turnOnFrontDoor, "}") + `,"confirmation":"` + r.Nonce + `"}`
+		acts = []session.Action{session.ToolCall{ID: "call_c2", Tool: "ha_call_service", Args: args}, done}
+	default:
+		acts = []session.Action{done}
+	}
+	out := make(chan session.Action, len(acts))
+	for _, a := range acts {
+		out <- a
+	}
+	close(out)
+	return out, nil
+}
+
+// Alice asks the kitchen to open the front door and the model reaches for
+// homeassistant.turn_on on the lock. Home Assistant is asked what the
+// entity is, finds it a lock, and is not sent the call until she has said
+// yes (ADR-0063).
+//
+// verifies SPEC §6
+func TestTheGenericServiceOnTheFrontDoorWaitsForAliceSYes(t *testing.T) {
+	wire := coversOn()
+	wire.route("/api/services/homeassistant/turn_on", http.StatusOK, `[]`)
+	r := newRigOn(t, wire, genericModel{})
+	s := r.open(t)
+
+	wait(t, heard(s, "turn on the front door"))
+	if got := wire.last(t); wire.count() != 1 || got.method != http.MethodGet || got.path != "/api/states/lock.front_door" {
+		t.Fatalf("home assistant saw %d requests, last %s %s: want only the front door's state", wire.count(), got.method, got.path)
+	}
+	if c := r.awaitCall(t, s.ConversationID(), "call_c1"); c.Outcome != "confirmation_required" {
+		t.Errorf("first call = %+v, want it held", c)
+	}
+
+	wait(t, heard(s, "yes, open it"))
+	if n := wire.count(); n != 2 {
+		t.Fatalf("home assistant got %d requests, want the state and then the one call", n)
+	}
+	req := wire.last(t)
+	if req.method != http.MethodPost || req.path != "/api/services/homeassistant/turn_on" || req.body != `{"entity_id":"lock.front_door"}` {
+		t.Errorf("request = %s %s %s, want the front door turned on without the nonce", req.method, req.path, req.body)
+	}
+	if c := r.awaitCall(t, s.ConversationID(), "call_c2"); c.Outcome != "ok" {
+		t.Errorf("confirmed call = %+v, want ok", c)
 	}
 }
 

@@ -631,7 +631,7 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 		}
 		// A presented nonce goes to the log whatever the target is now: its
 		// class may have changed since the question was asked.
-		held := args.Nonce != "" || spec.NeedsConfirmationOf(args.Rest, s.classes(ctx, tc.Tool, args.Rest, spec.Timeout))
+		held := args.Nonce != "" || spec.NeedsConfirmationFor(args.Rest, s.target(ctx, tc.Tool, args.Rest, spec.Timeout))
 		if held && !s.confirmed(tc, args) {
 			return
 		}
@@ -655,31 +655,31 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 	go s.runTool(ctx, wg, tc, caller, spec, tool)
 }
 
-// classes reads what a call acts on from its tool, when the tool can say,
+// target reads what a call acts on from its tool, when the tool can say,
 // within the tool's own timeout. On the turn's context: a call barged in on
 // is held, never run unread.
-func (s *Session) classes(ctx context.Context, tool, args string, timeout time.Duration) registry.Classes {
+func (s *Session) target(ctx context.Context, tool, args string, timeout time.Duration) registry.TargetReader {
 	c, ok := s.sup.cfg.Tools[tool].(Classifier)
 	if !ok {
 		return nil
 	}
-	return func() ([]string, error) {
+	return func() (registry.Target, error) {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		type read struct {
-			classes []string
-			err     error
+			target registry.Target
+			err    error
 		}
 		done := make(chan read, 1)
 		go func() {
-			classes, err := c.Classify(ctx, args)
-			done <- read{classes, err}
+			target, err := c.Classify(ctx, args)
+			done <- read{target, err}
 		}()
 		select {
 		case r := <-done:
-			return r.classes, r.err
+			return r.target, r.err
 		case <-s.sup.cfg.Timers.After(timeout):
-			return nil, fmt.Errorf("classify %s: timed out after %v", tool, timeout)
+			return registry.Target{}, fmt.Errorf("classify %s: timed out after %v", tool, timeout)
 		}
 	}
 }
