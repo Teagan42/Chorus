@@ -122,9 +122,8 @@ func (a Auth) Verify(key []byte, c Challenge, h Hello) bool {
 	return hmac.Equal(a.MAC[:], authMAC(key, c, a.Name, h))
 }
 
-// authMAC covers the hello as declared, so an on-path peer cannot alter the
-// format either. The name is the only variable-length field, so the
-// concatenation is unambiguous without a length prefix.
+// authMAC covers the hello too, so the declared format cannot be rewritten.
+// The name is the only variable-length field: no length prefix is needed.
 func authMAC(key []byte, c Challenge, name string, h Hello) []byte {
 	m := hmac.New(sha256.New, key)
 	m.Write([]byte(authContext))

@@ -56,8 +56,7 @@ type Link struct {
 var ErrStopped = errors.New("bridge: utterance stopped by barge-in")
 
 // NewLink completes the opening handshake: the hello, then a challenge the
-// device must answer under the PSK keys returns for the name it claims. No
-// other frame is read or sent before the answer verifies (ADR-0066).
+// device answers under its PSK. Nothing else is read or sent first (ADR-0066).
 func NewLink(conn net.Conn, keys Keys) (*Link, error) {
 	bw := bufio.NewWriterSize(conn, HeaderSize+ttsChunkBytes)
 	l := &Link{conn: conn, r: NewReader(conn), bw: bw, w: NewWriter(bw)}
