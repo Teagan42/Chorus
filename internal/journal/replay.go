@@ -271,6 +271,9 @@ func Reduce(s State, e Event) (State, error) {
 		// Tuning corpus only; a rejected candidate changes no state.
 	case KindPresenceChanged:
 		// The room's, in a device log: no conversation's state (ADR-0050).
+	case KindAudioDropped:
+		// The clip is gone, not the turn: readers mark it, state is unchanged
+		// (ADR-0065).
 	case KindSpeechStarted:
 		// Timing only: what was heard is the spoken or truncated event that
 		// closes the same speech (ADR-0035).
@@ -329,6 +332,7 @@ func indexOfCall(calls []Call, id string) int {
 // handled is the reducer's exhaustiveness claim, asserted against AllKinds.
 var handled = map[Kind]bool{
 	KindAnnouncementMade:       true,
+	KindAudioDropped:           true,
 	KindBargeInDetected:        true,
 	KindBargeInRejected:        true,
 	KindConfirmationGiven:      true,

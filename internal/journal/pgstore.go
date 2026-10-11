@@ -53,6 +53,14 @@ type PgStore struct {
 // NewPgStore wraps an established connection or pool. Migrate must have run.
 func NewPgStore(db Querier) *PgStore { return &PgStore{db: db} }
 
+// Both backends answer retention alike; the conformance suite holds them to it.
+var (
+	_ Deleter = (*PgStore)(nil)
+	_ Ranger  = (*PgStore)(nil)
+	_ Deleter = (*MemStore)(nil)
+	_ Ranger  = (*MemStore)(nil)
+)
+
 // Migrate applies every embedded migration not yet recorded, in name order.
 // Deliberately not a framework: the ledger is one table and one query.
 func Migrate(ctx context.Context, db Querier) error {
@@ -183,7 +191,54 @@ FROM journal_events WHERE conversation_id = $1 ORDER BY seq`
 // Events returns one conversation's log in sequence order. ORDER BY is
 // load-bearing: heap order is not insertion order after any update or vacuum.
 func (p *PgStore) Events(ctx context.Context, conversationID string) ([]Event, error) {
-	rows, err := p.db.Query(ctx, selectEvents, conversationID)
+	return p.events(ctx, selectEvents, conversationID)
+}
+
+const selectEventsAfter = `
+SELECT seq, kind, actor, wall_clock, speculative, audio_ref,
+       model_version, prompt_version, tool_schema_version,
+       stt_version, tts_version, fields
+FROM journal_events WHERE conversation_id = $1 AND seq > $2 ORDER BY seq`
+
+// EventsAfter reads the tail past seq: a range on the primary key, so a
+// long log's history is never read for it.
+func (p *PgStore) EventsAfter(ctx context.Context, conversationID string, seq uint64) ([]Event, error) {
+	if seq > math.MaxInt64 {
+		return nil, nil
+	}
+	return p.events(ctx, selectEventsAfter, conversationID, int64(seq))
+}
+
+// DeleteLog removes one log whole: one partition, by the primary key's prefix.
+func (p *PgStore) DeleteLog(ctx context.Context, conversationID string) error {
+	if _, err := p.db.Exec(ctx, `DELETE FROM journal_events WHERE conversation_id = $1`, conversationID); err != nil {
+		return fmt.Errorf("delete log %s: %w", conversationID, err)
+	}
+	return nil
+}
+
+// DeleteEvents removes the named events by primary key, never the last: the
+// insert's max(seq)+1 would otherwise hand a deleted seq out again.
+func (p *PgStore) DeleteEvents(ctx context.Context, conversationID string, seqs []uint64) error {
+	keys := make([]int64, 0, len(seqs))
+	for _, s := range seqs {
+		if s <= math.MaxInt64 {
+			keys = append(keys, int64(s))
+		}
+	}
+	_, err := p.db.Exec(ctx, `
+		DELETE FROM journal_events
+		WHERE conversation_id = $1 AND seq = ANY($2)
+		  AND seq < (SELECT max(seq) FROM journal_events WHERE conversation_id = $1)`,
+		conversationID, keys)
+	if err != nil {
+		return fmt.Errorf("delete events of %s: %w", conversationID, err)
+	}
+	return nil
+}
+
+func (p *PgStore) events(ctx context.Context, query, conversationID string, args ...any) ([]Event, error) {
+	rows, err := p.db.Query(ctx, query, append([]any{conversationID}, args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("events %s: %w", conversationID, err)
 	}
