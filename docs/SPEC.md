@@ -325,6 +325,17 @@ talked over speech, never stopped it, and is a voice the household does not
 know is not answered as a turn (ADR-0049). A household voice the other stages
 refused is still heard.
 
+**Hot phrases** skip the third stage and only it. A partial that is wholly
+one of a small closed set (*stop*, *never mind*, *say that again* and a few
+variants of each) stops speech on one word, because "stop" is what a
+household says most to a voice assistant. Energy and the speaker stage
+still apply, so the television saying "stop" stops nothing. A stop or never
+mind that stopped something is not answered; never mind also reaches a turn
+working in silence, and a stop silences a timer going off. A repeat says
+again what was last heard, without the model. The set is closed because
+each entry bypasses a filter, and English-only because the ear is (§10,
+ADR-0064).
+
 ### 4.4 Interrupted-turn semantics
 
 Record the **truth**. What was actually spoken is kept, marked interrupted, with
