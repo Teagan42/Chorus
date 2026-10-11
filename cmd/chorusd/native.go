@@ -258,16 +258,19 @@ func (r *ring) current() session.RingState {
 }
 
 // led drives one satellite's ring over the native API, when the device lists
-// a light with an effect for each state. Any other ring is the firmware's
-// own to animate, and is left alone.
+// a light with an effect for each session state. Any other ring is the
+// firmware's own to animate, and is left alone. The muted and error effects
+// are optional: a ring without one is dark in that state (ADR-0069).
 type led struct {
 	ring *ring
 	log  *slog.Logger
 
-	// Per connection: the ring the device listed, if any.
-	found bool
-	key   uint32
-	light string
+	// Per connection: the ring the device listed, if any, and which of the
+	// optional states it has an effect for.
+	found    bool
+	key      uint32
+	light    string
+	optional map[session.RingState]bool
 }
 
 // ringEffect is the effect esphome/satellite1.yaml names a state by.
@@ -279,11 +282,16 @@ func ringEffect(st session.RingState) string {
 		return "Thinking"
 	case session.RingSpeaking:
 		return "Speaking"
+	case session.RingMuted:
+		return "Muted"
+	case session.RingError:
+		return "Error"
 	}
 	return ""
 }
 
-// entity takes the first light that has every state's effect.
+// entity takes the first light that has every session state's effect, and
+// notes which optional ones it has too.
 func (l *led) entity(e *pb.ListEntitiesLightResponse) {
 	if l.found {
 		return
@@ -294,6 +302,19 @@ func (l *led) entity(e *pb.ListEntitiesLightResponse) {
 		}
 	}
 	l.found, l.key, l.light = true, e.GetKey(), e.GetObjectId()
+	l.optional = map[session.RingState]bool{}
+	for _, st := range []session.RingState{session.RingMuted, session.RingError} {
+		l.optional[st] = slices.Contains(e.GetEffects(), ringEffect(st))
+	}
+}
+
+// shown is what this ring can show of st: st, or dark for an optional
+// state it has no effect for.
+func (l *led) shown(st session.RingState) session.RingState {
+	if has, optional := l.optional[st]; optional && !has {
+		return session.RingOff
+	}
+	return st
 }
 
 // listed reports, once the device has listed everything, whether it has a
@@ -313,7 +334,7 @@ func (l *led) listed() bool {
 func (l *led) drive(ctx context.Context, c nativeConn) {
 	var shown session.RingState
 	for {
-		if st := l.ring.current(); st != shown {
+		if st := l.shown(l.ring.current()); st != shown {
 			if err := c.Send(ringCommand(l.key, st)); err != nil {
 				l.log.Warn("show the LED ring", "state", st, "err", err)
 				return
@@ -329,7 +350,7 @@ func (l *led) drive(ctx context.Context, c nativeConn) {
 }
 
 // dropped forgets the connection's ring.
-func (l *led) dropped() { l.found, l.key, l.light = false, 0, "" }
+func (l *led) dropped() { l.found, l.key, l.light, l.optional = false, 0, "", nil }
 
 // ringCommand sets the ring to a state: its effect, or off.
 func ringCommand(key uint32, st session.RingState) *pb.LightCommandRequest {

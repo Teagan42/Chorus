@@ -109,6 +109,10 @@ type daemon struct {
 	// connection lists it: what set_volume sets (ADR-0067).
 	volumes map[string]*speakerVolume
 
+	// panels is what each ring is shown: the sessions' state under the
+	// device's mute and over any fault its link saw (ADR-0069).
+	panels map[string]*session.Panel
+
 	// links is each connected satellite's Listening child, by name: where
 	// an announcement for that satellite is said (ADR-0045).
 	linksMu sync.Mutex
@@ -154,11 +158,13 @@ func newDaemon(inv *config.Config, d deps) (*daemon, error) {
 		rooms:   map[string]string{},
 		rings:   map[string]*ring{},
 		volumes: map[string]*speakerVolume{},
+		panels:  map[string]*session.Panel{},
 	}
 	for _, sat := range inv.Satellites {
 		dm.rooms[sat.Name] = sat.Room
 		dm.rings[sat.Name] = newRing()
 		dm.volumes[sat.Name] = &speakerVolume{log: d.Log.With("satellite", sat.Name, "address", sat.Address)}
+		dm.panels[sat.Name] = session.NewPanel(dm.rings[sat.Name])
 	}
 	return dm, nil
 }
@@ -232,8 +238,8 @@ func (d *daemon) run(ctx context.Context) error {
 }
 
 // rehearse renders the canned lines, retrying until the synthesiser answers
-// or the daemon stops. Until it does, a voice that fails mid-turn fails in
-// silence, so that is said rather than left to be found.
+// or the daemon stops. Until it does, they are said from the audio built
+// into the binary, in its voice rather than the configured one (ADR-0069).
 func (d *daemon) rehearse(ctx context.Context, c *satellite.Canned) {
 	lines := session.DefaultCanned.Lines()
 	for {
@@ -244,7 +250,7 @@ func (d *daemon) rehearse(ctx context.Context, c *satellite.Canned) {
 		if ctx.Err() != nil {
 			return
 		}
-		d.Log.Warn("the canned lines are not rendered yet, so a voice that fails mid-turn cannot apologise; retrying",
+		d.Log.Warn("the canned lines are not rendered yet, so they are said from the audio built into the binary; retrying",
 			"err", err, "retry_in", rehearseEvery)
 		select {
 		case <-ctx.Done():
@@ -468,7 +474,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 		Engine: d.engine, Speaker: speaker, Conversations: d.convs,
 		Tools: d.tools, Gate: d.gate, Memories: d.memories, Rooms: d.rooms,
 		Summarizer: d.summarizer, Summarizing: &d.wg, Log: log,
-		Ring: d.rings[sat.Name],
+		Ring: d.panels[sat.Name],
 	})
 	if err != nil {
 		return err
@@ -476,7 +482,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	lst, err := listen.Open(linkCtx, listen.Config{
 		Satellite: sat.Name, Sessions: sup, Transcriber: d.stt, Speakers: d.speakers,
 		Playback: speaker, Blobs: d.Blobs, Journal: d.journal, Clock: d.Clock, Log: log,
-		Endpointer: d.endpointer(),
+		Endpointer: d.endpointer(), Indicator: d.panels[sat.Name],
 	})
 	if err != nil {
 		return err
