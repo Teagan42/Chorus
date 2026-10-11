@@ -10,6 +10,15 @@
 <span class="cap">Preview · first rows</span>
 <pre class="mono" style="margin: 0; padding: 14px 16px; border: 1px solid var(--c-rule); border-radius: 8px; overflow-x: auto; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word">{{.}}</pre>
 </div>{{end}}
+<p class="muted" id="export-format" style="font-size: 13px; margin: 14px 0 0">Format {{.SchemaVersion}}. Each row says <code>meta.split</code>: {{.Split}} of conversations are held out for validation by a hash of their id, so a conversation never straddles the split. The zip holds both sides as their own files, the SFT exemplars, and every clip a row names as a WAV.</p>
+{{with .SFT}}<section aria-label="SFT exemplars" style="margin-top: 32px">
+<div class="row band pad" style="justify-content: space-between; flex-wrap: wrap; gap: 10px">
+<div class="stack" style="gap: 4px"><h2 style="margin: 0; font-size: 18px; font-weight: 600">SFT exemplars</h2>
+<span class="muted" style="font-size: 13px">Turns labelled <em>good — exemplar</em> on Browse (SPEC §9.2), as prompt and completion. One labelled with a fault besides, unattributed, or silent is held.</span></div>
+{{template "button" .Download}}
+</div>
+{{template "metric-strip" .Stats}}
+</section>{{end}}
 {{with .Wake}}<section aria-label="Wake-word hard negatives" style="margin-top: 32px">
 <div class="row band pad" style="justify-content: space-between; flex-wrap: wrap; gap: 10px">
 <div class="stack" style="gap: 4px"><h2 style="margin: 0; font-size: 18px; font-weight: 600">Wake-word hard negatives</h2>

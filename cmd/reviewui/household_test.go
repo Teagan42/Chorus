@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/teagan42/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/contexts"
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
@@ -70,6 +71,7 @@ func newHouseholdServer(t *testing.T) (*server, curation.Store) {
 	t.Helper()
 	decisions := curation.NewMemStore()
 	s := newServer(householdJournal(t), decisions, householdBlobs(t), household.ReviewedAt)
+	s.contexts = contexts.Chain{contexts.Default(), household.Contexts()}
 	return s, decisions
 }
 
@@ -166,9 +168,10 @@ func TestHouseholdCurationExportsOnlyTheFixedAttributedPairs(t *testing.T) {
 	}
 }
 
-// A row that cannot be written halfway through the download fails the
-// download: the reviewer's browser says so, rather than saving a file that
-// stops after the Zeppelin row and looks complete.
+// A row that cannot be written fails the download: the reviewer's browser
+// says so, rather than saving a file that stops after the Zeppelin row and
+// looks complete. Rows are built before a byte is sent, so it is a 500
+// naming the row; one that fails mid-stream drops the connection.
 //
 // verifies SPEC §9.1
 func TestAnExportThatFailsMidStreamIsAFailedDownload(t *testing.T) {
@@ -193,7 +196,11 @@ func TestAnExportThatFailsMidStreamIsAFailedDownload(t *testing.T) {
 		return // aborted before a byte was sent: still a failed download
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if body, err := io.ReadAll(resp.Body); err == nil {
+	body, err := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusOK && err == nil {
 		t.Errorf("the download completed as %d bytes after a row failed:\n%s", len(body), body)
+	}
+	if resp.StatusCode != http.StatusOK && !strings.Contains(string(body), pairWeather) {
+		t.Errorf("the failed download says %q, not which row", body)
 	}
 }
