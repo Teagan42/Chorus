@@ -30,7 +30,7 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | `tool_called` | thinking |  |  | Model dispatched a tool; emitted when its JSON closed, not at end of message. |
 | `tool_result` | tool |  |  | Tool completed, failed, or timed out. Failures are results the model reasons about (SPEC §7). |
 | `utterance_transcribed` | listening | yes |  | Final STT result for one utterance. |
-| `wake_rejected` | device | yes | yes | Stage-one activation failed server-side confirmation. Hard negative for wake-word retraining. |
+| `wake_rejected` | device | yes | yes | Stage-one activation failed server-side confirmation, or another satellite won the same wake. Hard negative for wake-word retraining, but for an arbitrated one or a button press. |
 
 ## `announcement_made`
 
@@ -344,13 +344,17 @@ Actor: `listening`. `has_audio`: yes. `training_signal`: no. `speculative`: no. 
 
 ## `wake_rejected`
 
-Stage-one activation failed server-side confirmation. Hard negative for wake-word retraining.
+Stage-one activation failed server-side confirmation, or another satellite won the same wake. Hard negative for wake-word retraining, but for an arbitrated one or a button press.
 
 Actor: `device`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. `requires_versions`: yes.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `reason` | string | yes | Which gate rejected it. transcription_failed is the first utterance that could not be decoded, so nothing confirmed the wake: not a verdict on the audio, and no hard negative. One of: `no_speech`, `low_confidence`, `unknown_speaker`, `transcription_failed`. |
+| `reason` | string | yes | Which gate rejected it. transcription_failed is the first utterance that could not be decoded, so nothing confirmed the wake: not a verdict on the audio, and no hard negative. arbitrated is the same wake heard louder by the satellite lost_to names, which answered instead (SPEC §4.5, ADR-0072): a real wake, never a hard negative, and its audio is what this satellite held while the contest ran. One of: `no_speech`, `low_confidence`, `unknown_speaker`, `transcription_failed`, `arbitrated`. |
+| `wake_word` | string |  | The name the device's wake frame carried: the wake model's, or button for the Voice PE's push-to-talk press (bridge.WakeButton). A press is no activation of the wake model, so it is never a hard negative. Empty in logs from before it was recorded. |
+| `lost_to` | string |  | The satellite that won an arbitrated wake. Empty for every other reason. |
+| `energy_dbfs` | number |  | An arbitrated wake's processed-channel level over the stretch before its wake frame, in dBFS: what it lost on. Empty for every other reason. |
+| `winner_energy_dbfs` | number |  | The winner's level over the same stretch of its own stream, in dBFS. Empty for every other reason. |
 | `second_audio_ref` | string |  | The same span from the XMOS's second, lighter-processed output, so retraining can target either stream (SPEC §9.3). Empty when the device streams one channel. |
 | `canned_call_id` | string |  | The speak call that told the person the ear failed, recorded next in this log: a transcription_failed wake from a voice that would have passed stage three (SPEC §7, ADR-0069). Empty for every other rejection, which stays silent. |
 
