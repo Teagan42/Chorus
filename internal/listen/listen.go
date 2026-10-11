@@ -1122,7 +1122,7 @@ func (l *Listener) confirm(pcm, second []byte, out identity.Outcome, word string
 			return false
 		}
 	}
-	sess, err := l.cfg.Sessions.Open(l.ctx, session.Wake{Satellite: l.cfg.Satellite, PersonID: out.PersonID})
+	sess, err := l.cfg.Sessions.Open(l.ctx, session.Wake{Satellite: l.cfg.Satellite, PersonID: out.PersonID, Word: word})
 	if err != nil {
 		l.warn("open session", err)
 		return false

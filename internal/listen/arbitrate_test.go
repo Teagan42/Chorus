@@ -286,3 +286,24 @@ func TestAPressIsEnteredAsAPress(t *testing.T) {
 		t.Errorf("entered %+v, want the spoken wake entered as no press", got)
 	}
 }
+
+// A session records the wake that opened it, as a rejection does: Alan's
+// "hey eddie" names the wake model, and Bob's press of the office button
+// names the button, so the log tells a spoken wake from a press whichever
+// way it ends (SPEC §9.3, ADR-0072).
+//
+// verifies SPEC §9.3
+func TestASessionNamesTheWakeThatOpenedIt(t *testing.T) {
+	for _, word := range []string{"hey_eddie", bridge.WakeButton} {
+		t.Run(word, func(t *testing.T) {
+			r := newRig(t, silent())
+			r.dev.SendWake(t, word)
+			r.utter(t, r.line("find zeppelin", alan), 8*chunkBytes)
+
+			opened := r.awaitKind(t, r.session(t).ConversationID(), journal.KindSessionOpened, 1)
+			if opened.Fields["wake_word"] != word {
+				t.Errorf("session_opened wake_word = %q, want %q", opened.Fields["wake_word"], word)
+			}
+		})
+	}
+}
