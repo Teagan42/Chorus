@@ -43,6 +43,7 @@ func TestIsGenerated(t *testing.T) {
 		"docs/reference/events.md",
 		"hardware/chorus-main/chorus-main.net",
 		"hardware/chorus-main/bom.csv",
+		"internal/satellite/fallback/9975523217d82348.pcm",
 	}
 	for _, p := range gen {
 		if !IsGenerated(p) {
@@ -53,6 +54,7 @@ func TestIsGenerated(t *testing.T) {
 		"internal/session/supervisor.go", "docs/SPEC.md", "schema/tool.cue",
 		"hardware/chorus-main/pins.yaml", "hardware/chorus-main/sheets/ethernet.yaml",
 		"hardware/chorus-main/satellite1-hat.yaml",
+		"internal/satellite/canned.go", "internal/satellite/fallback.go",
 	}
 	for _, p := range hand {
 		if IsGenerated(p) {

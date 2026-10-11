@@ -2,6 +2,8 @@ package satellite
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sync"
 )
@@ -19,6 +21,17 @@ type Canned struct {
 
 	mu    sync.RWMutex
 	audio map[string][]byte
+}
+
+// Segments is text as a stream cuts it, each part synthesised on its own:
+// the unit audio rendered ahead of time is kept in.
+func Segments(text string) []string { return chunk(text) }
+
+// FallbackName is the file under fallback/ holding a segment's audio as
+// `task canned:voice` rendered it (ADR-0069).
+func FallbackName(segment string) string {
+	sum := sha256.Sum256([]byte(segment))
+	return hex.EncodeToString(sum[:8]) + ".pcm"
 }
 
 // NewCanned wraps synth. Nothing is rendered until Render.

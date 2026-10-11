@@ -109,13 +109,15 @@ func ParseSubject(subject string) (Commit, bool) {
 	return Commit{}, false
 }
 
-// IsGenerated reports whether a path is produced by `task gen`.
+// IsGenerated reports whether a path is produced by `task gen`, or by
+// `task canned:voice`, which needs Kokoro and so runs apart from it.
 func IsGenerated(path string) bool {
 	switch {
 	case strings.HasSuffix(path, ".gen.go"),
 		strings.HasPrefix(path, "internal/pb/"),
 		strings.HasPrefix(path, "schema/json/"),
-		strings.HasPrefix(path, "docs/reference/"):
+		strings.HasPrefix(path, "docs/reference/"),
+		strings.HasPrefix(path, "internal/satellite/fallback/"):
 		return true
 	case strings.HasPrefix(path, "hardware/"):
 		return strings.HasSuffix(path, ".net") || strings.HasSuffix(path, "/bom.csv")
