@@ -425,6 +425,11 @@ func (c *speechChannel) play(u *utterance) {
 		c.record(u.callID, reason, failed, pb)
 		tell(u.heard, !pb.Truncated || pb.Spoken != "")
 	}
+	// A canned line may come from audio rendered ahead of time, so only
+	// chosen words prove the voice answers (ADR-0069).
+	if !failed && !u.canned && pb.Spoken != "" {
+		c.s.sup.answered(FaultVoice)
+	}
 	if gathered != "" {
 		c.discardedLocked(u.callID, gathered, reason)
 	}
@@ -564,6 +569,9 @@ func (c *speechChannel) recordFailure(callID, reason string, err error, cannedID
 		fields["canned_call_id"] = cannedID
 	}
 	c.s.sup.cfg.Log.Warn("speech failed", "conversation", c.s.convID, "call", callID, "reason", reason, "err", err)
+	if reason == ErrVoiceUnavailable.Error() {
+		c.s.sup.fault(FaultVoice)
+	}
 	c.s.fail(c.s.record(journal.Record{Kind: journal.KindSpeechFailed, Fields: fields}))
 }
 

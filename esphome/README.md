@@ -20,7 +20,9 @@ radar's "Room Presence", which the orchestrator journals as the room's
 presence (ADR-0050), and the LED ring, which it drives. `satellite1.yaml`
 declares the ring with a `Listening`, `Thinking` and `Speaking` effect, and
 the orchestrator sets one per session state; a ring without those three is
-left alone (ADR-0056). Its Speaker Volume number is how loud the satellite
+left alone (ADR-0056). Its `Muted` and `Error` effects show the device's mute
+and a failure the household should know about; a ring with only the first
+three goes dark in those states instead (ADR-0069). Its Speaker Volume number is how loud the satellite
 is, 0 to 100, which the orchestrator sets when someone asks (ADR-0067).
 Audio rides a raw TCP socket the device dials out on, because the native API
 cannot carry audio without new message ids, which means forking `api.proto`.

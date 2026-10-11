@@ -19,6 +19,8 @@ esphome/*.bin
 *.pcm
 # except the household fixture's voices, which are synthetic (voice.json).
 !internal/reviewui/household/audio/**/*.pcm
+# and the canned lines' fallback, which Kokoro renders (task canned:voice).
+!internal/satellite/fallback/*.pcm
 
 # The speaker-ID model `task speakerid:serve` fetches; pinned, so never committed.
 .models/

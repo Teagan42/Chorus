@@ -55,6 +55,7 @@ events: {
 		fields: [
 			{name: "reason", type: "string", description: "Which gate rejected it. transcription_failed is the first utterance that could not be decoded, so nothing confirmed the wake: not a verdict on the audio, and no hard negative.", required: true, enum: ["no_speech", "low_confidence", "unknown_speaker", "transcription_failed"]},
 			{name: "second_audio_ref", type: "string", description: "The same span from the XMOS's second, lighter-processed output, so retraining can target either stream (SPEC §9.3). Empty when the device streams one channel."},
+			{name: "canned_call_id", type: "string", description: "The speak call that told the person the ear failed, recorded next in this log: a transcription_failed wake from a voice that would have passed stage three (SPEC §7, ADR-0069). Empty for every other rejection, which stays silent."},
 		]
 	}
 	utterance_transcribed: {
@@ -252,10 +253,10 @@ events: {
 
 	audio_dropped: {
 		name:        "audio_dropped", actor: "store"
-		description: "Audio an earlier event names is not kept: retention removed it past its satellite's horizon, or the disk was too full to write it. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065)."
+		description: "Audio an earlier event names is not kept: retention removed it past its satellite's horizon, the disk was too full to write it, or the write failed. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065, ADR-0069)."
 		fields: [
 			{name: "audio_ref", type: "string", description: "The blob reference the earlier events name, as they name it.", required: true},
-			{name: "reason", type: "string", description: "retention: removed once older than its satellite's audio horizon. disk_low: never written, because the blob directory's filesystem was below its free-space floor.", required: true, enum: ["retention", "disk_low"]},
+			{name: "reason", type: "string", description: "retention: removed once older than its satellite's audio horizon. disk_low: never written, because the blob directory's filesystem was below its free-space floor. write_failed: never written, because the blob store failed the write; recorded at once, after the event that names it (ADR-0069).", required: true, enum: ["retention", "disk_low", "write_failed"]},
 			{name: "days", type: "integer", description: "The audio horizon it outlived, in days. Empty for disk_low."},
 		]
 	}

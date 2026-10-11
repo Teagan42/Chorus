@@ -7,7 +7,7 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | Event | Actor | Audio | Training signal | Description |
 |---|---|---|---|---|
 | `announcement_made` | session |  |  | Something was said that nobody in this conversation asked for: a timer going off, or someone in another room asking for it to be said here. Recorded in the conversation it was said in, ahead of the speak call that says it (SPEC §4). |
-| `audio_dropped` | store |  |  | Audio an earlier event names is not kept: retention removed it past its satellite's horizon, or the disk was too full to write it. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065). |
+| `audio_dropped` | store |  |  | Audio an earlier event names is not kept: retention removed it past its satellite's horizon, the disk was too full to write it, or the write failed. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065, ADR-0069). |
 | `barge_in_detected` | listening | yes |  | Interruption passed the detection gate. Timing is milliseconds into TTS playback, not wall clock, so replay reproduces the cut. |
 | `barge_in_rejected` | listening | yes |  | Candidate interruption failed the detection gate. Tuning corpus for SPEC §4.3. |
 | `confirmation_given` | session |  |  | A held call came back with its nonce after the person answered, and ran. What they said is the utterance the nonce was redeemed after (SPEC §6). |
@@ -51,14 +51,14 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 
 ## `audio_dropped`
 
-Audio an earlier event names is not kept: retention removed it past its satellite's horizon, or the disk was too full to write it. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065).
+Audio an earlier event names is not kept: retention removed it past its satellite's horizon, the disk was too full to write it, or the write failed. Recorded in the log the audio was named in, so a reader shows the clip as gone rather than failing on it (SPEC §8, ADR-0065, ADR-0069).
 
 Actor: `store`. `has_audio`: no. `training_signal`: no. `speculative`: no. `requires_versions`: no.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `audio_ref` | string | yes | The blob reference the earlier events name, as they name it. |
-| `reason` | string | yes | retention: removed once older than its satellite's audio horizon. disk_low: never written, because the blob directory's filesystem was below its free-space floor. One of: `retention`, `disk_low`. |
+| `reason` | string | yes | retention: removed once older than its satellite's audio horizon. disk_low: never written, because the blob directory's filesystem was below its free-space floor. write_failed: never written, because the blob store failed the write; recorded at once, after the event that names it (ADR-0069). One of: `retention`, `disk_low`, `write_failed`. |
 | `days` | integer |  | The audio horizon it outlived, in days. Empty for disk_low. |
 
 ## `barge_in_detected`
@@ -352,4 +352,5 @@ Actor: `device`. `has_audio`: yes. `training_signal`: yes. `speculative`: no. `r
 |---|---|---|---|
 | `reason` | string | yes | Which gate rejected it. transcription_failed is the first utterance that could not be decoded, so nothing confirmed the wake: not a verdict on the audio, and no hard negative. One of: `no_speech`, `low_confidence`, `unknown_speaker`, `transcription_failed`. |
 | `second_audio_ref` | string |  | The same span from the XMOS's second, lighter-processed output, so retraining can target either stream (SPEC §9.3). Empty when the device streams one channel. |
+| `canned_call_id` | string |  | The speak call that told the person the ear failed, recorded next in this log: a transcription_failed wake from a voice that would have passed stage three (SPEC §7, ADR-0069). Empty for every other rejection, which stays silent. |
 
