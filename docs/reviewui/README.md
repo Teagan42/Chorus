@@ -20,8 +20,9 @@ Both schemas, the journal's and the curation table's, migrate at startup.
 
 ```sh norun
 task db:up                     # the journal
-task reviewui                  # go run ./cmd/reviewui, loads .env
-task reviewui -- -addr :9090   # somewhere other than :8080
+task reviewui                  # go run ./cmd/reviewui, loads .env; http://127.0.0.1:8080
+task reviewui -- -addr 127.0.0.1:9090                      # somewhere other than :8080
+task reviewui -- -addr :8080 -hosts review.home,10.0.0.5   # on the LAN, by those names
 ```
 
 Without a checkout, each [release](https://github.com/Teagan42/Chorus/releases)
@@ -33,17 +34,52 @@ carries its templates and htmx, so it needs only the variables below.
 | `CHORUS_POSTGRES_DSN` | no | The journal. Defaults to the docker-compose database. |
 | `CHORUS_BLOB_DIR` | yes | The audio the journal refers to; served to the browser as WAV. |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | no | What Replay re-runs turns against. Unset, Replay shows the recorded turns and says it has nothing to ask. |
+| `CHORUS_REVIEWUI_HOSTS` | no | The names the UI answers as, like `-hosts`. Unset, the listen address's host, or `localhost`, `127.0.0.1` and `::1` when it binds loopback or every interface. |
 
-These are the same variables `chorusd` reads, so the `.env` copied from
-`.env.example` already serves both. `/` opens [Browse](#browse).
+The first three are the same variables `chorusd` reads, so the `.env`
+copied from `.env.example` already serves both. `/` opens [Browse](#browse).
 
-There is no login: like `chorusd`, the review UI trusts the household's
-network (SPEC §1). What it refuses is a write another site's page sends from
-the reviewer's browser. A POST whose `Sec-Fetch-Site` is anything but
-`same-origin`, or, from a browser too old to send that, whose `Origin` names
-another host, is a 403 (Go's `http.CrossOriginProtection`). A request with
-neither header, such as `curl`, is not a browser's and lands. A proxy in front
-of the UI must pass the `Host` header through.
+There is no login. The UI listens on `127.0.0.1:8080` unless told
+otherwise, so out of the box only a browser on the box itself reaches it.
+Like `chorusd`, it trusts the household's network (SPEC §1), but it plays
+every recording in the house and lists every remembered fact, so reaching it
+from another machine is a choice: `-addr :8080` (or `-addr 10.0.0.5:8080`)
+opens it to the LAN, and everyone on that network, guests included, can then
+open it. To reach it from anywhere but the box, put a reverse proxy with its
+own login in front of it and have the proxy pass the `Host` header through.
+
+What the UI refuses on its own:
+
+- A request addressed to a name it was not told is its. `-hosts` (or
+  `CHORUS_REVIEWUI_HOSTS`) lists the host names and IPs the UI answers as,
+  defaulting to the listen address's host, or to `localhost`, `127.0.0.1`
+  and `::1` when it binds loopback or every interface. A request whose
+  `Host` names anything else is a 421 before any screen runs, and the
+  server log names the host once. This is what stops a web page from
+  re-pointing its own domain at the box: to the browser that page is then
+  same-origin with the UI, which the check below cannot see, but its `Host`
+  still names the page's domain. Exposing the UI on the LAN means naming
+  the address people will type.
+- A write another site's page sends from the reviewer's browser. A POST
+  whose `Sec-Fetch-Site` is anything but `same-origin`, or, from a browser
+  too old to send that, whose `Origin` names another host, is a 403 (Go's
+  `http.CrossOriginProtection`). A request with neither header, such as
+  `curl`, is not a browser's and lands.
+- A page that would frame it, a script it did not serve, or a font, image or
+  clip from anywhere else. Every response carries a `Content-Security-Policy`
+  (scripts, styles, fonts, images, audio and htmx's requests from the UI
+  itself only, `frame-ancestors 'none'`, no inline script), `X-Frame-Options:
+  DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
+  The fonts and htmx are in the binary, so a page asks nothing of the
+  internet and no third party learns the UI was opened.
+
+A write the server refuses is said on the page: htmx drops the body of an
+error, so a verdict, label or promotion that did not land would otherwise
+leave a button that silently did nothing. The refusal is a sentence (which
+pair is gone, what was not stored and what the database said), shown in an
+alert above the header until it is dismissed or the next request lands.
+
+![A label pressed while the database was away](e2e/conversation-post-failed.png)
 
 ## The hosted demo
 
@@ -466,7 +502,12 @@ CHORUS_E2E_CHROME=$(command -v chromium) CHORUS_E2E_SHOTS=/tmp/shots task test:e
 - a re-run is promoted, lands accepted, and ships saying which prompt wrote it.
 - a rejected wake is opened from its tick, heard on both channels, confirmed, and shipped in the wake corpus;
 - the answer Alan had to repeat is labelled from the repeat, and ships with the repeat as evidence;
-- a weak positive is found in its own pile and labelled an exemplar, making no pair.
+- a weak positive is found in its own pile and labelled an exemplar, making no pair;
+- the database goes away under a label, the page says so in the server's words, and the next press lands once it is back.
+
+Every browser test runs behind the real server's Host allow-list and
+security headers, and fails on any policy violation Chrome reports, so a
+control the policy would silently disable cannot pass.
 
 ![Journey: Browse today](e2e/journey-browse-today.png)
 ![Journey: editing the chosen side](e2e/journey-review-editing.png)
