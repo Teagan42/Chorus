@@ -53,11 +53,13 @@ peer that is not the host gets near the bound.
 | `0x03` wake | device | wake word name, UTF-8 |
 | `0x04` played | device | cumulative DAC frames:u64, `esp_timer` micros:i64; `flags` echoes the tag of the stop this report answers, 0 otherwise |
 | `0x05` mute | device | none; `flags` bit 0 hardware, bit 1 software |
+| `0x06` auth | device | MAC:32 then the node name, UTF-8, 1-64 bytes; answers the challenge |
 | `0x10` tts | host | 16 kHz s16le PCM |
 | `0x11` stop | host | none — barge-in, discards the speaker buffer; `flags` is a tag, never 0 |
 | `0x12` finish | host | none — drains the buffer, then stops |
 | `0x13` duck | host | decibels:u8, duration_ms:u32; applied to the `ducking_speaker` source, never the voice |
 | `0x14` mic_enable | host | none; `flags` bit 0 enables the uplink |
+| `0x15` challenge | host | nonce:32, fresh from a CSPRNG for every connection |
 
 `played` is the truncation point and the reason this component exists in this
 shape. ESPHome's `add_audio_output_callback` reports frames actually written to
@@ -76,6 +78,56 @@ waits for the echoed tag rather than for the next position to arrive
 device still announcing 1.
 
 `mute` has no host-to-device counterpart. Hardware mute is authoritative.
+
+## Handshake
+
+A connection is not a satellite until it has proved it is one (SPEC §3.2.2,
+ADR-0066). Protocol version 3 opens every connection like this:
+
+```
+device → host  0x01 hello      03 00003e80 10 02        v3, 16 kHz, 16-bit, 2 channels
+host → device  0x15 challenge  nonce[32]
+device → host  0x06 auth       mac[32] name             e.g. satellite1-4b2c10
+```
+
+```
+k   = HKDF-SHA256(ikm = psk, salt = none, info = "chorus-bridge auth v3")   32 bytes
+mac = HMAC-SHA256(k, "chorus-bridge v3" || nonce || name || hello payload)
+```
+
+`psk` is the satellite's `api_encryption_key`, decoded: the same 32 bytes
+`devices.yaml` holds, passed to the component as `psk:` by the package. The
+derivation keeps the link and the native API's Noise handshake from ever
+sharing a key. The hello payload is its seven bytes as sent, so the format is
+covered too. The name is the only variable-length field, so the input needs
+no length prefix. `internal/bridge/testdata/handshake-v3.hex` holds the whole
+exchange for a fixed key, nonce and name; `go test ./internal/bridge` checks
+the host against it and `task firmware:test` checks `chorus_auth.h`, the
+firmware's arithmetic, built for the host against mbedTLS.
+
+The host looks the name up in its inventory, checks the MAC under that
+satellite's key in constant time, and requires the connection to come from
+that satellite's address. Anything else is a disconnect, logged with its
+reason: `unknown name`, `bad MAC`, `wrong address`, `frame before auth`,
+`protocol version`, or `timeout` (10 s, on chorusd's injected clock). A
+verified connection for a satellite that already has a live link closes the
+old one first; an unverified one cannot.
+
+The device sends nothing but the hello and its answer until it has been
+challenged: its microphones start, and `mute`, `wake` and `played` flow, only
+once the answer is queued. It accepts no frame but a challenge until then, and
+redials if none arrives within 15 s.
+
+This authenticates the device. It does not encrypt the stream, so audio on
+the LAN is still readable by anyone who can capture it, and a peer on the path
+can still inject into a link after it has verified. Encrypting it is a
+separate change (ADR-0066).
+
+A host at version 3 refuses a device announcing 2 at its hello, before it
+sends the device anything, with `device speaks chorus_bridge protocol 2, this
+host speaks 3`. A version 2 device would ignore the challenge as an unknown
+type, so there is no mixed-version mode: **reflash every satellite in step
+with the host.**
 
 ## Hardware mute, passive sources, and other sharp edges
 
@@ -117,7 +169,10 @@ task firmware:upload
 `orchestrator_host` is a literal IP on a static lease: ESPHome cannot resolve
 a hostname for an outbound socket. `api_encryption_key` in `secrets.yaml` must
 equal the `psk` for this satellite in the repo-root `devices.yaml`: the
-orchestrator dials the device with it. `ota_password` is what `esphome upload`
+orchestrator dials the device with it, and the device proves who it is on the
+audio link with it. The `name` in `devices.yaml` is the device's node name as
+it reports it, MAC suffix included (`satellite1-4b2c10`), because that is the
+name the audio link's auth frame carries. `ota_password` is what `esphome upload`
 presents and what the device demands before it accepts a flash; without one
 anyone on the LAN can reflash a device that carries a microphone.
 
@@ -133,8 +188,10 @@ the speaker is playing. That cannot be proven without a device.
 1. `task firmware:upload && task firmware:logs`
 2. `task probe` — confirms the native API still answers, independent of the
    audio socket.
-3. Accept the bridge connection on port 6055, send `0x10` TTS frames, and check
-   that `0x02` mic frames keep arriving *during* playback. Half duplex shows up
+3. Accept the bridge connection on port 6055, completing the handshake with
+   the satellite's `psk` (`bridge.Listen` does, given the inventory), send
+   `0x10` TTS frames, and check that `0x02` mic frames keep arriving *during*
+   playback. Half duplex shows up
    as a gap in mic frames for the length of the utterance.
 4. Speak over the playback, send `0x11` stop with a non-zero `flags` tag, and
    compare the `0x04` played report that echoes it against the text offset

@@ -198,6 +198,14 @@ jobs:
 
       - run: task firmware:config -- satellite1.example.yaml
 
+      # The firmware's handshake MAC, built for the host against mbedTLS and
+      # checked on the golden frames the Go tests use (ADR-0066). The only
+      # C++ this job compiles; the component itself is not built here.
+      - name: mbedTLS headers
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmbedtls-dev
+
+      - run: task firmware:test
+
   # Blocking since every SPEC §15 critical clause has coverage. It was advisory
   # while the runtime did not exist. If it goes red, add the test — do not
   # weaken spectrace or drop a citation.

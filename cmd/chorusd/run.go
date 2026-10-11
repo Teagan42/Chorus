@@ -103,6 +103,9 @@ type daemon struct {
 	// an announcement for that satellite is said (ADR-0045).
 	linksMu sync.Mutex
 	links   map[string]*listen.Listener
+	// live is each satellite's verified audio link, under linksMu: a newer
+	// verified connection closes it (SPEC §3.2.2).
+	live map[string]*liveLink
 
 	// wg also counts the summaries still being written, which outlive the
 	// link whose conversation ended: run returns only once they are kept.
@@ -299,27 +302,62 @@ func (d *daemon) satelliteAt(addr net.Addr) *config.Satellite {
 	return d.byHost[ip.String()]
 }
 
+// satelliteNamed is the inventory's satellite by exactly that name, or nil.
+func (d *daemon) satelliteNamed(name string) *config.Satellite {
+	for i := range d.inv.Satellites {
+		if sat := &d.inv.Satellites[i]; name != "" && sat.Name == name {
+			return sat
+		}
+	}
+	return nil
+}
+
+// pskOf is the key a device claiming name must prove it holds.
+func (d *daemon) pskOf(name string) ([]byte, bool) {
+	sat := d.satelliteNamed(name)
+	if sat == nil {
+		return nil, false
+	}
+	psk, err := sat.PSKBytes()
+	return psk, err == nil
+}
+
 // serve is one connection's whole life: identify, handshake, attach the
-// stack, serve the link, tear down in order.
+// stack, serve the link, tear down in order. A satellite is its name, its
+// psk and its address together; every one must hold (SPEC §3.2.2, §13).
 func (d *daemon) serve(ctx context.Context, conn net.Conn) {
 	remote := conn.RemoteAddr().String()
-	sat := d.satelliteAt(conn.RemoteAddr())
-	if sat == nil {
+	from := d.satelliteAt(conn.RemoteAddr())
+	if from == nil {
 		// Before a frame is read: nothing from an address the inventory does
 		// not name is worth parsing (SPEC §13).
 		d.Log.Warn("refused a connection from an address not in the inventory", "remote", remote)
 		_ = conn.Close()
 		return
 	}
-	log := d.Log.With("satellite", sat.Name, "remote", remote)
+	log := d.Log.With("remote", remote, "address_of", from.Name)
 
 	link, err := d.handshake(ctx, conn)
 	if err != nil {
-		log.Warn("audio link handshake failed", "err", err)
+		log.Warn("refused an audio link", "reason", refusedBecause(err), "err", err)
 		return
 	}
 	defer func() { _ = link.Close() }()
 
+	// Found: the handshake looked the name up to verify its MAC.
+	sat := d.satelliteNamed(link.Name())
+	log = log.With("satellite", sat.Name)
+	if sat != from {
+		log.Warn("refused an audio link", "reason", "wrong address",
+			"err", fmt.Sprintf("%s proved its name from %s's address", sat.Name, from.Name))
+		return
+	}
+
+	release, ok := d.claim(ctx, sat.Name, link, log)
+	defer release()
+	if !ok {
+		return
+	}
 	if err := d.attach(ctx, sat, link, log); err != nil {
 		log.Warn("audio link failed", "err", err)
 		return
@@ -327,14 +365,36 @@ func (d *daemon) serve(ctx context.Context, conn net.Conn) {
 	log.Info("satellite disconnected")
 }
 
-// handshake completes the hello, bounded by the injected timers rather than
-// a socket deadline, so no wall clock is read here.
+// errHandshakeTimeout is a handshake the injected timers ended.
+var errHandshakeTimeout = errors.New("handshake timed out")
+
+// refusedBecause names why a handshake was refused, for the log line.
+func refusedBecause(err error) string {
+	switch {
+	case errors.Is(err, errHandshakeTimeout):
+		return "timeout"
+	case errors.Is(err, bridge.ErrUnknownDevice):
+		return "unknown name"
+	case errors.Is(err, bridge.ErrBadMAC):
+		return "bad MAC"
+	case errors.Is(err, bridge.ErrUnauthenticated):
+		return "frame before auth"
+	case errors.Is(err, bridge.ErrVersion):
+		return "protocol version"
+	default:
+		return "handshake failed"
+	}
+}
+
+// handshake completes the hello and the device's proof of identity, bounded
+// by the injected timers rather than a socket deadline, so no wall clock is
+// read here.
 func (d *daemon) handshake(ctx context.Context, conn net.Conn) (*bridge.Link, error) {
 	if tcp, ok := conn.(*net.TCPConn); ok {
 		// Nagle would coalesce the 32 ms chunks barge-in timing depends on.
 		_ = tcp.SetNoDelay(true)
 	}
-	link, err := within(ctx, d.Timers, helloTimeout, func(ctx context.Context) (*bridge.Link, error) {
+	link, err := within(ctx, d.Timers, helloTimeout, func(hctx context.Context) (*bridge.Link, error) {
 		// A net.Conn read is not cancellable; closing it is. Only while the
 		// read is in flight: within ends its context on return too, and a
 		// handshake that succeeded must keep its connection, so done is
@@ -345,7 +405,7 @@ func (d *daemon) handshake(ctx context.Context, conn net.Conn) (*bridge.Link, er
 			select {
 			case <-done:
 				return
-			case <-ctx.Done():
+			case <-hctx.Done():
 			}
 			select {
 			case <-done:
@@ -353,7 +413,11 @@ func (d *daemon) handshake(ctx context.Context, conn net.Conn) (*bridge.Link, er
 				_ = conn.Close()
 			}
 		}()
-		return bridge.NewLink(conn)
+		link, err := bridge.NewLink(conn, d.pskOf)
+		if err != nil && hctx.Err() != nil && ctx.Err() == nil {
+			return nil, fmt.Errorf("%w: %w", errHandshakeTimeout, err)
+		}
+		return link, err
 	})
 	if err != nil {
 		_ = conn.Close()
@@ -414,8 +478,8 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	return err
 }
 
-// link makes lst where the satellite's announcements are said. A device
-// that reconnects replaces the link it left behind.
+// link makes lst where the satellite's announcements are said. serve has
+// already closed the link this one replaced, and waited for its unlink.
 func (d *daemon) link(name string, lst *listen.Listener) {
 	d.linksMu.Lock()
 	defer d.linksMu.Unlock()
@@ -429,6 +493,48 @@ func (d *daemon) unlink(name string, lst *listen.Listener) {
 	if d.links[name] == lst {
 		delete(d.links, name)
 	}
+}
+
+// liveLink is a satellite's verified connection, and the serve that owns it.
+type liveLink struct {
+	link *bridge.Link
+	done chan struct{} // closed once that serve has torn its supervisor down
+}
+
+// claim makes link the satellite's one live link. A link already live is
+// closed first, and claim waits for its supervisor to end, so one runs per
+// device. ok is false when a newer connection claimed it meanwhile.
+func (d *daemon) claim(ctx context.Context, name string, link *bridge.Link, log *slog.Logger) (release func(), ok bool) {
+	me := &liveLink{link: link, done: make(chan struct{})}
+	d.linksMu.Lock()
+	if d.live == nil {
+		d.live = map[string]*liveLink{}
+	}
+	prev := d.live[name]
+	d.live[name] = me
+	d.linksMu.Unlock()
+
+	release = func() {
+		d.linksMu.Lock()
+		if d.live[name] == me {
+			delete(d.live, name)
+		}
+		d.linksMu.Unlock()
+		close(me.done)
+	}
+	if prev == nil {
+		return release, true
+	}
+	log.Info("a verified connection replaces the satellite's live audio link")
+	_ = prev.link.Close()
+	select {
+	case <-prev.done:
+	case <-ctx.Done():
+		return release, false
+	}
+	d.linksMu.Lock()
+	defer d.linksMu.Unlock()
+	return release, d.live[name] == me
 }
 
 // linked is the named satellite's Listening child, or nil when it is not

@@ -1,5 +1,7 @@
 # Copy to devices.yaml (gitignored) and fill in real values.
 # psk is the base64 `api: encryption: key:` from the device's ESPHome config.
+# name is the device's node name as it reports it, MAC suffix included: the
+# audio link's auth frame carries it, and must come from this address (SPEC §3.2.2).
 satellites:
   - name: satellite1-abcdef
     address: 10.0.0.42:6053

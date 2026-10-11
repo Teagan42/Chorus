@@ -135,6 +135,33 @@ Use this callback. Do not use a proxy: the best proxy on the stock path is
 75% full), i.e. ~±128 ms, about 100× worse. The callback fires on the speaker's
 own task — copy and hand off, do no work in it.
 
+### 3.2.2 The device proves which satellite it is before any audio
+
+The audio link carries a room's microphone one way and speech into it the
+other, so a connection is not a satellite until it has proved it is one.
+Protocol version 3 authenticates the device; it does not encrypt the stream
+(ADR-0066).
+
+- The device sends its hello. The host checks the version and format, then
+  sends a challenge: 32 fresh bytes from a CSPRNG.
+- The device answers with its ESPHome node name and
+  HMAC-SHA256(*k*, `"chorus-bridge v3"` ‖ nonce ‖ name ‖ hello payload), where
+  *k* = HKDF-SHA256(PSK, no salt, info `"chorus-bridge auth v3"`) and the PSK is
+  the satellite's `api.encryption.key`, the inventory's `psk`. The derivation
+  keeps the link and the native API's Noise handshake from ever sharing a key.
+- The host looks the name up in the inventory, verifies the MAC under that
+  satellite's PSK in constant time, and requires the connection's source
+  address to be that satellite's. All three must hold (§13).
+- Nothing else is read or sent before the answer verifies. Audio first, an
+  unknown name, a bad MAC, the wrong address, a version other than 3, or no
+  answer within the handshake bound is a disconnect, logged with which.
+- One live link per satellite. A verified connection for a satellite that
+  already has one closes the old link and waits for its supervisor to end
+  before starting its own; a connection that fails to verify leaves the live
+  link alone.
+- The device sends nothing but its hello and its answer before it has been
+  challenged, and accepts no frame but a challenge until it has answered.
+
 ### 3.3 Device facts worth remembering
 
 Both devices use the **same XU316** doing full AEC/NS/AGC — they are acoustic
@@ -584,10 +611,14 @@ Do not build the S2S path until the cascade works end to end.
 - **docker-compose**, model sidecars pinned to GPU.
 - **Satellite inventory:** static YAML for each satellite's address, Noise
   PSK, room assignment, and capability profile. Secrets stay out of a database
-  that would need separate backup. The address is an IP literal: the audio
-  link's hello carries no name, so a device is known by its source address,
-  and `chorusd` refuses a hostname, or a host two satellites share, at
-  startup. mDNS discovery (`_esphomelib._tcp`) is not built.
+  that would need separate backup. On the audio link a satellite is its name,
+  its PSK and its address together (§3.2.2): the device proves its ESPHome
+  node name with a MAC under the PSK, and must dial from the address the
+  inventory gives that name. So `name` is the node name, MAC suffix included,
+  and the address is an IP literal: a connection from an address the
+  inventory does not name is refused before a frame is read, and `chorusd`
+  refuses a hostname, or a host two satellites share, at startup. mDNS
+  discovery (`_esphomelib._tcp`) is not built.
 - **Addressing is asymmetric.** Discovery, were it built, would run one way
   only: the orchestrator could resolve satellites, but the orchestrator's own
   address must be a literal IP in the device YAML. ESPHome's `set_sockaddr`

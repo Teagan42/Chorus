@@ -36,6 +36,10 @@ chorus_bridge:
   id: chorus
   host: ${orchestrator_host}
   port: ${orchestrator_port}
+  # The device proves it is this satellite with the API's own key before the
+  # host takes any audio (docs/adr/0066). The secret the api: block already
+  # reads, so a household configures nothing new.
+  psk: !secret api_encryption_key
   speaker: ${speaker_id}
   microphone:
     # Channel 0 is the XMOS's fully processed mix; channel 1 its second

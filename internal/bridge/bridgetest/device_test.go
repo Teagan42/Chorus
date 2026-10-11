@@ -1,6 +1,7 @@
 package bridgetest_test
 
 import (
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -41,7 +42,7 @@ func TestConnectSpeaksHelloOnAnAcceptedConnection(t *testing.T) {
 	})
 
 	dev := bridgetest.Connect(device, 2)
-	link, err := bridge.NewLink(host)
+	link, err := bridge.NewLink(host, bridgetest.Keys())
 	if err != nil {
 		t.Fatalf("host link: %v", err)
 	}
@@ -80,6 +81,57 @@ func TestGoneClosesWhenTheHostHangsUp(t *testing.T) {
 	case <-dev.Gone():
 	case <-time.After(patience):
 		t.Fatal("Gone did not close after the host hung up")
+	}
+}
+
+// The fake answers the challenge as the firmware does, so a host under test
+// authenticates it the way it would a satellite.
+//
+// verifies SPEC §3.2.2
+func TestDialAnswersTheChallengeAsTheDefaultSatellite(t *testing.T) {
+	link, _ := bridgetest.Dial(t, 1)
+	if link.Name() != bridgetest.Name {
+		t.Errorf("Name() = %q, want %q", link.Name(), bridgetest.Name)
+	}
+}
+
+// A test plays a device that claims a name it holds no key for by giving
+// it the wrong key; the host refuses it, and the fake sees the hang-up.
+//
+// verifies SPEC §3.2.2
+func TestADeviceWithTheWrongKeyIsRefusedAndSeesItGo(t *testing.T) {
+	host, device := net.Pipe()
+	t.Cleanup(func() { _ = device.Close() })
+
+	dev := bridgetest.Connect(device, 2, bridgetest.As(bridgetest.Name, []byte("the office satellite's own key!!")))
+	if _, err := bridge.NewLink(host, bridgetest.Keys()); !errors.Is(err, bridge.ErrBadMAC) {
+		t.Fatalf("NewLink err = %v, want ErrBadMAC", err)
+	}
+	_ = host.Close()
+	select {
+	case <-dev.Gone():
+	case <-time.After(patience):
+		t.Fatal("Gone did not close after the host refused the answer")
+	}
+}
+
+// As changes the name too, and the host's inventory decides what it means.
+//
+// verifies SPEC §3.2.2
+func TestAsAnswersUnderAnotherName(t *testing.T) {
+	host, device := net.Pipe()
+	t.Cleanup(func() {
+		_ = host.Close()
+		_ = device.Close()
+	})
+	office := []byte("the office satellite's own key!!")
+	bridgetest.Connect(device, 1, bridgetest.As("office-sat", office))
+	link, err := bridge.NewLink(host, func(name string) ([]byte, bool) { return office, name == "office-sat" })
+	if err != nil {
+		t.Fatalf("NewLink: %v", err)
+	}
+	if link.Name() != "office-sat" {
+		t.Errorf("Name() = %q, want office-sat", link.Name())
 	}
 }
 

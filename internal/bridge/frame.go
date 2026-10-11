@@ -19,7 +19,11 @@ import (
 // device ignores the tag and answers nothing, so the host would wait out
 // every settle and then record a cut a round trip old; refusing the link is
 // what makes a stale flash surface as an error instead.
-const ProtocolVersion = 2
+//
+// Version 3 authenticates the device before any audio: the host challenges,
+// and the device answers with its name and a MAC under its PSK (ADR-0066).
+// A version 2 device answers nothing, so it is refused at the hello.
+const ProtocolVersion = 3
 
 // Audio format is fixed by the device: the XMOS pipeline and micro_wake_word
 // both run at 16 kHz, and resampling on an ESP32 buys nothing (SPEC §3.2).
@@ -44,12 +48,14 @@ const (
 	TypeWake   Type = 0x03 // device: micro_wake_word fired, payload is its name
 	TypePlayed Type = 0x04 // device: DAC playback position (SPEC §3.2.1); Flags echoes a STOP tag
 	TypeMute   Type = 0x05 // device: mute state changed, Flags carries it
+	TypeAuth   Type = 0x06 // device: its name and a MAC over the challenge
 
 	TypeTTS       Type = 0x10 // host: downlink PCM
 	TypeStop      Type = 0x11 // host: barge-in, discard the speaker buffer; Flags carries a tag
 	TypeFinish    Type = 0x12 // host: utterance ended, drain the buffer
 	TypeDuck      Type = 0x13 // host: mixer ducking
 	TypeMicEnable Type = 0x14 // host: start or stop the uplink
+	TypeChallenge Type = 0x15 // host: a fresh nonce the device must MAC
 )
 
 // Mic channel, in Frame.Flags on TypeMic.
@@ -76,6 +82,8 @@ func (t Type) String() string {
 		return "played"
 	case TypeMute:
 		return "mute"
+	case TypeAuth:
+		return "auth"
 	case TypeTTS:
 		return "tts"
 	case TypeStop:
@@ -86,6 +94,8 @@ func (t Type) String() string {
 		return "duck"
 	case TypeMicEnable:
 		return "mic_enable"
+	case TypeChallenge:
+		return "challenge"
 	default:
 		return fmt.Sprintf("unknown(%#02x)", uint8(t))
 	}
@@ -188,8 +198,8 @@ func ParseHello(p []byte) (Hello, error) {
 		MicChannels:   p[6],
 	}
 	if h.Version != ProtocolVersion {
-		return Hello{}, fmt.Errorf("hello: device speaks chorus_bridge protocol %d, this host speaks %d: "+
-			"flash firmware from the same checkout", h.Version, ProtocolVersion)
+		return Hello{}, fmt.Errorf("%w: device speaks chorus_bridge protocol %d, this host speaks %d: "+
+			"flash firmware from the same checkout", ErrVersion, h.Version, ProtocolVersion)
 	}
 	return h, nil
 }

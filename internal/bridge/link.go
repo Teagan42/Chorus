@@ -36,6 +36,7 @@ type Handler interface {
 type Link struct {
 	conn  net.Conn
 	hello Hello
+	name  string
 	r     *Reader
 
 	mu sync.Mutex // serializes writes; a torn frame is unparseable
@@ -54,10 +55,9 @@ type Link struct {
 // still writing. Distinct from a transport failure: the link is fine.
 var ErrStopped = errors.New("bridge: utterance stopped by barge-in")
 
-// NewLink completes the opening handshake. The device states its audio format
-// in Hello rather than letting the host assume it, so a YAML change on the
-// device surfaces here instead of as misparsed audio.
-func NewLink(conn net.Conn) (*Link, error) {
+// NewLink completes the opening handshake: the hello, then a challenge the
+// device answers under its PSK. Nothing else is read or sent first (ADR-0066).
+func NewLink(conn net.Conn, keys Keys) (*Link, error) {
 	bw := bufio.NewWriterSize(conn, HeaderSize+ttsChunkBytes)
 	l := &Link{conn: conn, r: NewReader(conn), bw: bw, w: NewWriter(bw)}
 
@@ -66,7 +66,7 @@ func NewLink(conn net.Conn) (*Link, error) {
 		return nil, fmt.Errorf("read hello: %w", err)
 	}
 	if f.Type != TypeHello {
-		return nil, fmt.Errorf("first frame is %s, want hello", f.Type)
+		return nil, fmt.Errorf("%w: first frame is %s, want hello", ErrUnauthenticated, f.Type)
 	}
 	if l.hello, err = ParseHello(f.Payload); err != nil {
 		return nil, err
@@ -80,8 +80,46 @@ func NewLink(conn net.Conn) (*Link, error) {
 		return nil, fmt.Errorf("device declared %d Hz/%d-bit audio, want %d Hz/%d-bit",
 			l.hello.SampleRate, l.hello.BitsPerSample, SampleRate, BitsPerSample)
 	}
+	if l.name, err = l.authenticate(keys); err != nil {
+		return nil, err
+	}
 	return l, nil
 }
+
+// authenticate challenges the device and returns the name its answer proved.
+// The name is looked up before the MAC is checked, but both must hold.
+func (l *Link) authenticate(keys Keys) (string, error) {
+	c := NewChallenge()
+	if err := l.send(c.Frame()); err != nil {
+		return "", fmt.Errorf("send challenge: %w", err)
+	}
+	f, err := l.r.ReadFrame()
+	if err != nil {
+		return "", fmt.Errorf("read auth: %w", err)
+	}
+	if f.Type != TypeAuth {
+		return "", fmt.Errorf("%w: device sent %s, want auth", ErrUnauthenticated, f.Type)
+	}
+	a, err := ParseAuth(f.Payload)
+	if err != nil {
+		return "", err
+	}
+	psk, ok := keys(a.Name)
+	if !ok {
+		return "", fmt.Errorf("%w: device names itself %q", ErrUnknownDevice, a.Name)
+	}
+	key, err := LinkKey(psk)
+	if err != nil {
+		return "", fmt.Errorf("satellite %s: %w", a.Name, err)
+	}
+	if !a.Verify(key, c, l.hello) {
+		return "", fmt.Errorf("%w: device names itself %q, and its key is not that satellite's psk", ErrBadMAC, a.Name)
+	}
+	return a.Name, nil
+}
+
+// Name is the satellite the device proved it is.
+func (l *Link) Name() string { return l.name }
 
 // Hello is the format the device declared.
 func (l *Link) Hello() Hello { return l.hello }
@@ -241,6 +279,7 @@ func (l *Link) Close() error { return l.conn.Close() }
 // connection while the current caller still waits for it.
 type Listener struct {
 	ln    net.Listener
+	keys  Keys
 	conns chan net.Conn
 	errs  chan error
 
@@ -250,13 +289,15 @@ type Listener struct {
 
 // Listen binds the audio port. The address must be a literal IP the device
 // YAML can name, because ESPHome's set_sockaddr does not resolve hostnames.
-func Listen(addr string) (*Listener, error) {
+// keys answers which PSK each device must prove it holds.
+func Listen(addr string, keys Keys) (*Listener, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen %s: %w", addr, err)
 	}
 	l := &Listener{
 		ln:    ln,
+		keys:  keys,
 		conns: make(chan net.Conn),
 		errs:  make(chan error, 1),
 		done:  make(chan struct{}),
@@ -299,7 +340,7 @@ func (l *Listener) Close() error {
 	return err
 }
 
-// Accept returns the next satellite's link, handshake already complete.
+// Accept returns the next satellite's link, handshake and auth complete.
 // Cancelling the context abandons only this call; a device that dials in later
 // is still delivered to the next one.
 func (l *Listener) Accept(ctx context.Context) (*Link, error) {
@@ -314,12 +355,12 @@ func (l *Listener) Accept(ctx context.Context) (*Link, error) {
 		l.errs <- err
 		return nil, fmt.Errorf("accept: %w", err)
 	case c := <-l.conns:
-		return newAcceptedLink(ctx, c)
+		return newAcceptedLink(ctx, c, l.keys)
 	}
 }
 
 // newAcceptedLink tunes the socket and bounds the handshake read.
-func newAcceptedLink(ctx context.Context, conn net.Conn) (*Link, error) {
+func newAcceptedLink(ctx context.Context, conn net.Conn, keys Keys) (*Link, error) {
 	if tcp, ok := conn.(*net.TCPConn); ok {
 		// Nagle would coalesce the 32 ms chunks barge-in timing depends on.
 		// The firmware sets TCP_NODELAY on its end for the same reason.
@@ -332,7 +373,7 @@ func newAcceptedLink(ctx context.Context, conn net.Conn) (*Link, error) {
 	}
 	_ = conn.SetReadDeadline(deadline)
 
-	l, err := NewLink(conn)
+	l, err := NewLink(conn, keys)
 	if err != nil {
 		_ = conn.Close()
 		return nil, err
