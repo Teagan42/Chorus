@@ -117,9 +117,7 @@ func (e *Eraser) DropAudio(ctx context.Context, id string, seq uint64) ([]string
 	return refs, nil
 }
 
-// settled reads a conversation's log, refusing one chorusd may yet write:
-// a satellite's or the house's own, a live session's, or one its person
-// could still walk back into.
+// settled reads a conversation's log, refusing one chorusd may yet write.
 func (e *Eraser) settled(ctx context.Context, id string) ([]journal.Event, error) {
 	if longLived(id) {
 		return nil, ErrLongLived
@@ -128,17 +126,27 @@ func (e *Eraser) settled(ctx context.Context, id string) ([]journal.Event, error
 	if err != nil {
 		return nil, err
 	}
+	return events, e.Refuses(id, events)
+}
+
+// Refuses says why a log may not be erased now, or nil: a satellite's or
+// the house's own, a live session's, one its person could still walk back
+// into, or one with nothing in it.
+func (e *Eraser) Refuses(id string, events []journal.Event) error {
+	if longLived(id) {
+		return ErrLongLived
+	}
 	if len(events) == 0 {
-		return nil, ErrNoLog
+		return ErrNoLog
 	}
 	now := e.Clock.Now()
 	if Live(events, now, cmp.Or(e.Live, DefaultLive)) {
-		return nil, ErrLive
+		return ErrLive
 	}
 	if last, _ := activity(events); now.Sub(last) < cmp.Or(e.Resume, DefaultResume) {
-		return nil, ErrResumable
+		return ErrResumable
 	}
-	return events, nil
+	return nil
 }
 
 // deleteLog removes a conversation's audio, its curation rows, its

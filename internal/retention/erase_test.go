@@ -205,3 +205,24 @@ func TestDroppingAudioRefusesALiveOrLongLivedLog(t *testing.T) {
 		}
 	}
 }
+
+// The review UI asks before it offers a deletion, and is told what the
+// deletion itself would say.
+//
+// verifies SPEC §4.5, §8
+func TestRefusesSaysWhatADeletionWouldRefuse(t *testing.T) {
+	h := newHouse(t)
+	h.at(today.Add(-time.Minute), "conv-1930-living_room", guestVisit()...)
+	h.at(today.Add(-time.Hour), "conv-0705-kitchen", weather("kitchen", "k0")...)
+	e := h.eraser(nil)
+	for id, want := range map[string]error{
+		"conv-1930-living_room": retention.ErrResumable,
+		"conv-0705-kitchen":     nil,
+		"device:kitchen":        retention.ErrLongLived,
+		"conv-0000-attic":       retention.ErrNoLog,
+	} {
+		if err := e.Refuses(id, h.log(id)); !errors.Is(err, want) {
+			t.Errorf("Refuses(%s) = %v, want %v", id, err, want)
+		}
+	}
+}
