@@ -32,6 +32,11 @@ type Negative struct {
 
 	// Confirmed is a reviewer having listened and agreed it is no wake.
 	Confirmed bool
+
+	// AudioGone is Audio no longer kept: pruned by retention, or never
+	// written on a full disk (ADR-0065). A gone second channel is dropped
+	// from SecondAudio instead, as a one-channel device's is empty.
+	AudioGone bool
 }
 
 // Held reports a rejection that passed the wake model and the speech check
@@ -46,10 +51,20 @@ func Negatives(ctx context.Context, store journal.Store, conversationID string) 
 	if err != nil {
 		return nil, fmt.Errorf("negatives %s: %w", conversationID, err)
 	}
+	gone := map[string]bool{}
+	for _, e := range events {
+		if e.Kind == journal.KindAudioDropped {
+			gone[e.Fields["audio_ref"]] = true
+		}
+	}
 	var out []Negative
 	for _, e := range events {
 		if e.Kind != journal.KindWakeRejected {
 			continue
+		}
+		second := e.Fields["second_audio_ref"]
+		if gone[second] {
+			second = ""
 		}
 		out = append(out, Negative{
 			ID:             fmt.Sprintf("%s/%d", conversationID, e.Seq),
@@ -59,7 +74,8 @@ func Negatives(ctx context.Context, store journal.Store, conversationID string) 
 			At:             e.At.UTC(),
 			Reason:         e.Fields["reason"],
 			Audio:          e.AudioRef,
-			SecondAudio:    e.Fields["second_audio_ref"],
+			SecondAudio:    second,
+			AudioGone:      gone[e.AudioRef],
 		})
 	}
 	return out, nil
@@ -77,6 +93,7 @@ type negativeRow struct {
 	Audio          string `json:"audio"`
 	SecondAudio    string `json:"second_audio"`
 	Confirmed      bool   `json:"confirmed"`
+	AudioGone      bool   `json:"audio_gone,omitempty"`
 	ConversationID string `json:"conversation_id"`
 	Seq            uint64 `json:"seq"`
 }
@@ -88,7 +105,7 @@ func ExportNegatives(w io.Writer, ns []Negative) error {
 	for _, n := range ns {
 		r := negativeRow{
 			ID: n.ID, Source: "stage2_reject", Reason: n.Reason, Satellite: n.Satellite, At: stamp(n.At),
-			Audio: n.Audio, SecondAudio: n.SecondAudio, Confirmed: n.Confirmed,
+			Audio: n.Audio, SecondAudio: n.SecondAudio, Confirmed: n.Confirmed, AudioGone: n.AudioGone,
 			ConversationID: n.ConversationID, Seq: n.Seq,
 		}
 		if err := enc.Encode(r); err != nil {
