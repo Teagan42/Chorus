@@ -312,9 +312,25 @@ microphone:
     pdm: false
     adc_type: external
 
-# Ducking applies to the other mixer source, not to our own TTS.
+# Ducking applies to the other mixer source, not to our own TTS. The HAT's
+# mute switch is the MUTE frame's hardware bit (ADR-0067).
 chorus_bridge:
   ducking_speaker: media_source
+  hardware_mute: hat_mute_switch
+
+# The HAT's mute slide switch, read from the XMOS's button port as their
+# config/common/buttons.yaml reads it ("Button Left (HW Mute)"): on while
+# the household has muted the microphones. chorus_bridge reports it and the
+# orchestrator drops the room's audio while it is on (SPEC §3.3.1).
+binary_sensor:
+  - platform: gpio
+    id: hat_mute_switch
+    name: Mute Switch
+    icon: mdi:microphone-off
+    pin:
+      satellite1: satellite1_id
+      port: INPUT_A
+      pin: 3
 
 # The radar on the mmWave header, LD2410 or LD2450, whichever answers. It
 # registers "Room Presence" (device class occupancy) once detected, which

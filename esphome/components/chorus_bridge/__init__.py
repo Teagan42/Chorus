@@ -5,7 +5,7 @@ import base64
 import binascii
 
 import esphome.codegen as cg
-from esphome.components import microphone, speaker
+from esphome.components import binary_sensor, microphone, speaker
 from esphome.components.mixer.speaker import SourceSpeaker
 import esphome.config_validation as cv
 from esphome.const import (
@@ -24,6 +24,7 @@ DEPENDENCIES = ["microphone", "network"]
 CODEOWNERS = ["@Teagan42"]
 
 CONF_DUCKING_SPEAKER = "ducking_speaker"
+CONF_HARDWARE_MUTE = "hardware_mute"
 CONF_HOST = "host"
 CONF_PSK = "psk"
 CONF_RECONNECT_INTERVAL = "reconnect_interval"
@@ -100,6 +101,9 @@ CONFIG_SCHEMA = cv.All(
             # apply_ducking lives on mixer_speaker::SourceSpeaker, not on the
             # Speaker base class, so ducking needs its own id.
             cv.Optional(CONF_DUCKING_SPEAKER): cv.use_id(SourceSpeaker),
+            # The board's physical mute switch, reported as the MUTE frame's
+            # hardware bit. The Microphone's own mute is the software bit.
+            cv.Optional(CONF_HARDWARE_MUTE): cv.use_id(binary_sensor.BinarySensor),
             cv.Optional(
                 CONF_RECONNECT_INTERVAL, default="5s"
             ): cv.positive_time_period_milliseconds,
@@ -137,7 +141,7 @@ async def to_code(config: ConfigType) -> None:
         mic_source = await microphone.microphone_source_to_code(source, passive=False)
         cg.add(var.add_microphone_source(mic_source, source[CONF_CHANNELS][0]))
 
-    # The Microphone itself, for observing authoritative hardware mute.
+    # The Microphone itself, whose own mute is the MUTE frame's software bit.
     mic = await cg.get_variable(config[CONF_MICROPHONE][0][CONF_MICROPHONE])
     cg.add(var.set_microphone(mic))
 
@@ -151,3 +155,10 @@ async def to_code(config: ConfigType) -> None:
         cg.add_define("USE_CHORUS_BRIDGE_DUCKING")
         ducking = await cg.get_variable(config[CONF_DUCKING_SPEAKER])
         cg.add(var.set_ducking_speaker(ducking))
+
+    if CONF_HARDWARE_MUTE in config:
+        # Define-guarded as ducking is: a board with no switch compiles
+        # no binary_sensor.h.
+        cg.add_define("USE_CHORUS_BRIDGE_HARDWARE_MUTE")
+        mute = await cg.get_variable(config[CONF_HARDWARE_MUTE])
+        cg.add(var.set_hardware_mute(mute))
