@@ -90,6 +90,10 @@ func (lc *logContext) call(id string) (tool, args string) {
 	return c.Fields["tool"], c.Fields["args_json"]
 }
 
+// hotPhrase names the hot phrase an event recorded, so a stop reads as one
+// and not as a correction (ADR-0064).
+func hotPhrase(word string) string { return "hot phrase: " + strings.ReplaceAll(word, "_", " ") }
+
 // logRowOf says what one event means in a line, with its audio when the
 // event has some. A truncation plays only what the DAC reached. lc, nil for
 // the house log, holds what came before.
@@ -121,10 +125,16 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) logRow {
 		row.Text, row.Note = "closed: "+f["reason"], f["satellite"]
 	case journal.KindUtteranceTranscribed:
 		row.Who, row.Text = f["speaker_id"], f["text"]
+		if w := f["hot_word"]; w != "" {
+			row.Note = hotPhrase(w) + " · the model was not asked"
+		}
 	case journal.KindBargeInDetected, journal.KindBargeInRejected:
 		row.Text = "barge-in at " + f["tts_position_ms"] + " ms of playback"
 		if e.Kind == journal.KindBargeInRejected {
 			row.Text = "barge-in rejected at " + f["stage"]
+		}
+		if w := f["hot_word"]; w != "" {
+			row.Note = hotPhrase(w)
 		}
 		// The blob is the whole utterance; the gate judged its prefix.
 		if row.Audio != "" && f["audio_frames"] != "" {
