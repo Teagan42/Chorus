@@ -87,8 +87,9 @@ func TestOnlyAHouseholdStopSilencesATimer(t *testing.T) {
 	}
 	r.speaker.wrote(t)
 
-	r.utter(t, r.line("stop", stranger), 2*rigPartials)
+	r.speak(t, r.line("stop", stranger), 2*rigPartials)
 	rej := r.awaitKind(t, conv, journal.KindBargeInRejected, 1)
+	r.pause(t, rigSilence)
 	if rej.Fields["stage"] != "speaker_id" || rej.Fields["hot_word"] != "stop" {
 		t.Errorf("barge_in_rejected = %v, want the television's stop at speaker_id", rej.Fields)
 	}
@@ -152,10 +153,11 @@ func TestNeverMindReachesATurnWorkingInSilence(t *testing.T) {
 	r, s, _ := lookingAtTheGarage(t)
 	conv := s.ConversationID()
 
-	r.utter(t, r.line("never mind", alan), 2*rigPartials)
+	r.speak(t, r.line("never mind", alan), 2*rigPartials)
 	if det := r.awaitKind(t, conv, journal.KindBargeInDetected, 1); det.Fields["hot_word"] != "never_mind" {
 		t.Errorf("barge_in_detected = %v, want never mind", det.Fields)
 	}
+	r.pause(t, rigSilence)
 	if res := r.awaitKind(t, conv, journal.KindToolResult, 1); res.Fields["outcome"] != "cancelled" {
 		t.Errorf("tool_result = %v, want the read cancelled", res.Fields)
 	}
