@@ -58,7 +58,7 @@ func run(ctx context.Context, ids []string, out, report io.Writer) error {
 		if err := harvest.Export(out, res.Pairs); err != nil {
 			return err
 		}
-		fmt.Fprintf(report, "%s: %d candidates, %d uncorrected cuts\n", id, len(res.Pairs), res.Uncorrected)
+		fmt.Fprintf(report, "%s: %d candidates, %d uncorrected cuts, %d hushed\n", id, len(res.Pairs), res.Uncorrected, res.Hushed)
 	}
 	return nil
 }

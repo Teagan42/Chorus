@@ -232,6 +232,10 @@ type Result struct {
 	// Uncorrected counts barge-ins whose cut was never answered: the session
 	// closed first, or another barge-in landed before any utterance.
 	Uncorrected int
+
+	// Hushed counts cuts answered by a hot phrase: a stop has no chosen side,
+	// and a repeat says the answer went unheard, not wrong (ADR-0064).
+	Hushed int
 }
 
 // Harvest returns the conversation's candidates in log order.
@@ -331,6 +335,10 @@ type walker struct {
 	// acks are the speak calls that said a slow call's acknowledgement:
 	// words the model wrote as that call's argument (ADR-0039).
 	acks map[string]bool
+
+	// hot is the hot phrase each turn's utterance was answered as, by its
+	// seq: an answer that is no correction (ADR-0064).
+	hot map[uint64]string
 }
 
 // skip marks a speak call as said by nobody's turn.
@@ -359,6 +367,12 @@ func (w *walker) fold(e journal.Event) error {
 		// for it is nobody's choice (ADR-0051).
 		w.skip(e.Fields["canned_call_id"])
 	case journal.KindUtteranceTranscribed:
+		if word := e.Fields["hot_word"]; word != "" {
+			if w.hot == nil {
+				w.hot = map[uint64]string{}
+			}
+			w.hot[e.Seq] = word
+		}
 		w.closeTurn(&e)
 		w.cur = &turn{
 			promptSeq: e.Seq, heard: e.Fields["text"],
@@ -438,6 +452,11 @@ func (w *walker) fold(e journal.Event) error {
 			w.cur.unheard = append(w.cur.unheard, e.Fields["unspoken_text"])
 		}
 	case journal.KindToolCalled:
+		if e.Fields["tool"] == "speak" && repeats(e.Fields["args_json"]) {
+			// Said again from the log: no turn chose these words (ADR-0064).
+			w.skip(e.Fields["call_id"])
+			return nil
+		}
 		if e.Fields["tool"] == "speak" && acknowledges(e.Fields["args_json"]) {
 			if w.acks == nil {
 				w.acks = map[string]bool{}
@@ -491,6 +510,16 @@ func acknowledges(args string) bool {
 	return a.Acknowledges != ""
 }
 
+// repeats reports a speak call the session made to say again what was last
+// heard, for a "say that again".
+func repeats(args string) bool {
+	var a struct {
+		Repeats bool `json:"repeats"`
+	}
+	_ = json.Unmarshal([]byte(args), &a)
+	return a.Repeats
+}
+
 // cutByPerson reports a truncation the barge-in made. A log from before
 // truncations named their reason recorded only barge-ins and preempts, and a
 // preempt never follows a barge-in in the same turn.
@@ -527,6 +556,8 @@ func (w *walker) closeTurn(next *journal.Event) {
 		switch {
 		case next == nil || t.closed:
 			w.result.Uncorrected++
+		case w.hot[next.Seq] != "":
+			w.result.Hushed++
 		default:
 			w.answering = &draft{rejected: t, prompt: prompt, heard: *next}
 		}
