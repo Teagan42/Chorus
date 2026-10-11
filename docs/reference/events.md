@@ -58,6 +58,7 @@ Actor: `listening`. `has_audio`: yes. `training_signal`: no. `speculative`: no. 
 |---|---|---|---|
 | `tts_position_ms` | integer | yes | Playback offset at detection. |
 | `speaker_stage_skipped` | boolean |  | The gate's speaker-ID stage did not run, because nothing identifies speakers: the voice was never checked against the household (ADR-0031). Absent when the stage ran and passed, and in logs from before it was recorded. |
+| `hot_word` | string |  | The hot phrase the partial was, which admitted it on one or two words past the partial-length stage; energy and the speaker stage still ran (SPEC §4.3, ADR-0064). The final utterance may say more: whether it was answered as a hot phrase is its own hot_word. Absent when the partial was no hot phrase. One of: `stop`, `never_mind`, `repeat`. |
 | `audio_frames` | integer |  | How much of the audio the gate judged, in device frames from the blob's start. The candidate refers to its utterance's blob, which runs on past it and is written once the utterance ends, so a long overlap keeps its audio once. Absent in logs from before it was recorded, where the blob is the candidate's own. |
 
 ## `barge_in_rejected`
@@ -69,6 +70,7 @@ Actor: `listening`. `has_audio`: yes. `training_signal`: no. `speculative`: no. 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `stage` | string | yes | Gate that rejected it. One of: `vad`, `speaker_id`, `partial_length`. |
+| `hot_word` | string |  | The hot phrase the partial was, refused all the same by energy or the speaker stage: the television saying stop (ADR-0064). Absent when the partial was no hot phrase. One of: `stop`, `never_mind`, `repeat`. |
 | `audio_frames` | integer |  | How much of the audio the gate judged, in device frames from the blob's start. The candidate refers to its utterance's blob, which runs on past it and is written once the utterance ends, so a long overlap keeps its audio once. Absent in logs from before it was recorded, where the blob is the candidate's own. |
 
 ## `confirmation_given`
@@ -322,6 +324,7 @@ Actor: `listening`. `has_audio`: yes. `training_signal`: no. `speculative`: no. 
 | `embedding_json` | string |  | The utterance's speaker embedding as a JSON array of numbers, stored whether or not it matched anyone (SPEC §5). Empty when the embedder was unavailable. |
 | `second_audio_ref` | string |  | The same span from the XMOS's second, lighter-processed output (SPEC §8). Empty when the device streams one channel. |
 | `speaker_match` | string |  | How the voice matched the household (SPEC §5). below_threshold and ambiguous make the utterance a guest's, whoever spoke before it. Empty when nothing judged the voice (no speaker identification, or the embedder failed) and in logs from before it was recorded: the current speaker keeps the turn. One of: `identified`, `below_threshold`, `ambiguous`, `nobody_enrolled`. |
+| `hot_word` | string |  | The hot phrase this utterance was answered as, without asking the model (SPEC §4.3, ADR-0064). stop and never_mind stopped speech or a working turn and are not answered; repeat said again what was last heard. It is no correction, so no preference pair is cut from the turn it stopped. Absent for an utterance the model was asked about. One of: `stop`, `never_mind`, `repeat`. |
 
 ## `wake_rejected`
 
