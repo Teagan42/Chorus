@@ -1,0 +1,13 @@
+{{/* confirm · dot: ui.Confirm — a destructive action behind a second press. */}}
+{{define "confirm"}}<details class="{{cls "confirm" (tone .Tone)}}"{{with .ID}} id="{{.}}"{{end}}>
+<summary class="btn">{{.Label}}</summary>
+<div class="confirm__panel" role="group" aria-label="{{.Title}}">
+<span class="confirm__title">{{.Title}}</span>
+{{with .Body}}<span class="confirm__body">{{.}}</span>{{end}}
+<form class="btn-row" method="post" action="{{.Action}}" hx-post="{{.Action}}"{{with .Target}} hx-target="{{.}}"{{end}}{{with .Swap}} hx-swap="{{.}}"{{end}}>
+<input type="hidden" name="confirm" value="{{.Confirm}}">
+<button class="btn btn--primary" type="submit">{{.Button}}</button>
+<span class="confirm__keep">Press “{{.Label}}” again to keep it.</span>
+</form>
+</div>
+</details>{{end}}

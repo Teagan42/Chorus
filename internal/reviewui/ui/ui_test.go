@@ -54,7 +54,7 @@ func TestEveryComponentHasTemplateAndCSS(t *testing.T) {
 		"app-header", "page-head", "button", "segmented", "tabs", "chip", "chip-group", "switch",
 		"sig-tag", "metric-strip", "transport", "timeline", "event-pins", "conv-thumb", "list", "list-row", "day-lanes", "option-cards", "data-table",
 		"clip-tile", "clip-grid", "inspector", "pair-actions", "pair-checks", "checks", "alert", "done-card", "empty-state",
-		"field", "code-diff", "legend", "notice", "doc-start", "doc-end",
+		"field", "code-diff", "legend", "notice", "confirm", "doc-start", "doc-end",
 	} {
 		if tpl.Lookup(name) == nil {
 			t.Errorf("template %q not defined", name)
@@ -115,6 +115,16 @@ func TestRenderComponents(t *testing.T) {
 
 	h = render(t, "field", ui.Field{Kind: ui.FieldSelect, ID: "p", Label: "Person", Options: []ui.Option{{Value: "Anyone"}, {Value: "Alan", Selected: true}}})
 	mustContain(t, "field", h, `<option value="Alan" selected>`)
+
+	// A deletion asks twice: the summary only opens the panel, the form posts
+	// with the confirm field the server checks, and no script is involved.
+	h = render(t, "confirm", ui.Confirm{
+		ID: "delete", Label: "Delete this conversation…", Title: "Delete conv-1930-living_room for good?",
+		Body: "Its log and audio go.", Action: "/conversations/conv-1930-living_room/delete", Confirm: "delete", Button: "Delete for good", Tone: ui.ToneHome,
+	})
+	mustContain(t, "confirm", h, `<details class="confirm tone-home" id="delete">`, `<summary class="btn">Delete this conversation…</summary>`,
+		`hx-post="/conversations/conv-1930-living_room/delete"`, `method="post" action="/conversations/conv-1930-living_room/delete"`,
+		`<input type="hidden" name="confirm" value="delete">`, `<button class="btn btn--primary" type="submit">Delete for good</button>`)
 
 	h = render(t, "button", ui.Button{Label: "Next", Hx: ui.Hx{Post: "/a?x=1&y=2", Vals: `{"reason":"Duplicate"}`}})
 	mustContain(t, "button", h, `hx-post="/a?x=1&amp;y=2"`, `hx-vals="{&#34;reason&#34;:&#34;Duplicate&#34;}"`)

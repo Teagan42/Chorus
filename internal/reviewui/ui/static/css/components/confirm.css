@@ -1,0 +1,15 @@
+/* confirm — a destructive action behind a second press. The summary opens
+   the panel; only the button inside it posts. The panel takes the tone. */
+.confirm { display: inline-block; max-width: 100%; }
+.confirm > summary { list-style: none; }
+.confirm > summary::-webkit-details-marker { display: none; }
+.confirm[open] > summary { border-color: var(--tone-line, var(--c-rule-strong)); }
+.confirm__panel {
+  display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding: 14px 16px;
+  max-width: 560px; border-radius: var(--radius);
+  border: 1px solid var(--tone-line, var(--c-rule-strong));
+  background: color-mix(in srgb, var(--tone, transparent) 10%, transparent);
+}
+.confirm__title { font-size: var(--fs-body); font-weight: 600; overflow-wrap: anywhere; }
+.confirm__body { font-size: 14px; line-height: 1.5; color: var(--c-text-2); }
+.confirm__keep { font-size: 12px; color: var(--c-muted); }
