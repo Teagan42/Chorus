@@ -160,6 +160,94 @@ func TestAGuestsRejectedWakeWaitsForAReviewer(t *testing.T) {
 	}
 }
 
+// withLostWake adds the wake the office lost to the kitchen at breakfast:
+// Teagan said it at the kitchen counter, and the office heard it fainter.
+func withLostWake(t *testing.T, store *journal.MemStore) *journal.MemStore {
+	t.Helper()
+	j := journal.New(store, journal.FixedClock(household.Day().Add(7*time.Hour+42*time.Minute)), household.Versions())
+	r := journal.Record{Kind: journal.KindWakeRejected, AudioRef: "blob://wake/office-lost", Fields: map[string]string{
+		"reason": "arbitrated", "lost_to": "kitchen", "energy_dbfs": "-31.2", "winner_energy_dbfs": "-18.4",
+	}}
+	if _, err := j.Append(context.Background(), "device:office", r); err != nil {
+		t.Fatalf("append lost wake: %v", err)
+	}
+	return store
+}
+
+// The office's log shows the wake it lost and to whom, with no verdict to
+// give: it was the wake word, answered in the kitchen, so it never ships as
+// a hard negative and Browse draws no rejected wake for it (SPEC §4.5, §9.3).
+//
+// verifies SPEC §4.5, §9.3
+func TestAWakeLostToAnotherSatelliteIsShownAndNeverShips(t *testing.T) {
+	s := newServer(withLostWake(t, householdJournal(t)), curation.NewMemStore(), householdBlobs(t), household.ReviewedAt)
+
+	if got := ids(corpus(t, s)); strings.Join(got, " ") != "device:kitchen/7 device:office/1" {
+		t.Errorf("corpus = %v, want the dishwasher and the podcast alone", got)
+	}
+	if h := get(t, s, "/export"); !strings.Contains(h, "Download 2 negatives (JSONL)") {
+		t.Error("the export page counts the lost wake as a negative")
+	}
+
+	h := get(t, s, "/conversations/device:office")
+	i := strings.Index(h, `id="seq-2"`)
+	if i < 0 {
+		t.Fatal("the office's log does not show the lost wake")
+	}
+	for _, want := range []string{"wake lost to kitchen", "-31.2 dBFS against -18.4", "office-lost"} {
+		if !strings.Contains(h[i:], want) {
+			t.Errorf("the lost wake's row is missing %q", want)
+		}
+	}
+	if strings.Contains(h, `id="wake-2"`) {
+		t.Error("the lost wake offers a verdict, as though it were a negative")
+	}
+	if !strings.Contains(h, `id="wake-1"`) {
+		t.Error("the podcast lost its verdict")
+	}
+	if code, _ := post(t, s, "/conversations/device:office/wakes/2/confirmed", nil); code != http.StatusNotFound {
+		t.Errorf("a verdict on the lost wake = %d, want 404", code)
+	}
+
+	if h := get(t, s, "/conversations"); strings.Contains(h, "wake rejected at 07:42") {
+		t.Error("Browse draws the lost wake as a rejected one")
+	}
+}
+
+// Bob presses the office Voice PE's button and thinks better of it. The
+// office's log shows the rejected press and why it has no verdict: the
+// wake model never fired, so it never ships as a hard negative (SPEC §9.3).
+//
+// verifies SPEC §9.3
+func TestAButtonPressIsShownAndNeverShips(t *testing.T) {
+	store := householdJournal(t)
+	j := journal.New(store, journal.FixedClock(household.Day().Add(21*time.Hour+40*time.Minute)), household.Versions())
+	r := journal.Record{Kind: journal.KindWakeRejected, AudioRef: "blob://wake/office-press", Fields: map[string]string{
+		"reason": "no_speech", "wake_word": "button",
+	}}
+	if _, err := j.Append(context.Background(), "device:office", r); err != nil {
+		t.Fatalf("append press: %v", err)
+	}
+	s := newServer(store, curation.NewMemStore(), householdBlobs(t), household.ReviewedAt)
+
+	if got := ids(corpus(t, s)); strings.Join(got, " ") != "device:kitchen/7 device:office/1" {
+		t.Errorf("corpus = %v, want the dishwasher and the podcast alone", got)
+	}
+	h := get(t, s, "/conversations/device:office")
+	i := strings.Index(h, `id="seq-2"`)
+	if i < 0 {
+		t.Fatal("the office's log does not show the press")
+	}
+	for _, want := range []string{"wake rejected: no_speech", "a button press: the wake model never fired"} {
+		if !strings.Contains(h[i:], want) {
+			t.Errorf("the press's row is missing %q", want)
+		}
+	}
+	if strings.Contains(h, `id="wake-2"`) {
+		t.Error("the press offers a verdict, as though it were a negative")
+	}
+}
+
 // A verdict names a rejected wake in a satellite's log, or nothing.
 //
 // verifies SPEC §9.3
