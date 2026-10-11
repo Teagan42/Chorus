@@ -365,9 +365,10 @@ number:
 # ------------------------------------------------------------------ LED ring
 
 # The ring's wiring, from their config/common/led_ring.yaml. Nothing on the
-# device animates it: the orchestrator finds it by these three effects and
-# sets one per session state over the native API (SPEC §3.3.1, ADR-0056).
-# The effect names are that contract; the colours are this board's own.
+# device animates it: the orchestrator finds it by its three session effects
+# and sets one per session state over the native API (SPEC §3.3.1, ADR-0056),
+# or Muted or Error when it has them (ADR-0069). The effect names are that
+# contract; the colours are this board's own.
 light:
   - platform: esp32_rmt_led_strip
     id: led_ring
@@ -403,3 +404,16 @@ light:
             const uint8_t level = step < 32 ? 96 + step * 5 : 96 + (63 - step) * 5;
             it.all() = Color(0, 96, 255) * level;
             step = (step + 1) % 64;
+      # Steady red while the device reports its mute, as stock firmware shows it.
+      - addressable_lambda:
+          name: Muted
+          update_interval: 100ms
+          lambda: it.all() = Color(255, 0, 0);
+      # Amber, blinking: something the household relies on is down.
+      - addressable_lambda:
+          name: Error
+          update_interval: 500ms
+          lambda: |-
+            static bool lit = false;
+            it.all() = lit ? Color(255, 96, 0) : Color::BLACK;
+            lit = !lit;
