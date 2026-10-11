@@ -191,3 +191,82 @@ func TestNoScreenReachesForGoogle(t *testing.T) {
 		}
 	}
 }
+
+// Every response tells the browser the rules: no page may frame the UI (a
+// recipe site cannot lay an invisible Curate over its buttons), nothing is
+// sniffed into a script, nothing but this server supplies a script, style,
+// font or clip, and no address leaks in a Referer. A screen, a clip and a
+// refusal all carry them.
+//
+// verifies SPEC §1, §9.2
+func TestEveryResponseCarriesTheSecurityHeaders(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := s.handler(defaultHosts(defaultAddr))
+	for _, c := range []struct {
+		target string
+		status int
+	}{
+		{"/curate/pairs", http.StatusOK},
+		{"/conversations/conv-1", http.StatusOK},
+		{"/audio?ref=blob://mic/1", http.StatusOK},
+		{"/static/css/chorus.css", http.StatusOK},
+		{"/conversations?day=thursday", http.StatusBadRequest},
+		{"/conversations/conv-0000-attic", http.StatusNotFound},
+	} {
+		w := getAs(h, c.target)
+		if w.Code != c.status {
+			t.Errorf("GET %s = %d, want %d", c.target, w.Code, c.status)
+		}
+		for k, v := range map[string]string{
+			"X-Frame-Options":        "DENY",
+			"X-Content-Type-Options": "nosniff",
+			"Referrer-Policy":        "no-referrer",
+		} {
+			if got := w.Header().Get(k); got != v {
+				t.Errorf("GET %s: %s = %q, want %q", c.target, k, got, v)
+			}
+		}
+		policy := w.Header().Get("Content-Security-Policy")
+		for _, rule := range []string{
+			"default-src 'self'", "script-src 'self';", "media-src 'self'", "font-src 'self'",
+			"img-src 'self'", "connect-src 'self'", "style-src-elem 'self'", "frame-ancestors 'none'",
+			"object-src 'none'", "base-uri 'none'", "form-action 'self'",
+		} {
+			if !strings.Contains(policy+";", rule) {
+				t.Errorf("GET %s: the policy lacks %q: %s", c.target, rule, policy)
+			}
+		}
+		if strings.Contains(policy, "unsafe-eval") || strings.Contains(policy, "script-src 'self' 'unsafe-inline'") {
+			t.Errorf("GET %s: the policy lets a script in that this server did not send: %s", c.target, policy)
+		}
+	}
+	// The refusal of a foreign name is a response too.
+	if w := serveAs(h, "recipes.example"); w.Header().Get("X-Frame-Options") != "DENY" || w.Header().Get("Content-Security-Policy") == "" {
+		t.Errorf("the 421 carries %v", w.Header())
+	}
+}
+
+// script-src 'self' holds only if no screen carries a script of its own:
+// no inline <script>, no on* handler, no hx-on, nothing htmx must eval.
+//
+// verifies SPEC §9.2
+func TestNoScreenCarriesAnInlineScript(t *testing.T) {
+	s, _ := newHouseholdServer(t)
+	h := s.handler(defaultHosts(defaultAddr))
+	for _, target := range []string{
+		"/conversations", "/conversations/" + convZeppel, "/conversations/" + convDoor, "/queue", "/review",
+		"/replays", "/replays/" + convZeppel, "/curate/pairs", "/export",
+	} {
+		body := getAs(h, target).Body.String()
+		for _, tag := range strings.Split(body, "<script")[1:] {
+			if !strings.HasPrefix(tag, ` src="/static/`) {
+				t.Errorf("GET %s carries a script of its own: <script%.60s", target, tag)
+			}
+		}
+		for _, inline := range []string{" onclick=", " onload=", " onerror=", " hx-on", "javascript:", `hx-vals="js:`, "<style"} {
+			if strings.Contains(body, inline) {
+				t.Errorf("GET %s carries %q, which the policy refuses", target, inline)
+			}
+		}
+	}
+}

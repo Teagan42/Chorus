@@ -42,6 +42,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
   clip: rect(0 0 0 0); white-space: nowrap;
 }
 
+/* htmx's own indicator rules, here because the page's policy lets no
+   <style> element in; base.tmpl tells htmx not to inject them. */
+.htmx-indicator { opacity: 0; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity: 1; transition: opacity 200ms ease-in; }
+
 /* Page frame: hairlines, not boxes. */
 .page { min-height: 100vh; display: flex; flex-direction: column; }
 .band { border-bottom: 1px solid var(--c-rule); }

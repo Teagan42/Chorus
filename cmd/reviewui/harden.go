@@ -108,9 +108,40 @@ func (a *hostAllowlist) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, fmt.Sprintf("This review UI answers only as %s, and this request named %q. If that name is yours, start the UI with -hosts (docs/reviewui/README.md).", a.names, r.Host), http.StatusMisdirectedRequest)
 }
 
+// csp is as strict as the templates allow. Scripts, styles, fonts, images,
+// audio and htmx's requests come from this server and nowhere else; no page
+// may frame the UI; no inline script runs. Style attributes stay allowed,
+// because the timeline, the day lanes and the clip tiles position hundreds
+// of elements with computed left/width values, which only an attribute can
+// carry; style-src-elem keeps <style> elements and stylesheets to 'self'.
+const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; style-src-elem 'self'; " +
+	"img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'self'; " +
+	"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+// securityHeaders are on every response, refusals included.
+var securityHeaders = map[string]string{
+	"Content-Security-Policy": csp,
+	"X-Frame-Options":         "DENY",
+	"X-Content-Type-Options":  "nosniff",
+	"Referrer-Policy":         "no-referrer",
+}
+
+// secureHeaders sets the browser's rules for every response before the
+// handler writes it: no framing, no sniffing, no referrer, and the policy.
+func secureHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		for k, v := range securityHeaders {
+			h.Set(k, v)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // handler is everything the real server puts in front of the screens: the
-// Host allow-list, then the routes with their cross-origin check. The demo
-// build (main_js.go) has no network and serves routes() bare.
+// security headers, the Host allow-list, then the routes with their
+// cross-origin check. The demo build (main_js.go) has no network and
+// serves routes() bare.
 func (s *server) handler(hosts []string) http.Handler {
-	return allowHosts(hosts, s.routes())
+	return secureHeaders(allowHosts(hosts, s.routes()))
 }

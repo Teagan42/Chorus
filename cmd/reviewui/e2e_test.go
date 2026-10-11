@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	cdplog "github.com/chromedp/cdproto/log"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
@@ -95,6 +96,12 @@ func openOn(t *testing.T, h http.Handler) *page {
 		switch ev := ev.(type) {
 		case *runtime.EventExceptionThrown:
 			p.fail("script error: %s", ev.ExceptionDetails.Error())
+		case *cdplog.EventEntryAdded:
+			// The page's own policy refusing something the page does is a
+			// control, style or clip the reviewer silently lost.
+			if strings.Contains(ev.Entry.Text, "Content Security Policy") {
+				p.fail("policy violation: %s", ev.Entry.Text)
+			}
 		case *network.EventResponseReceived:
 			// Only our own routes: a page asks nothing else, but a Chrome
 			// of its own accord might.
@@ -103,7 +110,7 @@ func openOn(t *testing.T, h http.Handler) *page {
 			}
 		}
 	})
-	if err := chromedp.Run(ctx, network.Enable()); err != nil {
+	if err := chromedp.Run(ctx, network.Enable(), cdplog.Enable()); err != nil {
 		t.Fatalf("start browser: %v", err)
 	}
 	t.Cleanup(p.check)
@@ -249,6 +256,37 @@ func TestE2EShellLoadsHtmx(t *testing.T) {
 	p.eval(`typeof htmx === "object" && typeof htmx.process === "function" ? htmx.version : "missing"`, &kind)
 	if kind == "missing" {
 		t.Fatal("htmx did not load; every hx- control on every screen is inert")
+	}
+}
+
+// The screens work under their own Content-Security-Policy: htmx loads
+// and its indicator is styled by the kit's stylesheet, not by the <style>
+// htmx would inject and the policy would refuse. Any violation on any
+// screen fails through the harness; this walks the screens to raise it.
+//
+// verifies SPEC §9.2
+func TestE2EEveryScreenObeysItsOwnPolicy(t *testing.T) {
+	s, _ := newHouseholdServer(t)
+	p := open(t, s)
+	for _, path := range []string{"/conversations", "/conversations/" + convZeppel, "/queue", "/review", "/replays/" + convZeppel, "/curate/pairs", "/export"} {
+		p.visit(path)
+		var policy string
+		p.eval(`document.querySelector('meta[name="htmx-config"]')?.content ?? ""`, &policy)
+		if !strings.Contains(policy, `"includeIndicatorStyles": false`) {
+			t.Errorf("%s does not tell htmx to leave its <style> out: %q", path, policy)
+		}
+	}
+	p.visit("/replays/" + convZeppel)
+	var opacity string
+	p.eval(`getComputedStyle(document.querySelector(".htmx-indicator")).opacity`, &opacity)
+	if opacity != "0" {
+		t.Errorf("the idle indicator on Replay has opacity %q, want 0: htmx's rules did not reach the stylesheet", opacity)
+	}
+	var headers map[string]string
+	p.eval(`fetch("/curate/pairs").then(r => Object.fromEntries(["content-security-policy", "x-frame-options", "x-content-type-options", "referrer-policy"].map(k => [k, r.headers.get(k)])))`, &headers)
+	if headers["x-frame-options"] != "DENY" || !strings.Contains(headers["content-security-policy"], "frame-ancestors 'none'") ||
+		headers["x-content-type-options"] != "nosniff" || headers["referrer-policy"] != "no-referrer" {
+		t.Errorf("the browser got %v", headers)
 	}
 }
 
