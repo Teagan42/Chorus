@@ -118,8 +118,9 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", blobDirEnv, err)
 	}
-	// Validated with the rest of the environment, so this cannot fail.
+	// Validated with the rest of the environment, so these cannot fail.
 	floor, _ := cfg.blobFloor()
+	arbitration, _ := cfg.wakeArbitration()
 	metrics := ops.NewMetrics(version)
 	var (
 		blobs = metrics.MeterBlobs(dir)
@@ -167,6 +168,8 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 		providers: prov,
 		Ops:       watch,
 		Log:       log,
+
+		WakeArbitration: arbitration,
 	})
 }
 

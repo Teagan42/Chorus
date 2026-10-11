@@ -86,6 +86,11 @@ type deps struct {
 	// Ops serves health, readiness and metrics. Nil serves none (ADR-0068).
 	Ops *opsDeps
 
+	// WakeArbitration is how long a wake waits for the same wake from the
+	// house's other satellites. Zero arbitrates nothing: every satellite
+	// that hears a wake answers it (ADR-0072).
+	WakeArbitration time.Duration
+
 	Log *slog.Logger
 }
 
@@ -127,6 +132,10 @@ type daemon struct {
 
 	// ops is what the ops endpoints read, nil when none are served.
 	ops *ops.Ops
+
+	// arbiter decides which satellite answers a wake several heard, nil
+	// when arbitration is off. Set before the first link is accepted.
+	arbiter *listen.Arbiter
 
 	// wg also counts the summaries still being written, which outlive the
 	// link whose conversation ended: run returns only once they are kept.
@@ -208,6 +217,9 @@ func (d *daemon) run(ctx context.Context) error {
 		return err
 	}
 	defer timers.Wait()
+	if err := d.arbitrate(ctx); err != nil {
+		return err
+	}
 	if d.ops != nil {
 		d.wg.Go(func() { d.serveOps(ctx) })
 	}
@@ -493,7 +505,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	lst, err := listen.Open(linkCtx, listen.Config{
 		Satellite: sat.Name, Sessions: sup, Transcriber: d.stt, Speakers: d.speakers,
 		Playback: speaker, Blobs: d.Blobs, Journal: d.journal, Clock: d.Clock, Log: log,
-		Endpointer: d.endpointer(), Indicator: d.panels[sat.Name],
+		Endpointer: d.endpointer(), Indicator: d.panels[sat.Name], Arbiter: d.contender(),
 	})
 	if err != nil {
 		return err
@@ -522,6 +534,7 @@ func (d *daemon) link(name string, lst *listen.Listener) {
 	defer d.linksMu.Unlock()
 	d.links[name] = lst
 	d.opsLinked(name, true)
+	d.present(name, true)
 }
 
 // unlink forgets lst, unless a newer link has already replaced it.
@@ -531,6 +544,7 @@ func (d *daemon) unlink(name string, lst *listen.Listener) {
 	if d.links[name] == lst {
 		delete(d.links, name)
 		d.opsLinked(name, false)
+		d.present(name, false)
 	}
 }
 
