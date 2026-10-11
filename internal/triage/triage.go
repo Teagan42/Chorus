@@ -28,7 +28,7 @@ const (
 	KindSlow        Kind = "slow"
 
 	// KindWeakPositive is a completed turn nobody corrected (SPEC §9.1).
-	// WeakPositives raises it, never Scan: it is no problem to look into.
+	// ScanAll returns it apart from the problems: it is none to look into.
 	KindWeakPositive Kind = "weak-positive"
 )
 
@@ -81,17 +81,17 @@ type turnContext struct {
 	session, turn                 uint64
 }
 
-// Scan returns the conversation's signals in log order.
+// Scan returns the conversation's problems in log order.
 func Scan(ctx context.Context, store journal.Store, conversationID string) ([]Signal, error) {
-	sigs, _, err := read(ctx, store, conversationID)
+	sigs, _, err := ScanAll(ctx, store, conversationID)
 	return sigs, err
 }
 
-// WeakPositives returns the conversation's completed turns that nobody cut
-// off, asked again or saw fail, in log order, each at its completion.
-func WeakPositives(ctx context.Context, store journal.Store, conversationID string) ([]Signal, error) {
-	_, pos, err := read(ctx, store, conversationID)
-	return pos, err
+// ScanAll returns the conversation's problems, and apart from them its weak
+// positives: the completed turns nobody cut off, asked again or saw fail,
+// each at its completion. Both in log order, from one read of the log.
+func ScanAll(ctx context.Context, store journal.Store, conversationID string) (problems, positives []Signal, err error) {
+	return read(ctx, store, conversationID)
 }
 
 // outcome is how one turn ended, for telling a weak positive.
@@ -138,6 +138,9 @@ func read(ctx context.Context, store journal.Store, conversationID string) ([]Si
 		last  *ask
 		// timers are the house log's, by id: what each was set to say.
 		timers = map[string]turnContext{}
+		// announced are the speak calls nobody in the conversation asked for
+		// (SPEC §4): their words are not the open turn's answer.
+		announced = map[string]bool{}
 		// turns are how each turn ended, in log order.
 		turns []*outcome
 		ended = map[uint64]*outcome{}
@@ -225,8 +228,10 @@ func read(ctx context.Context, store journal.Store, conversationID string) ([]Si
 			}
 		case journal.KindBargeInDetected:
 			correct(cur.turn)
+		case journal.KindAnnouncementMade:
+			announced[e.Fields["call_id"]] = true
 		case journal.KindSpeechSpoken, journal.KindSpeechTruncated:
-			if o := ended[cur.turn]; o != nil {
+			if o := ended[cur.turn]; o != nil && !announced[e.Fields["call_id"]] {
 				o.said = append(o.said, cmp.Or(e.Fields["text"], e.Fields["spoken_text"]))
 			}
 		case journal.KindModelCompleted:

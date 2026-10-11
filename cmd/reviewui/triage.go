@@ -106,7 +106,7 @@ func (s *server) triage(w http.ResponseWriter, r *http.Request) {
 	for _, t := range triageTabs {
 		n := 0
 		for _, sig := range sigs {
-			if t.kind == "" && sig.Kind != triage.KindWeakPositive || sig.Kind == t.kind {
+			if (t.kind == "" && sig.Kind != triage.KindWeakPositive) || sig.Kind == t.kind {
 				n++
 				if t.id == tab {
 					list.Rows = append(list.Rows, signalRow(sig, s.now().Location()))

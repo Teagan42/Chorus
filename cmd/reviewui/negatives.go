@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"slices"
 	"strconv"
@@ -40,6 +39,11 @@ func (s *server) negatives(ctx context.Context, u *unread) ([]negative, error) {
 	if err != nil {
 		return nil, err
 	}
+	return s.negativesOf(ctx, convs, u)
+}
+
+// negativesOf is negatives over a listing the caller already holds.
+func (s *server) negativesOf(ctx context.Context, convs []string, u *unread) ([]negative, error) {
 	var out []negative
 	for _, conv := range convs {
 		if !strings.HasPrefix(conv, devicePrefix) {
@@ -92,8 +96,7 @@ func (s *server) exportWake(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/jsonl")
 	w.Header().Set("Content-Disposition", `attachment; filename="chorus-wake-negatives.jsonl"`)
 	if err := harvest.ExportNegatives(w, wakeCorpus(ns)); err != nil {
-		log.Printf("reviewui: wake export aborted: %v", err)
-		panic(http.ErrAbortHandler)
+		abortStream("wake export", err)
 	}
 }
 

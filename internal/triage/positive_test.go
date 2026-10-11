@@ -9,7 +9,8 @@ import (
 	"github.com/teagan42/chorus/internal/triage"
 )
 
-// positives runs WeakPositives over a log written the way scanTimed writes it.
+// positives is ScanAll's weak positives over a log written the way scanTimed
+// writes it.
 func positives(t *testing.T, recs ...timed) []triage.Signal {
 	t.Helper()
 	store := journal.NewMemStore()
@@ -22,11 +23,11 @@ func positives(t *testing.T, recs ...timed) []triage.Signal {
 			t.Fatalf("append %s: %v", r.rec.Kind, err)
 		}
 	}
-	sigs, err := triage.WeakPositives(context.Background(), store, "conv-1")
+	_, pos, err := triage.ScanAll(context.Background(), store, "conv-1")
 	if err != nil {
 		t.Fatalf("weak positives: %v", err)
 	}
-	return sigs
+	return pos
 }
 
 // Teagan adds oat milk and walks off: nobody cut it off, asked again or saw
@@ -58,6 +59,39 @@ func TestATurnNobodyCorrectedIsAWeakPositive(t *testing.T) {
 	}
 	if got := scanTimed(t, recs...); len(got) != 0 {
 		t.Errorf("a weak positive is not a problem, but Scan raised %+v", got)
+	}
+}
+
+// The oven timer goes off while Teagan is adding oat milk, and the kitchen
+// says so behind the answer. Those are the house's words, not the turn's
+// (SPEC §4): the weak positive stands, saying only what the turn said.
+//
+// verifies SPEC §9.1
+func TestAnAnnouncementDuringATurnIsNotItsAnswer(t *testing.T) {
+	recs := []timed{
+		{0, opened("kitchen", "teagan")},
+		{0.3, heard("add oat milk to the shopping list", "teagan")},
+		{1.2, called("ha_call_service", "c1")},
+		{1.5, result("c1", "ok")},
+		{1.7, called("speak", "s1")},
+		{1.8, record(journal.KindAnnouncementMade, "", "text", "The oven timer is done.", "call_id", "an_1", "source", "timer", "timer_id", "t1")},
+		{1.8, called("speak", "an_1")},
+		{2.7, spokenBy("s1", "Added oat milk.")},
+		{2.8, result("s1", "ok")},
+		{2.9, completed("stop")},
+		{4.3, spokenBy("an_1", "The oven timer is done.")},
+		{4.4, result("an_1", "ok")},
+		{8, closed("model_ended")},
+	}
+	s := one(t, positives(t, recs...))
+	if s.Kind != triage.KindWeakPositive || s.Seq != 10 || s.Utterance != "add oat milk to the shopping list" {
+		t.Errorf("signal = %+v, want the oat milk turn's completion #10", s)
+	}
+	if s.Detail != "answered “Added oat milk.” · not cut off, asked again or failed" {
+		t.Errorf("detail = %q, want only the turn's own words", s.Detail)
+	}
+	if got := scanTimed(t, recs...); len(got) != 0 {
+		t.Errorf("an announcement is no problem, but Scan raised %+v", got)
 	}
 }
 

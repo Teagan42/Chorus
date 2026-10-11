@@ -83,10 +83,7 @@ func derive(ctx context.Context, id string, events []journal.Event) *derived {
 	}
 	read := frozen{id: id, events: events}
 	d.scan, d.scanErr = harvest.Scan(ctx, read, id)
-	d.signals, d.triageErr = triage.Scan(ctx, read, id)
-	if d.triageErr == nil {
-		d.positives, d.triageErr = triage.WeakPositives(ctx, read, id)
-	}
+	d.signals, d.positives, d.triageErr = triage.ScanAll(ctx, read, id)
 	switch {
 	case id == houseLog:
 	case strings.HasPrefix(id, devicePrefix):

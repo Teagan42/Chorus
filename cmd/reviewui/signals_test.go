@@ -18,7 +18,7 @@ func TestTheHouseholdsWeakPositivesAreTheTurnsNobodyCorrected(t *testing.T) {
 	store := householdJournal(t)
 	var n int
 	for id := range household.Logs() {
-		pos, err := triage.WeakPositives(context.Background(), store, id)
+		_, pos, err := triage.ScanAll(context.Background(), store, id)
 		if err != nil {
 			t.Fatalf("%s: %v", id, err)
 		}
