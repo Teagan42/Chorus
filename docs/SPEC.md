@@ -194,7 +194,8 @@ Entities that matter, all usable from the orchestrator over the native API:
 | `select` **Wake word sensitivity** (3 levels) | **Immediate relief for cough false-accepts, no retraining** (§9.3) |
 | `switch` **Capture wake-word audio** | Stock corpus capture hook — inspect before building our own |
 | `binary_sensor` **Room Presence** + mmWave radar suite | Journalled to the device's log as `presence_changed` and drawn on Browse (ADR-0050). Presence-gated sessions and occupancy-aware routing are not built |
-| `switch` **Mute Microphones** (HW) | Hardware mute is a user-facing privacy control; respect it |
+| `binary_sensor` **Mute Switch** (HW) | The HAT's slide switch, on the XMOS's button port, which the stock firmware mirrors as a `switch` Mute Microphones. Hardware mute is a user-facing privacy control; respect it. `esphome/satellite1.yaml` reads the switch itself and `chorus_bridge` reports it as the `mute` frame's hardware bit; the software bit is the `Microphone`'s own mute. The host drops the room's audio while either is set (ADR-0067) |
+| `number` **Speaker Volume** | 0 to 100, kept across reboots, 0 mutes the amplifier. The stock firmware keeps its volume on a media player, so `esphome/satellite1.yaml` declares this number instead. chorusd finds it by name, reads its level and sets it over the native API when `set_volume` runs; a satellite without it answers `not_implemented` (ADR-0067) |
 | `button` **XMOS Flash Embedded FW** | XMOS firmware is flashable from the API |
 
 ### 3.3.2 Full duplex, measured on the device
@@ -426,6 +427,12 @@ re-run offers what the build offers, which is what the turn was offered
 unless the build has changed since. A tool declared `deferred`, as
 `media_search` is while media is deferred (§14), keeps its policy and its docs
 but is not offered (ADR-0060).
+
+A tool can act through a satellite rather than a backend. `set_volume` sets
+a satellite's speaker over its native API connection (§3.3.1), in the room
+named or the one the turn came from (§5). A satellite whose firmware lists
+no volume control answers `not_implemented`, and one whose connection is
+down `not_connected` (ADR-0067).
 
 **Confirmation** is orchestrator-enforced but model-authored. The orchestrator
 blocks execution and returns a synthetic `confirmation_required` tool result

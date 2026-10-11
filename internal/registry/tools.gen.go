@@ -236,6 +236,26 @@ var Specs = map[string]ToolSpec{
 		Slow:                 false,
 		UnknownSpeaker:       "deny",
 	},
+	"set_volume": {
+		Name:             "set_volume",
+		Description:      "Set how loud a satellite's own speaker is, 0 to 100, where 0 mutes it. Give level for an exact setting, or step to go up or down from where it is now; not both. Leave room out for the satellite you are speaking through. Returns each level set and the one before it.",
+		ModelDescription: "Set how loud a satellite's own speaker is, 0 to 100, where 0 mutes it. Give level for an exact setting, or step to go up or down from where it is now; not both. Leave room out for the satellite you are speaking through. Returns each level set and the one before it.",
+		Params: []ParamSpec{
+			{Name: "level", Type: "integer", Description: "The new level, 0 to 100, e.g. 40. 0 mutes the speaker.", Required: false},
+			{Name: "step", Type: "integer", Description: "How far to move from the current level, negative for quieter, e.g. -10 for a bit quieter or 25 for a lot louder.", Required: false},
+			{Name: "room", Type: "string", Description: "Which satellite: a room or satellite name, e.g. office. Leave it out for this one.", Required: false},
+		},
+		ModelParams: []ParamSpec{
+			{Name: "level", Type: "integer", Description: "The new level, 0 to 100, e.g. 40. 0 mutes the speaker.", Required: false},
+			{Name: "step", Type: "integer", Description: "How far to move from the current level, negative for quieter, e.g. -10 for a bit quieter or 25 for a lot louder.", Required: false},
+			{Name: "room", Type: "string", Description: "Which satellite: a room or satellite name, e.g. office. Leave it out for this one.", Required: false},
+		},
+		OnInterrupt:          "detach",
+		Scope:                "household",
+		Timeout:              10000 * time.Millisecond,
+		RequiresConfirmation: false,
+		Slow:                 false,
+	},
 	"speak": {
 		Name:             "speak",
 		Description:      "Say something to the user. Runs concurrently with other tools; the model chooses when and whether to speak.",

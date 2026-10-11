@@ -25,6 +25,10 @@
 #include "esphome/components/mixer/speaker/mixer_speaker.h"
 #endif
 
+#ifdef USE_CHORUS_BRIDGE_HARDWARE_MUTE
+#include "esphome/components/binary_sensor/binary_sensor.h"
+#endif
+
 namespace esphome::chorus_bridge {
 
 // Stock voice_assistant constants. Matched deliberately: these are tuned to the
@@ -69,6 +73,8 @@ enum class FrameType : uint8_t {
   CHALLENGE = 0x15,
 };
 
+// MUTE frame bits. Hardware is the board's physical switch; software is the
+// Microphone's own mute, which zero-fills what it delivers (SPEC §3.2).
 static const uint8_t MUTE_HARDWARE = 1 << 0;
 static const uint8_t MUTE_SOFTWARE = 1 << 1;
 
@@ -103,6 +109,10 @@ class ChorusBridge : public Component {
   void add_microphone_source(microphone::MicrophoneSource *source, uint8_t channel);
 #ifdef USE_CHORUS_BRIDGE_DUCKING
   void set_ducking_speaker(mixer_speaker::SourceSpeaker *spk) { this->ducking_speaker_ = spk; }
+#endif
+#ifdef USE_CHORUS_BRIDGE_HARDWARE_MUTE
+  /// The physical mute switch, on while the household has muted the mics.
+  void set_hardware_mute(binary_sensor::BinarySensor *mute) { this->hardware_mute_ = mute; }
 #endif
 
   /// Wake-word hook for YAML. micro_wake_word stays on-device and independent
@@ -157,6 +167,9 @@ class ChorusBridge : public Component {
   std::vector<MicChannel> mic_channels_;
 #ifdef USE_CHORUS_BRIDGE_DUCKING
   mixer_speaker::SourceSpeaker *ducking_speaker_{nullptr};
+#endif
+#ifdef USE_CHORUS_BRIDGE_HARDWARE_MUTE
+  binary_sensor::BinarySensor *hardware_mute_{nullptr};
 #endif
 
   std::vector<uint8_t> tx_;  // whole frames only; a partial frame is unparseable

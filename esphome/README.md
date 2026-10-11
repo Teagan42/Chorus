@@ -20,7 +20,8 @@ radar's "Room Presence", which the orchestrator journals as the room's
 presence (ADR-0050), and the LED ring, which it drives. `satellite1.yaml`
 declares the ring with a `Listening`, `Thinking` and `Speaking` effect, and
 the orchestrator sets one per session state; a ring without those three is
-left alone (ADR-0056).
+left alone (ADR-0056). Its Speaker Volume number is how loud the satellite
+is, 0 to 100, which the orchestrator sets when someone asks (ADR-0067).
 Audio rides a raw TCP socket the device dials out on, because the native API
 cannot carry audio without new message ids, which means forking `api.proto`.
 
@@ -52,7 +53,7 @@ peer that is not the host gets near the bound.
 | `0x02` mic | device | 16 kHz s16le PCM; `flags` is the channel: 0 the fully processed mix, 1 the XMOS's second, lighter-processed output (SPEC §3.2) |
 | `0x03` wake | device | wake word name, UTF-8 |
 | `0x04` played | device | cumulative DAC frames:u64, `esp_timer` micros:i64; `flags` echoes the tag of the stop this report answers, 0 otherwise |
-| `0x05` mute | device | none; `flags` bit 0 hardware, bit 1 software |
+| `0x05` mute | device | none; `flags` bit 0 hardware (the board's mute switch), bit 1 software (the `Microphone`'s own mute) |
 | `0x06` auth | device | MAC:32 then the node name, UTF-8, 1-64 bytes; answers the challenge |
 | `0x10` tts | host | 16 kHz s16le PCM |
 | `0x11` stop | host | none — barge-in, discards the speaker buffer; `flags` is a tag, never 0 |
@@ -78,6 +79,8 @@ waits for the echoed tag rather than for the next position to arrive
 device still announcing 1.
 
 `mute` has no host-to-device counterpart. Hardware mute is authoritative.
+The device sends one when its link is authenticated and again on every
+change; the host drops the room's audio while either bit is set.
 
 ## Handshake
 
@@ -131,6 +134,12 @@ with the host.**
 
 ## Hardware mute, passive sources, and other sharp edges
 
+- **The hardware bit is the switch, not the `Microphone`.**
+  `Microphone::get_mute_state()` is the flag `microphone.mute` sets, which
+  zero-fills the audio in software, so it is the software bit. The hardware
+  bit is the binary sensor `hardware_mute:` names: on the Satellite1, the
+  HAT's slide switch on the XMOS's button port. A board that names none never
+  sets it, and a switch not yet read counts as on (ADR-0067).
 - **Both microphone sources are non-passive.** `MicrophoneSource` is a
   per-consumer gate, not a hardware refcount: a `passive` source receives audio
   only while some non-passive consumer has started the mic. Registering passive

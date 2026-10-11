@@ -538,12 +538,20 @@ void ChorusBridge::publish_played_() {
 }
 
 void ChorusBridge::publish_mute_() {
-  if (this->mic_ == nullptr) {
-    return;
-  }
   // Reported, never negotiated: hardware mute is authoritative and there is no
   // host frame that could clear it.
-  uint8_t flags = this->mic_->get_mute_state() ? MUTE_HARDWARE : 0;
+  uint8_t flags = 0;
+#ifdef USE_CHORUS_BRIDGE_HARDWARE_MUTE
+  // A switch not read yet counts as on: not knowing is not consent.
+  if (this->hardware_mute_ != nullptr && (!this->hardware_mute_->has_state() || this->hardware_mute_->state)) {
+    flags |= MUTE_HARDWARE;
+  }
+#endif
+  // get_mute_state() is microphone.mute's flag, a software zero-fill, so it
+  // is never the hardware bit.
+  if (this->mic_ != nullptr && this->mic_->get_mute_state()) {
+    flags |= MUTE_SOFTWARE;
+  }
   if (flags == this->last_mute_flags_) {
     return;
   }
@@ -580,6 +588,11 @@ void ChorusBridge::dump_config() {
   ESP_LOGCONFIG(TAG, "  Orchestrator: %s:%u", this->host_.c_str(), this->port_);
   ESP_LOGCONFIG(TAG, "  Mic channels: %u", (unsigned) this->mic_channels_.size());
   ESP_LOGCONFIG(TAG, "  Speaker: %s", YESNO(this->speaker_ != nullptr));
+#ifdef USE_CHORUS_BRIDGE_HARDWARE_MUTE
+  ESP_LOGCONFIG(TAG, "  Hardware mute switch: %s", YESNO(this->hardware_mute_ != nullptr));
+#else
+  ESP_LOGCONFIG(TAG, "  Hardware mute switch: NO");
+#endif
   ESP_LOGCONFIG(TAG, "  Protocol: %u, authenticates as %s", PROTOCOL_VERSION, App.get_name().c_str());
   for (auto &ch : this->mic_channels_) {
     // A passive source receives audio only while something else started the

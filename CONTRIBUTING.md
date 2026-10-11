@@ -275,6 +275,7 @@ internal/
   hass/                 Home Assistant tools
   timer/                the household's timers, and the tools that set them (ADR-0045)
   announce/             the announce tool: speech on other satellites (ADR-0045)
+  volume/               the set_volume tool: a satellite's speaker level (ADR-0067)
   provider/             model clients: ollama, kokoro, speaches, speakerid, smartturn (SPEC §10)
   harvest/              barge-ins as preference candidates (SPEC §9.1)
   triage/               signals worth a reviewer's time, derived on read
