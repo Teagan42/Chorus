@@ -1,9 +1,10 @@
-# Minimal satellite that proves full-duplex audio. Copy to satellite1.yaml
-# (gitignored) and fill in the real PSK, WiFi and orchestrator address.
+# Minimal satellite that exercises the chorus_bridge config schema. It is
+# validated, never flashed: `task firmware:config -- satellite1.example.yaml`.
 #
-# The real Satellite1 board wiring comes from the FutureProofHomes package;
-# the i2s pins below are generic ESP32-S3 placeholders so this file validates
-# standalone with `task firmware:config`.
+# Not a template. satellite1.yaml is the real, tracked Satellite1 wiring and
+# is what the firmware tasks build by default; a new board starts from it.
+# The i2s pins below are generic ESP32-S3 placeholders so this file validates
+# standalone, and they are no real board's. Flashing it gives silence.
 #
 # No `voice_assistant:` block. Deliberate -- see packages/chorus-bridge.yaml.
 

@@ -6,8 +6,12 @@ limit (SPEC §3.1, ADR-0010).
 
 ```
 components/chorus_bridge/   the external component (config schema + runtime)
-packages/chorus-bridge.yaml reusable wiring, consumed with !include + vars
-satellite1.example.yaml     a device config that validates standalone
+packages/chorus-bridge.yaml the bridge, micro_wake_word and the sensitivity
+                            select, consumed with !include + vars
+satellite1.yaml             the FutureProofHomes Satellite1, real wiring;
+                            what the firmware tasks build by default
+satellite1-main.yaml        the same kit on the Chorus main board (ADR-0055)
+satellite1.example.yaml     exercises the config schema; validated, not flashed
 secrets.example.yaml        template; the real secrets.yaml is gitignored
 ```
 
@@ -97,16 +101,29 @@ device still announcing 1.
 
 ## Configuring a satellite
 
+`satellite1.yaml` is the real Satellite1 wiring, tracked in git, and it is what
+the firmware tasks build by default. Do not copy `satellite1.example.yaml`
+over it: the example's I²S pins are generic ESP32-S3 placeholders, there so
+the file validates standalone, and a board flashed with them is silent.
+
 ```sh
 cp esphome/secrets.example.yaml esphome/secrets.yaml   # then fill it in
-cp esphome/satellite1.example.yaml esphome/satellite1.yaml
+$EDITOR esphome/satellite1.yaml                        # orchestrator_host
 task firmware:config
 task firmware:compile      # downloads ESP-IDF on first run; this is slow
 task firmware:upload
 ```
 
-`api_encryption_key` in `secrets.yaml` must equal the `psk` for this satellite
-in the repo-root `devices.yaml`: the orchestrator dials the device with it.
+`orchestrator_host` is a literal IP on a static lease: ESPHome cannot resolve
+a hostname for an outbound socket. `api_encryption_key` in `secrets.yaml` must
+equal the `psk` for this satellite in the repo-root `devices.yaml`: the
+orchestrator dials the device with it. `ota_password` is what `esphome upload`
+presents and what the device demands before it accepts a flash; without one
+anyone on the LAN can reflash a device that carries a microphone.
+
+A kit on the Chorus main board builds `satellite1-main.yaml` instead, with
+`task firmware:config -- satellite1-main.yaml`. The example validates the same
+way, and CI validates all three on every push.
 
 ## Proving full duplex
 
