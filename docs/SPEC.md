@@ -381,6 +381,22 @@ device.** Keeping those separate makes device migration fall out for free: wake
 word on a different satellite within ~2 minutes for the same identified person
 resumes the same logical conversation.
 
+**One wake heard by two satellites is answered by one.** A wake frame is held
+for a short window, 200 ms by default (`CHORUS_WAKE_ARBITRATION_MS`), while
+the house's other linked satellites may report the same wake. The one whose
+processed channel was loudest over the 600 ms before its frame answers; a tie
+goes to the earlier arrival on the host's clock, then to the inventory's
+order, and a push-to-talk press beats any spoken wake. The others open
+nothing, light nothing, and take what follows as nobody's turn; each records
+`wake_rejected` with reason `arbitrated`, naming the winner. With no other
+satellite linked, or every one already in, nothing waits. The audio held
+through the window is replayed to the winner, so the window is spent while
+the person is still talking rather than on §11's budget. Arbitration covers
+only simultaneous wakes: a wake after the window opens a contest of its own,
+and a deliberate re-wake elsewhere is the migration above. A satellite with a
+session already live still enters, so a fainter one down the hall cannot take
+the conversation from it (ADR-0072).
+
 ## 5. Identity, context, memory
 
 Explicit enrollment (guided phrases). Per-utterance speaker embedding
@@ -610,6 +626,13 @@ would have let in is told the ear failed (§7), rather than left in silence.
 The one exception is a wake that failed only the speaker check: that is likely
 the wake word from a guest, so it is held until a reviewer confirms it
 (ADR-0058).
+
+Two rejections are no negative at all, and never enter the corpus. A wake
+another satellite heard louder is arbitrated before stage two (§4.5): the
+loser's `arbitrated` rejection is the wake word said farther away. And a
+push-to-talk press, whose frame names the wake `button`, never fired the wake
+model, so whatever becomes of it says nothing about the model. Each rejection
+records the name its wake frame carried as `wake_word` (ADR-0072).
 
 Dual-channel capture means the corpus carries the fully processed stream and
 the XMOS's lighter-processed second output, so retraining can target either.
