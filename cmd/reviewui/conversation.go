@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/teagan42/chorus/internal/bridge"
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
@@ -188,6 +189,14 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) (row logRow)
 		}
 	case journal.KindWakeRejected:
 		row.Text = "wake rejected: " + f["reason"]
+		switch {
+		case f["reason"] == harvest.ReasonArbitrated:
+			// The wake word, answered nearer: no rejection to judge (ADR-0072).
+			row.Text = "wake lost to " + f["lost_to"]
+			row.Note = "arbitrated: " + f["energy_dbfs"] + " dBFS against " + f["winner_energy_dbfs"]
+		case f["wake_word"] == bridge.WakeButton:
+			row.Note = "a button press: the wake model never fired, so no hard negative"
+		}
 	case journal.KindPresenceChanged:
 		row.Text, row.Note = "presence: "+f["state"], f["sensor"]
 	case journal.KindAudioDropped:
@@ -442,7 +451,7 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 			}
 			row.Annotation = &v
 		}
-		if e.Kind == journal.KindWakeRejected && wakes != nil {
+		if e.Kind == journal.KindWakeRejected && wakes != nil && harvest.HardNegative(e.Fields) {
 			n := negative{Negative: harvest.Negative{Seq: e.Seq, Reason: e.Fields["reason"]}, status: wakes[e.Seq].Status}
 			v := wakeVerdictView(id, n)
 			row.Wake = &v

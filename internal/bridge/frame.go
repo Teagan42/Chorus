@@ -58,6 +58,11 @@ const (
 	TypeChallenge Type = 0x15 // host: a fresh nonce the device must MAC
 )
 
+// WakeButton is the name a TypeWake carries when a person pressed the
+// satellite's push-to-talk button rather than said the wake word: the
+// Voice PE's centre button calls the same hook micro_wake_word does.
+const WakeButton = "button"
+
 // Mic channel, in Frame.Flags on TypeMic.
 const (
 	ChannelAEC    uint8 = 0 // XMOS fully processed: AEC, IC, NS, AGC

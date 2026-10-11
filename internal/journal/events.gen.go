@@ -58,7 +58,7 @@ const (
 	KindToolResult Kind = "tool_result"
 	// Final STT result for one utterance.
 	KindUtteranceTranscribed Kind = "utterance_transcribed"
-	// Stage-one activation failed server-side confirmation. Hard negative for wake-word retraining.
+	// Stage-one activation failed server-side confirmation, or another satellite won the same wake. Hard negative for wake-word retraining, but for an arbitrated one or a button press.
 	KindWakeRejected Kind = "wake_rejected"
 )
 

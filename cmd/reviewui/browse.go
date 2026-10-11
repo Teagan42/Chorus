@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/reviewui/ui"
 	"github.com/teagan42/chorus/internal/triage"
@@ -154,7 +155,10 @@ func deviceOf(events []journal.Event) *deviceLog {
 	for _, e := range events {
 		switch e.Kind {
 		case journal.KindWakeRejected:
-			dev.rejects = append(dev.rejects, e)
+			// A wake another satellite answered was never rejected at stage two.
+			if e.Fields["reason"] != harvest.ReasonArbitrated {
+				dev.rejects = append(dev.rejects, e)
+			}
 		case journal.KindPresenceChanged:
 			dev.presence = append(dev.presence, presenceMark{e.At, e.Fields["state"]})
 		}

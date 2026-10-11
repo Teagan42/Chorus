@@ -61,6 +61,10 @@ type Config struct {
 
 	// OpsListen is where health, readiness and metrics are served, or "off".
 	OpsListen string
+
+	// WakeArbitrationMS is the arbitration window as written; wakeArbitration
+	// reads it.
+	WakeArbitrationMS string
 }
 
 // configFromEnv reads the environment through getenv, so a test never reads
@@ -82,6 +86,7 @@ func configFromEnv(getenv func(string) string) Config {
 	}
 	cfg.BlobMinFreeMiB = getenv(blobMinFreeEnv)
 	cfg.OpsListen = getenv(opsListenEnv)
+	cfg.WakeArbitrationMS = getenv(wakeArbitrationEnv)
 	if cfg.Listen == "" {
 		cfg.Listen = defaultListen
 	}
@@ -115,6 +120,9 @@ func (c Config) validate() error {
 	}
 	if err := c.opsListenErr(); err != nil {
 		missing = append(missing, fmt.Sprintf("  %-20s %v", opsListenEnv, err))
+	}
+	if _, err := c.wakeArbitration(); err != nil {
+		missing = append(missing, fmt.Sprintf("  %-20s %v", wakeArbitrationEnv, err))
 	}
 	// Half a Home Assistant configuration is a mistake, not a choice.
 	switch {

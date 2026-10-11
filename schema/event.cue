@@ -49,11 +49,15 @@ events: {
 	}
 	wake_rejected: {
 		name:            "wake_rejected", actor: "device"
-		description:     "Stage-one activation failed server-side confirmation. Hard negative for wake-word retraining."
+		description:     "Stage-one activation failed server-side confirmation, or another satellite won the same wake. Hard negative for wake-word retraining, but for an arbitrated one or a button press."
 		has_audio:       true
 		training_signal: true
 		fields: [
-			{name: "reason", type: "string", description: "Which gate rejected it. transcription_failed is the first utterance that could not be decoded, so nothing confirmed the wake: not a verdict on the audio, and no hard negative.", required: true, enum: ["no_speech", "low_confidence", "unknown_speaker", "transcription_failed"]},
+			{name: "reason", type: "string", description: "Which gate rejected it. transcription_failed is the first utterance that could not be decoded, so nothing confirmed the wake: not a verdict on the audio, and no hard negative. arbitrated is the same wake heard louder by the satellite lost_to names, which answered instead (SPEC §4.5, ADR-0072): a real wake, never a hard negative, and its audio is what this satellite held while the contest ran.", required: true, enum: ["no_speech", "low_confidence", "unknown_speaker", "transcription_failed", "arbitrated"]},
+			{name: "wake_word", type: "string", description: "The name the device's wake frame carried: the wake model's, or button for the Voice PE's push-to-talk press (bridge.WakeButton). A press is no activation of the wake model, so it is never a hard negative. Empty in logs from before it was recorded."},
+			{name: "lost_to", type: "string", description: "The satellite that won an arbitrated wake. Empty for every other reason."},
+			{name: "energy_dbfs", type: "number", description: "An arbitrated wake's processed-channel level over the stretch before its wake frame, in dBFS: what it lost on. Empty for every other reason."},
+			{name: "winner_energy_dbfs", type: "number", description: "The winner's level over the same stretch of its own stream, in dBFS. Empty for every other reason."},
 			{name: "second_audio_ref", type: "string", description: "The same span from the XMOS's second, lighter-processed output, so retraining can target either stream (SPEC §9.3). Empty when the device streams one channel."},
 			{name: "canned_call_id", type: "string", description: "The speak call that told the person the ear failed, recorded next in this log: a transcription_failed wake from a voice that would have passed stage three (SPEC §7, ADR-0069). Empty for every other rejection, which stays silent."},
 		]

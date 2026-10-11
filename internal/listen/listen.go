@@ -16,7 +16,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"math"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -109,6 +112,14 @@ type Config struct {
 	WakeWindow int
 	LeadIn     int
 
+	// Arbiter decides which satellite answers a wake several heard. Nil
+	// answers every wake here, as a house of one satellite would (ADR-0072).
+	Arbiter Contender
+
+	// ArbitrationSpan is the processed audio before a wake frame its level
+	// is measured over, in bytes; zero is DefaultArbitrationSpan.
+	ArbitrationSpan int
+
 	// Log receives what a goroutine with no caller cannot return. Nil discards.
 	Log *slog.Logger
 }
@@ -138,6 +149,9 @@ type Listener struct {
 	muted  bool
 	played uint64
 	woken  bool
+	// word is the name the armed wake's frame carried (bridge.WakeButton for
+	// a press), recorded on its rejection.
+	word string
 	// confirming holds from the first utterance's start until it opens the
 	// session or rejects the wake, so speech in that gap is still segmented.
 	confirming bool
@@ -154,6 +168,12 @@ type Listener struct {
 	// last is the newest utterance's ticket. Each utterance waits on the one
 	// before it before it is heard, so turns run one at a time, in order.
 	last <-chan struct{}
+
+	// level is the processed channel's loudness just now, kept as numbers
+	// and never as audio: what a wake is entered in a contest at.
+	level meter
+	// contending is a wake waiting on the arbiter's verdict, nil otherwise.
+	contending *contest
 
 	// opening is held while a session is chosen or opened, by a wake or an
 	// announcement: one speaker, so one session speaking on it at a time.
@@ -184,6 +204,9 @@ func Open(ctx context.Context, cfg Config) (*Listener, error) {
 	if cfg.LeadIn <= 0 {
 		cfg.LeadIn = DefaultLeadIn
 	}
+	if cfg.ArbitrationSpan <= 0 {
+		cfg.ArbitrationSpan = DefaultArbitrationSpan
+	}
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
@@ -193,6 +216,7 @@ func Open(ctx context.Context, cfg Config) (*Listener, error) {
 	heard := make(chan struct{})
 	close(heard)
 	l := &Listener{cfg: cfg, ctx: ctx, log: cfg.Log, done: make(chan struct{}), last: heard}
+	l.level.span = cfg.ArbitrationSpan
 	if b, ok := cfg.Endpointer.(binder); ok {
 		b.bind(ctx, l.spawnLocked, cfg.Log, cfg.Clock)
 	}
@@ -260,6 +284,14 @@ func (l *Listener) onSecond(pcm []byte) {
 	if l.closed || l.muted {
 		return
 	}
+	if l.holdLocked(bridge.ChannelSecond, pcm) {
+		return
+	}
+	l.secondLocked(pcm)
+}
+
+// secondLocked is onSecond past the mute and the contest.
+func (l *Listener) secondLocked(pcm []byte) {
 	if l.cur != nil {
 		l.cur.keepSecond(pcm)
 		return
@@ -289,27 +321,39 @@ func (l *Listener) onAEC(pcm []byte) error {
 	if l.closed || l.muted {
 		return nil
 	}
+	if l.cfg.Arbiter != nil {
+		l.level.add(pcm)
+	}
+	if l.holdLocked(bridge.ChannelAEC, pcm) {
+		return nil
+	}
+	l.aecLocked(pcm)
+	return nil
+}
+
+// aecLocked is onAEC past the mute and the contest.
+func (l *Listener) aecLocked(pcm []byte) {
 	if !l.hearingLocked() {
 		// No session and no wake: the mic streams anyway (SPEC §3.2), and
 		// none of it is ours to keep.
 		l.abortLocked()
-		return nil
+		return
 	}
 	b := l.cfg.Endpointer.Feed(pcm)
 	if l.cur == nil {
 		if b != Start {
 			l.leadLocked(pcm)
 			l.awaitSpeechLocked(pcm)
-			return nil
+			return
 		}
 		l.startLocked(pcm)
-		return nil
+		return
 	}
 	split := false
 	if err := l.cur.write(pcm); err != nil {
 		if !errors.Is(err, stt.ErrTooLong) {
 			l.warn("write utterance audio", err)
-			return nil
+			return
 		}
 		// Past the bound it is a stuck mic or the television (ADR-0024):
 		// decode what is held, and the rest starts a new utterance. The bound
@@ -325,7 +369,6 @@ func (l *Listener) onAEC(pcm []byte) error {
 	if split {
 		l.startLocked(pcm)
 	}
-	return nil
 }
 
 // hearingLocked reports whether the mic is anyone's to segment: a wake, a
@@ -350,10 +393,10 @@ func (l *Listener) awaitSpeechLocked(pcm []byte) {
 	if len(l.wake) < l.cfg.WakeWindow {
 		return
 	}
-	audio, second := l.wake, l.wake2
+	audio, second, named := l.wake, l.wake2, wakeNamed(l.word)
 	l.wake, l.wake2, l.woken = nil, nil, false
 	l.cfg.Endpointer.Reset()
-	l.spawnLocked(func() { l.rejectWake(audio, second, "no_speech", false) })
+	l.spawnLocked(func() { l.rejectWake(audio, second, "no_speech", false, named) })
 }
 
 // startLocked opens an utterance on the chunk speech began in.
@@ -367,7 +410,7 @@ func (l *Listener) startLocked(pcm []byte) {
 	}
 	u := &utterance{
 		id: rand.Text(), stt: su, cancel: cancel,
-		first: l.woken, prev: l.last,
+		first: l.woken, word: l.word, prev: l.last,
 		ticket: make(chan struct{}), ended: make(chan struct{}), aborted: make(chan struct{}),
 	}
 	u.overhearing = !l.woken && !l.confirming && !l.liveLocked()
@@ -464,15 +507,183 @@ func (l *Listener) liveLocked() bool {
 // confirms the wake (SPEC §9.3): the wire carries no pre-roll, so there is
 // nothing to judge before then, and the person the conversation is keyed on
 // is not known before then either (SPEC §4.5).
-func (l *Listener) OnWake(string) error {
+//
+// With an arbiter, the wake is first entered in a contest with the house's
+// other satellites, at the level of the speech before it, and what the mic
+// carries meanwhile is held. The winner hears it as if no contest had run;
+// a loser drops it and says so in its own log (ADR-0072).
+func (l *Listener) OnWake(word string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.closed || l.muted || l.confirming || l.cur != nil || l.liveLocked() || l.announcingLocked() != nil {
+	if l.closed || l.muted || l.announcingLocked() != nil {
 		return nil
 	}
-	l.woken, l.wake, l.wake2 = true, l.wake[:0], l.wake2[:0]
+	busy := l.confirming || l.cur != nil || l.liveLocked()
+	if l.cfg.Arbiter == nil {
+		if !busy {
+			l.armLocked(word)
+		}
+		return nil
+	}
+	if l.contending != nil {
+		return nil
+	}
+	// A wake over a live session arms nothing, but still enters at its
+	// level, so a fainter satellite cannot take the conversation away.
+	c := &contest{busy: busy, word: word}
+	l.contending = c
+	verdict := l.cfg.Arbiter.Contend(Entry{
+		Satellite: l.cfg.Satellite, Energy: l.level.rms(), Pressed: word == bridge.WakeButton,
+	})
+	select {
+	case v := <-verdict:
+		l.decideLocked(c, v)
+	default:
+		l.spawnLocked(func() {
+			select {
+			case v := <-verdict:
+				l.mu.Lock()
+				defer l.mu.Unlock()
+				if l.contending == c {
+					l.decideLocked(c, v)
+				}
+			case <-l.ctx.Done():
+			}
+		})
+	}
 	return nil
 }
+
+// armLocked takes a wake: what follows is the first utterance's.
+func (l *Listener) armLocked(word string) {
+	l.woken, l.word, l.wake, l.wake2 = true, word, l.wake[:0], l.wake2[:0]
+}
+
+// wakeNamed is the field a rejection records the wake frame's name in.
+func wakeNamed(word string) map[string]string {
+	if word == "" {
+		return nil
+	}
+	return map[string]string{"wake_word": word}
+}
+
+// contest is a wake waiting on the arbiter, and what the mic carried since.
+type contest struct {
+	// busy is a wake over a session or a confirmation: it holds nothing and,
+	// won or lost, changes nothing here.
+	busy   bool
+	word   string
+	frames []heldFrame
+	held   int // processed-channel bytes in frames
+}
+
+// heldFrame is one chunk the mic sent while the contest ran.
+type heldFrame struct {
+	channel uint8
+	pcm     []byte
+}
+
+// holdLocked keeps a chunk for the contest's verdict, and reports whether it
+// did. Bounded by the wake window: a verdict that slow is no verdict.
+func (l *Listener) holdLocked(channel uint8, pcm []byte) bool {
+	c := l.contending
+	if c == nil || c.busy {
+		return false
+	}
+	if c.held < l.cfg.WakeWindow {
+		c.frames = append(c.frames, heldFrame{channel, slices.Clone(pcm)})
+		if channel == bridge.ChannelAEC {
+			c.held += len(pcm)
+		}
+	}
+	return true
+}
+
+// decideLocked applies a verdict. The winner takes the wake and hears what
+// was held, in the order it came; a loser stays dark and silent, its wake
+// spent, and records who won (SPEC §4.5).
+func (l *Listener) decideLocked(c *contest, v Verdict) {
+	l.contending = nil
+	l.log.Debug("wake arbitration decided", "satellite", l.cfg.Satellite, "won", v.Won, "winner", v.Winner,
+		"energy_dbfs", dbfs(v.Energy), "winner_energy_dbfs", dbfs(v.WinnerEnergy), "busy", c.busy)
+	if c.busy {
+		return
+	}
+	if !v.Won {
+		var audio, second []byte
+		for _, f := range c.frames {
+			if f.channel == bridge.ChannelAEC {
+				audio = append(audio, f.pcm...)
+			} else {
+				second = append(second, f.pcm...)
+			}
+		}
+		fields := map[string]string{
+			"lost_to": v.Winner, "energy_dbfs": dbfs(v.Energy), "winner_energy_dbfs": dbfs(v.WinnerEnergy),
+		}
+		maps.Copy(fields, wakeNamed(c.word))
+		l.spawnLocked(func() { l.rejectWake(audio, second, "arbitrated", false, fields) })
+		return
+	}
+	// Something may have opened here while the contest ran: an announcement
+	// that asked for an answer. Its session hears what was held instead.
+	if !l.confirming && l.cur == nil && !l.liveLocked() && l.announcingLocked() == nil {
+		l.armLocked(c.word)
+	}
+	for _, f := range c.frames {
+		if f.channel == bridge.ChannelAEC {
+			l.aecLocked(f.pcm)
+		} else {
+			l.secondLocked(f.pcm)
+		}
+	}
+}
+
+// dbfsFloor is the quietest level a rejection records: 16-bit silence.
+const dbfsFloor = -96
+
+// dbfs prints a level, a fraction of full scale, as dBFS to a tenth.
+func dbfs(level float64) string {
+	db := float64(dbfsFloor)
+	if level > 0 {
+		db = max(20*math.Log10(level), dbfsFloor)
+	}
+	return strconv.FormatFloat(db, 'f', 1, 64)
+}
+
+// meter is the RMS of the newest span bytes of a channel, from per-chunk
+// energies: numbers only, so idle audio is still never kept (SPEC §3.2).
+type meter struct {
+	span   int
+	chunks []meterChunk
+	bytes  int
+}
+
+type meterChunk struct {
+	sumsq float64
+	n     int
+}
+
+// add takes a chunk, dropping the oldest while the rest still cover span.
+func (m *meter) add(pcm []byte) {
+	m.chunks = append(m.chunks, meterChunk{sumSquares(pcm), len(pcm)})
+	m.bytes += len(pcm)
+	for len(m.chunks) > 1 && m.bytes-m.chunks[0].n >= m.span {
+		m.bytes -= m.chunks[0].n
+		m.chunks = slices.Delete(m.chunks, 0, 1)
+	}
+}
+
+// rms is the level over what is held, summed afresh so no drift builds up.
+func (m *meter) rms() float64 {
+	var sum float64
+	for _, c := range m.chunks {
+		sum += c.sumsq
+	}
+	return rms(sum, m.bytes/bytesPerFrame)
+}
+
+func (m *meter) reset() { m.chunks, m.bytes = m.chunks[:0], 0 }
 
 // announcingLocked is the announcement playing that nobody may answer, or
 // nil once it has ended.
@@ -575,6 +786,10 @@ func (l *Listener) OnMute(m bridge.Mute) error {
 	if l.muted {
 		l.abortLocked()
 		l.woken, l.wake, l.wake2 = false, nil, nil
+		// A wake waiting on its verdict is spent too, and its held audio
+		// dropped; the level starts again from the unmuted mic.
+		l.contending = nil
+		l.level.reset()
 	}
 	l.mu.Unlock()
 	l.cfg.Indicator.Mute(muted)
@@ -588,8 +803,10 @@ type utterance struct {
 	stt    *stt.Utterance
 	cancel context.CancelFunc
 
-	// first marks the wake's first utterance, which confirms or rejects it.
+	// first marks the wake's first utterance, which confirms or rejects it;
+	// word is that wake's name.
 	first bool
+	word  string
 
 	// overhearing marks speech over an announcement nobody may answer: only
 	// a hot phrase that silences it is taken, and the rest is not kept.
@@ -780,12 +997,12 @@ func (l *Listener) complete(u *utterance) {
 	if res.Text == "" {
 		// Silence is not a request; after a wake it is a false accept.
 		if u.first {
-			l.rejectWake(pcm, second, "no_speech", false)
+			l.rejectWake(pcm, second, "no_speech", false, wakeNamed(u.word))
 		}
 		return
 	}
 	out := l.resolve(pcm)
-	if u.first && !l.confirm(pcm, second, out) {
+	if u.first && !l.confirm(pcm, second, out, u.word) {
 		return
 	}
 	if overheard(u, out) {
@@ -836,7 +1053,7 @@ func (l *Listener) misheard(u *utterance, err error) {
 	if u.first {
 		out := l.resolve(pcm)
 		heard := out.Reason != identity.BelowThreshold && out.Reason != identity.Ambiguous
-		l.rejectWake(pcm, u.seconds(), "transcription_failed", heard)
+		l.rejectWake(pcm, u.seconds(), "transcription_failed", heard, wakeNamed(u.word))
 		return
 	}
 	select {
@@ -879,12 +1096,12 @@ func overheard(u *utterance, out identity.Outcome) bool {
 // rejection it produces is wake_rejected with reason low_confidence, and
 // the score it passes becomes session.Wake.Confidence; until then neither is
 // invented (ADR-0030).
-func (l *Listener) confirm(pcm, second []byte, out identity.Outcome) bool {
+func (l *Listener) confirm(pcm, second []byte, out identity.Outcome, word string) bool {
 	switch out.Reason {
 	case identity.BelowThreshold, identity.Ambiguous:
 		// Stage three. Nobody enrolled, or no resolver, cannot judge and does
 		// not: the fresh install must answer someone (SPEC §5).
-		l.rejectWake(pcm, second, "unknown_speaker", false)
+		l.rejectWake(pcm, second, "unknown_speaker", false, wakeNamed(word))
 		return false
 	}
 	l.opening.Lock()
@@ -925,7 +1142,7 @@ func (l *Listener) confirm(pcm, second []byte, out identity.Outcome) bool {
 // rejectWake journals a failed confirmation to the device's log, with the
 // audio of both channels: the hard negative is the point (SPEC §9.3). With
 // apologise, the ear's canned line follows it there (ADR-0069).
-func (l *Listener) rejectWake(pcm, second []byte, reason string, apologise bool) {
+func (l *Listener) rejectWake(pcm, second []byte, reason string, apologise bool, extra map[string]string) {
 	key := "wake/" + rand.Text()
 	ref, lost := l.store(key, pcm)
 	if lost != nil {
@@ -934,6 +1151,7 @@ func (l *Listener) rejectWake(pcm, second []byte, reason string, apologise bool)
 		ref = blob.RefFor(key)
 	}
 	fields := map[string]string{"reason": reason}
+	maps.Copy(fields, extra)
 	if ref2 := l.storeSecond(key, second); ref2 != "" {
 		fields["second_audio_ref"] = ref2
 	}

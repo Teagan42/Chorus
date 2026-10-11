@@ -95,3 +95,76 @@ func TestHardNegativesExportAsOneRowEach(t *testing.T) {
 		t.Errorf("guest row = %v", guest)
 	}
 }
+
+// Teagan says the wake word at the kitchen counter and the office hears it
+// too, fainter. The office's log records the wake it lost to the kitchen,
+// but that was a real wake and not a cough: it is no hard negative, so it
+// never reaches the corpus, while the office's own false accept still does
+// (SPEC §9.3, ADR-0058).
+//
+// verifies SPEC §4.5, §9.3
+func TestAWakeLostToAnotherSatelliteIsNoHardNegative(t *testing.T) {
+	store := journal.NewMemStore()
+	clk := &stepClock{now: time.Date(2025, time.October, 9, 7, 42, 0, 0, time.UTC)}
+	j := journal.New(store, clk, versions())
+	for _, r := range []journal.Record{
+		record(journal.KindWakeRejected, "blob://wake/office-lost", "reason", "arbitrated",
+			"lost_to", "kitchen", "energy_dbfs", "-31.2", "winner_energy_dbfs", "-18.4"),
+		record(journal.KindWakeRejected, "blob://wake/office-podcast", "reason", "no_speech"),
+	} {
+		if _, err := j.Append(context.Background(), "device:office", r); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+
+	ns, err := harvest.Negatives(context.Background(), store, "device:office")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ns) != 1 || ns[0].Reason != "no_speech" || ns[0].Seq != 2 {
+		t.Fatalf("negatives = %+v, want only the podcast", ns)
+	}
+	var buf bytes.Buffer
+	if err := harvest.ExportNegatives(&buf, ns); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(buf.Bytes(), []byte("arbitrated")) || bytes.Contains(buf.Bytes(), []byte("office-lost")) {
+		t.Errorf("the corpus carries the lost wake:\n%s", buf.Bytes())
+	}
+	if harvest.HardNegative(map[string]string{"reason": "arbitrated"}) || !harvest.HardNegative(map[string]string{"reason": "no_speech"}) {
+		t.Error("HardNegative disagrees with what Negatives ships")
+	}
+}
+
+// Bob presses the office Voice PE's button and says nothing, then a guest
+// presses it and asks something stage three will not answer. Both are
+// journalled and reviewable, but the wake model never fired for either,
+// so neither is a hard negative; the "hey eddie" that met a cough still is
+// (SPEC §9.3, ADR-0058).
+//
+// verifies SPEC §9.3
+func TestAButtonPressIsNoHardNegative(t *testing.T) {
+	store := journal.NewMemStore()
+	clk := &stepClock{now: time.Date(2025, time.October, 9, 21, 15, 0, 0, time.UTC)}
+	j := journal.New(store, clk, versions())
+	for _, r := range []journal.Record{
+		record(journal.KindWakeRejected, "blob://wake/office-press", "reason", "no_speech", "wake_word", "button"),
+		record(journal.KindWakeRejected, "blob://wake/office-guest-press", "reason", "unknown_speaker", "wake_word", "button"),
+		record(journal.KindWakeRejected, "blob://wake/office-cough", "reason", "no_speech", "wake_word", "hey_eddie"),
+	} {
+		if _, err := j.Append(context.Background(), "device:office", r); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+
+	ns, err := harvest.Negatives(context.Background(), store, "device:office")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ns) != 1 || ns[0].Audio != "blob://wake/office-cough" {
+		t.Fatalf("negatives = %+v, want only the cough", ns)
+	}
+	if harvest.HardNegative(map[string]string{"reason": "no_speech", "wake_word": "button"}) {
+		t.Error("HardNegative ships a press")
+	}
+}
