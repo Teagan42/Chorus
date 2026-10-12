@@ -429,6 +429,25 @@ func FuzzParseHello(f *testing.F) {
 	})
 }
 
+// What one side's X25519 work in a handshake costs on the host: a key pair
+// and a shared secret. ADR-0074 cites it beside the firmware's estimate.
+func BenchmarkX25519(b *testing.B) {
+	peer, err := bridge.NewEphemeral()
+	if err != nil {
+		b.Fatal(err)
+	}
+	pub := bridge.PublicOf(peer)
+	for b.Loop() {
+		priv, err := bridge.NewEphemeral()
+		if err != nil {
+			b.Fatal(err)
+		}
+		if _, err := bridge.SharedSecret(priv, pub); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // What sealing one 32 ms mic chunk costs on the host. ADR-0074 cites it
 // beside the firmware's estimate.
 func BenchmarkSeal32ms(b *testing.B) {
