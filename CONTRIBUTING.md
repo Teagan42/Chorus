@@ -317,7 +317,7 @@ schema/                 CUE source of truth
   json/                 generated JSON Schema (do not edit)
 sidecars/               Python model services (uv workspace): speakerid, smartturn
 esphome/                chorus_bridge external component + YAML packages
-  test/                 the handshake MAC's host test (`task firmware:test`)
+  test/                 the handshake and sealing host test (`task firmware:test`)
 hardware/               satellite PCB sources; pins.yaml is the net-name source of truth
 docs/
   SPEC.md               normative spec

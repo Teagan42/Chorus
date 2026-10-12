@@ -200,9 +200,10 @@ jobs:
 
       - run: task firmware:config -- voice-pe.yaml
 
-      # The firmware's handshake MAC, built for the host against mbedTLS and
-      # checked on the golden frames the Go tests use (ADR-0066). The only
-      # C++ this job compiles; the component itself is not built here.
+      # The firmware's handshake, X25519 exchange and frame sealing, built for
+      # the host against mbedTLS and checked on the golden frames the Go tests
+      # use (ADR-0074). The only C++ this job compiles; the component itself
+      # is not built here.
       - name: mbedTLS headers
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmbedtls-dev
 
