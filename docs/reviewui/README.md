@@ -8,8 +8,9 @@ on request, never copied out of it (SPEC §8, ADR-0007). What it writes is
 a reviewer's word: a verdict on a pair, a turn's labels, a promoted re-run,
 and whether a rejected wake ships as a hard negative. Those live in their
 own tables beside the journal, not in it (ADR-0034, ADR-0052, ADR-0058).
-It also deletes, on a reviewer's word: a conversation, a clip, a remembered
-fact (ADR-0070).
+It also deletes, on a reviewer's word: a conversation, a clip from a
+conversation or a satellite's own log, a remembered fact (ADR-0070,
+ADR-0076).
 
 Inline audio is the point. A voice assistant cannot be judged from
 transcripts (SPEC §9.2), so every clip on every screen plays, and a truncated
@@ -177,6 +178,7 @@ server log says why.
 | [Replay](#replay) | `/replays` | Would a different prompt or model have done better? |
 | [Curate](#curate) | `/curate/pairs` | Does this pair go in the dataset, and as which answer? |
 | [Export](#export) | `/export` | What ships, and what is being held back? |
+| [Arbitration](#arbitration) | `/arbitration` | When two satellites heard one wake, was the loudest the nearest? |
 | [Memory](#memory) | `/memory` | What does it remember about each person? |
 | [Deletions](#deletions) | `/deletions` | What was deleted here, and when? |
 
@@ -231,6 +233,12 @@ which may be the wake word from a guest and so waits for a confirm
 (ADR-0058). Pressing the same verdict again takes it back.
 
 ![A rejected wake, confirmed](e2e/journey-wake-confirmed.png)
+
+A wake another satellite heard louder and answered is a row of its own,
+*wake lost to kitchen*, with the two levels it was decided on and what the
+satellite held while the contest ran (ADR-0072). It is the wake word said
+farther away, so it offers no verdict and never ships as a negative; Browse
+draws no tick for it. [Arbitration](#arbitration) gathers them.
 
 The log also shows what the model was told and what the house vouched for.
 A `memory_recalled` row lists each memory the turn was told, whose it is
@@ -567,6 +575,31 @@ not in the zip.
 
 ![Export, the wake corpus](e2e/journey-wake-export.png)
 
+### Arbitration
+
+`/arbitration`, linked from Browse, asks of every wake a satellite lost
+to a louder one whether the loudest was plausibly the nearest. The
+processed channel arbitration compares is AGC'd, which narrows the gap
+between a near satellite and a far one, so a far satellite in a quiet room
+can come close to a near one beside the dishwasher (ADR-0072). It reads
+each satellite's own log for its `arbitrated` rejections, on request like
+every other screen, and keeps nothing.
+
+At the top are the contests, the median margin across them and how many
+came within 3 dB. *By pair* has a row for each loser and winner, such as
+`living_room → kitchen`: how many contests, the median margin, how the
+margins fall (under 3 dB, 3–6, 6–10, 10 dB and up) and its closest call.
+*Closest calls* lists the ten smallest margins in the house, each with
+both levels, a link to the lost wake's row in its satellite's log and to
+the conversation the winner opened. Play the two side by side: the one
+nearer the speaker sounds nearer. A margin of zero or less means the
+winner was no louder, which is a button press beating a voice or a tie
+the earlier wake took. A log written before the levels were recorded
+counts its contests but gives no margin. Satellites are named as Browse's
+lanes name them.
+
+![Arbitration, the household's Thursday](e2e/journey-arbitration.png)
+
 ### Deleting a conversation
 
 At the bottom of a conversation's page, *Delete this conversation…* opens a
@@ -593,7 +626,8 @@ where the panel would be:
 - one that ended under two minutes ago, which its person may still resume
   on another satellite;
 - a satellite's or the house's own log, which chorusd writes all day and
-  retention trims instead.
+  retention trims instead. A satellite's clips can still be
+  [dropped](#dropping-a-clip) one by one.
 
 The server refuses the same deletions if a request asks anyway, and the
 alert region says why.
@@ -610,6 +644,17 @@ as a pruned one is: listed in `meta.audio.gone`, or `"audio_gone":true` on
 a wake row. The same refusals apply as for a deletion.
 
 ![The guest's ask, its clip dropped](e2e/journey-drop-audio.png)
+
+A satellite's own log offers the same drop under each clip it names, such
+as a guest's `unknown_speaker` wake (ADR-0076). The log itself is never
+deleted, but no session holds it, so a clip in it drops at once, even one
+chorusd wrote a moment ago. chorusd writes that log too, from another
+process; when the two write at once, the second takes the next seq after
+the first instead of failing, so neither record is lost. The wake stays in the log with its verdict,
+saying *audio redacted*, and its wake corpus row says `"audio_gone":true`.
+The house log names no audio, so nothing is dropped from it.
+
+![The guest's wake, before its clip is dropped](e2e/journey-drop-wake.png)
 
 ### Memory
 
@@ -699,6 +744,8 @@ reviewer through a whole day, start to finish:
 - a weak positive is found in its own pile and labelled an exemplar, making no pair, and ships as the one SFT row;
 - the guest's visit is deleted from its page and gone from Browse, and Deletions keeps the line;
 - her ask's clip is dropped and shown redacted where it played;
+- her rejected wake's clips are dropped from the living room's own log, its verdict kept;
+- the closest arbitration is followed from the report to the lost wake and the conversation the winner opened;
 - Alice's allergy is forgotten from the memory screen;
 - a deletion the log refused at the last moment is said in the alert region;
 - the database goes away under a label, the page says so in the server's words, and the next press lands once it is back.
