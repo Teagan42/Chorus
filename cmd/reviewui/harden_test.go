@@ -168,7 +168,7 @@ func TestNoScreenReachesForGoogle(t *testing.T) {
 	h := s.handler(defaultHosts(defaultAddr))
 	for _, target := range []string{
 		"/conversations", "/conversations/" + convZeppel, "/queue", "/review", "/replays",
-		"/replays/" + convZeppel, "/curate/pairs", "/export", "/static/css/chorus.css", "/static/css/fonts.css",
+		"/replays/" + convZeppel, "/curate/pairs", "/export", arbitrationRoute, "/static/css/chorus.css", "/static/css/fonts.css",
 	} {
 		w := getAs(h, target)
 		if w.Code != http.StatusOK {

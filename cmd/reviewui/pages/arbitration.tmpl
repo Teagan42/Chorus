@@ -1,0 +1,11 @@
+{{/* Arbitration · each wake a satellite lost to a louder one, by pair, and the closest calls (ADR-0072). */}}
+
+{{define "page-arbitration"}}{{template "doc-start" .Doc}}
+{{template "app-header" .Header}}
+{{template "page-head" .Head}}
+{{with .Unread}}<div class="pad">{{template "alert" .}}</div>{{end}}
+{{with .Empty}}{{template "empty-state" .}}{{else}}
+{{template "data-table" .Pairs}}
+{{template "data-table" .Closest}}
+{{end}}
+{{template "doc-end"}}{{end}}

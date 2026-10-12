@@ -143,10 +143,12 @@ func hour(t time.Time) float64 {
 	return float64(t.Hour()) + float64(t.Minute())/60 + float64(t.Second())/3600
 }
 
-// deviceLog is what Browse draws from a satellite's own log.
+// deviceLog is what Browse draws from a satellite's own log, and the
+// wakes it lost that the arbitration report reads.
 type deviceLog struct {
 	rejects  []journal.Event
 	presence []presenceMark
+	lost     []journal.Event
 }
 
 // deviceOf is a satellite's rejected wakes and its room's presence.
@@ -156,7 +158,9 @@ func deviceOf(events []journal.Event) *deviceLog {
 		switch e.Kind {
 		case journal.KindWakeRejected:
 			// A wake another satellite answered was never rejected at stage two.
-			if e.Fields["reason"] != harvest.ReasonArbitrated {
+			if e.Fields["reason"] == harvest.ReasonArbitrated {
+				dev.lost = append(dev.lost, e)
+			} else {
 				dev.rejects = append(dev.rejects, e)
 			}
 		case journal.KindPresenceChanged:
@@ -394,7 +398,9 @@ func (s *server) browse(w http.ResponseWriter, r *http.Request) {
 		"Head": ui.PageHead{
 			Eyebrow: "01 · Browse", Title: "The household's day",
 			Subtitle: "Every conversation, on the satellite it happened at. Flags come from Triage's signals.",
-			Actions:  []ui.Button{{Label: "Memory ›", Href: memoryRoute}, {Label: "Deletions ›", Href: deletionsRoute}},
+			Actions: []ui.Button{
+				{Label: "Arbitration ›", Href: arbitrationRoute}, {Label: "Memory ›", Href: memoryRoute}, {Label: "Deletions ›", Href: deletionsRoute},
+			},
 		},
 		"Deleted":   s.deletedAlert(r.Context(), r.URL.Query().Get("deleted")),
 		"DayLabel":  day.Format("Monday 2 January"),

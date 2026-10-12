@@ -1,8 +1,8 @@
 //go:build e2e
 
 // Journeys through the signals the log holds besides barge-ins: the wakes
-// a satellite rejected, the ask Alan had to repeat, and the turns nobody
-// corrected.
+// a satellite rejected or lost to a louder one, the ask Alan had to
+// repeat, and the turns nobody corrected.
 package main
 
 import (
@@ -15,6 +15,7 @@ import (
 	"github.com/chromedp/chromedp"
 
 	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/reviewui/household"
 )
 
 // wakeButton is a rejected wake's verdict control by the verdict it posts.
@@ -198,4 +199,37 @@ func TestE2EJourneyAWeakPositiveIsLabelledAnExemplar(t *testing.T) {
 	empty.visit("/queue?tab=weak-positive")
 	empty.waitText("#queue", "Nothing in this pile.")
 	empty.shot("triage-weak-positives-empty")
+}
+
+// Was the loudest satellite the nearest? From Browse the reviewer opens the
+// arbitration report, sees the living room lost four of the kitchen's wakes
+// and the closest of them by 1.6 dB, and follows it to the lost wake in the
+// living room's log, which plays what that satellite held and says who won;
+// then to the conversation the kitchen opened, where Teagan asked for the
+// front door.
+//
+// verifies SPEC §4.5
+func TestE2EJourneyTheClosestArbitrationIsHeard(t *testing.T) {
+	s, _ := newHouseholdServer(t)
+	p := open(t, s)
+
+	p.visit("/conversations")
+	p.follow(`.page-head a[href="/arbitration"]`)
+	p.waitText("#arbitration-pairs", "living_room → kitchen")
+	p.waitText("#arbitration-closest", "-31.0 against -29.4 dBFS")
+	p.shot("journey-arbitration")
+
+	p.follow(`#arbitration-closest a[href="/conversations/device:living_room#seq-7"]`)
+	if got := p.path(); got != "/conversations/device:living_room" {
+		t.Errorf("the closest call landed on %s", got)
+	}
+	if id, visible := p.target(); id != "seq-7" || !visible {
+		t.Errorf("target #%s (visible %v), want the lost wake #seq-7 in view", id, visible)
+	}
+	p.waitText("#seq-7", "wake lost to kitchen")
+	closeTo(t, "what the living room held", p.durations("#seq-7"), []float64{0.5})
+
+	p.visit("/arbitration")
+	p.follow(fmt.Sprintf(`#arbitration-closest a[href="%s"]`, conversationHref(household.ConvDoor)))
+	p.waitText("body", "unlock the front door")
 }

@@ -114,6 +114,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST "+memoryRoute+"/{person}/facts/{fact}/forget", s.forgetFact)
 	mux.HandleFunc("POST "+memoryRoute+"/{person}/summaries/{conv}/forget", s.forgetSummary)
 	mux.HandleFunc("GET "+deletionsRoute, s.deletions)
+	mux.HandleFunc("GET "+arbitrationRoute, s.arbitration)
 	return http.NewCrossOriginProtection().Handler(mux)
 }
 
