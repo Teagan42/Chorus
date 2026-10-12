@@ -60,6 +60,14 @@
 
     {"ref": "wake/kitchen-dishwasher", "noise": "dishwasher", "seconds": 0.8},
     {"ref": "wake/kitchen-dishwasher-second", "noise": "dishwasher", "seconds": 0.8},
-    {"ref": "wake/office-podcast", "who": "podcast", "say": "and that's the thing about sourdough", "seconds": 1.2}
+    {"ref": "wake/office-podcast", "who": "podcast", "say": "and that's the thing about sourdough", "seconds": 1.2},
+
+    {"ref": "wake/living_room-weather", "who": "teagan", "say": "what's", "seconds": 0.4},
+    {"ref": "wake/living_room-zeppelin", "who": "alice", "say": "play", "seconds": 0.4},
+    {"ref": "wake/living_room-timer", "who": "alan", "say": "set", "seconds": 0.4},
+    {"ref": "wake/kitchen-dim", "who": "alice", "say": "dim", "seconds": 0.4},
+    {"ref": "wake/kitchen-dim-second", "who": "alice", "say": "dim", "seconds": 0.4},
+    {"ref": "wake/living_room-door", "who": "teagan", "say": "unlock", "seconds": 0.5},
+    {"ref": "wake/living_room-list", "who": "teagan", "say": "add", "seconds": 0.4}
   ]
 }

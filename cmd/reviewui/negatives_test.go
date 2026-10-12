@@ -19,7 +19,7 @@ import (
 const (
 	dishwasherWake = "/conversations/device:kitchen/wakes/7/"
 	podcastWake    = "/conversations/device:office/wakes/1/"
-	guestWake      = "/conversations/device:living_room/wakes/6/"
+	guestWake      = "/conversations/device:living_room/wakes/11/"
 )
 
 // negativeRow is the part of a wake corpus row these tests read.
@@ -156,7 +156,7 @@ func TestAGuestsRejectedWakeWaitsForAReviewer(t *testing.T) {
 	}
 	mustPost(t, s, guestWake+"confirmed", nil)
 	rows := corpus(t, s)
-	if len(rows) != 3 || rows[1].ID != "device:living_room/6" || !rows[1].Confirmed {
+	if len(rows) != 3 || rows[1].ID != "device:living_room/11" || !rows[1].Confirmed {
 		t.Errorf("after the reviewer's yes the corpus is %+v", rows)
 	}
 }

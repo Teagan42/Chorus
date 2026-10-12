@@ -2,8 +2,8 @@
 // chorusd would have journaled it: three people, three satellites, every
 // signal Triage knows, music searches that say a few words while they look,
 // a timer going off and one called off, a television the barge-in gate
-// refused, a door that waits for a yes, and one conversation from the night
-// before. The review UI's browser tests walk a reviewer through this day, and
+// refused, a door that waits for a yes, wakes two satellites heard at once,
+// and one conversation from the night before. The review UI's browser tests walk a reviewer through this day, and
 // the hosted demo serves it, so both show the same household.
 //
 // The audio is synthetic: voice.json says who says what and for how long,
@@ -98,6 +98,15 @@ func rec(kind journal.Kind, audio string, fields ...string) journal.Record {
 // presence is the radar's report as chorusd journals it (ADR-0050).
 func presence(state string) journal.Record {
 	return rec(journal.KindPresenceChanged, "", "state", state, "sensor", "room_presence")
+}
+
+// lost is a wake another satellite heard louder, as the loser journals it:
+// both levels in dBFS, and the audio it held while the contest ran.
+func lost(winner, energy, winnerEnergy, audio string, fields ...string) journal.Record {
+	return rec(journal.KindWakeRejected, audio, append([]string{
+		"reason", "arbitrated", "wake_word", "hey_eddie", "lost_to", winner,
+		"energy_dbfs", energy, "winner_energy_dbfs", winnerEnergy,
+	}, fields...)...)
 }
 
 func at(h, m int, s float64) time.Duration {
@@ -347,8 +356,10 @@ func Logs() map[string][]Line {
 			{at(18, 58, 15.3), rec(journal.KindConversationSummarized, "", "people_json", `["teagan"]`, "summary", "Teagan let book club in: the front door was unlocked after a yes.")},
 		},
 		// Wakes the second stage threw out: the dishwasher, and a podcast.
-		// The kitchen and the living room have the mmWave radar; the office's
-		// Voice PE has none, so its log holds no presence.
+		// And wakes another satellite heard louder and answered (ADR-0072):
+		// the living room, through the open door, hears most of what is said
+		// in the kitchen. The kitchen and the living room have the mmWave
+		// radar; the office's Voice PE has none, so its log holds no presence.
 		"device:kitchen": {
 			{at(6, 52, 0), presence("present")}, // Teagan makes coffee
 			{at(7, 21, 0), presence("absent")},
@@ -359,13 +370,22 @@ func Logs() map[string][]Line {
 			{at(14, 2, 0), rec(journal.KindWakeRejected, "blob://wake/kitchen-dishwasher", "reason", "no_speech", "second_audio_ref", "blob://wake/kitchen-dishwasher-second")},
 			{at(17, 45, 0), presence("present")}, // dinner
 			{at(18, 30, 0), presence("absent")},
+			// The empty kitchen's AGC lifts Alice's "dim the lights" from
+			// next door to within a whisker of the living room's.
+			{at(18, 39, 59.2), lost("living_room", "-33.8", "-31.6", "blob://wake/kitchen-dim", "second_audio_ref", "blob://wake/kitchen-dim-second")},
 		},
 		"device:living_room": {
+			{at(7, 4, 59.2), lost("kitchen", "-41.2", "-27.5", "blob://wake/living_room-weather")},
+			{at(8, 53, 19.2), lost("kitchen", "-38.9", "-26.1", "blob://wake/living_room-zeppelin")},
 			{at(8, 58, 20), presence("present")},
 			{at(9, 40, 0), presence("absent")},
+			{at(12, 9, 59.2), lost("kitchen", "-40.2", "-28.0", "blob://wake/living_room-timer")},
 			{at(18, 32, 0), presence("present")},
+			// Teagan at the front door, the jazz on next door: the closest call.
+			{at(18, 57, 59.2), lost("kitchen", "-31.0", "-29.4", "blob://wake/living_room-door")},
 			{at(20, 11, 0), presence("unknown")}, // the native API dropped for two minutes
 			{at(20, 13, 0), presence("present")}, // and still there when the reviewer sits down
+			{at(21, 3, 59.2), lost("office", "-45.6", "-24.9", "blob://wake/living_room-list")},
 		},
 		"device:office": {
 			{at(21, 15, 0), rec(journal.KindWakeRejected, "blob://wake/office-podcast", "reason", "no_speech")},
