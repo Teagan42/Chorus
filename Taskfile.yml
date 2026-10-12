@@ -284,7 +284,7 @@ tasks:
     cmds: ["go run ./cmd/chorus-eval {{.CLI_ARGS}}"]
 
   eval:demo:
-    desc: The seed suite over the household's Thursday, with its scripted model. Exits 1, since today's registry defers media_search.
+    desc: The seed suite over the household's Thursday, with its scripted model, no database or model needed
     cmds: ["go run ./cmd/chorus-eval -demo -no-cache eval/household.yaml {{.CLI_ARGS}}"]
 
   eval:draft:
