@@ -31,7 +31,9 @@ var (
 // it with each satellite's native API connection.
 type Speakers interface {
 	Level(satellite string) (int, error)
-	SetLevel(ctx context.Context, satellite string, level int) error
+	// SetLevel sends level and returns the level the device reported back,
+	// confirmed, or the level sent, unconfirmed, when no report came in time.
+	SetLevel(ctx context.Context, satellite string, level int) (got int, confirmed bool, err error)
 }
 
 type setLevel struct {
@@ -39,6 +41,8 @@ type setLevel struct {
 	Room      string `json:"room"`
 	Level     int    `json:"level"`
 	Was       *int   `json:"was,omitempty"`
+	// Unconfirmed is a level the device did not report back: the one sent.
+	Unconfirmed bool `json:"unconfirmed,omitempty"`
 }
 
 type unavailable struct {
@@ -110,10 +114,11 @@ func apply(ctx context.Context, to Speakers, sat config.Satellite, level, step *
 	} else {
 		next = int(math.Round(*level))
 	}
-	if err := to.SetLevel(ctx, sat.Name, next); err != nil {
+	got, confirmed, err := to.SetLevel(ctx, sat.Name, next)
+	if err != nil {
 		return setLevel{}, err
 	}
-	out := setLevel{Satellite: sat.Name, Room: roomOf(sat), Level: next}
+	out := setLevel{Satellite: sat.Name, Room: roomOf(sat), Level: got, Unconfirmed: !confirmed}
 	if known {
 		out.Was = &was
 	}
