@@ -896,7 +896,10 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
   bridge's connection state~~ **Done — ADR-0074.** `chorus_bridge` fires
   `on_connected` and `on_disconnected`, and the Satellite1 and Voice PE rings
   show Unreachable after 10 s without a sealed link.
-- Teach the harvester the ear's `unheard` canned line (ADR-0069)
+- ~~Teach the harvester the ear's `unheard` canned line (ADR-0069)~~
+  **Done.** The apology for words the ear could not decode is nobody's
+  turn: it joins neither the turn before it nor either side of a pair,
+  and cutting it is no preference.
 - Check arbitration's choice against the journalled levels once a
   household runs it: channel 0 is AGC'd, which narrows the gap between a
   near and a far satellite (ADR-0072). The review UI's arbitration report
