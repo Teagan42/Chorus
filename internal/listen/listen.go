@@ -437,11 +437,14 @@ func (l *Listener) startLocked(pcm []byte) {
 	}
 }
 
-// confirmed ends the confirming state, whichever way the first utterance went.
-func (l *Listener) confirmed() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.confirming = false
+// confirmed ends the confirming state, whichever way the first utterance
+// went, and only once: a later wake's is not this utterance's to end.
+func (l *Listener) confirmed(u *utterance) {
+	u.confirmedOnce.Do(func() {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		l.confirming = false
+	})
 }
 
 // endLocked closes the open utterance naturally; its goroutine finishes it.
@@ -817,6 +820,8 @@ type utterance struct {
 	// word is that wake's name.
 	first bool
 	word  string
+	// confirmedOnce guards ending the confirming state first began.
+	confirmedOnce sync.Once
 
 	// overhearing marks speech over an announcement nobody may answer: only
 	// a hot phrase that silences it is taken, and the rest is not kept.
@@ -890,7 +895,7 @@ func (l *Listener) run(u *utterance) {
 	defer u.cancel()
 	defer l.keepJudged(u)
 	if u.first {
-		defer l.confirmed()
+		defer l.confirmed(u)
 	}
 	for {
 		select {
@@ -1012,8 +1017,13 @@ func (l *Listener) complete(u *utterance) {
 		return
 	}
 	out := l.resolve(pcm)
-	if u.first && !l.confirm(pcm, second, out, u.word) {
-		return
+	if u.first {
+		ok := l.confirm(pcm, second, out, u.word)
+		// The turn that follows is the session's, not the wake's to confirm.
+		l.confirmed(u)
+		if !ok {
+			return
+		}
 	}
 	if overheard(u, out) {
 		return
