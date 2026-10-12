@@ -76,6 +76,11 @@ type Turn struct {
 
 	// Room is where the satellite that heard it stands, from the log.
 	Room string
+
+	// Dialogue is the conversation through this utterance, as the reducer
+	// folded it: what the live session's first ask was sent (ADR-0037).
+	// Run leaves it out; an eval sends it (ADR-0079).
+	Dialogue []journal.Entry
 }
 
 // Turns splits a conversation's log at each transcribed utterance. The
@@ -111,7 +116,7 @@ func Turns(events []journal.Event) ([]Turn, error) {
 			out = append(out, Turn{
 				Seq: e.Seq, Speaker: state.Speaker, Text: f["text"], Versions: e.Versions,
 				Memories: state.Recalled, Summaries: state.RecalledSummaries, HeardAt: state.HeardAt,
-				Room: state.Room,
+				Room: state.Room, Dialogue: state.Dialogue,
 			})
 			asked, later, held = false, map[string]bool{}, map[string]int{}
 			continue
@@ -211,14 +216,26 @@ type Failed struct{ Reason string }
 
 func (f *Failed) Error() string { return "the model failed mid-answer: " + f.Reason }
 
-// Run asks eng the turn's question again and collects what it does. It
-// drains the stream to the end, as the engine contract requires, and
-// returns a *Failed alongside the partial take when the turn ended in error.
+// Run asks eng the turn's question again, on its own, and collects what it
+// does: Ask with the turn's Input.
 func Run(ctx context.Context, eng session.Engine, conversationID string, t Turn) (Take, error) {
-	actions, err := eng.Turn(ctx, session.Input{
+	return Ask(ctx, eng, Input(conversationID, t))
+}
+
+// Input is what a re-run asks the engine: the turn's transcript with what it
+// was told, and no dialogue.
+func Input(conversationID string, t Turn) session.Input {
+	return session.Input{
 		ConversationID: conversationID, Speaker: t.Speaker, Room: t.Room, Text: t.Text,
 		Memories: t.Memories, Summaries: t.Summaries, Now: t.HeardAt,
-	})
+	}
+}
+
+// Ask asks eng once and collects what it does. It drains the stream to the
+// end, as the engine contract requires, and returns a *Failed alongside the
+// partial take when the turn ended in error.
+func Ask(ctx context.Context, eng session.Engine, in session.Input) (Take, error) {
+	actions, err := eng.Turn(ctx, in)
 	if err != nil {
 		return Take{}, err
 	}
