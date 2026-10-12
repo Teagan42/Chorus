@@ -376,7 +376,7 @@ func withGuestsWake(t *testing.T, v *visit) uint64 {
 	t.Helper()
 	writeBlob(t, v.blobs, guestWakeAudio)
 	writeBlob(t, v.blobs, guestWakeSecond)
-	j := journal.New(v.store, journal.FixedClock(household.Day().Add(20*time.Hour+14*time.Minute)), household.Versions())
+	j := journal.New(v.store, journal.FixedClock(household.Day().Add(21*time.Hour+20*time.Minute)), household.Versions())
 	e, err := j.Append(context.Background(), "device:living_room",
 		rec(journal.KindWakeRejected, guestWakeAudio, "reason", "unknown_speaker", "wake_word", "hey_eddie", "second_audio_ref", guestWakeSecond))
 	if err != nil {
