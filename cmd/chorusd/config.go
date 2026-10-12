@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"strconv"
 	"strings"
 
 	"github.com/teagan42/chorus/internal/hass"
@@ -17,6 +18,7 @@ import (
 	"github.com/teagan42/chorus/internal/provider/smartturn"
 	"github.com/teagan42/chorus/internal/provider/speaches"
 	"github.com/teagan42/chorus/internal/provider/speakerid"
+	"github.com/teagan42/chorus/internal/provider/vllm"
 	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/satellite"
 	"github.com/teagan42/chorus/internal/session"
@@ -35,6 +37,21 @@ const (
 	sttURLEnv       = "STT_URL"
 	speakerIDURLEnv = "SPEAKERID_URL"
 	smartTurnURLEnv = "SMARTTURN_URL"
+
+	// The turn engine's provider, and vLLM's endpoint when it is the one
+	// (ADR-0077). Ollama's are above: it stays the default, and keeps
+	// serving the embedding model either way.
+	llmProviderEnv  = "CHORUS_LLM_PROVIDER"
+	vllmURLEnv      = "VLLM_URL"
+	vllmModelEnv    = "VLLM_MODEL"
+	vllmKeyEnv      = "VLLM_API_KEY"
+	vllmThinkingEnv = "VLLM_THINKING"
+)
+
+// The turn engines CHORUS_LLM_PROVIDER chooses between.
+const (
+	providerOllama = "ollama"
+	providerVLLM   = "vllm"
 )
 
 // defaultListen is the port the firmware dials (esphome/packages/chorus-bridge.yaml).
@@ -58,6 +75,15 @@ type Config struct {
 	SmartTurnURL string
 	HassURL      string
 	HassToken    string
+
+	// LLMProvider is the turn engine, ollama or vllm (ADR-0077).
+	LLMProvider string
+	VLLMURL     string
+	VLLMModel   string
+	VLLMAPIKey  string
+	// VLLMThinking is Qwen3's thinking switch as written; vllmThinking
+	// reads it.
+	VLLMThinking string
 
 	// BlobMinFreeMiB is the disk guard's floor as written; blobFloor reads it.
 	BlobMinFreeMiB string
@@ -84,6 +110,11 @@ func configFromEnv(getenv func(string) string) Config {
 		OllamaURL:    getenv(ollamaURLEnv),
 		OllamaModel:  getenv(ollamaModelEnv),
 		EmbedModel:   getenv(ollamaEmbedEnv),
+		LLMProvider:  getenv(llmProviderEnv),
+		VLLMURL:      getenv(vllmURLEnv),
+		VLLMModel:    getenv(vllmModelEnv),
+		VLLMAPIKey:   getenv(vllmKeyEnv),
+		VLLMThinking: getenv(vllmThinkingEnv),
 		KokoroURL:    getenv(kokoroURLEnv),
 		STTURL:       getenv(sttURLEnv),
 		SpeakerIDURL: getenv(speakerIDURLEnv),
@@ -104,20 +135,57 @@ func configFromEnv(getenv func(string) string) Config {
 	if cfg.DSN == "" {
 		cfg.DSN = journal.DefaultDSN
 	}
+	if cfg.LLMProvider == "" {
+		cfg.LLMProvider = providerOllama
+	}
 	return cfg
+}
+
+// vllmThinking reads VLLM_THINKING: off unless it says otherwise, for SPEC
+// §11's budget (ADR-0077).
+func (c Config) vllmThinking() (bool, error) {
+	if c.VLLMThinking == "" {
+		return false, nil
+	}
+	on, err := strconv.ParseBool(c.VLLMThinking)
+	if err != nil {
+		return false, fmt.Errorf("%q is not a boolean", c.VLLMThinking)
+	}
+	return on, nil
 }
 
 // validate names every missing variable in one error, with what it is for,
 // so one restart fixes them all rather than one per restart (SPEC §13).
 func (c Config) validate() error {
-	required := []struct{ name, value, purpose string }{
+	type need struct{ name, value, purpose string }
+	required := []need{
 		{blobDirEnv, c.BlobDir, "directory for the audio the journal refers to"},
-		{ollamaURLEnv, c.OllamaURL, "the turn engine's endpoint"},
-		{ollamaModelEnv, c.OllamaModel, "the model the turn engine runs"},
-		{kokoroURLEnv, c.KokoroURL, "the speech synthesis endpoint"},
-		{sttURLEnv, c.STTURL, "the speech recognition endpoint"},
 	}
+	switch c.LLMProvider {
+	case providerVLLM:
+		required = append(required,
+			need{vllmURLEnv, c.VLLMURL, "the turn engine's endpoint"},
+			need{vllmModelEnv, c.VLLMModel, "the model the turn engine runs"})
+		if c.EmbedModel != "" {
+			// vLLM serves one model a process; the embedding model stays on
+			// Ollama (ADR-0077).
+			required = append(required, need{ollamaURLEnv, c.OllamaURL, "the endpoint serving " + ollamaEmbedEnv + ", since it is set"})
+		}
+	default:
+		required = append(required,
+			need{ollamaURLEnv, c.OllamaURL, "the turn engine's endpoint"},
+			need{ollamaModelEnv, c.OllamaModel, "the model the turn engine runs"})
+	}
+	required = append(required,
+		need{kokoroURLEnv, c.KokoroURL, "the speech synthesis endpoint"},
+		need{sttURLEnv, c.STTURL, "the speech recognition endpoint"})
 	var missing []string
+	if c.LLMProvider != providerOllama && c.LLMProvider != providerVLLM {
+		missing = append(missing, fmt.Sprintf("  %-20s %q is not a turn engine: %s or %s", llmProviderEnv, c.LLMProvider, providerOllama, providerVLLM))
+	}
+	if _, err := c.vllmThinking(); err != nil {
+		missing = append(missing, fmt.Sprintf("  %-20s %v", vllmThinkingEnv, err))
+	}
 	for _, r := range required {
 		if r.value == "" {
 			missing = append(missing, fmt.Sprintf("  %-20s %s", r.name, r.purpose))
@@ -180,7 +248,7 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 	if err != nil {
 		return providers{}, err
 	}
-	engine, err := ollama.New(ollama.Config{BaseURL: cfg.OllamaURL, Model: cfg.OllamaModel, Specs: offered})
+	engine, err := turnEngine(cfg, offered)
 	if err != nil {
 		return providers{}, err
 	}
@@ -259,6 +327,27 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 		maps.Copy(p.tools, extra.Tools())
 	}
 	return p, nil
+}
+
+// llmEngine is the engine CHORUS_LLM_PROVIDER chooses: it answers turns
+// and writes each conversation's summary, offering the tools offered.
+type llmEngine interface {
+	session.Engine
+	session.Summarizer
+	Versions() journal.Versions
+}
+
+// turnEngine builds the chosen provider's engine, without touching the
+// network.
+func turnEngine(cfg Config, offered map[string]registry.ToolSpec) (llmEngine, error) {
+	if cfg.LLMProvider != providerVLLM {
+		return ollama.New(ollama.Config{BaseURL: cfg.OllamaURL, Model: cfg.OllamaModel, Specs: offered})
+	}
+	thinking, err := cfg.vllmThinking()
+	if err != nil {
+		return nil, err
+	}
+	return vllm.New(vllm.Config{BaseURL: cfg.VLLMURL, Model: cfg.VLLMModel, APIKey: cfg.VLLMAPIKey, Thinking: thinking, Specs: offered})
 }
 
 func enrolled(ids *identity.Identities) int {

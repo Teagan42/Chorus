@@ -162,7 +162,7 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 		log.Warn("ops endpoints are off: " + opsListenEnv + "=off, so nothing serves health, readiness or metrics")
 	}
 	log.Info("chorusd listening", "version", version, "addr", ln.Addr().String(),
-		"satellites", len(inv.Satellites), "model", prov.versions.Model,
+		"satellites", len(inv.Satellites), "llm", cfg.LLMProvider, "model", prov.versions.Model,
 		"stt", prov.versions.STT, "tts", prov.versions.TTS, "tool_schema", prov.versions.ToolSchema,
 		// What every turn is told the time in; UTC in a container without TZ.
 		"zone", time.Local.String())
