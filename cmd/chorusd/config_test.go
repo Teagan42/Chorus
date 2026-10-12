@@ -114,7 +114,7 @@ func TestOptionalSidecarsDegradeWithALogLine(t *testing.T) {
 	var logs bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logs, nil))
 
-	p, err := buildProviders(configFromEnv(lookup(env)), nil, log)
+	p, err := buildProviders(configFromEnv(lookup(env)), nil, log, nil)
 	if err != nil {
 		t.Fatalf("providers: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestOptionalSidecarsDegradeWithALogLine(t *testing.T) {
 //
 // verifies SPEC §8
 func TestProvidersStampTheEarAndTheVoice(t *testing.T) {
-	p, err := buildProviders(configFromEnv(lookup(complete())), nil, slog.New(slog.DiscardHandler))
+	p, err := buildProviders(configFromEnv(lookup(complete())), nil, slog.New(slog.DiscardHandler), nil)
 	if err != nil {
 		t.Fatalf("providers: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestProvidersStampTheEarAndTheVoice(t *testing.T) {
 func TestFullyConfiguredProvidersWireEverything(t *testing.T) {
 	ids := &identity.Identities{Model: "nemo_en_titanet_large", Dim: 192}
 	var logs bytes.Buffer
-	p, err := buildProviders(configFromEnv(lookup(complete())), ids, slog.New(slog.NewTextHandler(&logs, nil)))
+	p, err := buildProviders(configFromEnv(lookup(complete())), ids, slog.New(slog.NewTextHandler(&logs, nil)), nil)
 	if err != nil {
 		t.Fatalf("providers: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestFullyConfiguredProvidersWireEverything(t *testing.T) {
 // verifies SPEC §6, §8, §14
 func TestEveryToolTheModelIsOfferedHasAnExecutor(t *testing.T) {
 	cfg := configFromEnv(lookup(complete()))
-	p, err := buildProviders(cfg, nil, slog.New(slog.DiscardHandler))
+	p, err := buildProviders(cfg, nil, slog.New(slog.DiscardHandler), nil)
 	if err != nil {
 		t.Fatalf("providers: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestBargeInGateSkipsTheSpeakerStageOnlyWithoutSpeakerID(t *testing.T) {
 	}
 	log := slog.New(slog.DiscardHandler)
 
-	with, err := buildProviders(configFromEnv(lookup(complete())), ids, log)
+	with, err := buildProviders(configFromEnv(lookup(complete())), ids, log, nil)
 	if err != nil {
 		t.Fatalf("providers with speaker id: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestBargeInGateSkipsTheSpeakerStageOnlyWithoutSpeakerID(t *testing.T) {
 
 	env := complete()
 	delete(env, speakerIDURLEnv)
-	without, err := buildProviders(configFromEnv(lookup(env)), ids, log)
+	without, err := buildProviders(configFromEnv(lookup(env)), ids, log, nil)
 	if err != nil {
 		t.Fatalf("providers without speaker id: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestBargeInGateSkipsTheSpeakerStageOnlyWithoutSpeakerID(t *testing.T) {
 // the mismatch is a startup error, not weeks of guests (ADR-0025).
 func TestProvidersRefuseAHouseholdFromAnotherEmbedder(t *testing.T) {
 	ids := &identity.Identities{Model: "some_other_model", Dim: 192}
-	_, err := buildProviders(configFromEnv(lookup(complete())), ids, slog.New(slog.DiscardHandler))
+	_, err := buildProviders(configFromEnv(lookup(complete())), ids, slog.New(slog.DiscardHandler), nil)
 	if err == nil || !strings.Contains(err.Error(), "some_other_model") {
 		t.Errorf("err = %v, want the enrolled model named", err)
 	}
