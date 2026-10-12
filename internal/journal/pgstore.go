@@ -167,9 +167,9 @@ func (p *PgStore) Append(ctx context.Context, e Event) error {
 func (p *PgStore) seqError(ctx context.Context, e Event) error {
 	last, err := p.LastSeq(ctx, e.ConversationID)
 	if err != nil {
-		return fmt.Errorf("seq %d for %s: rejected", e.Seq, e.ConversationID)
+		return fmt.Errorf("seq %d for %s: %w", e.Seq, e.ConversationID, ErrSeqTaken)
 	}
-	return fmt.Errorf("seq %d for %s: want %d", e.Seq, e.ConversationID, last+1)
+	return fmt.Errorf("seq %d for %s: want %d: %w", e.Seq, e.ConversationID, last+1, ErrSeqTaken)
 }
 
 // seqTaken reports a unique or check violation, both of which mean the

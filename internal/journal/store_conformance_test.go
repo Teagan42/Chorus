@@ -2,6 +2,7 @@ package journal_test
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"reflect"
 	"slices"
@@ -159,8 +160,13 @@ var storeConformance = map[string]func(*testing.T, journal.Store){
 			t.Fatalf("append: %v", err)
 		}
 
-		if err := s.Append(ctx, event("conv-1", 1)); err == nil {
+		err := s.Append(ctx, event("conv-1", 1))
+		if err == nil {
 			t.Fatal("append overwrote seq 1; the log is not append-only")
+		}
+		// What tells a writer another took its seq, so it may write after it.
+		if !errors.Is(err, journal.ErrSeqTaken) {
+			t.Errorf("append of a taken seq = %v, want ErrSeqTaken", err)
 		}
 
 		events, err := s.Events(ctx, "conv-1")
@@ -307,8 +313,11 @@ var storeConformance = map[string]func(*testing.T, journal.Store){
 
 		won := 0
 		for _, err := range errs {
-			if err == nil {
+			switch {
+			case err == nil:
 				won++
+			case !errors.Is(err, journal.ErrSeqTaken):
+				t.Errorf("the losing writer got %v, want ErrSeqTaken", err)
 			}
 		}
 		if won != 1 {
