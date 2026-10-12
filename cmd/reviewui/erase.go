@@ -216,6 +216,17 @@ func (s *server) deletable(id string, events []journal.Event) (bool, string) {
 	return true, ""
 }
 
+// droppable says whether the page offers to drop its clips: a deletable
+// conversation's, and a satellite's own log, which is never deleted whole
+// but whose clips a reviewer may take out (ADR-0076).
+func (s *server) droppable(id string, events []journal.Event) bool {
+	if s.readOnly {
+		return false
+	}
+	e, err := s.eraser()
+	return err == nil && e.RefusesDrop(id, events) == nil
+}
+
 // deleteConfirm is the conversation page's deletion, behind its second press.
 func deleteConfirm(id string, events []journal.Event) *ui.Confirm {
 	clips := map[string]bool{}
@@ -244,11 +255,14 @@ func dropConfirm(id string, seq uint64, second bool) *ui.Confirm {
 	if second {
 		what = "this clip and its second channel"
 	}
+	stays := "The words stay; the recording cannot be restored."
+	if strings.HasPrefix(id, devicePrefix) {
+		stays = "Its line in the log stays, with any verdict on it; the recording cannot be restored."
+	}
 	return &ui.Confirm{
 		ID: fmt.Sprintf("drop-%d", seq), Label: "Drop audio…", Tone: ui.ToneHome,
-		Title: fmt.Sprintf("Drop the audio of #%d?", seq),
-		Body: "Removes " + what + " for good, and records in the log that a reviewer dropped it. " +
-			"The words stay; the recording cannot be restored.",
+		Title:  fmt.Sprintf("Drop the audio of #%d?", seq),
+		Body:   "Removes " + what + " for good, and records in the log that a reviewer dropped it. " + stays,
 		Action: dropAudioHref(id, seq), Confirm: "drop", Button: "Drop for good",
 	}
 }

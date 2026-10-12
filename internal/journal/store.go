@@ -2,6 +2,7 @@ package journal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -9,6 +10,10 @@ import (
 	"sync"
 	"time"
 )
+
+// ErrSeqTaken is an append whose seq is not one past the log's last: another
+// writer got there first, so the caller may read LastSeq again and retry.
+var ErrSeqTaken = errors.New("seq is not one past the last")
 
 // Store persists the log. PgStore is SPEC §8's Postgres JSONB, partitioned
 // by conversation; `task test` stays hermetic against MemStore. Audio is kept
@@ -77,7 +82,7 @@ func (m *MemStore) Append(_ context.Context, e Event) error {
 	defer m.mu.Unlock()
 
 	if want := m.last[e.ConversationID] + 1; e.Seq != want {
-		return fmt.Errorf("seq %d for %s: want %d", e.Seq, e.ConversationID, want)
+		return fmt.Errorf("seq %d for %s: want %d: %w", e.Seq, e.ConversationID, want, ErrSeqTaken)
 	}
 	m.byConv[e.ConversationID] = append(m.byConv[e.ConversationID], detach(truncateClock(e)))
 	m.last[e.ConversationID] = e.Seq

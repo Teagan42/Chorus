@@ -88,7 +88,10 @@ func (e *Eraser) DeleteConversation(ctx context.Context, id string) (Erased, err
 // DropAudio removes every clip one event names that is still kept, and
 // records each as redacted in the log, as retention records its own.
 func (e *Eraser) DropAudio(ctx context.Context, id string, seq uint64) ([]string, error) {
-	events, err := e.settled(ctx, id)
+	events, err := e.Store.Events(ctx, id)
+	if err == nil {
+		err = e.RefusesDrop(id, events)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("drop audio of %s #%d: %w", id, seq, err)
 	}
@@ -147,6 +150,21 @@ func (e *Eraser) Refuses(id string, events []journal.Event) error {
 		return ErrResumable
 	}
 	return nil
+}
+
+// RefusesDrop says why no clip may be dropped from a log now, or nil. A
+// satellite's own log may always be: no session holds it, and the record
+// goes after chorusd's next write, never in its place (journal.ErrSeqTaken).
+func (e *Eraser) RefusesDrop(id string, events []journal.Event) error {
+	switch {
+	case id == journal.HouseTimers:
+		return ErrLongLived
+	case strings.HasPrefix(id, devicePrefix) && len(events) == 0:
+		return ErrNoLog
+	case strings.HasPrefix(id, devicePrefix):
+		return nil
+	}
+	return e.Refuses(id, events)
 }
 
 // deleteLog removes a conversation's audio, its curation rows, its

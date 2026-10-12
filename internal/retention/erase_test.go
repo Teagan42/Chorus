@@ -178,31 +178,82 @@ func TestAReviewerDropsOneTurnsAudioAsRedacted(t *testing.T) {
 	}
 }
 
-// A clip in a live conversation, a resumable one or a satellite's own log
-// stays: the record would race chorusd's next write to that log.
+// A clip in a live conversation or a resumable one stays: a session may
+// yet write that log, and a reviewer does not take audio from under it.
+// The house log names no audio, so nothing is dropped from it.
 //
 // verifies SPEC §4.5, §8
-func TestDroppingAudioRefusesALiveOrLongLivedLog(t *testing.T) {
+func TestDroppingAudioRefusesALiveResumableOrHouseLog(t *testing.T) {
 	h := newHouse(t)
 	ctx := context.Background()
 	h.at(today.Add(-time.Minute), "conv-kitchen-live", weather("kitchen", "live")[:4]...)
 	h.at(today.Add(-time.Minute), "conv-1930-living_room", guestVisit()...)
-	h.at(today.Add(-time.Hour), "device:kitchen", rec(journal.KindWakeRejected, "blob://wake/cough", "reason", "no_speech"))
+	h.at(today.Add(-time.Hour), journal.HouseTimers, rec(journal.KindTimerCancelled, "", "timer_id", "t_9d2b4f60", "call_id", "c1", "conversation_id", "conv-1748-kitchen"))
 	e := h.eraser(nil)
 	for id, want := range map[string]error{
 		"conv-kitchen-live":     retention.ErrLive,
 		"conv-1930-living_room": retention.ErrResumable,
-		"device:kitchen":        retention.ErrLongLived,
+		journal.HouseTimers:     retention.ErrLongLived,
 		"conv-0000-attic":       retention.ErrNoLog,
+		"device:attic":          retention.ErrNoLog,
 	} {
 		if _, err := e.DropAudio(ctx, id, 1); !errors.Is(err, want) {
 			t.Errorf("drop in %s = %v, want %v", id, err, want)
 		}
+		if err := e.RefusesDrop(id, h.log(id)); !errors.Is(err, want) {
+			t.Errorf("RefusesDrop(%s) = %v, want %v", id, err, want)
+		}
 	}
-	for _, ref := range []string{"blob://mic/live-ask", "blob://mic/guest-ask", "blob://wake/cough"} {
+	for _, ref := range []string{"blob://mic/live-ask", "blob://mic/guest-ask"} {
 		if !h.kept(ref) {
 			t.Errorf("a refused drop removed %s", ref)
 		}
+	}
+}
+
+// Alan's sister said "Hey Eddie" to the kitchen half a minute ago, and
+// stage two rejected her as unknown_speaker. Her voice comes out of the
+// kitchen's own log at once, both channels, recorded there as redacted as
+// a conversation's clip is. No session holds a satellite's log, so nothing
+// waits for one to close; the wake's record stays, and the log is still
+// never deleted whole.
+//
+// verifies SPEC §8, §9.3
+func TestAReviewerDropsAGuestsWakeFromItsSatellitesLog(t *testing.T) {
+	h := newHouse(t)
+	ctx := context.Background()
+	h.at(today.Add(-30*time.Second), "device:kitchen",
+		rec(journal.KindPresenceChanged, "", "state", "present", "sensor", "room_presence"),
+		rec(journal.KindWakeRejected, "blob://wake/guest", "reason", "unknown_speaker", "second_audio_ref", "blob://wake/guest.ch1"),
+		rec(journal.KindWakeRejected, "blob://wake/cough", "reason", "no_speech"),
+	)
+	e := h.eraser(nil)
+	if err := e.RefusesDrop("device:kitchen", h.log("device:kitchen")); err != nil {
+		t.Errorf("RefusesDrop(device:kitchen) = %v, want nil", err)
+	}
+
+	refs, err := e.DropAudio(ctx, "device:kitchen", 2)
+	if err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+	if want := []string{"blob://wake/guest", "blob://wake/guest.ch1"}; !slices.Equal(refs, want) {
+		t.Errorf("dropped %v, want %v", refs, want)
+	}
+	if h.kept("blob://wake/guest") || h.kept("blob://wake/guest.ch1") || !h.kept("blob://wake/cough") {
+		t.Error("the drop did not take exactly her wake")
+	}
+	want := map[string]string{"blob://wake/guest": "redacted/", "blob://wake/guest.ch1": "redacted/"}
+	if got := h.droppedIn("device:kitchen"); !maps.Equal(got, want) {
+		t.Errorf("recorded = %v, want %v", got, want)
+	}
+	if got := h.log("device:kitchen"); len(got) != 5 || got[1].Kind != journal.KindWakeRejected {
+		t.Errorf("the log holds %d events, want her wake kept and two drops after the cough", len(got))
+	}
+	if _, err := e.DropAudio(ctx, "device:kitchen", 1); !errors.Is(err, retention.ErrNoAudio) {
+		t.Errorf("dropping presence's audio = %v, want ErrNoAudio", err)
+	}
+	if err := e.Refuses("device:kitchen", h.log("device:kitchen")); !errors.Is(err, retention.ErrLongLived) {
+		t.Errorf("deleting the kitchen's log = %v, want ErrLongLived still", err)
 	}
 }
 

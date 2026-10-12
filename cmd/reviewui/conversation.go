@@ -436,6 +436,7 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 	}
 	c := summarize(id, events, sigs)
 	erasable, locked := s.deletable(id, events)
+	droppable := s.droppable(id, events)
 	rows := make([]logRow, 0, len(events)+len(house))
 	lc := logContext{loc: s.now().Location(), gone: goneClips(events)}
 	for _, e := range events {
@@ -461,7 +462,7 @@ func (s *server) conversation(w http.ResponseWriter, r *http.Request) {
 			v := wakeVerdictView(id, n)
 			row.Wake = &v
 		}
-		if erasable && (row.Audio != "" || row.Second != "") {
+		if droppable && (row.Audio != "" || row.Second != "") {
 			row.Drop = dropConfirm(id, e.Seq, row.Second != "")
 		}
 		if sig, ok := bySeq[e.Seq]; ok {

@@ -4,6 +4,7 @@ package journal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"sync"
@@ -187,26 +188,39 @@ func (j *Journal) append(ctx context.Context, conversationID string, r Record) (
 
 	defer j.seq.lock(conversationID)()
 
-	seq, err := j.store.LastSeq(ctx, conversationID)
-	if err != nil {
-		return Event{}, fmt.Errorf("last seq %s: %w", conversationID, err)
+	// The lock orders this process's writers only. Another process's write,
+	// such as the review UI's, can take the seq in between: go after it.
+	var err error
+	for range appendAttempts {
+		var seq uint64
+		seq, err = j.store.LastSeq(ctx, conversationID)
+		if err != nil {
+			return Event{}, fmt.Errorf("last seq %s: %w", conversationID, err)
+		}
+		e := Event{
+			Seq:            seq + 1,
+			ConversationID: conversationID,
+			Kind:           r.Kind,
+			Actor:          meta.Actor,
+			At:             j.clock.Now(),
+			Speculative:    r.Speculative,
+			Versions:       j.versions,
+			AudioRef:       r.AudioRef,
+			Fields:         maps.Clone(r.Fields),
+		}
+		if err = j.store.Append(ctx, e); err == nil {
+			return e, nil
+		}
+		if !errors.Is(err, ErrSeqTaken) {
+			break
+		}
 	}
-	e := Event{
-		Seq:            seq + 1,
-		ConversationID: conversationID,
-		Kind:           r.Kind,
-		Actor:          meta.Actor,
-		At:             j.clock.Now(),
-		Speculative:    r.Speculative,
-		Versions:       j.versions,
-		AudioRef:       r.AudioRef,
-		Fields:         maps.Clone(r.Fields),
-	}
-	if err := j.store.Append(ctx, e); err != nil {
-		return Event{}, fmt.Errorf("append %s: %w", r.Kind, err)
-	}
-	return e, nil
+	return Event{}, fmt.Errorf("append %s: %w", r.Kind, err)
 }
+
+// appendAttempts bounds how often a write goes after another process's
+// before it gives up: one other writer loses it a seq once, not forever.
+const appendAttempts = 5
 
 // Events returns one conversation's log in sequence order.
 func (j *Journal) Events(ctx context.Context, conversationID string) ([]Event, error) {

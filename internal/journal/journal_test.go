@@ -2,6 +2,8 @@ package journal_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strconv"
 	"sync"
 	"testing"
@@ -220,5 +222,79 @@ func TestAppendRecordsACompletionWithoutAnSTTOrTTSVersion(t *testing.T) {
 	}
 	if e.Versions.STT != "" || e.Versions.TTS != "" {
 		t.Errorf("versions = %+v, want the empty slots kept empty", e.Versions)
+	}
+}
+
+// otherProcess is a second process writing one log through its own journal:
+// the review UI recording a clip it dropped from a satellite's log. It
+// writes once, between this journal's LastSeq and its Append.
+type otherProcess struct {
+	*journal.MemStore
+	conv string
+	once sync.Once
+}
+
+func (s *otherProcess) Append(ctx context.Context, e journal.Event) error {
+	if e.ConversationID == s.conv {
+		var err error
+		s.once.Do(func() {
+			dropped := e
+			dropped.Kind, dropped.AudioRef = journal.KindAudioDropped, ""
+			dropped.Fields = map[string]string{"audio_ref": "blob://wake/kitchen-guest", "reason": "redacted"}
+			err = s.MemStore.Append(ctx, dropped)
+		})
+		if err != nil {
+			return fmt.Errorf("the other process: %w", err)
+		}
+	}
+	return s.MemStore.Append(ctx, e)
+}
+
+// The review UI writes a satellite's log from another process, so chorusd's
+// per-log lock cannot order it. A seq it takes first is no reason to lose
+// chorusd's rejected wake: the write goes after it, and both are kept.
+//
+// verifies SPEC §8
+func TestAnAppendWhoseSeqAnotherProcessTookGoesAfterIt(t *testing.T) {
+	store := &otherProcess{MemStore: journal.NewMemStore(), conv: "device:kitchen"}
+	j := journal.New(store, journal.FixedClock(time.Unix(0, 0)), versions())
+
+	e, err := j.Append(context.Background(), "device:kitchen", journal.Record{
+		Kind: journal.KindWakeRejected, AudioRef: "blob://wake/kitchen-cough",
+		Fields: map[string]string{"reason": "no_speech"},
+	})
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if e.Seq != 2 {
+		t.Errorf("the rejected wake took seq %d, want 2, after the other process's", e.Seq)
+	}
+	events, err := j.Events(context.Background(), "device:kitchen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].Kind != journal.KindAudioDropped || events[1].Kind != journal.KindWakeRejected {
+		t.Fatalf("log = %+v, want the drop then the rejected wake", events)
+	}
+}
+
+// takenForever is a log some other writer always gets to first.
+type takenForever struct{ *journal.MemStore }
+
+func (takenForever) Append(_ context.Context, e journal.Event) error {
+	return fmt.Errorf("seq %d for %s: %w", e.Seq, e.ConversationID, journal.ErrSeqTaken)
+}
+
+// A writer that keeps losing gives up and says so, rather than spinning on
+// a log it cannot write.
+//
+// verifies SPEC §8
+func TestAnAppendThatKeepsLosingItsSeqFails(t *testing.T) {
+	j := journal.New(takenForever{journal.NewMemStore()}, journal.FixedClock(time.Unix(0, 0)), versions())
+	_, err := j.Append(context.Background(), "device:kitchen", journal.Record{
+		Kind: journal.KindPresenceChanged, Fields: map[string]string{"state": "present", "sensor": "room_presence"},
+	})
+	if !errors.Is(err, journal.ErrSeqTaken) {
+		t.Errorf("append = %v, want ErrSeqTaken", err)
 	}
 }

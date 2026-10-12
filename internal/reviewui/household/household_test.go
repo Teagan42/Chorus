@@ -172,12 +172,55 @@ func TestEveryBargeInIsDetectedWhereTheCutLands(t *testing.T) {
 	}
 }
 
+// Each wake a satellite lost was answered by the one it names, louder, a
+// moment later: the day's contests are ones chorusd could have decided
+// (ADR-0072).
+//
+// verifies SPEC §4.5
+func TestEveryLostWakeWasAnsweredByTheLouderSatellite(t *testing.T) {
+	logs := household.Logs()
+	var n int
+	for id, lines := range logs {
+		sat, ok := strings.CutPrefix(id, "device:")
+		if !ok {
+			continue
+		}
+		for _, l := range lines {
+			f := l.Rec.Fields
+			if l.Rec.Kind != journal.KindWakeRejected || f["reason"] != "arbitrated" {
+				continue
+			}
+			n++
+			loser, err1 := strconv.ParseFloat(f["energy_dbfs"], 64)
+			winner, err2 := strconv.ParseFloat(f["winner_energy_dbfs"], 64)
+			if err1 != nil || err2 != nil || loser >= winner || f["lost_to"] == sat {
+				t.Errorf("%s lost at %v to %s at %s dBFS against %s", sat, l.At, f["lost_to"], f["energy_dbfs"], f["winner_energy_dbfs"])
+			}
+			answered := false
+			for conv, cl := range logs {
+				for _, o := range cl {
+					if !strings.HasPrefix(conv, "device:") && o.Rec.Kind == journal.KindSessionOpened && o.Rec.Fields["satellite"] == f["lost_to"] &&
+						o.At > l.At && o.At-l.At <= time.Second {
+						answered = true
+					}
+				}
+			}
+			if !answered {
+				t.Errorf("%s lost a wake at %v to %s, which opened no session just after", sat, l.At, f["lost_to"])
+			}
+		}
+	}
+	if n != 6 {
+		t.Errorf("%d lost wakes, want the day's six contests", n)
+	}
+}
+
 // The kitchen's Satellite1 streams both XMOS outputs, so the dishwasher it
 // rejected is kept on both channels: the corpus can target either (SPEC §9.3).
 func TestTheKitchensRejectedWakeKeepsBothChannels(t *testing.T) {
 	var second string
 	for _, l := range household.Logs()["device:kitchen"] {
-		if l.Rec.Kind == journal.KindWakeRejected {
+		if l.Rec.Kind == journal.KindWakeRejected && l.Rec.Fields["reason"] == "no_speech" {
 			second = l.Rec.Fields["second_audio_ref"]
 		}
 	}

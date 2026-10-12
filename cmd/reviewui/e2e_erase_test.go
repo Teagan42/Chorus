@@ -123,6 +123,40 @@ func TestE2EJourneyDropTheGuestsAsk(t *testing.T) {
 	}
 }
 
+// Alan's sister's "Hey Eddie" is in the living room's own log too. From
+// the living room's lane on Browse the reviewer opens that log, drops her
+// rejected wake's clips behind the second press, and the page reloads with
+// the wake still listed, held for a verdict, and nothing left to play.
+//
+// verifies SPEC §8, §9.3
+func TestE2EJourneyDropTheGuestsWakeFromTheLivingRoom(t *testing.T) {
+	v := newVisit(t)
+	seq := withGuestsWake(t, v)
+	p := open(t, v.s)
+	p.visit("/conversations?day=2025-10-09")
+	p.follow(`a.day-lanes__head[href="/conversations/device:living_room"]`)
+	row := fmt.Sprintf("#seq-%d", seq)
+	if n := p.count(row + " audio"); n != 2 {
+		t.Fatalf("her wake plays %d clips before the drop, want both channels", n)
+	}
+	if p.has("#delete-conversation") {
+		t.Error("the living room's log offers to delete itself")
+	}
+	sel := fmt.Sprintf("#drop-%d", seq)
+	p.click(sel + " > summary")
+	p.waitText(sel, "Its line in the log stays")
+	p.shot("journey-drop-wake")
+	p.click(sel + " button[type=submit]")
+	p.waitReloaded(row, "audio redacted")
+	if n := p.count(row + " audio"); n != 0 {
+		t.Errorf("her wake still offers %d players", n)
+	}
+	p.waitText("body", "Held: only the voice check failed")
+	if v.kept(guestWakeAudio) || v.kept(guestWakeSecond) {
+		t.Error("her wake is still kept")
+	}
+}
+
 // Alice asks for her allergy to be forgotten. From Browse the reviewer
 // opens the memory screen, finds it under Alice, shared with the household,
 // and forgets it; the screen swaps without it, and Teagan's book club stays.
