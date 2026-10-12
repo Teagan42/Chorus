@@ -1,0 +1,52 @@
+# The household's MCP servers (ADR-0075). Copy to mcp.yaml beside
+# devices.yaml and point CHORUS_MCP_CONFIG at it; unset, chorusd talks to no
+# MCP server. Checked at startup: a misspelt field, a policy no tool could
+# run under, or an unset ${VAR} stops chorusd with the reason.
+#
+# Every tool a server lists is offered to the model as mcp_<server>_<tool>,
+# under these defaults unless a policy below says otherwise:
+#
+#   scope: person              identified household members only
+#   unknown_speaker: deny      a voice nobody enrolled is refused
+#   requires_confirmation: true  every call waits for the asker's yes
+#   on_interrupt: cancel       a barge-in or the timeout cancels the call,
+#                              and the server is told to stop
+#   timeout_ms: 5000
+#   latency: fast
+#
+# The tools offered are fixed when chorusd starts. A server that has not
+# listed its tools within discovery_timeout_ms offers nothing until the next
+# start; one that drops later is reconnected, and its tools answer
+# mcp_unavailable meanwhile.
+
+# How long startup waits for every server to list its tools. Default 10000.
+discovery_timeout_ms: 10000
+
+servers:
+  # A Streamable HTTP server. Headers are sent with every request; ${NAME}
+  # is read from chorusd's environment, so the token stays in .env.
+  weather:
+    url: http://weather-mcp.lan:8080/mcp
+    headers:
+      Authorization: Bearer ${WEATHER_MCP_TOKEN}
+    # Relaxed for every tool this server lists: forecasts are for anyone in
+    # the house, guests included.
+    policy:
+      scope: household
+    tools:
+      # By the name the server gives the tool, not the mcp_ one.
+      get_forecast:
+        requires_confirmation: false
+        timeout_ms: 8000
+
+  # A server chorusd runs, spoken to over its stdin and stdout. It is given
+  # PATH, HOME and env, nothing else of chorusd's environment.
+  notes:
+    command: [/usr/local/bin/notes-mcp, --stdio]
+    env:
+      NOTES_DIR: /data/notes
+    tools:
+      add_to_shopping_list:
+        requires_confirmation: false
+      delete_all_notes:
+        offer: false
