@@ -1,0 +1,32 @@
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"content":"\n\n"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"id":"chatcmpl-tool-5d1e0b9a4c7f4e2b","type":"function","index":0,"function":{"name":"speak"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"mode\": \"queue\", \"text\": \"Turning off the kit"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"chen and por"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ch lights"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":".\"}"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"id":"chatcmpl-tool-a83f61c09e2d47d5","type":"function","index":1,"function":{"name":"ha_call_service"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"domain\": \"li"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"ght\", \"service\": \"turn_off\", \"entity_id\": \"light.kit"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"chen\"}"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"id":"chatcmpl-tool-0c9b7e5f3a6148e1","type":"function","index":2,"function":{"name":"ha_call_service"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":2,"function":{"arguments":"{\"domain\": \"light\", \"service\": \"turn_off\", \"entity_id\": \"light.por"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":2,"function":{"arguments":"ch\"}"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-8f3c2a7e41d94b06","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+

@@ -181,6 +181,7 @@ events: {
 		fields: [
 			{name: "completion_json", type: "string", description: "Raw completion as returned.", required: true},
 			{name: "finish_reason", type: "string", description: "Why generation stopped.", required: true, enum: ["stop", "length", "tool_calls", "error"]},
+			{name: "streamed_speech_json", type: "string", description: "The words of each speak call this completion streamed, as a JSON object keyed by call_id, as the model generated them. A streamed call's tool_called is recorded at its first words and carries none, so this is how an ask made while it still plays is told what it is saying, live and on replay (ADR-0077). Absent when no speak call streamed: one that arrived whole carries its words in its tool_called."},
 		]
 	}
 	model_failed: {

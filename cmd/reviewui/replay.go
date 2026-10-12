@@ -14,6 +14,7 @@ import (
 	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/provider/vllm"
 	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/rerun"
 	"github.com/teagan42/chorus/internal/reviewui/ui"
@@ -23,6 +24,42 @@ import (
 // engineFactory builds the turn engine a re-run asks: the model, system
 // prompt and tools as the reviewer edited them, and the versions that makes.
 type engineFactory func(model, prompt string, tools map[string]registry.ToolSpec) (sess.Engine, journal.Versions, error)
+
+// Replay asks the same endpoint chorusd's turn engine does: the provider it
+// runs on, and that provider's endpoint, as .env.example documents them
+// (ADR-0077). Unset leaves Replay showing the recorded turns with nothing
+// to re-run them against.
+const (
+	ollamaURLEnv    = "OLLAMA_URL"
+	ollamaModelEnv  = "OLLAMA_MODEL"
+	llmProviderEnv  = "CHORUS_LLM_PROVIDER"
+	vllmURLEnv      = "VLLM_URL"
+	vllmModelEnv    = "VLLM_MODEL"
+	vllmKeyEnv      = "VLLM_API_KEY"
+	vllmThinkingEnv = "VLLM_THINKING"
+)
+
+// llmEngines builds Replay's engines on the provider chorusd is configured
+// with, read through getenv, or none when that provider's endpoint is not
+// configured.
+func llmEngines(getenv func(string) string) engineFactory {
+	if getenv(llmProviderEnv) != "vllm" {
+		return ollamaEngines(getenv(ollamaURLEnv), getenv(ollamaModelEnv))
+	}
+	baseURL, key := getenv(vllmURLEnv), getenv(vllmKeyEnv)
+	if baseURL == "" || getenv(vllmModelEnv) == "" {
+		return nil
+	}
+	// chorusd refuses a value that is not a boolean; here it is off.
+	thinking, _ := strconv.ParseBool(getenv(vllmThinkingEnv))
+	return func(model, prompt string, tools map[string]registry.ToolSpec) (sess.Engine, journal.Versions, error) {
+		e, err := vllm.New(vllm.Config{BaseURL: baseURL, Model: model, APIKey: key, Thinking: thinking, Prompt: prompt, Specs: tools})
+		if err != nil {
+			return nil, journal.Versions{}, err
+		}
+		return e, e.Versions(), nil
+	}
+}
 
 // ollamaEngines builds Replay's engines on the configured endpoint, or none
 // when it is not configured. The model must be configured too: it is the one
@@ -411,7 +448,7 @@ func (s *server) renderReplay(w http.ResponseWriter, rp replayable, form overrid
 	if s.engineFor == nil {
 		connect = &ui.Alert{
 			Title: "No model to ask.",
-			Body:  "Set OLLAMA_URL and OLLAMA_MODEL for reviewui, the same endpoint chorusd uses, to re-run these turns.",
+			Body:  "Set OLLAMA_URL and OLLAMA_MODEL for reviewui, the same endpoint chorusd uses, to re-run these turns (or VLLM_URL and VLLM_MODEL, with CHORUS_LLM_PROVIDER=vllm).",
 			Tone:  ui.ToneConv,
 		}
 	} else if _, v, err := s.engineFor(recorded.Model, ollama.DefaultPrompt, registry.Offered()); err == nil {
@@ -462,7 +499,7 @@ func (s *server) renderReplay(w http.ResponseWriter, rp replayable, form overrid
 func (s *server) replayRun(w http.ResponseWriter, r *http.Request) {
 	// A refusal is a sentence: the page shows the reviewer this body.
 	if s.engineFor == nil {
-		http.Error(w, "No model is configured, so nothing can be re-run: set OLLAMA_URL and OLLAMA_MODEL and start the review UI again.", http.StatusServiceUnavailable)
+		http.Error(w, "No model is configured, so nothing can be re-run: set OLLAMA_URL and OLLAMA_MODEL (or VLLM_URL and VLLM_MODEL, with CHORUS_LLM_PROVIDER=vllm) and start the review UI again.", http.StatusServiceUnavailable)
 		return
 	}
 	if err := r.ParseForm(); err != nil {

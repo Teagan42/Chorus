@@ -4,7 +4,8 @@
 // harvested barge-in candidates, the pair flow, the barge-in timeline with
 // each clip playable, verdicts in the curation table, and Replay. It reads
 // CHORUS_POSTGRES_DSN and CHORUS_BLOB_DIR like chorusd, and migrates its
-// schemas on start; OLLAMA_URL and OLLAMA_MODEL let Replay re-run turns.
+// schemas on start; OLLAMA_URL and OLLAMA_MODEL, or VLLM_URL and VLLM_MODEL
+// under CHORUS_LLM_PROVIDER=vllm, let Replay re-run turns.
 package main
 
 import (
@@ -30,13 +31,6 @@ import (
 // blobDirEnv is where the journal's audio lives, the same variable chorusd
 // writes through (.env.example).
 const blobDirEnv = "CHORUS_BLOB_DIR"
-
-// Replay asks the same endpoint chorusd's turn engine does. Unset leaves
-// Replay showing the recorded turns with nothing to re-run them against.
-const (
-	ollamaURLEnv   = "OLLAMA_URL"
-	ollamaModelEnv = "OLLAMA_MODEL"
-)
 
 // version is set by the release build (-X main.version=...).
 var version = "dev"
@@ -95,7 +89,7 @@ func run(ctx context.Context, addr string, hosts []string, readOnly bool) error 
 	}
 
 	s := newServer(pgJournal{journal.NewPgStore(pool)}, curation.NewPgStore(pool), blobs, time.Now)
-	s.engineFor = ollamaEngines(os.Getenv(ollamaURLEnv), os.Getenv(ollamaModelEnv))
+	s.engineFor = llmEngines(os.Getenv)
 	s.memories, s.erasures, s.readOnly = memory.NewPgStore(pool), erasure.NewPgStore(pool), readOnly
 	srv := &http.Server{Addr: addr, Handler: s.handler(hosts), ReadHeaderTimeout: 5 * time.Second}
 	go func() {

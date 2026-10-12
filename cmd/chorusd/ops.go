@@ -59,11 +59,16 @@ type opsDeps struct {
 // the cheapest route its server has.
 func opsChecks(cfg Config, client *http.Client, postgres func(context.Context) error) []ops.Check {
 	at := func(base, path string) string { return strings.TrimSuffix(base, "/") + path }
+	// vLLM's /health answers without the API key; only /v1 asks for it.
+	llm := at(cfg.OllamaURL, "/api/version")
+	if cfg.LLMProvider == providerVLLM {
+		llm = at(strings.TrimSuffix(strings.TrimSuffix(cfg.VLLMURL, "/"), "/v1"), "/health")
+	}
 	checks := []ops.Check{
 		{Name: "postgres", Required: true, Probe: postgres},
 		{Name: "stt", Required: true, Probe: ops.HTTPProbe(client, at(cfg.STTURL, "/health"), nil)},
 		{Name: "tts", Required: true, Probe: ops.HTTPProbe(client, at(cfg.KokoroURL, "/health"), nil)},
-		{Name: "llm", Required: true, Probe: ops.HTTPProbe(client, at(cfg.OllamaURL, "/api/version"), nil)},
+		{Name: "llm", Required: true, Probe: ops.HTTPProbe(client, llm, nil)},
 	}
 	if cfg.SpeakerIDURL != "" {
 		checks = append(checks, ops.Check{Name: "speaker_id", Probe: ops.HTTPProbe(client, at(cfg.SpeakerIDURL, "/health"), nil)})

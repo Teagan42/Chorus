@@ -1,0 +1,12 @@
+data: {"id":"chatcmpl-2d8b6f0a3e9c4171","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-2d8b6f0a3e9c4171","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"id":"chatcmpl-tool-c6e2a9f4b1d84e35","type":"function","index":0,"function":{"name":"speak"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-2d8b6f0a3e9c4171","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"mode\": \"queue\", \"text\": \"The Beatles recorded Abbey Road in 1969"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-2d8b6f0a3e9c4171","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":", and it was the last album"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-2d8b6f0a3e9c4171","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"length"}]}
+
+data: [DONE]
+

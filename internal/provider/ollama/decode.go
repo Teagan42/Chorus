@@ -6,15 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
 
+	"github.com/teagan42/chorus/internal/provider/chat"
 	"github.com/teagan42/chorus/internal/session"
 )
 
 // toolSpeak is the one tool that is speech rather than an action. The model
 // speaks only by calling it, which is the framing that survives the
 // speech-to-speech adapter (SPEC §12, §4.1).
-const toolSpeak = "speak"
+const toolSpeak = chat.Speak
 
 // maxLine bounds one NDJSON line. A whole utterance arrives in a single line,
 // so the default scanner limit is not enough.
@@ -93,38 +93,15 @@ type decoder struct {
 }
 
 // answer is what a turn that called nothing said in its content, to be
-// spoken once it has finished; empty when that content is not an answer.
-//
-// Told to speak only through the speak tool, qwen3:14b still answers what it
-// already knows -- a remembered garage code, last night's conversation, the
-// day -- in content, reasoning that it "doesn't need any tools" (ADR-0046).
-// That is an answer only when the model's reasoning went to its own field and
-// the turn ended on its own: with think:false, content is the reasoning
-// (content_leak.ndjson), which no one should hear. A turn that called
-// anything has said what it meant to through its calls. The speak tool's
-// name leading the content is the call the model meant to make, not words to
-// say: unspoken (ADR-0046).
+// spoken once it has finished; empty when that content is not an answer
+// (chat.Answer, ADR-0046). With think:false, content is the reasoning
+// (content_leak.ndjson), which no one should hear; and with inline content
+// already spoken as it streamed, saying it again would say it twice.
 func (d decoder) answer(comp completion, reason string) string {
-	if d.speakInlineContent || len(comp.ToolCalls) > 0 || comp.Thinking == "" || reason != "stop" {
+	if d.speakInlineContent {
 		return ""
 	}
-	return unspoken(unthought(comp.Content))
-}
-
-// unspoken drops the speak tool's name from the front of text, and the quotes
-// around what follows it, as qwen3:14b writes the call it meant to make:
-// "speak" on a line of its own, or speak "Would you like..." on one line.
-// Text that merely starts with the word, such as "speaker", is left alone.
-func unspoken(text string) string {
-	rest, ok := strings.CutPrefix(text, toolSpeak)
-	if !ok || (rest != "" && !strings.ContainsAny(rest[:1], ": \t\n")) {
-		return text
-	}
-	rest = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(rest), ":"))
-	if len(rest) >= 2 && rest[0] == '"' && rest[len(rest)-1] == '"' {
-		rest = strings.TrimSpace(rest[1 : len(rest)-1])
-	}
-	return rest
+	return chat.Answer(comp.Content, len(comp.ToolCalls) > 0, comp.Thinking != "", reason)
 }
 
 // decode reads the stream until done, emitting actions as they arrive.
@@ -223,7 +200,10 @@ func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Act
 			ended = true
 			// done_reason is "stop" even for a tool call: this endpoint has no
 			// tool_calls equivalent, so nothing may infer tool use from it.
-			return emit(ctx, out, session.TurnEnd{
+			// Sent even if the turn was cancelled meanwhile, as end_session
+			// closing the session does: the model finished, and the
+			// completion is the journal's (session.Engine).
+			return emit(context.WithoutCancel(ctx), out, session.TurnEnd{
 				FinishReason: c.DoneReason,
 				Completion:   string(raw),
 			})
@@ -250,27 +230,9 @@ func action(id, name string, args json.RawMessage) (session.Action, error) {
 	return session.SpeechDelta{
 		CallID: id,
 		Text:   a.Text,
-		Mode:   mode(a.Mode),
+		Mode:   chat.Mode(a.Mode),
 		Last:   true,
 	}, nil
-}
-
-// mode keeps an unrecognised mode from reaching the speech channel. The schema
-// declares a closed enum, but Ollama does not validate arguments against it:
-// qwen3:14b emits mode="filler" when the prompt suggests one. Queue is the only
-// safe default, since preempt and interject discard or pause speech the user is
-// still hearing (SPEC §4.2).
-//
-// This cannot catch a mode that is valid but wrong -- ornith:9b chose preempt
-// to acknowledge a request, cutting off the speech it should have queued behind.
-// Only the prompt can fix that.
-func mode(s string) session.Mode {
-	switch m := session.Mode(s); m {
-	case session.ModeQueue, session.ModePreempt, session.ModeInterject:
-		return m
-	default:
-		return session.ModeQueue
-	}
 }
 
 func emit(ctx context.Context, out chan<- session.Action, a session.Action) error {

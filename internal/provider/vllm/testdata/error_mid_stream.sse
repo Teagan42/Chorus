@@ -1,0 +1,10 @@
+data: {"id":"chatcmpl-7a3c5e9b1f2d4068","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-7a3c5e9b1f2d4068","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"id":"chatcmpl-tool-1d5f9b3e7a2c4806","type":"function","index":0,"function":{"name":"speak"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-7a3c5e9b1f2d4068","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"mode\": \"queue\", \"text\": \"Let me check the gar"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-7a3c5e9b1f2d4068","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"age door"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"error":{"object":"error","message":"EngineCore encountered an issue. See stack trace (above) for the root cause.","type":"InternalServerError","param":null,"code":500}}
+

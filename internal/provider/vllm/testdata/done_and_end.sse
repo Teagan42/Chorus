@@ -1,0 +1,20 @@
+data: {"id":"chatcmpl-1b6e9d0c27a54f38","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1b6e9d0c27a54f38","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"id":"chatcmpl-tool-e41c7a2d905b4f6a","type":"function","index":0,"function":{"name":"speak"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1b6e9d0c27a54f38","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"mode\": \"queue\", \"text\": \""}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1b6e9d0c27a54f38","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"Done"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1b6e9d0c27a54f38","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":", both are"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1b6e9d0c27a54f38","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":" off.\"}"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1b6e9d0c27a54f38","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"id":"chatcmpl-tool-7f02b8c3d6e1459a","type":"function","index":1,"function":{"name":"end_session"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1b6e9d0c27a54f38","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{}"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1b6e9d0c27a54f38","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+

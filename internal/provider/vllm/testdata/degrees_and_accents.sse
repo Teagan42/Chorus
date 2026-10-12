@@ -1,0 +1,14 @@
+data: {"id":"chatcmpl-0e7d3b9a6c2f4158","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-0e7d3b9a6c2f4158","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"id":"chatcmpl-tool-4a8c1e6f0b3d4972","type":"function","index":0,"function":{"name":"speak"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-0e7d3b9a6c2f4158","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"mode\": \"queue\", \"text\": \"It's 18\\u00"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-0e7d3b9a6c2f4158","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"b0C in the kitchen, and Sigur R"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-0e7d3b9a6c2f4158","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ós is next.\"}"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-0e7d3b9a6c2f4158","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+

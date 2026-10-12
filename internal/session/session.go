@@ -553,23 +553,27 @@ func (s *Session) ask(turnCtx context.Context, in Input) (bool, error) {
 	finished, broke, brokeWhy := false, false, ""
 	open := map[string]bool{}
 	dropped := map[string]string{}
+	// streamed is the words of each speak call whose first delta was not its
+	// last, as generated: its tool_called carries none (ADR-0077).
+	streamed := map[string]string{}
 	for a := range actions {
 		dog.heard()
 		switch act := a.(type) {
 		case SpeechDelta:
-			s.deliverSpeech(turnCtx, act, open, dropped)
+			s.deliverSpeech(turnCtx, act, open, dropped, streamed)
 		case ToolCall:
 			s.dispatch(turnCtx, &wg, act)
 			acted = acted || (act.Tool != toolSpeak && act.Tool != toolEndSession)
 			ended = ended || act.Tool == toolEndSession
 		case TurnEnd:
-			s.fail(s.record(journal.Record{
-				Kind: journal.KindModelCompleted,
-				Fields: map[string]string{
-					"completion_json": act.Completion,
-					"finish_reason":   act.FinishReason,
-				},
-			}))
+			fields := map[string]string{
+				"completion_json": act.Completion,
+				"finish_reason":   act.FinishReason,
+			}
+			if words := streamedWords(streamed); words != "" {
+				fields["streamed_speech_json"] = words
+			}
+			s.fail(s.record(journal.Record{Kind: journal.KindModelCompleted, Fields: fields}))
 			broke, brokeWhy = act.FinishReason == FinishError, act.Error
 			finished = !broke
 			if finished {
@@ -606,7 +610,11 @@ func (s *Session) failed() bool {
 // deliverSpeech routes a delta to the speech channel. Inline content carries
 // no call id, and is recorded as an implicit speak so the journal has one
 // representation of speech (ADR-0003).
-func (s *Session) deliverSpeech(turnCtx context.Context, d SpeechDelta, open map[string]bool, dropped map[string]string) {
+//
+// A streamed utterance's words are kept in streamed as they arrive, for the
+// completion to record: its tool_called is written at its first delta,
+// before they are known.
+func (s *Session) deliverSpeech(turnCtx context.Context, d SpeechDelta, open map[string]bool, dropped, streamed map[string]string) {
 	if d.CallID == "" {
 		s.mu.Lock()
 		d.CallID = s.implicitID
@@ -620,6 +628,12 @@ func (s *Session) deliverSpeech(turnCtx context.Context, d SpeechDelta, open map
 				"tool": toolSpeak, "call_id": d.CallID, "args_json": streamedArgs(d),
 			},
 		}))
+		if !d.Last {
+			streamed[d.CallID] = ""
+		}
+	}
+	if _, ok := streamed[d.CallID]; ok {
+		streamed[d.CallID] += d.Text
 	}
 	// A delta that arrives after the cut was generated but never heard. It is
 	// recorded, not played, and not silently thrown away (SPEC §4.2).
@@ -631,6 +645,26 @@ func (s *Session) deliverSpeech(turnCtx context.Context, d SpeechDelta, open map
 		s.discardSpeech(d.CallID, dropped[d.CallID])
 		delete(dropped, d.CallID)
 	}
+}
+
+// streamedWords is what a completion records of the speak calls it
+// streamed: their words by call id, which the reducer gives each call still
+// playing with none, so a follow-up ask made while one plays is told what
+// it is saying, live and on replay (ADR-0077). Empty when nothing streamed
+// any words, as on Ollama, whose speak calls arrive whole.
+func streamedWords(streamed map[string]string) string {
+	words := map[string]string{}
+	for id, text := range streamed {
+		if text != "" {
+			words[id] = text
+		}
+	}
+	if len(words) == 0 {
+		return ""
+	}
+	// Strings: marshalling cannot fail, and map keys marshal sorted.
+	b, _ := json.Marshal(words)
+	return string(b)
 }
 
 // streamedArgs is the speak call a streamed utterance is recorded as. One

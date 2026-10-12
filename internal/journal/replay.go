@@ -2,6 +2,7 @@ package journal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
@@ -168,6 +169,13 @@ func Reduce(s State, e Event) (State, error) {
 		s.Confirmations = s.answered(e.Fields["text"], s.Speaker, e.Fields["speaker_match"])
 	case KindModelCompleted:
 		s.Completions = append(s.Completions, e.Fields["completion_json"])
+		if raw := e.Fields["streamed_speech_json"]; raw != "" {
+			var words map[string]string
+			if err := json.Unmarshal([]byte(raw), &words); err != nil {
+				return s, fmt.Errorf("streamed_speech_json: %w", err)
+			}
+			s.Dialogue = s.generated(words)
+		}
 	case KindMemoryRecalled:
 		ms, err := decodeMemories(e.Fields["memories_json"])
 		if err != nil {

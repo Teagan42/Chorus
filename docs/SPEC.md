@@ -701,6 +701,13 @@ provider.
 | Speaker ID | ECAPA-TDNN / TitaNet-L | Embeddings + cosine. |
 | Endpointing | Smart Turn v3.2 | Purpose-built; avoids prompting the big model. |
 
+`chorusd` runs the LLM on Ollama by default, or on vLLM with
+`CHORUS_LLM_PROVIDER=vllm`, whose server needs `--enable-auto-tool-choice
+--tool-call-parser hermes` for Qwen3. Either engine sends the same prompt
+and tools. On vLLM a call dispatches when its arguments close, and a speak
+call's words stream as they arrive. Qwen3's thinking is off there unless
+asked for, for §11's budget. Embeddings stay on Ollama (ADR-0077).
+
 Biggest standing risk: **local tool-calling quality.** The provider abstraction
 exists so a frontier model can be dropped into the LLM seam without touching
 the orchestrator.
@@ -799,8 +806,10 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
    exists.~~ **Done — ADR-0021, ADR-0022.**
 3. ~~**Cascade.** Parakeet → Qwen3/vLLM with streaming tool-call dispatch →
    Kokoro, under the supervisor/actor model.~~ **Done — ADR-0023, ADR-0024,
-   ADR-0037.** The LLM seam runs Qwen3 on Ollama today; §10's vLLM is not yet
-   wired up.
+   ADR-0037.** The LLM seam runs Qwen3 on Ollama by default, or on §10's
+   vLLM with `CHORUS_LLM_PROVIDER=vllm` (ADR-0077); the vLLM engine is
+   tested against recorded-shape streams and has not yet run against a real
+   server.
 4. ~~**Speaker fingerprinting**, pulled early — both barge-in quality (§4.3) and
    two-stage wake confirmation (§9.3) are gated on it.~~ **Done — ADR-0025,
    ADR-0029.** Stage two of §9.3 checks the first utterance for speech and a
