@@ -97,6 +97,29 @@ func (s State) called(id, tool, args string) []Entry {
 	})
 }
 
+// generated tells each streamed speak call still waiting for its words what
+// the model generated, by call id, from the completion that streamed it
+// (ADR-0077). Only a call still playing with no words yet takes them: one
+// that arrived whole has its own, and what playback settled is what was
+// heard, which no generated words replace.
+func (s State) generated(words map[string]string) []Entry {
+	var out []Entry
+	for i, e := range s.Dialogue {
+		text := words[e.CallID]
+		if e.Kind != EntrySaid || !e.Pending || e.Held || e.Text != "" || text == "" {
+			continue
+		}
+		if out == nil {
+			out = cloneEntries(s.Dialogue)
+		}
+		out[i].Text = text
+	}
+	if out == nil {
+		return s.Dialogue
+	}
+	return out
+}
+
 // cutBy records why a cut speak call stopped, once playback has settled it.
 func (s State) cutBy(id, reason string) []Entry {
 	i := s.said(id)
