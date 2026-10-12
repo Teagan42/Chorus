@@ -460,3 +460,20 @@ func sse(payloads ...string) string {
 	}
 	return b.String()
 }
+
+// The model finished as end_session closed the session and cancelled the
+// turn: the turn still reports its end, since the completion is the
+// journal's. Run many times: the cancel races the send.
+//
+// verifies SPEC §8
+func TestAFinishedTurnReportsItsEndThoughItWasCancelled(t *testing.T) {
+	stream := sse(`{"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}`, `{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`)
+	for i := range 100 {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		acts, _ := collect(t, ctx, strings.NewReader(stream))
+		if got := kinds(acts); !slices.Equal(got, []string{"end:stop"}) {
+			t.Fatalf("run %d: actions = %v, want the finished turn's end", i, got)
+		}
+	}
+}
