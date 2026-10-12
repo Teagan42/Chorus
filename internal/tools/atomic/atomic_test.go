@@ -111,6 +111,39 @@ func TestCheckSeparatesDependencyChanges(t *testing.T) {
 	}
 }
 
+func TestIsDependencyCountsPythonRequirements(t *testing.T) {
+	deps := []string{
+		"internal/tools/waketrain/requirements.txt",
+		"internal/tools/waketrain/requirements.in",
+		"requirements.txt",
+		"sidecars/speakerid/requirements-dev.txt",
+	}
+	for _, p := range deps {
+		if !IsDependency(p) {
+			t.Errorf("%s should be a dependency manifest", p)
+		}
+	}
+	hand := []string{
+		"internal/tools/waketrain/requirements.py",
+		"internal/tools/waketrain/test_requirements.txt",
+		"docs/requirements.md",
+	}
+	for _, p := range hand {
+		if IsDependency(p) {
+			t.Errorf("%s should not be a dependency manifest", p)
+		}
+	}
+
+	pins := []string{"internal/tools/waketrain/requirements.in", "internal/tools/waketrain/requirements.txt"}
+	if v := Check("chore(deps): bump the wake-word trainer's pins", pins, nil); len(v) != 0 {
+		t.Errorf("pure deps commit should pass, got %v", v)
+	}
+	v := Check("build(tools): pin the wake-word trainer", append(pins, "internal/tools/waketrain/Dockerfile"), nil)
+	if len(v) != 1 || !strings.Contains(v[0], "chore(deps)") {
+		t.Errorf("want deps violation, got %v", v)
+	}
+}
+
 func TestCheckStyleMustBeWhitespaceOnly(t *testing.T) {
 	paths := []string{"internal/session/supervisor.go"}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -275,5 +276,84 @@ func TestAnAnnouncementIsRefusedByAClosedSession(t *testing.T) {
 	}
 	if n := countKind(r.kinds(t, s.ConversationID()), journal.KindAnnouncementMade); n != 0 {
 		t.Errorf("%d announcements logged by a closed session", n)
+	}
+}
+
+// The kitchen's listener is told of the oven timer's session before a word
+// of it is said, so a stop over its first word is heard (ADR-0064).
+//
+// verifies SPEC §4.3
+func TestAnAnnouncementsSessionIsToldBeforeItSpeaks(t *testing.T) {
+	r := newRig(t, nil, nil)
+	var told *session.Session
+	var before []journal.Kind
+	s, err := r.sup.AnnounceOpened(context.Background(), "kitchen", ovenDone, func(s *session.Session) {
+		told, before = s, r.kinds(t, s.ConversationID())
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitDone(t, s)
+	if told != s {
+		t.Fatalf("opened was told %p, want the session announcing, %p", told, s)
+	}
+	if want := []journal.Kind{journal.KindSessionOpened}; !slices.Equal(before, want) {
+		t.Errorf("the log when opened was told = %v, want %v: nothing said yet", before, want)
+	}
+}
+
+// closingStore holds whoever writes a session's close, once it is written,
+// until let go: the close is in the log while the session is still ending.
+type closingStore struct {
+	journal.Store
+	held chan struct{}
+}
+
+func (s *closingStore) Append(ctx context.Context, e journal.Event) error {
+	if err := s.Store.Append(ctx, e); err != nil {
+		return err
+	}
+	if e.Kind == journal.KindSessionClosed {
+		<-s.held
+	}
+	return nil
+}
+
+// Nobody answered Teagan's question about wine, and its session is ending,
+// its close already in the log, when the oven timer is offered to it. It is
+// refused, so the timer opens a session of its own rather than being said,
+// and logged, after the close of one that is going.
+//
+// verifies SPEC §4.2, §4.5, §8
+func TestASessionThatIsEndingRefusesAnAnnouncement(t *testing.T) {
+	ending := &closingStore{held: make(chan struct{})}
+	r := newRigWith(t, nil, nil, nil, func(c *session.Config) {
+		ending.Store = c.Store
+		c.Journal = journal.New(ending, c.Clock, versions())
+	})
+	letGo := sync.OnceFunc(func() { close(ending.held) })
+	t.Cleanup(letGo)
+	s, err := r.sup.Announce(context.Background(), "kitchen", wine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = s.Close(context.Background(), "silence_timeout") }()
+	r.awaitKind(t, s.ConversationID(), journal.KindSessionClosed)
+
+	refused := make(chan error, 1)
+	go func() { refused <- s.Announce(context.Background(), ovenDone) }()
+	select {
+	case err := <-refused:
+		if !errors.Is(err, session.ErrClosed) {
+			t.Errorf("Announce = %v, want ErrClosed", err)
+		}
+	case <-time.After(patience):
+		t.Fatal("the timer waited on the session that was ending")
+	}
+	letGo()
+	awaitDone(t, s)
+	kinds := r.kinds(t, s.ConversationID())
+	if i := slices.Index(kinds, journal.KindSessionClosed); i != len(kinds)-1 {
+		t.Errorf("log = %v, want nothing after the close", kinds)
 	}
 }

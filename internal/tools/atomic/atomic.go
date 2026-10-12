@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"strings"
 )
 
@@ -126,12 +127,17 @@ func IsGenerated(path string) bool {
 }
 
 // IsDependency reports whether a path is a manifest, lockfile, or vendored code.
-func IsDependency(path string) bool {
-	switch path {
+func IsDependency(p string) bool {
+	switch p {
 	case "go.mod", "go.sum", "uv.lock", "pyproject.toml", "buf.lock", "package-lock.json":
 		return true
 	}
-	return strings.HasPrefix(path, "vendor/") || strings.HasPrefix(path, "proto/esphome/")
+	// pip-tools' pair, anywhere: requirements.in and the pins compiled from it.
+	base := path.Base(p)
+	if strings.HasPrefix(base, "requirements") && (strings.HasSuffix(base, ".txt") || strings.HasSuffix(base, ".in")) {
+		return true
+	}
+	return strings.HasPrefix(p, "vendor/") || strings.HasPrefix(p, "proto/esphome/")
 }
 
 // Check applies the atomicity rules. whitespaceOnly is called lazily because it

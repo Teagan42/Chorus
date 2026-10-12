@@ -220,6 +220,9 @@ type Session struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{}
+	// closing closes as the session starts to end, before its close is
+	// journalled; done closes once it has ended.
+	closing chan struct{}
 
 	// activity defers the silence backstop without restarting its goroutine.
 	activity chan struct{}
@@ -242,9 +245,9 @@ type Session struct {
 	speech    *speechChannel
 	closeOnce sync.Once
 
-	// annMu orders announcements against the close that follows one nobody
-	// was asked to answer: answerable once any asked for an answer, ending
-	// once that close has begun (SPEC §4).
+	// annMu orders announcements against the session's close. answerable:
+	// one asked for an answer; ending: the close after one nobody need answer
+	// has begun (SPEC §4).
 	annMu      sync.Mutex
 	answerable bool
 	ending     bool
@@ -271,6 +274,7 @@ func (sup *Supervisor) open(ctx context.Context, w Wake, announced bool) (*Sessi
 		sup: sup, convID: convID, satellite: w.Satellite, person: w.PersonID,
 		resumed:  resumed,
 		done:     make(chan struct{}),
+		closing:  make(chan struct{}),
 		activity: make(chan struct{}, 1),
 		children: map[string]int{},
 		// A wake word is the person asking to be heard.
@@ -327,6 +331,10 @@ func (s *Session) Resumed() bool { return s.resumed }
 
 // Done closes when the session ends.
 func (s *Session) Done() <-chan struct{} { return s.done }
+
+// Closing closes when the session starts to end: its close may be in the
+// log before Done closes.
+func (s *Session) Closing() <-chan struct{} { return s.closing }
 
 // Children names the live children. That set *is* the lifecycle: there is no
 // stage enum (SPEC §4).
@@ -1076,6 +1084,10 @@ func (s *Session) end(reason, discard string) error {
 		s.mu.Lock()
 		s.over = true
 		s.mu.Unlock()
+		// Under annMu: an announcement is journalled wholly before the close, or refused.
+		s.annMu.Lock()
+		close(s.closing)
+		s.annMu.Unlock()
 		// Discards are recorded before the close that caused them, and so is
 		// the cut of what was playing, once its device says where it
 		// stopped: a migrated wake opens only after this close.

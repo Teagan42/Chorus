@@ -312,6 +312,54 @@ func TestAChangedToolListIsReconciledForCallsNotOffers(t *testing.T) {
 		out, err := forecast.Invoke(context.Background(), `{"city":"Lisbon"}`)
 		return err == nil && out == `{"text":"Rain."}`
 	})
+	if strings.Contains(logs.String(), "will not say when its tools change") {
+		t.Errorf("a server that reports its changes is logged as one that will not:\n%s", logs)
+	}
+}
+
+// The weather server is slow to take up chorusd's subscription to its
+// changes, and drops its forecast before it does. Its tools are declared,
+// not inferred from a list that is empty for the moment, so the forecast's
+// return is still heard, and the call works again.
+//
+// verifies SPEC §6
+func TestAForecastDroppedBeforeTheSubscriptionTakesIsHeardComingBack(t *testing.T) {
+	h := weather()
+	release := h.holdSubscription()
+	logs := &logBuffer{}
+	p := start(t, configured(t, weatherOnly), houses{"weather": h}, &clock{}, logs)
+	forecast := p.Tools()["mcp_weather_get_forecast"]
+
+	h.srv.RemoveTools("get_forecast")
+	release()
+	logs.await(t, "no longer lists tools the model is offered")
+	h.tool(&sdk.Tool{Name: "get_forecast", Description: "Forecast."}, func(context.Context, map[string]any) (*sdk.CallToolResult, error) {
+		return text("Rain."), nil
+	})
+	await(t, "the forecast to come back", func() bool {
+		out, err := forecast.Invoke(context.Background(), `{"city":"Lisbon"}`)
+		return err == nil && out == `{"text":"Rain."}`
+	})
+}
+
+// A weather server that leaves its tools capability to the SDK, and has
+// none at the moment it takes up chorusd's subscription, refuses to say
+// when they change. The log says so, rather than chorusd waiting on news
+// that will not come.
+//
+// verifies SPEC §6
+func TestAServerThatWillNotReportChangesIsLogged(t *testing.T) {
+	h := houseWith("weather", nil)
+	h.tool(&sdk.Tool{Name: "get_forecast", Description: "Forecast."}, func(context.Context, map[string]any) (*sdk.CallToolResult, error) {
+		return text("Rain."), nil
+	})
+	release := h.holdSubscription()
+	logs := &logBuffer{}
+	start(t, configured(t, weatherOnly), houses{"weather": h}, &clock{}, logs)
+
+	h.srv.RemoveTools("get_forecast")
+	release()
+	logs.await(t, "will not say when its tools change")
 }
 
 // Two tools the server tells apart only by a dash are one name once made a

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"slices"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -77,6 +78,64 @@ func TestWakeThenSpeechOpensTheSessionForTheSpeaker(t *testing.T) {
 	}
 	if got := r.count(t, conv, journal.KindUtteranceTranscribed); got != 1 {
 		t.Errorf("%d utterances transcribed, want exactly one", got)
+	}
+}
+
+// lingeringEngine ends the first conversation at once, then is slow to let
+// go of its stream; every later turn says nothing.
+type lingeringEngine struct {
+	asked   chan string
+	release chan struct{}
+	turns   atomic.Int32
+}
+
+func (e *lingeringEngine) Turn(_ context.Context, in session.Input) (<-chan session.Action, error) {
+	out := make(chan session.Action, 1)
+	if e.turns.Add(1) > 1 {
+		out <- session.TurnEnd{FinishReason: "stop", Completion: "{}"}
+		close(out)
+		return out, nil
+	}
+	e.asked <- in.ConversationID
+	out <- session.ToolCall{ID: "call_e1", Tool: "end_session", Args: "{}"}
+	go func() {
+		<-e.release
+		close(out)
+	}()
+	return out, nil
+}
+
+// Alan says goodbye and the kitchen ends the session, but the turn that
+// ended it is slow to finish. The wake it answered was confirmed when the
+// session opened, so Alan's next "hey eddie" is a wake, and is answered.
+//
+// verifies SPEC §4.5, §9.3
+func TestAWakeAfterTheLastSessionClosedIsTakenWhileItsTurnFinishes(t *testing.T) {
+	eng := &lingeringEngine{asked: make(chan string, 1), release: make(chan struct{})}
+	r := newRigSession(t, nil, func(c *session.Config) { c.Engine = eng })
+	letGo := sync.OnceFunc(func() { close(eng.release) })
+	t.Cleanup(letGo)
+	r.dev.SendWake(t, "hey_eddie")
+	r.utter(t, r.line("that's all thanks", alan), 4*chunkBytes)
+	var first string
+	select {
+	case first = <-eng.asked:
+	case <-time.After(patience):
+		t.Fatal("the goodbye was never asked")
+	}
+	r.awaitKind(t, first, journal.KindSessionClosed, 1)
+	await(t, "the session to end", func() bool { return r.l.Session() == nil })
+
+	r.dev.SendWake(t, "hey_eddie")
+	r.utter(t, r.line("how long is left on the oven", alan), 4*chunkBytes)
+	next := r.session(t)
+	letGo()
+	// Within the migration window the same person resumes the same conversation.
+	if next.ConversationID() != first || !next.Resumed() {
+		t.Errorf("the wake opened %s, want %s resumed", next.ConversationID(), first)
+	}
+	if heard := r.awaitKind(t, first, journal.KindUtteranceTranscribed, 2); heard.Fields["text"] != "how long is left on the oven" {
+		t.Errorf("utterance_transcribed = %v, want the oven question", heard.Fields)
 	}
 }
 

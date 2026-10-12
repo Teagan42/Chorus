@@ -192,8 +192,10 @@ func TestTeaganSaysNeverMindWhileTheKitchenLooks(t *testing.T) {
 		}
 		return []session.Action{done}
 	}}
+	reading := make(chan struct{})
 	r := newHousehold(t, eng, func(d *deps) {
 		d.tools = map[string]session.Tool{"ha_get_state": session.ToolFunc(func(ctx context.Context, _ string) (string, error) {
+			close(reading)
 			<-ctx.Done()
 			return "", ctx.Err()
 		})}
@@ -203,6 +205,13 @@ func TestTeaganSaysNeverMindWhileTheKitchenLooks(t *testing.T) {
 	r.utter(t, dev, r.line("is the garage shut", teagan))
 	dev.AwaitTTS(t, 2*len(looking))
 	dev.Play(t, 10)
+	// The model asks for the read after the speech it plays first, so a never
+	// mind sent on the speech alone can cancel the turn before the read exists.
+	select {
+	case <-reading:
+	case <-time.After(patience):
+		t.Fatal("the kitchen never began to read the garage")
+	}
 
 	sayOver(t, dev, r.line("Never mind.", teagan))
 	dev.AwaitStop(t, 1)

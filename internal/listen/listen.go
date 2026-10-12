@@ -36,7 +36,7 @@ import (
 // none. *session.Supervisor fills it.
 type Opener interface {
 	Open(ctx context.Context, w session.Wake) (*session.Session, error)
-	Announce(ctx context.Context, satellite string, a session.Announcement) (*session.Session, error)
+	AnnounceOpened(ctx context.Context, satellite string, a session.Announcement, opened func(*session.Session)) (*session.Session, error)
 	Misheard(ctx context.Context, satellite, log string, rejected journal.Record) error
 }
 
@@ -437,11 +437,14 @@ func (l *Listener) startLocked(pcm []byte) {
 	}
 }
 
-// confirmed ends the confirming state, whichever way the first utterance went.
-func (l *Listener) confirmed() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.confirming = false
+// confirmed ends the confirming state, whichever way the first utterance
+// went, and only once: a later wake's is not this utterance's to end.
+func (l *Listener) confirmed(u *utterance) {
+	u.confirmedOnce.Do(func() {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		l.confirming = false
+	})
 }
 
 // endLocked closes the open utterance naturally; its goroutine finishes it.
@@ -488,14 +491,15 @@ func (l *Listener) spawnLocked(f func()) bool {
 }
 
 // liveLocked reports whether the session is still open, forgetting one that
-// ended on its own: the model closed it, the backstop fired, or the person
-// woke another satellite (SPEC §4.5).
+// has begun to end on its own: the model closed it, the backstop fired, or
+// the person woke another satellite (SPEC §4.5).
 func (l *Listener) liveLocked() bool {
 	if l.sess == nil {
 		return false
 	}
+	// Closing, not Done: its close is in the log before Done closes.
 	select {
-	case <-l.sess.Done():
+	case <-l.sess.Closing():
 		l.sess = nil
 		return false
 	default:
@@ -732,20 +736,29 @@ func (l *Listener) Announce(ctx context.Context, a session.Announcement) (string
 		}
 		return sess.ConversationID(), nil
 	}
-	sess, err := l.cfg.Sessions.Announce(l.ctx, l.cfg.Satellite, a)
+	// Overheard from before its first word, however late Announce returns.
+	var held bool
+	sess, err := l.cfg.Sessions.AnnounceOpened(l.ctx, l.cfg.Satellite, a, func(sess *session.Session) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if held = !l.closed; held {
+			l.announcing = sess
+		}
+	})
 	if err != nil {
 		return "", err
 	}
 	l.mu.Lock()
-	closed := l.closed
+	closed, mine := l.closed, held
 	if !closed && sess.Answerable() {
-		l.sess = sess
-	} else if !closed {
-		l.announcing = sess
+		l.announcing, l.sess = nil, sess
 	}
 	l.mu.Unlock()
 	if closed {
-		l.lost(sess)
+		if !mine {
+			// Opened after the link closed, so watch never had it to close.
+			l.lost(sess)
+		}
 		return "", ErrLinkClosed
 	}
 	return sess.ConversationID(), nil
@@ -807,6 +820,8 @@ type utterance struct {
 	// word is that wake's name.
 	first bool
 	word  string
+	// confirmedOnce guards ending the confirming state first began.
+	confirmedOnce sync.Once
 
 	// overhearing marks speech over an announcement nobody may answer: only
 	// a hot phrase that silences it is taken, and the rest is not kept.
@@ -880,7 +895,7 @@ func (l *Listener) run(u *utterance) {
 	defer u.cancel()
 	defer l.keepJudged(u)
 	if u.first {
-		defer l.confirmed()
+		defer l.confirmed(u)
 	}
 	for {
 		select {
@@ -1002,8 +1017,13 @@ func (l *Listener) complete(u *utterance) {
 		return
 	}
 	out := l.resolve(pcm)
-	if u.first && !l.confirm(pcm, second, out, u.word) {
-		return
+	if u.first {
+		ok := l.confirm(pcm, second, out, u.word)
+		// The turn that follows is the session's, not the wake's to confirm.
+		l.confirmed(u)
+		if !ok {
+			return
+		}
 	}
 	if overheard(u, out) {
 		return
