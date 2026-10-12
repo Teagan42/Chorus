@@ -187,7 +187,7 @@ tools: {
 	// the speaker is level 0: the result's previous level is how it comes back.
 	set_volume: {
 		name:         "set_volume"
-		description:  "Set how loud a satellite's own speaker is, 0 to 100, where 0 mutes it. Give level for an exact setting, or step to go up or down from where it is now; not both. Leave room out for the satellite you are speaking through. Returns each level set and the one before it."
+		description:  "Set how loud a satellite's own speaker is, 0 to 100, where 0 mutes it. Give level for an exact setting, or step to go up or down from where it is now; not both. Leave room out for the satellite you are speaking through. Returns each level as the speaker reports it and the one before; unconfirmed marks a level the speaker did not report back, which is the one sent."
 		on_interrupt: "detach"
 		params: [
 			{name: "level", type: "integer", description: "The new level, 0 to 100, e.g. 40. 0 mutes the speaker."},

@@ -1,0 +1,270 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "announce",
+      "description": "Say something out loud on other satellites with nobody waking them, e.g. Dinner is ready. Name a room, or leave it out to say it in every room but this one. Set start_conversation to listen there for an answer afterwards with no wake word.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string",
+            "description": "Where to say it: a room or satellite name, e.g. kitchen. Leave it out for every room but this one."
+          },
+          "start_conversation": {
+            "type": "boolean",
+            "description": "Listen for an answer afterwards, as if the person there had said the wake word."
+          },
+          "text": {
+            "type": "string",
+            "description": "What to say, as it should be heard, e.g. Dinner is ready, come down."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "end_session",
+      "description": "Close the conversation. Call when the task is complete rather than waiting for silence.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "forget",
+      "description": "Forget something you remember about the person you are speaking with, so it is never recalled again. Name it by the id shown beside it in what you remember.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "memory_id": {
+            "type": "string",
+            "description": "The id of the memory to forget, e.g. m_3f9c2a10."
+          }
+        },
+        "required": [
+          "memory_id"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ha_call_service",
+      "description": "Act on the home through a Home Assistant service: lights, switches, covers, media players, scripts. Target an entity_id from ha_find_entities, or an area_id. Returns the entities whose state changed; an empty list means nothing matched or nothing needed to change. Some calls need the person's yes: they return confirmation_required with a nonce. Ask them, and once they agree, call again with the same arguments and confirmation set to the nonce.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "area_id": {
+            "type": "string",
+            "description": "Area to act on, e.g. kitchen. Required unless entity_id is given."
+          },
+          "confirmation": {
+            "type": "string",
+            "description": "The nonce from a confirmation_required result, once the person has said yes. Omit it otherwise."
+          },
+          "data": {
+            "type": "object",
+            "description": "Extra service fields, e.g. {\"brightness_pct\": 50}."
+          },
+          "domain": {
+            "type": "string",
+            "description": "Service domain, e.g. light, switch, script."
+          },
+          "entity_id": {
+            "type": "string",
+            "description": "Entity to act on, e.g. light.kitchen. Required unless area_id is given."
+          },
+          "service": {
+            "type": "string",
+            "description": "Service within the domain, e.g. turn_on, turn_off, toggle."
+          }
+        },
+        "required": [
+          "domain",
+          "service"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ha_find_entities",
+      "description": "Find Home Assistant entities by domain and name. Call this first when you do not know an entity_id; never guess one.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Only entities in this domain, e.g. light."
+          },
+          "name": {
+            "type": "string",
+            "description": "Only entities whose name or id contains this text, e.g. kitchen."
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ha_get_state",
+      "description": "Read one entity's current state and attributes from Home Assistant.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "entity_id": {
+            "type": "string",
+            "description": "Entity to read, e.g. sensor.living_room_temperature."
+          }
+        },
+        "required": [
+          "entity_id"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "remember",
+      "description": "Keep a lasting fact about the person you are speaking with, to recall in later conversations. Use it when they ask you to remember something, or tell you a preference that will still hold tomorrow.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "fact": {
+            "type": "string",
+            "description": "The fact, as one plain sentence that makes sense on its own later, e.g. Takes oat milk in coffee."
+          },
+          "shareable": {
+            "type": "boolean",
+            "description": "True only when they say the rest of the household may know it."
+          }
+        },
+        "required": [
+          "fact"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_volume",
+      "description": "Set how loud a satellite's own speaker is, 0 to 100, where 0 mutes it. Give level for an exact setting, or step to go up or down from where it is now; not both. Leave room out for the satellite you are speaking through. Returns each level as the speaker reports it and the one before; unconfirmed marks a level the speaker did not report back, which is the one sent.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "type": "integer",
+            "description": "The new level, 0 to 100, e.g. 40. 0 mutes the speaker."
+          },
+          "room": {
+            "type": "string",
+            "description": "Which satellite: a room or satellite name, e.g. office. Leave it out for this one."
+          },
+          "step": {
+            "type": "integer",
+            "description": "How far to move from the current level, negative for quieter, e.g. -10 for a bit quieter or 25 for a lot louder."
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "speak",
+      "description": "Say something to the user. Runs concurrently with other tools; the model chooses when and whether to speak.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "description": "queue appends after current speech; preempt cancels it; interject pauses it, cuts in, then resumes it.",
+            "enum": [
+              "queue",
+              "preempt",
+              "interject"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "description": "What to say."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "timer_cancel",
+      "description": "Cancel a running timer before it ends. Name it by the id timer_start or timer_list gave; call timer_list first when you do not know it.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "timer_id": {
+            "type": "string",
+            "description": "The id of the timer to cancel, e.g. t_3f9c2a10."
+          }
+        },
+        "required": [
+          "timer_id"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "timer_list",
+      "description": "List the household's running timers: each one's id, label, the satellite it was set on, and the seconds left.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "timer_start",
+      "description": "Start a countdown timer on this satellite. When it ends, the announcement is said out loud here, whether or not anyone is talking to you then. Returns the timer's id.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "announcement": {
+            "type": "string",
+            "description": "What to say when it ends, as one short sentence, e.g. The oven timer is done."
+          },
+          "label": {
+            "type": "string",
+            "description": "What it is for, in a word or two, e.g. oven."
+          },
+          "seconds": {
+            "type": "integer",
+            "description": "How long, in seconds, e.g. 720 for twelve minutes."
+          }
+        },
+        "required": [
+          "seconds"
+        ]
+      }
+    }
+  }
+]

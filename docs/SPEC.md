@@ -494,9 +494,11 @@ a tool it stops listing answers `mcp_tool_gone` (ADR-0075).
 
 A tool can act through a satellite rather than a backend. `set_volume` sets
 a satellite's speaker over its native API connection (§3.3.1), in the room
-named or the one the turn came from (§5). A satellite whose firmware lists
-no volume control answers `not_implemented`, and one whose connection is
-down `not_connected` (ADR-0067).
+named or the one the turn came from (§5). The level it reports is the one
+the device reports back, marked `unconfirmed` when none comes within a
+second. A satellite whose firmware lists no volume control answers
+`not_implemented`, and one whose connection is down `not_connected`
+(ADR-0067).
 
 **Confirmation** is orchestrator-enforced but model-authored. The orchestrator
 blocks execution and returns a synthetic `confirmation_required` tool result
@@ -772,9 +774,13 @@ Do not build the S2S path until the cascade works end to end.
   confirmation (§9.3). Swappable without touching anything else.
 - Persona lives in the system prompt as a **versioned artifact** — because
   prompt versions are recorded per event, persona changes are A/B-testable
-  against replayed traces. Every version's text, and every tool schema's,
-  is kept in the repository by the hash an event records, so the dataset
-  export ships the prompt and tools each turn ran under (ADR-0071).
+  against replayed traces. Every version's text, and every native tool
+  schema's, is kept in the repository by the hash an event records, so the
+  dataset export ships the prompt and tools each turn ran under (ADR-0071).
+  An MCP server's tools are the exception: their schemas come from the
+  server at startup and are not kept, so a turn that offered them exports
+  as `context_missing` for its tools, and replay runs it without them
+  (ADR-0075).
 
 ## 14. Phase plan
 
@@ -874,8 +880,9 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
   Not yet flashed onto a satellite.
 - Stop the uplink in firmware while the mute switch is on; today the host
   drops the frames (ADR-0067)
-- Confirm a volume level: `set_volume` reports the level it sent, not the
-  one the device reports back (ADR-0067)
+- ~~Confirm a volume level~~ **Done.** `set_volume` answers with the level
+  the device reports back after the command; with no report within a second
+  it gives the level sent and says it is unconfirmed (ADR-0067).
 - ~~A ring effect for a satellite that cannot reach `chorusd`, driven by the
   bridge's connection state~~ **Done — ADR-0074.** `chorus_bridge` fires
   `on_connected` and `on_disconnected`, and the Satellite1 and Voice PE rings

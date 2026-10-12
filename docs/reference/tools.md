@@ -117,7 +117,7 @@ Unknown speaker: `deny`.
 
 ## `set_volume`
 
-Set how loud a satellite's own speaker is, 0 to 100, where 0 mutes it. Give level for an exact setting, or step to go up or down from where it is now; not both. Leave room out for the satellite you are speaking through. Returns each level set and the one before it.
+Set how loud a satellite's own speaker is, 0 to 100, where 0 mutes it. Give level for an exact setting, or step to go up or down from where it is now; not both. Leave room out for the satellite you are speaking through. Returns each level as the speaker reports it and the one before; unconfirmed marks a level the speaker did not report back, which is the one sent.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|

@@ -30,6 +30,10 @@ type speakers struct {
 	levels map[string]int
 	none   map[string]error
 	set    map[string]int
+	// reports is what a device reports back for a level sent to it, where
+	// that is not the level itself; silent is a device that reports nothing.
+	reports map[string]map[int]int
+	silent  map[string]bool
 }
 
 func newSpeakers() *speakers {
@@ -56,14 +60,23 @@ func (s *speakers) Level(sat string) (int, error) {
 	return l, nil
 }
 
-func (s *speakers) SetLevel(_ context.Context, sat string, level int) error {
+func (s *speakers) SetLevel(_ context.Context, sat string, level int) (int, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.none[sat]; err != nil {
-		return err
+		return 0, false, err
 	}
-	s.levels[sat], s.set[sat] = level, level
-	return nil
+	s.set[sat] = level
+	if s.silent[sat] {
+		s.levels[sat] = level
+		return level, false, nil
+	}
+	got, ok := s.reports[sat][level]
+	if !ok {
+		got = level
+	}
+	s.levels[sat] = got
+	return got, true, nil
 }
 
 func (s *speakers) sent() map[string]int {
@@ -240,5 +253,42 @@ func TestVolumeArgumentsItCannotActOnAreRefused(t *testing.T) {
 	}
 	if got := s.sent(); len(got) != 0 {
 		t.Errorf("set %v from arguments that were refused", got)
+	}
+}
+
+// The level the model is told is the one the kitchen reports back, not the
+// one sent: a firmware that steps its volume in fives answers 45 for 43, and
+// "turn it down a bit" is said as what the speaker is now at (ADR-0067).
+//
+// verifies SPEC §3.3.1, §6
+func TestTheResultIsTheLevelTheDeviceReportsBack(t *testing.T) {
+	s := newSpeakers()
+	s.reports = map[string]map[int]int{"kitchen": {43: 45}}
+	out, err := call(t, s, teaganInTheKitchen, `{"step":-7}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"set":[{"satellite":"kitchen","room":"kitchen","level":45,"was":50}]}`; out != want {
+		t.Errorf("result = %s, want %s", out, want)
+	}
+	if got := s.sent()["kitchen"]; got != 43 {
+		t.Errorf("sent the kitchen %d, want 43", got)
+	}
+}
+
+// A satellite that takes the command but reports nothing back in time is
+// still set, as far as anyone knows, but the result says the level is the
+// one sent and unconfirmed, so the model does not claim it as fact.
+//
+// verifies SPEC §3.3.1, §7
+func TestALevelTheDeviceNeverConfirmsIsMarkedUnconfirmed(t *testing.T) {
+	s := newSpeakers()
+	s.silent = map[string]bool{"kitchen": true}
+	out, err := call(t, s, teaganInTheKitchen, `{"level":30}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"set":[{"satellite":"kitchen","room":"kitchen","level":30,"was":50,"unconfirmed":true}]}`; out != want {
+		t.Errorf("result = %s, want %s", out, want)
 	}
 }
