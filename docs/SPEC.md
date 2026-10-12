@@ -138,32 +138,58 @@ Use this callback. Do not use a proxy: the best proxy on the stock path is
 75% full), i.e. ~±128 ms, about 100× worse. The callback fires on the speaker's
 own task — copy and hand off, do no work in it.
 
-### 3.2.2 The device proves which satellite it is before any audio
+### 3.2.2 Both ends prove the satellite's key before any audio, and the link is sealed
 
 The audio link carries a room's microphone one way and speech into it the
-other, so a connection is not a satellite until it has proved it is one.
-Protocol version 3 authenticates the device; it does not encrypt the stream
-(ADR-0066).
+other, so a connection is not a satellite until it has proved it is one, and
+a host is not the satellite's audience until it has proved it is chorusd.
+Protocol version 4 authenticates both ends and seals every frame after the
+handshake (ADR-0074, refining ADR-0066).
 
-- The device sends its hello. The host checks the version and format, then
-  sends a challenge: 32 fresh bytes from a CSPRNG.
-- The device answers with its ESPHome node name and
-  HMAC-SHA256(*k*, `"chorus-bridge v3"` ‖ nonce ‖ name ‖ hello payload), where
-  *k* = HKDF-SHA256(PSK, no salt, info `"chorus-bridge auth v3"`) and the PSK is
-  the satellite's `api.encryption.key`, the inventory's `psk`. The derivation
-  keeps the link and the native API's Noise handshake from ever sharing a key.
-- The host looks the name up in the inventory, verifies the MAC under that
-  satellite's PSK in constant time, and requires the connection's source
-  address to be that satellite's. All three must hold (§13).
-- Nothing else is read or sent before the answer verifies. Audio first, an
-  unknown name, a bad MAC, the wrong address, a version other than 3, or no
+- *k* = HKDF-SHA256(PSK, no salt, info `"chorus-bridge link v4"`), where the
+  PSK is the satellite's `api.encryption.key`, the inventory's `psk`. The
+  derivation keeps the link and the native API's Noise handshake from ever
+  sharing a key.
+- Each side draws an X25519 key pair fresh for the connection: *ed*, *Ed* on
+  the device and *eh*, *Eh* on the host. The private halves never leave their
+  side and are wiped, or on the host dropped, once the shared secret
+  *s* = X25519(*ed*, *Eh*) = X25519(*eh*, *Ed*) is taken.
+- The device sends its hello: version, format, 32 fresh bytes of its own
+  from a CSPRNG (*Nd*), *Ed*, and its ESPHome node name.
+- The host checks the version and format, looks the name up in the
+  inventory, and answers with a challenge: its own 32 fresh bytes (*Nh*),
+  *Eh*, and HMAC-SHA256(*k*, `"chorus-bridge v4 host proof"` ‖ hello payload ‖
+  *Nh* ‖ *Eh*). An unknown name gets nothing.
+- The device checks the host's proof in constant time before it proves
+  anything, starts a microphone, or sends a frame. A host that fails it is
+  hung up on, and redialled only after a backoff that doubles to 60 s. Both
+  proofs cover both public keys, so a peer on the path that swaps either one
+  fails here.
+- A public key of low order, whose *s* is all zeros, is refused: by the host
+  before it sends its challenge, by the device before it sends its proof.
+- The device answers with HMAC-SHA256(*k*, `"chorus-bridge v4 device proof"` ‖
+  hello payload ‖ *Nh* ‖ *Eh*). The host verifies it in constant time and
+  requires the connection's source address to be that satellite's. Name, key
+  and address must all hold (§13).
+- Every frame after the answer, both ways, is sealed with AES-256-GCM under a
+  key per direction, HKDF-SHA256(*s* ‖ *k*, salt *Nd* ‖ *Nh*, info
+  `"chorus-bridge v4 device to host"` or `"… host to device"`). A recorded
+  session therefore stays sealed if the PSK leaks later. The nonce is a
+  counter per direction from zero that never travels, so a frame that is
+  altered, replayed, reordered, dropped, or reflected back does not open, and
+  the side that reads it drops the link. Type and flags are sealed with the
+  payload; a frame costs 16 bytes more than a version 3 one.
+- Nothing else is read or sent before the device's proof verifies. Audio
+  first, an unknown name, a low-order key, a bad proof, a device that hangs
+  up on the host's proof, the wrong address, a version other than 4, or no
   answer within the handshake bound is a disconnect, logged with which.
 - One live link per satellite. A verified connection for a satellite that
   already has one closes the old link and waits for its supervisor to end
   before starting its own; a connection that fails to verify leaves the live
   link alone.
-- The device sends nothing but its hello and its answer before it has been
-  challenged, and accepts no frame but a challenge until it has answered.
+- The device accepts no frame but a challenge until the host has proved the
+  key. Its connection state drives `on_connected` and `on_disconnected`, and
+  the ring shows Unreachable while it cannot reach chorusd (ADR-0074).
 
 ### 3.3 Device facts worth remembering
 
@@ -827,15 +853,20 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
   wakes on the household's "Hey Eddie" model (§13) and the rejected wakes export
   as their own corpus (ADR-0058); nothing retrains from them yet.
 - Near-miss buffer if false rejects surface
-- Encrypt the audio link, and authenticate the host to the device: the
-  stream is still plaintext, and a satellite sends its microphone to
-  whoever holds `orchestrator_host` (ADR-0066)
+- ~~Encrypt the audio link, and authenticate the host to the device~~
+  **Done — ADR-0074.** Protocol 4: the host proves the satellite's key over
+  both nonces and both sides' ephemeral X25519 keys before the device sends
+  any audio, and every frame after the handshake is sealed with AES-256-GCM
+  under a key per direction, forward-secret against a PSK that leaks later.
+  Not yet flashed onto a satellite.
 - Stop the uplink in firmware while the mute switch is on; today the host
   drops the frames (ADR-0067)
 - Confirm a volume level: `set_volume` reports the level it sent, not the
   one the device reports back (ADR-0067)
-- A ring effect for a satellite that cannot reach `chorusd`, driven by the
-  bridge's connection state (ADR-0069)
+- ~~A ring effect for a satellite that cannot reach `chorusd`, driven by the
+  bridge's connection state~~ **Done — ADR-0074.** `chorus_bridge` fires
+  `on_connected` and `on_disconnected`, and the Satellite1 and Voice PE rings
+  show Unreachable after 10 s without a sealed link.
 - Teach the harvester the ear's `unheard` canned line (ADR-0069)
 - Check arbitration's choice against the journalled levels once a
   household runs it: channel 0 is AGC'd, which narrows the gap between a

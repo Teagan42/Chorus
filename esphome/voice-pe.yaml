@@ -177,6 +177,20 @@ script:
                 volume: !lambda return 0.4f + 0.45f * id(speaker_volume).state / 100.0f;
             - speaker.mute_off: i2s_audio_speaker
 
+  # Unreachable on the ring after 10 s without a link, as satellite1.yaml
+  # shows it: a redial, or chorusd restarting, is not worth showing.
+  - id: show_unreachable
+    mode: restart
+    then:
+      - delay: 10s
+      - if:
+          condition:
+            lambda: return !id(chorus).is_connected();
+          then:
+            - light.turn_on:
+                id: led_ring
+                effect: Unreachable
+
 # voice_kit marks itself failed when the XMOS does not answer, before a log
 # client can attach. Repeated so a silent board says why.
 interval:
@@ -253,6 +267,17 @@ microphone:
 chorus_bridge:
   ducking_speaker: media_source
   hardware_mute: hardware_mute_switch
+  # chorusd cannot show on the ring that the satellite cannot reach it, so the
+  # satellite does, as satellite1.yaml does (ADR-0074).
+  on_disconnected:
+    - script.execute: show_unreachable
+  on_connected:
+    - script.stop: show_unreachable
+    - if:
+        condition:
+          lambda: return id(led_ring).get_effect_name() == "Unreachable";
+        then:
+          - light.turn_off: led_ring
 
 binary_sensor:
   # The slide switch on the side, read as stock reads it: on while the
@@ -348,11 +373,11 @@ light:
     power_supply: led_power
 
   # Remapped as stock remaps it, so index 0 is the LED stock counts from.
-  # Nothing on the device animates it: the orchestrator finds it by its three
-  # session effects and sets one per session state over the native API
-  # (SPEC §3.3.1, ADR-0056), or Muted or Error (ADR-0069). The effect names
-  # are that contract, and each means what it means on satellite1.yaml; the
-  # timings are scaled to 12 LEDs.
+  # The orchestrator finds it by its three session effects and sets one per
+  # session state over the native API (SPEC §3.3.1, ADR-0056), or Muted or
+  # Error (ADR-0069). The effect names are that contract, and each means what
+  # it means on satellite1.yaml; the timings are scaled to 12 LEDs. The device
+  # animates it only with Unreachable (ADR-0074).
   - platform: partition
     id: led_ring
     name: LED Ring
@@ -403,3 +428,16 @@ light:
             static bool lit = false;
             it.all() = lit ? Color(255, 96, 0) : Color::BLACK;
             lit = !lit;
+      # Four violet points turning once in 6 s, as on the 24: the satellite
+      # cannot reach chorusd, or chorusd could not prove its key.
+      - addressable_lambda:
+          name: Unreachable
+          update_interval: 500ms
+          lambda: |-
+            static int32_t head = 0;
+            const int32_t quarter = it.size() / 4;
+            it.all() = Color::BLACK;
+            for (int32_t i = 0; i < 4; i++) {
+              it[(head + i * quarter) % it.size()] = Color(120, 0, 200);
+            }
+            head = (head + 1) % it.size();

@@ -1,6 +1,7 @@
 #pragma once
 
-// The v3 handshake's arithmetic (ADR-0066). Free of ESPHome on purpose, so
+// The v4 handshake's arithmetic (ADR-0074), beside chorus_x25519.h's
+// ephemeral exchange. Free of ESPHome on purpose, so
 // esphome/test/chorus_auth_test.cpp compiles it on the host against the
 // golden frames internal/bridge/auth_test.go checks the Go side with.
 //
@@ -17,16 +18,29 @@
 namespace esphome::chorus_bridge::auth {
 
 static const size_t PSK_SIZE = 32;    // api.encryption.key, decoded
-static const size_t KEY_SIZE = 32;    // the derived link key
-static const size_t NONCE_SIZE = 32;  // the host's challenge
-static const size_t MAC_SIZE = 32;    // HMAC-SHA256
-static const size_t HELLO_SIZE = 7;   // version, sample rate, bits, channels
+static const size_t KEY_SIZE = 32;    // the link key, and each session key
+static const size_t NONCE_SIZE = 32;  // each side's, fresh per connection
+static const size_t MAC_SIZE = 32;    // HMAC-SHA256, both proofs
+static const size_t PUBLIC_KEY_SIZE = 32;  // X25519, each side's fresh per connection
 // The host refuses a longer name; ESPHome's are at most 31 bytes.
 static const size_t MAX_NAME_SIZE = 64;
+// version, sample rate, bits, channels, the device's nonce, its ephemeral key.
+static const size_t HELLO_NONCE_OFFSET = 7;
+static const size_t HELLO_EPHEMERAL_OFFSET = HELLO_NONCE_OFFSET + NONCE_SIZE;
+static const size_t HELLO_FIXED_SIZE = HELLO_EPHEMERAL_OFFSET + PUBLIC_KEY_SIZE;
+static const size_t MAX_HELLO_SIZE = HELLO_FIXED_SIZE + MAX_NAME_SIZE;
+// The challenge's payload: the host's nonce, its ephemeral key, its proof.
+static const size_t CHALLENGE_EPHEMERAL_OFFSET = NONCE_SIZE;
+static const size_t CHALLENGE_PROOF_OFFSET = NONCE_SIZE + PUBLIC_KEY_SIZE;
+static const size_t CHALLENGE_SIZE = CHALLENGE_PROOF_OFFSET + MAC_SIZE;
 
-// Must match internal/bridge/auth.go byte for byte.
-static const char MAC_CONTEXT[] = "chorus-bridge v3";
-static const char KEY_INFO[] = "chorus-bridge auth v3";
+// Must match internal/bridge/auth.go byte for byte. Each proof opens with its
+// role, so neither side's proof can be reflected as the other's.
+static const char LINK_KEY_INFO[] = "chorus-bridge link v4";
+static const char HOST_PROOF_CONTEXT[] = "chorus-bridge v4 host proof";
+static const char DEVICE_PROOF_CONTEXT[] = "chorus-bridge v4 device proof";
+static const char DEVICE_TO_HOST_INFO[] = "chorus-bridge v4 device to host";
+static const char HOST_TO_DEVICE_INFO[] = "chorus-bridge v4 host to device";
 
 inline bool hmac_sha256(const uint8_t *key, size_t key_len, const uint8_t *msg, size_t msg_len,
                         uint8_t out[MAC_SIZE]) {
@@ -34,45 +48,42 @@ inline bool hmac_sha256(const uint8_t *key, size_t key_len, const uint8_t *msg, 
   return md != nullptr && mbedtls_md_hmac(md, key, key_len, msg, msg_len, out) == 0;
 }
 
-/// HKDF-SHA256(psk, salt = none, info = KEY_INFO), 32 bytes: one extract,
-/// one expand block (RFC 5869). A separate key, so the link and the native
-/// API's Noise handshake never share one.
-inline bool derive_link_key(const uint8_t psk[PSK_SIZE], uint8_t key[KEY_SIZE]) {
-  static const uint8_t zero_salt[KEY_SIZE] = {};
-  uint8_t prk[KEY_SIZE];
-  uint8_t info[sizeof(KEY_INFO)];  // the terminator's byte holds the block counter
-  std::memcpy(info, KEY_INFO, sizeof(KEY_INFO) - 1);
-  info[sizeof(KEY_INFO) - 1] = 0x01;
-  bool ok = hmac_sha256(zero_salt, sizeof(zero_salt), psk, PSK_SIZE, prk) &&
-            hmac_sha256(prk, sizeof(prk), info, sizeof(info), key);
+/// HKDF-SHA256 with a 32-byte output: one extract, one expand block
+/// (RFC 5869). No salt means 32 zero bytes. `info` is a label without its
+/// terminator; its length is bounded by the longest label above.
+inline bool hkdf_sha256(const uint8_t *salt, size_t salt_len, const uint8_t *ikm, size_t ikm_len, const char *info,
+                        size_t info_len, uint8_t out[KEY_SIZE]) {
+  static const uint8_t zero_salt[MAC_SIZE] = {};
+  uint8_t block[sizeof(DEVICE_TO_HOST_INFO)];  // the longest label, and the counter byte
+  if (info_len + 1 > sizeof(block)) {
+    return false;
+  }
+  if (salt == nullptr || salt_len == 0) {
+    salt = zero_salt;
+    salt_len = sizeof(zero_salt);
+  }
+  uint8_t prk[MAC_SIZE];
+  std::memcpy(block, info, info_len);
+  block[info_len] = 0x01;
+  bool ok = hmac_sha256(salt, salt_len, ikm, ikm_len, prk) && hmac_sha256(prk, sizeof(prk), block, info_len + 1, out);
   mbedtls_platform_zeroize(prk, sizeof(prk));
   return ok;
 }
 
-/// HMAC-SHA256(key, MAC_CONTEXT || nonce || name || hello). The name is the
-/// only variable-length field, so no length prefix is needed. Fixed stack
-/// buffer: nothing here allocates.
-inline bool compute_mac(const uint8_t key[KEY_SIZE], const uint8_t nonce[NONCE_SIZE], const char *name,
-                        size_t name_len, const uint8_t hello[HELLO_SIZE], uint8_t mac[MAC_SIZE]) {
-  if (name_len == 0 || name_len > MAX_NAME_SIZE) {
-    return false;
-  }
-  uint8_t msg[sizeof(MAC_CONTEXT) - 1 + NONCE_SIZE + MAX_NAME_SIZE + HELLO_SIZE];
-  size_t n = 0;
-  std::memcpy(msg + n, MAC_CONTEXT, sizeof(MAC_CONTEXT) - 1);
-  n += sizeof(MAC_CONTEXT) - 1;
-  std::memcpy(msg + n, nonce, NONCE_SIZE);
-  n += NONCE_SIZE;
-  std::memcpy(msg + n, name, name_len);
-  n += name_len;
-  std::memcpy(msg + n, hello, HELLO_SIZE);
-  n += HELLO_SIZE;
-  return hmac_sha256(key, KEY_SIZE, msg, n, mac);
+/// HKDF-SHA256(psk, salt = none, info = LINK_KEY_INFO). A separate key, so
+/// the link and the native API's Noise handshake never share one.
+inline bool derive_link_key(const uint8_t psk[PSK_SIZE], uint8_t key[KEY_SIZE]) {
+  return hkdf_sha256(nullptr, 0, psk, PSK_SIZE, LINK_KEY_INFO, sizeof(LINK_KEY_INFO) - 1, key);
 }
 
 /// The hello payload, big-endian, as internal/bridge/frame.go encodes it.
-inline void encode_hello(uint8_t version, uint32_t sample_rate, uint8_t bits, uint8_t channels,
-                         uint8_t out[HELLO_SIZE]) {
+/// Returns its length, or 0 if the name does not fit.
+inline size_t encode_hello(uint8_t version, uint32_t sample_rate, uint8_t bits, uint8_t channels,
+                           const uint8_t nonce[NONCE_SIZE], const uint8_t ephemeral[PUBLIC_KEY_SIZE],
+                           const char *name, size_t name_len, uint8_t out[MAX_HELLO_SIZE]) {
+  if (name_len == 0 || name_len > MAX_NAME_SIZE) {
+    return 0;
+  }
   out[0] = version;
   out[1] = sample_rate >> 24;
   out[2] = (sample_rate >> 16) & 0xff;
@@ -80,6 +91,73 @@ inline void encode_hello(uint8_t version, uint32_t sample_rate, uint8_t bits, ui
   out[4] = sample_rate & 0xff;
   out[5] = bits;
   out[6] = channels;
+  std::memcpy(out + HELLO_NONCE_OFFSET, nonce, NONCE_SIZE);
+  std::memcpy(out + HELLO_EPHEMERAL_OFFSET, ephemeral, PUBLIC_KEY_SIZE);
+  std::memcpy(out + HELLO_FIXED_SIZE, name, name_len);
+  return HELLO_FIXED_SIZE + name_len;
+}
+
+/// HMAC-SHA256(key, context || hello || host nonce || host ephemeral). The
+/// hello carries the device's ephemeral key, so the proof covers both public
+/// keys. The name ends the hello and what follows it is fixed, so no length
+/// prefix is needed. `host` is the challenge's first 64 bytes: nonce, then
+/// ephemeral key. Fixed stack buffer: nothing here allocates.
+inline bool compute_proof(const uint8_t key[KEY_SIZE], const char *context, size_t context_len, const uint8_t *hello,
+                          size_t hello_len, const uint8_t host[CHALLENGE_PROOF_OFFSET], uint8_t out[MAC_SIZE]) {
+  uint8_t msg[sizeof(DEVICE_PROOF_CONTEXT) - 1 + MAX_HELLO_SIZE + CHALLENGE_PROOF_OFFSET];
+  if (context_len > sizeof(DEVICE_PROOF_CONTEXT) - 1 || hello_len > MAX_HELLO_SIZE) {
+    return false;
+  }
+  size_t n = 0;
+  std::memcpy(msg + n, context, context_len);
+  n += context_len;
+  std::memcpy(msg + n, hello, hello_len);
+  n += hello_len;
+  std::memcpy(msg + n, host, CHALLENGE_PROOF_OFFSET);
+  n += CHALLENGE_PROOF_OFFSET;
+  bool ok = hmac_sha256(key, KEY_SIZE, msg, n, out);
+  mbedtls_platform_zeroize(msg, sizeof(msg));
+  return ok;
+}
+
+inline bool host_proof(const uint8_t key[KEY_SIZE], const uint8_t *hello, size_t hello_len,
+                       const uint8_t host[CHALLENGE_PROOF_OFFSET], uint8_t out[MAC_SIZE]) {
+  return compute_proof(key, HOST_PROOF_CONTEXT, sizeof(HOST_PROOF_CONTEXT) - 1, hello, hello_len, host, out);
+}
+
+inline bool device_proof(const uint8_t key[KEY_SIZE], const uint8_t *hello, size_t hello_len,
+                         const uint8_t host[CHALLENGE_PROOF_OFFSET], uint8_t out[MAC_SIZE]) {
+  return compute_proof(key, DEVICE_PROOF_CONTEXT, sizeof(DEVICE_PROOF_CONTEXT) - 1, hello, hello_len, host, out);
+}
+
+/// Constant time: a host's proof is compared without saying where it differs.
+inline bool equal(const uint8_t *a, const uint8_t *b, size_t n) {
+  uint8_t diff = 0;
+  for (size_t i = 0; i < n; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff == 0;
+}
+
+/// This connection's two AES-256-GCM keys: HKDF-SHA256 over the X25519
+/// secret then the link key, salted with the device's nonce then the host's,
+/// one info per direction. The secret is what a recording cannot recover
+/// from a leaked PSK; the link key is what an unauthenticated exchange lacks.
+inline bool derive_session_keys(const uint8_t key[KEY_SIZE], const uint8_t shared[PUBLIC_KEY_SIZE],
+                                const uint8_t device_nonce[NONCE_SIZE], const uint8_t host_nonce[NONCE_SIZE],
+                                uint8_t device_to_host[KEY_SIZE], uint8_t host_to_device[KEY_SIZE]) {
+  uint8_t salt[2 * NONCE_SIZE];
+  std::memcpy(salt, device_nonce, NONCE_SIZE);
+  std::memcpy(salt + NONCE_SIZE, host_nonce, NONCE_SIZE);
+  uint8_t ikm[PUBLIC_KEY_SIZE + KEY_SIZE];
+  std::memcpy(ikm, shared, PUBLIC_KEY_SIZE);
+  std::memcpy(ikm + PUBLIC_KEY_SIZE, key, KEY_SIZE);
+  const bool ok = hkdf_sha256(salt, sizeof(salt), ikm, sizeof(ikm), DEVICE_TO_HOST_INFO,
+                              sizeof(DEVICE_TO_HOST_INFO) - 1, device_to_host) &&
+                  hkdf_sha256(salt, sizeof(salt), ikm, sizeof(ikm), HOST_TO_DEVICE_INFO,
+                              sizeof(HOST_TO_DEVICE_INFO) - 1, host_to_device);
+  mbedtls_platform_zeroize(ikm, sizeof(ikm));
+  return ok;
 }
 
 }  // namespace esphome::chorus_bridge::auth

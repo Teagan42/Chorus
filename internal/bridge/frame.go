@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"time"
+	"unicode/utf8"
 )
 
 // ProtocolVersion is bumped on any incompatible frame change. The firmware
@@ -20,10 +21,12 @@ import (
 // every settle and then record a cut a round trip old; refusing the link is
 // what makes a stale flash surface as an error instead.
 //
-// Version 3 authenticates the device before any audio: the host challenges,
-// and the device answers with its name and a MAC under its PSK (ADR-0066).
-// A version 2 device answers nothing, so it is refused at the hello.
-const ProtocolVersion = 3
+// Version 3 authenticated the device before any audio (ADR-0066).
+//
+// Version 4 authenticates both ends and seals every frame after the
+// handshake (ADR-0074). A version 3 device sends no nonce and cannot open a
+// sealed frame, so it is refused at its hello.
+const ProtocolVersion = 4
 
 // Audio format is fixed by the device: the XMOS pipeline and micro_wake_word
 // both run at 16 kHz, and resampling on an ESP32 buys nothing (SPEC §3.2).
@@ -33,6 +36,8 @@ const (
 )
 
 // HeaderSize is fixed so the firmware parses a header with four byte loads.
+// Only the three handshake frames travel under it; every frame after them is
+// sealed (seal.go).
 const HeaderSize = 4
 
 // MaxPayload is exclusive: the length field is a uint16.
@@ -43,19 +48,19 @@ const MaxPayload = 1 << 16
 type Type uint8
 
 const (
-	TypeHello  Type = 0x01 // device: protocol version and audio format
+	TypeHello  Type = 0x01 // device: protocol version, audio format, its nonce and name
 	TypeMic    Type = 0x02 // device: uplink PCM, Flags carries the channel
 	TypeWake   Type = 0x03 // device: micro_wake_word fired, payload is its name
 	TypePlayed Type = 0x04 // device: DAC playback position (SPEC §3.2.1); Flags echoes a STOP tag
 	TypeMute   Type = 0x05 // device: mute state changed, Flags carries it
-	TypeAuth   Type = 0x06 // device: its name and a MAC over the challenge
+	TypeAuth   Type = 0x06 // device: its proof over the handshake
 
 	TypeTTS       Type = 0x10 // host: downlink PCM
 	TypeStop      Type = 0x11 // host: barge-in, discard the speaker buffer; Flags carries a tag
 	TypeFinish    Type = 0x12 // host: utterance ended, drain the buffer
 	TypeDuck      Type = 0x13 // host: mixer ducking
 	TypeMicEnable Type = 0x14 // host: start or stop the uplink
-	TypeChallenge Type = 0x15 // host: a fresh nonce the device must MAC
+	TypeChallenge Type = 0x15 // host: its nonce and its proof over the handshake
 )
 
 // WakeButton is the name a TypeWake carries when a person pressed the
@@ -176,36 +181,72 @@ func (w *Writer) WriteFrame(f Frame) error {
 }
 
 // Hello opens every connection. The device states its format rather than
-// trusting the host's assumption, because a YAML change can alter it.
+// trusting the host's assumption, because a YAML change can alter it. It
+// also names the satellite it claims to be and brings its own nonce and
+// ephemeral X25519 key, so the host can prove itself, over both, before the
+// device proves anything (ADR-0074).
 type Hello struct {
 	Version       uint8
 	SampleRate    uint32
 	BitsPerSample uint8
 	MicChannels   uint8
+	// Nonce is the device's, fresh per connection. Join draws one when it is zero.
+	Nonce [NonceSize]byte
+	// Ephemeral is the device's X25519 public key for this connection only.
+	// Join draws the key pair, whatever the field held.
+	Ephemeral [PublicKeySize]byte
+	// Name is the ESPHome node name, MAC suffix included: the inventory's key.
+	Name string
 }
 
+// helloFixed is the payload before the name: version, rate, bits, channels,
+// the nonce and the ephemeral key.
+const (
+	helloNonce     = 7
+	helloEphemeral = helloNonce + NonceSize
+	helloFixed     = helloEphemeral + PublicKeySize
+)
+
 func (h Hello) Frame() Frame {
-	p := make([]byte, 7)
+	p := make([]byte, helloFixed, helloFixed+len(h.Name))
 	p[0] = h.Version
 	binary.BigEndian.PutUint32(p[1:5], h.SampleRate)
 	p[5], p[6] = h.BitsPerSample, h.MicChannels
+	copy(p[helloNonce:helloEphemeral], h.Nonce[:])
+	copy(p[helloEphemeral:helloFixed], h.Ephemeral[:])
+	p = append(p, h.Name...)
 	return Frame{Type: TypeHello, Payload: p}
 }
 
+// ParseHello reads the version before anything else, so a device on another
+// protocol is told that, rather than that its hello is malformed.
 func ParseHello(p []byte) (Hello, error) {
-	if len(p) < 7 {
-		return Hello{}, fmt.Errorf("hello: payload %d bytes, want 7", len(p))
+	if len(p) == 0 {
+		return Hello{}, errors.New("hello: empty payload")
+	}
+	if p[0] != ProtocolVersion {
+		return Hello{}, fmt.Errorf("%w: device speaks chorus_bridge protocol %d, this host speaks %d: "+
+			"flash firmware from the same checkout", ErrVersion, p[0], ProtocolVersion)
+	}
+	if len(p) <= helloFixed {
+		return Hello{}, fmt.Errorf("hello: payload %d bytes, want %d and a name", len(p), helloFixed)
+	}
+	name := p[helloFixed:]
+	if len(name) > MaxNameLen {
+		return Hello{}, fmt.Errorf("hello: name is %d bytes, want at most %d", len(name), MaxNameLen)
+	}
+	if !utf8.Valid(name) {
+		return Hello{}, errors.New("hello: name is not UTF-8")
 	}
 	h := Hello{
 		Version:       p[0],
 		SampleRate:    binary.BigEndian.Uint32(p[1:5]),
 		BitsPerSample: p[5],
 		MicChannels:   p[6],
+		Name:          string(name),
 	}
-	if h.Version != ProtocolVersion {
-		return Hello{}, fmt.Errorf("%w: device speaks chorus_bridge protocol %d, this host speaks %d: "+
-			"flash firmware from the same checkout", ErrVersion, h.Version, ProtocolVersion)
-	}
+	copy(h.Nonce[:], p[helloNonce:helloEphemeral])
+	copy(h.Ephemeral[:], p[helloEphemeral:helloFixed])
 	return h, nil
 }
 

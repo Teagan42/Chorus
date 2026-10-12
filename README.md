@@ -37,7 +37,7 @@ satellite. What exists today:
 |---|---|
 | `cmd/chorusd` — the orchestrator daemon: accepts satellites, one session supervisor per link over a shared journal, holds each device's native API open and drives its LED ring and speaker volume | under test against the in-process satellite; unproven on hardware |
 | `internal/esphome` — native API client, Noise transport | dials real hardware |
-| `internal/bridge` — the audio link, which authenticates each device before any audio (protocol 3), and `bridgetest`, the in-process satellite that is the primary test asset | under test; full duplex proven on hardware (§3.3.2), the protocol 3 handshake not yet run against a device |
+| `internal/bridge` — the audio link, which authenticates both ends before any audio and seals every frame (protocol 4), and `bridgetest`, the in-process satellite that is the primary test asset | under test; full duplex proven on hardware (§3.3.2), the protocol 4 handshake not yet run against a device |
 | `internal/session` — actor/supervisor, speech channel, barge-in gate, hot phrases, what the ring shows | under test |
 | `internal/journal` — append-only log on Postgres, `replay()` | under test |
 | `internal/satellite` — renders speech onto a device; the truncation point is the DAC's; canned lines from audio built into the binary until Kokoro answers | under test |
@@ -153,8 +153,8 @@ task firmware:upload                      # over the air
 
 `firmware:upload` flashes what the last `firmware:compile` built and does
 not compile, so compile after every change. The device asks for
-`ota_password` before it accepts a flash. The audio link is protocol 3
-(ADR-0066), and a host refuses a satellite on any other, so **reflash every
+`ota_password` before it accepts a flash. The audio link is protocol 4
+(ADR-0074), and a host refuses a satellite on any other, so **reflash every
 satellite whenever the host moves to a new protocol**, in step with it.
 
 `satellite1.yaml` is the real FutureProofHomes Satellite1 wiring and is what

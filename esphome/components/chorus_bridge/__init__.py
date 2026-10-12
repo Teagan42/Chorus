@@ -4,6 +4,7 @@ orchestrator. See docs/SPEC.md §3 and docs/adr/0010."""
 import base64
 import binascii
 
+from esphome import automation
 import esphome.codegen as cg
 from esphome.components import binary_sensor, microphone, speaker
 from esphome.components.mixer.speaker import SourceSpeaker
@@ -26,6 +27,8 @@ CODEOWNERS = ["@Teagan42"]
 CONF_DUCKING_SPEAKER = "ducking_speaker"
 CONF_HARDWARE_MUTE = "hardware_mute"
 CONF_HOST = "host"
+CONF_ON_CONNECTED = "on_connected"
+CONF_ON_DISCONNECTED = "on_disconnected"
 CONF_PSK = "psk"
 CONF_RECONNECT_INTERVAL = "reconnect_interval"
 
@@ -33,8 +36,9 @@ CONF_RECONNECT_INTERVAL = "reconnect_interval"
 # second output (SPEC §3.2).
 MAX_MICROPHONE_SOURCES = 2
 
-# The satellite's api.encryption.key: the device proves it holds it before
-# the host takes any audio (docs/adr/0066). Same length as Noise's PSK.
+# The satellite's api.encryption.key: the host proves it holds it before the
+# device sends any audio, the device proves it back, and the link is sealed
+# under keys derived from it (docs/adr/0074). Same length as Noise's PSK.
 PSK_BYTES = 32
 
 chorus_bridge_ns = cg.esphome_ns.namespace("chorus_bridge")
@@ -107,6 +111,15 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(
                 CONF_RECONNECT_INTERVAL, default="5s"
             ): cv.positive_time_period_milliseconds,
+            # The link's state, for what the satellite shows on its own when
+            # it cannot reach the host, which then cannot show it for it
+            # (docs/adr/0074). Each fires on a change, not on every redial.
+            cv.Optional(CONF_ON_CONNECTED): automation.validate_automation(
+                single=True
+            ),
+            cv.Optional(CONF_ON_DISCONNECTED): automation.validate_automation(
+                single=True
+            ),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_on([PLATFORM_ESP32]),
@@ -134,6 +147,15 @@ async def to_code(config: ConfigType) -> None:
     cg.add(var.set_port(config[CONF_PORT]))
     cg.add(var.set_reconnect_interval(config[CONF_RECONNECT_INTERVAL]))
     cg.add(var.set_psk(list(base64.b64decode(config[CONF_PSK]))))
+
+    if on_connected := config.get(CONF_ON_CONNECTED):
+        await automation.build_automation(
+            var.get_connected_trigger(), [], on_connected
+        )
+    if on_disconnected := config.get(CONF_ON_DISCONNECTED):
+        await automation.build_automation(
+            var.get_disconnected_trigger(), [], on_disconnected
+        )
 
     for source in config[CONF_MICROPHONE]:
         # passive=False is load-bearing: a passive source only receives audio

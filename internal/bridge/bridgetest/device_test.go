@@ -3,6 +3,8 @@ package bridgetest_test
 import (
 	"errors"
 	"net"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -95,15 +97,42 @@ func TestDialAnswersTheChallengeAsTheDefaultSatellite(t *testing.T) {
 	}
 }
 
-// A test plays a device that claims a name it holds no key for by giving
-// it the wrong key; the host refuses it, and the fake sees the hang-up.
+// A satellite flashed with another key checks the host as the firmware does:
+// the host's proof fails, so the fake hangs up and says why, and the host
+// sees a device refuse its challenge.
 //
 // verifies SPEC §3.2.2
-func TestADeviceWithTheWrongKeyIsRefusedAndSeesItGo(t *testing.T) {
+func TestADeviceWithTheWrongKeyRefusesTheHostAndGoes(t *testing.T) {
+	host, device := net.Pipe()
+	t.Cleanup(func() {
+		_ = host.Close()
+		_ = device.Close()
+	})
+
+	dev := bridgetest.Connect(device, 2, bridgetest.As(bridgetest.Name, []byte("the office satellite's own key!!")))
+	if _, err := bridge.NewLink(host, bridgetest.Keys()); !errors.Is(err, bridge.ErrChallengeRefused) {
+		t.Fatalf("NewLink err = %v, want ErrChallengeRefused", err)
+	}
+	select {
+	case <-dev.Gone():
+	case <-time.After(patience):
+		t.Fatal("Gone did not close after the device refused the host")
+	}
+	if err := dev.Refused(); !errors.Is(err, bridge.ErrHostUnproven) {
+		t.Errorf("Refused() = %v, want ErrHostUnproven", err)
+	}
+}
+
+// An impostor that knows the name but not the key answers without checking
+// the host; the host refuses its proof, and the fake sees the hang-up.
+//
+// verifies SPEC §3.2.2
+func TestAnImpostorIsRefusedAndSeesItGo(t *testing.T) {
 	host, device := net.Pipe()
 	t.Cleanup(func() { _ = device.Close() })
 
-	dev := bridgetest.Connect(device, 2, bridgetest.As(bridgetest.Name, []byte("the office satellite's own key!!")))
+	dev := bridgetest.Connect(device, 2, bridgetest.SkipHostCheck(),
+		bridgetest.As(bridgetest.Name, []byte("the office satellite's own key!!")))
 	if _, err := bridge.NewLink(host, bridgetest.Keys()); !errors.Is(err, bridge.ErrBadMAC) {
 		t.Fatalf("NewLink err = %v, want ErrBadMAC", err)
 	}
@@ -113,6 +142,56 @@ func TestADeviceWithTheWrongKeyIsRefusedAndSeesItGo(t *testing.T) {
 	case <-time.After(patience):
 		t.Fatal("Gone did not close after the host refused the answer")
 	}
+}
+
+// Every frame the fake exchanges after the handshake is sealed, so the whole
+// host stack under test runs over the encrypted link.
+//
+// verifies SPEC §3.2.2
+func TestTheFakeSealsWhatItSends(t *testing.T) {
+	host, device := net.Pipe()
+	t.Cleanup(func() {
+		_ = host.Close()
+		_ = device.Close()
+	})
+	seen := &sniffer{Conn: host}
+	dev := bridgetest.Connect(device, 1)
+	link, err := bridge.NewLink(seen, bridgetest.Keys())
+	if err != nil {
+		t.Fatalf("NewLink: %v", err)
+	}
+	s := sink{wakes: make(chan string, 1)}
+	go func() { _ = link.Serve(t.Context(), s) }()
+	dev.SendWake(t, "hey_eddie")
+	select {
+	case <-s.wakes:
+	case <-time.After(patience):
+		t.Fatal("the wake never reached the host")
+	}
+	if strings.Contains(seen.String(), "hey_eddie") {
+		t.Error("the wake word crossed the wire in the clear")
+	}
+}
+
+// sniffer keeps what the host read off the wire.
+type sniffer struct {
+	net.Conn
+	mu  sync.Mutex
+	got []byte
+}
+
+func (s *sniffer) Read(b []byte) (int, error) {
+	n, err := s.Conn.Read(b)
+	s.mu.Lock()
+	s.got = append(s.got, b[:n]...)
+	s.mu.Unlock()
+	return n, err
+}
+
+func (s *sniffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return string(s.got)
 }
 
 // As changes the name too, and the host's inventory decides what it means.

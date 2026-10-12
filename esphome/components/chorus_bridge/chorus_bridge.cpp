@@ -30,6 +30,12 @@ static const size_t TX_CAPACITY = 2 * RING_BUFFER_SIZE;
 static const size_t UPLINK_COALESCE_BYTES = 1400;
 static const uint32_t UPLINK_FLUSH_MS = 100;
 
+// mbedTLS's RNG callback over the ESP32's hardware RNG. X25519 uses it to
+// blind its ladder; the nonces and keys come from random_bytes directly.
+static int mbedtls_random(void * /*ctx*/, unsigned char *out, size_t len) {
+  return random_bytes(out, len) ? 0 : -1;
+}
+
 static void put_be16(std::vector<uint8_t> &out, uint16_t v) {
   out.push_back(v >> 8);
   out.push_back(v & 0xff);
@@ -114,13 +120,17 @@ void ChorusBridge::loop() {
   const uint32_t now = millis();
 
   if (this->socket_ == nullptr) {
-    if (now - this->last_connect_attempt_ >= this->reconnect_interval_) {
+    if (now - this->last_connect_attempt_ >= this->reconnect_interval_ + this->backoff_ms_) {
       this->last_connect_attempt_ = now;
       this->start_connect_();
     }
     return;
   }
   if (this->connecting_ && !this->finish_connect_()) {
+    // lwip retries a SYN for over a minute; a host that slow is not reachable.
+    if (this->connecting_ && millis() - this->attempt_started_ >= HANDSHAKE_TIMEOUT_MS) {
+      this->disconnect_("connect timed out");
+    }
     return;
   }
 
@@ -135,7 +145,7 @@ void ChorusBridge::loop() {
     this->pump_speaker_();
   } else if (millis() - this->connected_at_ >= HANDSHAKE_TIMEOUT_MS) {
     // millis(), not now: finish_connect_ above may have stamped a later one.
-    this->disconnect_("no challenge from the host");
+    this->disconnect_("the host did not prove itself in time");
     return;
   }
   if (this->tx_urgent_ || this->tx_.size() >= UPLINK_COALESCE_BYTES ||
@@ -151,6 +161,7 @@ void ChorusBridge::start_connect_() {
   this->socket_ = socket::socket_loop_monitored(AF_INET, SOCK_STREAM, 0);
   if (this->socket_ == nullptr) {
     ESP_LOGW(TAG, "Socket creation failed");
+    this->set_link_state_(false);
     return;
   }
   this->socket_->setblocking(false);
@@ -165,15 +176,18 @@ void ChorusBridge::start_connect_() {
   if (this->connect_addrlen_ == 0) {
     ESP_LOGW(TAG, "Bad host '%s'", this->host_.c_str());
     this->socket_ = nullptr;
+    this->set_link_state_(false);
     return;
   }
   if (this->socket_->connect((struct sockaddr *) &this->connect_addr_, this->connect_addrlen_) != 0 &&
       errno != EINPROGRESS) {
     ESP_LOGW(TAG, "Connect to %s:%u failed: %s", this->host_.c_str(), this->port_, strerror(errno));
     this->socket_ = nullptr;
+    this->set_link_state_(false);
     return;
   }
   this->connecting_ = true;
+  this->attempt_started_ = millis();
 }
 
 bool ChorusBridge::finish_connect_() {
@@ -194,51 +208,122 @@ bool ChorusBridge::finish_connect_() {
   this->connecting_ = false;
 
   // The device states its format rather than letting the host assume it: a
-  // YAML change can alter the channel count. Nothing else goes out until the
-  // host's challenge is answered (answer_challenge_).
-  uint8_t hello[auth::HELLO_SIZE];
-  this->encode_hello_(hello);
-  this->queue_frame_(FrameType::HELLO, 0, hello, sizeof(hello));
-  this->handshake_sent_ = true;
+  // YAML change can alter the channel count. It names the satellite it is,
+  // as devices.yaml does, MAC suffix included, and brings a fresh nonce the
+  // host's proof must cover. Nothing else goes out until that proof holds.
+  uint8_t nonce[auth::NONCE_SIZE];
+  if (!random_bytes(nonce, sizeof(nonce)) || !random_bytes(this->ephemeral_.data(), this->ephemeral_.size())) {
+    this->disconnect_("no random bytes for the nonce");
+    return false;
+  }
+  // One X25519 scalar multiplication, in loop(), once per connection.
+  uint8_t ephemeral_pub[x25519::KEY_SIZE];
+  const uint32_t keygen_started = millis();
+  if (!x25519::public_key(this->ephemeral_.data(), ephemeral_pub, mbedtls_random, nullptr)) {
+    this->disconnect_("ephemeral key failed");
+    return false;
+  }
+  [[maybe_unused]] const uint32_t keygen_ms = millis() - keygen_started;
+  const StringRef &name = App.get_name();
+  this->hello_len_ = auth::encode_hello(PROTOCOL_VERSION, SAMPLE_RATE_HZ, 8 * sizeof(int16_t),
+                                        this->mic_channels_.size(), nonce, ephemeral_pub, name.c_str(),
+                                        name.size(), this->hello_.data());
+  if (this->hello_len_ == 0) {
+    this->disconnect_("node name does not fit the hello");
+    return false;
+  }
+  if (!this->queue_plain_(FrameType::HELLO, this->hello_.data(), this->hello_len_)) {
+    return false;
+  }
   this->connected_at_ = millis();
 
-  ESP_LOGI(TAG, "Connected to %s:%u, awaiting the challenge", this->host_.c_str(), this->port_);
+  ESP_LOGI(TAG, "Connected to %s:%u, awaiting the host's proof (ephemeral key in %" PRIu32 " ms)",
+           this->host_.c_str(), this->port_, keygen_ms);
   return true;
 }
 
-void ChorusBridge::encode_hello_(uint8_t out[auth::HELLO_SIZE]) const {
-  auth::encode_hello(PROTOCOL_VERSION, SAMPLE_RATE_HZ, 8 * sizeof(int16_t), this->mic_channels_.size(), out);
-}
-
-void ChorusBridge::answer_challenge_(const uint8_t *nonce, size_t length) {
-  if (length != auth::NONCE_SIZE) {
+void ChorusBridge::verify_host_(const uint8_t *payload, size_t length) {
+  if (length != auth::CHALLENGE_SIZE) {
     this->disconnect_("malformed challenge");
     return;
   }
-  // The node name, as devices.yaml names this satellite: MAC suffix included.
-  const StringRef &name = App.get_name();
-  if (name.size() == 0 || name.size() > auth::MAX_NAME_SIZE) {
-    this->disconnect_("node name does not fit the auth frame");
+  // The host's nonce then its ephemeral key, which both proofs cover.
+  const uint8_t *host = payload;
+  const uint8_t *host_nonce = payload;
+  const uint8_t *host_ephemeral = payload + auth::CHALLENGE_EPHEMERAL_OFFSET;
+  const uint8_t *proof = payload + auth::CHALLENGE_PROOF_OFFSET;
+  uint8_t want[auth::MAC_SIZE];
+  if (!auth::host_proof(this->link_key_.data(), this->hello_.data(), this->hello_len_, host, want)) {
+    this->disconnect_("host proof failed to compute");
     return;
   }
-  // Covers the hello as sent, so the host knows the format is ours too.
-  uint8_t hello[auth::HELLO_SIZE];
-  this->encode_hello_(hello);
-  uint8_t payload[auth::MAC_SIZE + auth::MAX_NAME_SIZE];
-  if (!auth::compute_mac(this->link_key_.data(), nonce, name.c_str(), name.size(), hello, payload)) {
-    this->disconnect_("auth MAC failed");
+  const bool proven = auth::equal(proof, want, sizeof(want));
+  mbedtls_platform_zeroize(want, sizeof(want));
+  if (!proven) {
+    // No microphone for a host without the key. Backed off, so a host that
+    // took orchestrator_host's address is not redialled every interval.
+    this->backoff_ms_ =
+        std::min<uint32_t>(MAX_BACKOFF_MS, std::max<uint32_t>(this->reconnect_interval_, 2 * this->backoff_ms_));
+    ESP_LOGE(TAG, "The host at %s did not prove it holds this satellite's key; next dial in %" PRIu32 " ms",
+             this->host_.c_str(), this->reconnect_interval_ + this->backoff_ms_);
+    this->disconnect_("host proof refused");
     return;
   }
-  std::memcpy(payload + auth::MAC_SIZE, name.c_str(), name.size());
-  // A control frame: it either queues or tears the link down.
-  if (!this->queue_frame_(FrameType::AUTH, 0, payload, auth::MAC_SIZE + name.size())) {
+
+  // The second scalar multiplication. The private key goes the moment it is
+  // used: what a recording plus a leaked PSK cannot recover is this secret.
+  uint8_t shared[x25519::KEY_SIZE];
+  const uint32_t dh_started = millis();
+  const bool exchanged = x25519::shared(this->ephemeral_.data(), host_ephemeral, shared, mbedtls_random, nullptr);
+  [[maybe_unused]] const uint32_t dh_ms = millis() - dh_started;
+  mbedtls_platform_zeroize(this->ephemeral_.data(), this->ephemeral_.size());
+  if (!exchanged) {
+    // A low-order key would seal the link under a secret anyone can compute.
+    this->disconnect_("the host's ephemeral key is weak");
+    return;
+  }
+
+  uint8_t answer[auth::MAC_SIZE];
+  uint8_t up[auth::KEY_SIZE];
+  uint8_t down[auth::KEY_SIZE];
+  const bool keyed =
+      auth::device_proof(this->link_key_.data(), this->hello_.data(), this->hello_len_, host, answer) &&
+      auth::derive_session_keys(this->link_key_.data(), shared, this->hello_.data() + auth::HELLO_NONCE_OFFSET,
+                                host_nonce, up, down) &&
+      this->tx_seal_.set_key(up) && this->rx_seal_.set_key(down);
+  mbedtls_platform_zeroize(shared, sizeof(shared));
+  mbedtls_platform_zeroize(up, sizeof(up));
+  mbedtls_platform_zeroize(down, sizeof(down));
+  if (!keyed) {
+    this->disconnect_("session keys failed");
+    return;
+  }
+  // The answer leaves in the clear; every frame after it is sealed. A
+  // handshake frame: it either queues or tears the link down.
+  if (!this->queue_plain_(FrameType::AUTH, answer, sizeof(answer))) {
     return;
   }
   this->authenticated_ = true;
+  this->backoff_ms_ = 0;
   this->last_mute_flags_ = 0xff;  // force a mute report on the new connection
-  ESP_LOGI(TAG, "Answered the host's challenge as %s", name.c_str());
+  ESP_LOGI(TAG, "The host proved the key; link sealed as %s (X25519 in %" PRIu32 " ms)", App.get_name().c_str(),
+           dh_ms);
   if (this->mic_requested_) {
     this->start_microphones_();
+  }
+  this->set_link_state_(true);
+}
+
+void ChorusBridge::set_link_state_(bool connected) {
+  const LinkState next = connected ? LinkState::CONNECTED : LinkState::DISCONNECTED;
+  if (next == this->link_state_) {
+    return;
+  }
+  this->link_state_ = next;
+  if (connected) {
+    this->connected_trigger_.trigger();
+  } else {
+    this->disconnected_trigger_.trigger();
   }
 }
 
@@ -249,8 +334,13 @@ void ChorusBridge::disconnect_(const char *reason) {
     this->socket_ = nullptr;
   }
   this->connecting_ = false;
-  this->handshake_sent_ = false;
   this->authenticated_ = false;
+  // The session keys go with the connection; the next one derives its own.
+  this->tx_seal_.reset();
+  this->rx_seal_.reset();
+  this->rx_head_open_ = false;
+  this->hello_len_ = 0;
+  mbedtls_platform_zeroize(this->ephemeral_.data(), this->ephemeral_.size());
   // Before stop(), so no straggling callback is attributed to the next link.
   this->playing_.store(false, std::memory_order_release);
   this->tx_.clear();
@@ -268,20 +358,41 @@ void ChorusBridge::disconnect_(const char *reason) {
   if (this->speaker_ != nullptr) {
     this->speaker_->stop();
   }
+  // Last: the automation it runs sees the link already down.
+  this->set_link_state_(false);
+}
+
+bool ChorusBridge::queue_plain_(FrameType type, const uint8_t *payload, size_t length) {
+  if (this->socket_ == nullptr || this->connecting_ || this->authenticated_ ||
+      (type != FrameType::HELLO && type != FrameType::AUTH)) {
+    return false;
+  }
+  // Only ever into an empty or near-empty queue: these are a connection's
+  // first two frames.
+  if (this->tx_.size() + HEADER_SIZE + length > TX_CAPACITY) {
+    this->disconnect_("TX overflow on a handshake frame");
+    return false;
+  }
+  this->tx_urgent_ = true;
+  this->tx_.push_back(static_cast<uint8_t>(type));
+  this->tx_.push_back(0);
+  put_be16(this->tx_, length);
+  this->tx_.insert(this->tx_.end(), payload, payload + length);
+  return true;
 }
 
 bool ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length) {
   if (this->socket_ == nullptr || this->connecting_) {
     return false;
   }
-  // Nothing but the hello and the answer goes out before the host has
-  // challenged: audio from a link nobody has verified is not ours to send.
-  if (!this->authenticated_ && type != FrameType::HELLO && type != FrameType::AUTH) {
+  // Nothing is sealed before the host has proved the key: audio for a host
+  // nobody has verified is not ours to send.
+  if (!this->authenticated_ || !this->tx_seal_.keyed()) {
     return false;
   }
-  // Append whole frames only: a truncated header leaves the host unable to
-  // find the next frame boundary.
-  if (this->tx_.size() + HEADER_SIZE + length > TX_CAPACITY) {
+  // Append whole records only: a truncated one leaves the host unable to
+  // find the next record boundary, and fails its tag.
+  if (this->tx_.size() + seal::OVERHEAD + length > TX_CAPACITY) {
     // MIC is droppable audio; the host sees a gap. PLAYED is droppable because
     // it carries a cumulative frame count, so the next one supersedes it --
     // tearing the link down over a status report loses the whole utterance.
@@ -294,15 +405,23 @@ bool ChorusBridge::queue_frame_(FrameType type, uint8_t flags, const uint8_t *pa
     this->disconnect_("TX overflow on a control frame");
     return false;
   }
+  // Laid out as chorus_seal.h seals it: room for the length, the frame, room
+  // for the tag. Within the capacity reserved in setup(), so nothing moves.
+  const size_t start = this->tx_.size();
+  this->tx_.resize(start + seal::RECORD_HEADER_SIZE);
+  this->tx_.push_back(static_cast<uint8_t>(type));
+  this->tx_.push_back(flags);
+  if (length > 0) {
+    this->tx_.insert(this->tx_.end(), payload, payload + length);
+  }
+  this->tx_.resize(this->tx_.size() + seal::TAG_SIZE);
+  if (!this->tx_seal_.seal(this->tx_.data() + start, seal::INNER_HEADER_SIZE + length)) {
+    this->disconnect_("sealing a frame failed");
+    return false;
+  }
   // Not audio means control: flush it now rather than behind the deadline.
   if (type != FrameType::MIC) {
     this->tx_urgent_ = true;
-  }
-  this->tx_.push_back(static_cast<uint8_t>(type));
-  this->tx_.push_back(flags);
-  put_be16(this->tx_, length);
-  if (length > 0) {
-    this->tx_.insert(this->tx_.end(), payload, payload + length);
   }
   return true;
 }
@@ -392,27 +511,61 @@ void ChorusBridge::pump_downlink_() {
   }
 
   size_t consumed = 0;
-  while (this->rx_.size() - consumed >= HEADER_SIZE) {
+  while (!this->authenticated_ && this->rx_.size() - consumed >= HEADER_SIZE) {
+    // Before the host has proved the key the only frame it may send is its
+    // challenge, in the clear, so nothing longer is waited for.
     const uint8_t *h = this->rx_.data() + consumed;
     const size_t length = (static_cast<size_t>(h[2]) << 8) | h[3];
-    // The wire allows 65535 bytes; rx_ holds RX_CAPACITY and never grows. A
-    // longer frame can never complete, so waiting for it wedges the link with
-    // no disconnect. The host sends 1 KB TTS chunks (internal/bridge/link.go),
-    // so this is a peer that is not the host, not backpressure.
-    if (length > RX_CAPACITY - HEADER_SIZE) {
-      this->disconnect_("frame too large");
+    if (static_cast<FrameType>(h[0]) != FrameType::CHALLENGE) {
+      this->disconnect_("host frame before the challenge");
+      return;
+    }
+    if (length != auth::CHALLENGE_SIZE) {
+      this->disconnect_("malformed challenge");
       return;
     }
     if (this->rx_.size() - consumed - HEADER_SIZE < length) {
       break;  // partial frame; wait for the rest
     }
+    this->verify_host_(h + HEADER_SIZE, length);
+    consumed += HEADER_SIZE + length;
+    if (this->socket_ == nullptr) {
+      return;
+    }
+  }
+  while (this->authenticated_ && this->rx_.size() - consumed >= seal::RECORD_HEADER_SIZE) {
+    uint8_t *record = this->rx_.data() + consumed;
+    const size_t sealed_len = (static_cast<size_t>(record[0]) << 8) | record[1];
+    // The wire allows 65535 bytes; rx_ holds RX_CAPACITY and never grows. A
+    // longer record can never complete, so waiting for it wedges the link with
+    // no disconnect. The host sends 1 KB TTS chunks (internal/bridge/link.go),
+    // so this is a peer that is not the host, not backpressure.
+    if (sealed_len > RX_CAPACITY - seal::RECORD_HEADER_SIZE) {
+      this->disconnect_("frame too large");
+      return;
+    }
+    const size_t record_len = seal::RECORD_HEADER_SIZE + sealed_len;
+    if (this->rx_.size() - consumed < record_len) {
+      break;  // partial record; wait for the rest
+    }
+    // Opened once, in place. Altered, replayed, reordered, or sealed under
+    // another key: nothing in it is acted on, and the link drops.
+    if (!this->rx_head_open_ && !this->rx_seal_.open(record, record_len)) {
+      this->disconnect_("a frame did not authenticate");
+      return;
+    }
+    this->rx_head_open_ = true;
+    const uint8_t *inner = record + seal::RECORD_HEADER_SIZE;
+    const FrameType type = static_cast<FrameType>(inner[0]);
     // Same bound one level down: stop handing audio to the speaker queue while
-    // it is already full, and leave the frame in rx_ for a later loop().
-    if (static_cast<FrameType>(h[0]) == FrameType::TTS && this->speaker_pending_.size() >= SPEAKER_BUFFER_SIZE) {
+    // it is already full, and leave the opened record in rx_ for a later loop().
+    if (type == FrameType::TTS && this->speaker_pending_.size() >= SPEAKER_BUFFER_SIZE) {
       break;
     }
-    this->handle_frame_(static_cast<FrameType>(h[0]), h[1], h + HEADER_SIZE, length);
-    consumed += HEADER_SIZE + length;
+    this->rx_head_open_ = false;
+    this->handle_frame_(type, inner[1], inner + seal::INNER_HEADER_SIZE,
+                        sealed_len - seal::TAG_SIZE - seal::INNER_HEADER_SIZE);
+    consumed += record_len;
     if (this->socket_ == nullptr) {
       return;
     }
@@ -422,16 +575,9 @@ void ChorusBridge::pump_downlink_() {
   }
 }
 
+// A sealed frame from the host. The challenge is handled before any of these
+// (pump_downlink_), and only once per connection.
 void ChorusBridge::handle_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length) {
-  // The host challenges first, always. Anything else first is not a v3 host.
-  if (!this->authenticated_) {
-    if (type != FrameType::CHALLENGE) {
-      this->disconnect_("host frame before the challenge");
-      return;
-    }
-    this->answer_challenge_(payload, length);
-    return;
-  }
   switch (type) {
     case FrameType::TTS:
       if (this->speaker_ == nullptr) {
@@ -593,7 +739,8 @@ void ChorusBridge::dump_config() {
 #else
   ESP_LOGCONFIG(TAG, "  Hardware mute switch: NO");
 #endif
-  ESP_LOGCONFIG(TAG, "  Protocol: %u, authenticates as %s", PROTOCOL_VERSION, App.get_name().c_str());
+  ESP_LOGCONFIG(TAG, "  Protocol: %u, sealed AES-256-GCM, authenticates as %s", PROTOCOL_VERSION,
+                App.get_name().c_str());
   for (auto &ch : this->mic_channels_) {
     // A passive source receives audio only while something else started the
     // mic, which ships a silently dead bridge (SPEC §3.2).
