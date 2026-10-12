@@ -211,9 +211,13 @@ func TestTheKitchensVolumeIsWhatTheDeviceReportsBack(t *testing.T) {
 		t.Errorf("result = %s, want %s", out, want)
 	}
 
+	// The echoed call's wait was never fired; only a timer beyond it is this
+	// call's own, so advancing on the first one found could pass the clock
+	// before this call has armed its wait, which would then never fire.
+	stale := clk.pending(volumeConfirmWait)
 	wait = setVolumeAsync(t, r, "kitchen", `{"step":-5}`)
 	volumeSetTo(t, conn, 40)
-	clk.awaitWait(t, volumeConfirmWait)
+	clk.awaitPending(t, volumeConfirmWait, stale+1)
 	clk.advance(volumeConfirmWait)
 	out, err = wait()
 	if err != nil {

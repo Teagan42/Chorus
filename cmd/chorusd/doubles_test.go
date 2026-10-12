@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -489,6 +490,29 @@ func (c *clock) advance(d time.Duration) {
 	for _, t := range due {
 		t.ch <- t.deadline
 	}
+}
+
+// pending counts the timers of exactly this delay armed and not yet fired.
+// A timer whose waiter stopped listening, a select that took another case,
+// stays pending until the clock passes it.
+func (c *clock) pending(d time.Duration) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, tm := range c.timers {
+		if tm.waited == d {
+			n++
+		}
+	}
+	return n
+}
+
+// awaitPending blocks until at least n timers of exactly this delay are
+// pending: one more than were before a call is the call's own, where
+// awaitWait would take a stale one left by an earlier call.
+func (c *clock) awaitPending(t *testing.T, d time.Duration, n int) {
+	t.Helper()
+	await(t, strconv.Itoa(n)+" "+d.String()+" timer(s)", func() bool { return c.pending(d) >= n })
 }
 
 // awaitWait blocks until a timer of exactly this delay is armed.
