@@ -499,7 +499,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	sup, err := session.New(session.Config{
 		Journal: d.journal, Store: d.Store, Clock: d.Clock, Timers: d.Timers,
 		Engine: d.engine, Speaker: speaker, Conversations: d.convs,
-		Tools: d.tools, Gate: d.gate, Memories: d.memories, Rooms: d.rooms,
+		Tools: d.tools, Specs: d.specs, Gate: d.gate, Memories: d.memories, Rooms: d.rooms,
 		Summarizer: d.summarizer, Summarizing: &d.wg, Log: log,
 		Ring: d.panels[sat.Name],
 	})

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 
 	"github.com/teagan42/chorus/internal/hass"
@@ -11,10 +12,12 @@ import (
 	"github.com/teagan42/chorus/internal/listen"
 	"github.com/teagan42/chorus/internal/memory"
 	"github.com/teagan42/chorus/internal/provider/kokoro"
+	"github.com/teagan42/chorus/internal/provider/mcp"
 	"github.com/teagan42/chorus/internal/provider/ollama"
 	"github.com/teagan42/chorus/internal/provider/smartturn"
 	"github.com/teagan42/chorus/internal/provider/speaches"
 	"github.com/teagan42/chorus/internal/provider/speakerid"
+	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/satellite"
 	"github.com/teagan42/chorus/internal/session"
 	"github.com/teagan42/chorus/internal/stt"
@@ -65,6 +68,10 @@ type Config struct {
 	// WakeArbitrationMS is the arbitration window as written; wakeArbitration
 	// reads it.
 	WakeArbitrationMS string
+
+	// MCPConfig is the household's MCP servers' file. Empty is none
+	// (ADR-0075).
+	MCPConfig string
 }
 
 // configFromEnv reads the environment through getenv, so a test never reads
@@ -87,6 +94,7 @@ func configFromEnv(getenv func(string) string) Config {
 	cfg.BlobMinFreeMiB = getenv(blobMinFreeEnv)
 	cfg.OpsListen = getenv(opsListenEnv)
 	cfg.WakeArbitrationMS = getenv(wakeArbitrationEnv)
+	cfg.MCPConfig = getenv(mcp.ConfigEnv)
 	if cfg.Listen == "" {
 		cfg.Listen = defaultListen
 	}
@@ -154,16 +162,25 @@ type providers struct {
 	judge     listen.Judge
 	household []string
 	tools     map[string]session.Tool
+	// specs is what the session enforces policy from: the registry's, and
+	// any provided tools'. Nil is the registry's alone.
+	specs map[string]registry.ToolSpec
 }
 
 // buildProviders constructs the providers without touching the network: a
 // client is a URL and a config until its first request. ids is the enrolled
-// household, or nil when nobody is.
+// household, or nil when nobody is. extra is tools provided at runtime, nil
+// for none: they are offered beside the registry's, and so are part of the
+// tool-schema version every event records (SPEC §8).
 //
 // The optional sidecars degrade rather than fail, and never silently: a
 // household without them is a house that still answers (SPEC §4.5, §5, §7).
-func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger) (providers, error) {
-	engine, err := ollama.New(ollama.Config{BaseURL: cfg.OllamaURL, Model: cfg.OllamaModel})
+func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extra provided) (providers, error) {
+	enforced, offered, err := offerable(extra)
+	if err != nil {
+		return providers{}, err
+	}
+	engine, err := ollama.New(ollama.Config{BaseURL: cfg.OllamaURL, Model: cfg.OllamaModel, Specs: offered})
 	if err != nil {
 		return providers{}, err
 	}
@@ -181,7 +198,7 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger) (pro
 	versions.STT, versions.TTS = transcriber.Version(), synth.Version()
 	p := providers{
 		engine: engine, summarizer: engine, versions: versions, synth: synth, stt: transcriber,
-		tools: map[string]session.Tool{},
+		tools: map[string]session.Tool{}, specs: enforced,
 	}
 
 	if cfg.SpeakerIDURL == "" {
@@ -237,6 +254,9 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger) (pro
 			return providers{}, err
 		}
 		p.tools = hass.Tools(client)
+	}
+	if extra != nil {
+		maps.Copy(p.tools, extra.Tools())
 	}
 	return p, nil
 }

@@ -87,7 +87,18 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	prov, err := buildProviders(cfg, ids, log)
+	// Before the engine: what the model is offered includes the servers'
+	// tools, fixed once their discovery window ends (ADR-0075).
+	servers, err := startMCP(ctx, cfg, os.Getenv, wallTimers{}, log)
+	if err != nil {
+		return err
+	}
+	var extra provided
+	if servers != nil {
+		defer servers.Close()
+		extra = servers
+	}
+	prov, err := buildProviders(cfg, ids, log, extra)
 	if err != nil {
 		return err
 	}
@@ -152,7 +163,7 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 	}
 	log.Info("chorusd listening", "version", version, "addr", ln.Addr().String(),
 		"satellites", len(inv.Satellites), "model", prov.versions.Model,
-		"stt", prov.versions.STT, "tts", prov.versions.TTS,
+		"stt", prov.versions.STT, "tts", prov.versions.TTS, "tool_schema", prov.versions.ToolSchema,
 		// What every turn is told the time in; UTC in a container without TZ.
 		"zone", time.Local.String())
 

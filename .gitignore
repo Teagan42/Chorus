@@ -4,6 +4,8 @@ devices.yaml
 identities.yaml
 *.local.yaml
 .env
+# The household's MCP servers: a header may carry a token written in place.
+mcp.yaml
 # ESPHome resolves !secret from here; it holds the same PSK as devices.yaml.
 esphome/secrets.yaml
 # Flashable firmware embeds the PSK.
