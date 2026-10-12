@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -152,7 +153,7 @@ func TestADeletionIsRefusedAndSaysWhy(t *testing.T) {
 	if page := get(t, v.s, conversationHref(live)); strings.Contains(page, deleteHref(live)) || !strings.Contains(page, "live session") {
 		t.Error("the live kitchen offers a deletion it would refuse, or does not say why it cannot")
 	}
-	if page := get(t, v.s, "/conversations/device:kitchen"); strings.Contains(page, "confirm tone-home") {
+	if page := get(t, v.s, "/conversations/device:kitchen"); strings.Contains(page, `id="delete-conversation"`) || strings.Contains(page, deleteHref("device:kitchen")) {
 		t.Error("the kitchen's own log offers a deletion")
 	}
 	if records, _ := v.s.erasures.List(context.Background()); len(records) != 0 {
@@ -167,7 +168,7 @@ func TestADeletionIsRefusedAndSaysWhy(t *testing.T) {
 func TestReadOnlyHidesAndRefusesEveryDeletion(t *testing.T) {
 	v := newVisit(t)
 	v.s.readOnly = true
-	for _, target := range []string{conversationHref(convGuest), memoryRoute} {
+	for _, target := range []string{conversationHref(convGuest), conversationHref("device:kitchen"), memoryRoute} {
 		page := get(t, v.s, target)
 		if strings.Contains(page, `class="confirm`) {
 			t.Errorf("%s offers a deletion in read-only mode", target)
@@ -181,6 +182,7 @@ func TestReadOnlyHidesAndRefusesEveryDeletion(t *testing.T) {
 	}{
 		{deleteHref(convGuest), "delete"},
 		{dropAudioHref(convGuest, guestAskSeq), "drop"},
+		{dropAudioHref("device:kitchen", 7), "drop"},
 		{memoryRoute + "/alice/facts/" + alicesAllergy.ID + "/forget", "forget"},
 		{memoryRoute + "/alan/summaries/" + convGuest + "/forget", "forget"},
 	} {
@@ -321,7 +323,7 @@ func TestDroppingTheGuestsAskRedactsItsClip(t *testing.T) {
 }
 
 // A drop is refused for a clip already gone, an event with no audio or
-// that does not exist, a live session's log, a satellite's own log, and a
+// that does not exist, a live session's log, the house log, and a
 // post that skipped its second press.
 //
 // verifies SPEC §4.5, §8
@@ -343,7 +345,8 @@ func TestADropIsRefusedAndSaysWhy(t *testing.T) {
 		{"no such event", dropAudioHref(convGuest, 99), confirm("drop"), http.StatusNotFound, "no such event"},
 		{"not an event", conversationHref(convGuest) + "/events/first/audio/drop", confirm("drop"), http.StatusNotFound, "is not an event"},
 		{"a live session", dropAudioHref(live, 2), confirm("drop"), http.StatusConflict, "live session"},
-		{"a satellite's own log", dropAudioHref("device:kitchen", 1), confirm("drop"), http.StatusConflict, "chorusd writes all day"},
+		{"the house log", dropAudioHref(houseLog, 1), confirm("drop"), http.StatusConflict, "chorusd writes all day"},
+		{"presence in a satellite's log", dropAudioHref("device:kitchen", 1), confirm("drop"), http.StatusConflict, "no audio still kept"},
 		{"no second press", dropAudioHref(convGuest, 7), nil, http.StatusBadRequest, "second press"},
 	} {
 		w := send(v.s.routes(), c.target, c.form)
@@ -356,6 +359,96 @@ func TestADropIsRefusedAndSaysWhy(t *testing.T) {
 	}
 	if !v.kept(guestAnswer) || !v.kept(guestAlanAsk) {
 		t.Error("a refused drop removed audio")
+	}
+}
+
+// The living room's Satellite1 heard Alan's sister say "Hey Eddie" that
+// evening, kept both channels, and stage two held her as an unknown
+// speaker.
+const (
+	guestWakeAudio  = "blob://wake/living_room-guest"
+	guestWakeSecond = "blob://wake/living_room-guest-second"
+)
+
+// withGuestsWake writes her rejected wake, and its audio, into the living
+// room's own log, and returns its seq.
+func withGuestsWake(t *testing.T, v *visit) uint64 {
+	t.Helper()
+	writeBlob(t, v.blobs, guestWakeAudio)
+	writeBlob(t, v.blobs, guestWakeSecond)
+	j := journal.New(v.store, journal.FixedClock(household.Day().Add(20*time.Hour+14*time.Minute)), household.Versions())
+	e, err := j.Append(context.Background(), "device:living_room",
+		rec(journal.KindWakeRejected, guestWakeAudio, "reason", "unknown_speaker", "wake_word", "hey_eddie", "second_audio_ref", guestWakeSecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e.Seq
+}
+
+// Alan asks for his sister's voice to go from the living room's own log
+// too. Her rejected wake's row offers the drop behind the same second
+// press as a conversation's clip, and nothing offers to delete the log;
+// the press takes both channels, records them as redacted in that log,
+// and leaves the wake and its verdict where they were, now saying the
+// audio is gone. Deletions counts it like any drop (ADR-0070).
+//
+// verifies SPEC §8, §9.3
+func TestDroppingTheGuestsWakeFromTheLivingRoomsLog(t *testing.T) {
+	v := newVisit(t)
+	seq := withGuestsWake(t, v)
+	const room = "device:living_room"
+	page := get(t, v.s, conversationHref(room))
+	for _, want := range []string{
+		`action="` + dropAudioHref(room, seq) + `"`,
+		"Removes this clip and its second channel for good",
+		"Its line in the log stays",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the living room's log is missing %q", want)
+		}
+	}
+	if strings.Contains(page, `id="delete-conversation"`) {
+		t.Error("the living room's own log offers to delete it whole")
+	}
+
+	w := send(v.s.routes(), dropAudioHref(room, seq), confirm("drop"))
+	if w.Code != http.StatusOK || w.Header().Get("HX-Refresh") != "true" {
+		t.Fatalf("drop = %d %v: %s", w.Code, w.Header(), w.Body.String())
+	}
+	if want := []string{"remove " + guestWakeAudio, "remove " + guestWakeSecond}; !slices.Equal(v.tr.seen(), want) {
+		t.Errorf("dropped by %v, want %v", v.tr.seen(), want)
+	}
+	if v.kept(guestWakeAudio) || v.kept(guestWakeSecond) {
+		t.Error("her wake is still kept")
+	}
+	events := v.log(t, room)
+	var reasons []string
+	for _, e := range events {
+		if e.Kind == journal.KindAudioDropped {
+			reasons = append(reasons, e.Fields["audio_ref"]+" "+e.Fields["reason"])
+		}
+	}
+	if want := []string{guestWakeAudio + " redacted", guestWakeSecond + " redacted"}; !slices.Equal(reasons, want) {
+		t.Errorf("the log records %v, want %v", reasons, want)
+	}
+	if events[seq-1].Kind != journal.KindWakeRejected {
+		t.Errorf("#%d is now %s, want her wake still there", seq, events[seq-1].Kind)
+	}
+
+	page = get(t, v.s, conversationHref(room))
+	row := rowOf(page, int(seq))
+	if !strings.Contains(row, "audio redacted") || strings.Contains(row, "<audio") || strings.Contains(row, dropAudioHref(room, seq)) {
+		t.Errorf("her wake's row still plays or offers the drop, or does not say the audio went:\n%s", row)
+	}
+	if !strings.Contains(page, "Held: only the voice check failed") {
+		t.Error("her wake lost its verdict with its audio")
+	}
+	records, _ := v.s.erasures.List(context.Background())
+	if len(records) != 1 || records[0].Kind != erasure.KindAudio || records[0].ConversationID != room || records[0].Subject != guestWakeAudio+" "+guestWakeSecond {
+		t.Errorf("records = %+v, want her wake's two clips from %s", records, room)
+	}
+	if trail := get(t, v.s, deletionsRoute); !strings.Contains(trail, room+" · "+guestWakeAudio) || !strings.Contains(trail, fmt.Sprintf("2 clips of #%d", seq)) {
+		t.Error("Deletions does not list the drop from the living room's log")
 	}
 }
 
