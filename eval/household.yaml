@@ -83,15 +83,20 @@ cases:
       reference: Added oat milk.
       min_reference_overlap: 0.5
 
-  - id: zeppelin-searches
+  - id: zeppelin-no-search
     ref: conv-0853-kitchen/2
     note: >-
-      Alice's album needs a search. Today's registry defers media_search
-      (ADR-0060), so a candidate on it regresses here: the gate's point.
+      Media is deferred (SPEC §14): chorusd offers no media_search, so a
+      good answer to Alice searches for nothing, plays nothing, and does
+      not name albums it never found. The day's answer, made while the
+      tool was offered, fails this; today's build should pass it.
     expect:
-      tool_called:
+      tool_not_called:
         - tool: media_search
-          args_like: {query: "(?i)zeppelin"}
+        - tool: ha_call_service
+          args: {service: play_media}
+      says:
+        not_contains: [I found, playing]
 
   - id: garage-reads-the-sensor
     ref: conv-0930-office/2

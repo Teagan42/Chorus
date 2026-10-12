@@ -78,23 +78,40 @@ func TestTheSeedSuiteResolvesAgainstTheHouseholdsDay(t *testing.T) {
 	}
 }
 
-// Today's build against what the day recorded: the registry has deferred
-// media_search since (ADR-0060), so Alice's album search regresses, and
-// the gate says so. Nothing else moves.
+// Today's build on the day: media is deferred (SPEC §14), so it searches
+// for nothing and says it cannot, which is what the album case asks.
+// Against the day asked again, or as recorded, that is an improvement and
+// nothing regresses.
 //
 // verifies SPEC §13
-func TestTodaysRegistryRegressesTheMusicSearch(t *testing.T) {
-	rep := thursday(t,
-		evalsuite.Side{Name: "baseline", Recorded: true},
-		evalsuite.Side{Name: "candidate", Prompt: ollama.DefaultPrompt, Tools: registry.Offered()},
-		nil)
-	want := map[string]string{`zeppelin-searches: calls media_search like {"query":"(?i)zeppelin"}`: "regressed"}
-	got := changes(rep)
-	if len(got) != len(want) || got[`zeppelin-searches: calls media_search like {"query":"(?i)zeppelin"}`] != "regressed" {
-		t.Errorf("changes = %v, want only %v", got, want)
+func TestTodaysBuildHoldsItsGroundOnTheDay(t *testing.T) {
+	const noSearch, noClaim = "zeppelin-no-search: does not call media_search", `zeppelin-no-search: does not say "I found"`
+	for _, baseline := range []evalsuite.Side{{Name: "baseline"}, {Name: "baseline", Recorded: true}} {
+		rep := thursday(t, baseline,
+			evalsuite.Side{Name: "candidate", Prompt: ollama.DefaultPrompt, Tools: registry.Offered()},
+			nil)
+		if rep.Regressed {
+			t.Errorf("recorded %v: regressed: %v", baseline.Recorded, rep.Why)
+		}
+		if got := changes(rep); len(got) != 2 || got[noSearch] != "improved" || got[noClaim] != "improved" {
+			t.Errorf("recorded %v: changes = %v, want only the album case's search and claim improved", baseline.Recorded, got)
+		}
+	}
+}
+
+// A tool set that loses timer_cancel cannot call off Teagan's pasta timer:
+// the case regresses, and the gate fails the candidate.
+//
+// verifies SPEC §6, §13
+func TestATaskTheCandidateLostFailsTheGate(t *testing.T) {
+	tools := registry.Offered()
+	delete(tools, "timer_cancel")
+	rep := thursday(t, evalsuite.Side{Name: "baseline"}, evalsuite.Side{Name: "candidate", Prompt: ollama.DefaultPrompt, Tools: tools}, nil)
+	if got := changes(rep); got[`pasta-cancel-by-id: calls timer_cancel {"timer_id":"t_9d2b4f60"}`] != "regressed" {
+		t.Errorf("changes = %v, want the pasta cancel regressed", got)
 	}
 	if !rep.Regressed {
-		t.Errorf("the gate passed a candidate that cannot search for music")
+		t.Errorf("the gate passed a candidate that cannot cancel a timer")
 	}
 }
 
