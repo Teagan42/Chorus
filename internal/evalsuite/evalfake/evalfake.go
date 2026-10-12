@@ -120,7 +120,12 @@ func (e engine) answer(in session.Input) (Answer, bool) {
 	return Answer{Take: take}, ok
 }
 
-// Turn answers in.Text. It never calls a tool it was not offered.
+// Cannot is what a take says when it called a tool the engine was not
+// offered, as household.Model's turns do when media_search is deferred.
+const Cannot = "Sorry, I can't do that yet."
+
+// Turn answers in.Text. It never calls a tool it was not offered, and a
+// take that did says Cannot instead of what that tool would have told it.
 func (e engine) Turn(_ context.Context, in session.Input) (<-chan session.Action, error) {
 	e.m.mu.Lock()
 	e.m.asked = append(e.m.asked, e.cfg)
@@ -134,17 +139,23 @@ func (e engine) Turn(_ context.Context, in session.Input) (<-chan session.Action
 		wait = e.m.Latency
 	}
 	e.m.Clock.Advance(wait)
+	var calls []session.Action
+	speech := a.Take.Speech
+	for i, c := range a.Take.Calls {
+		if _, ok := e.cfg.Tools[c.Tool]; !ok {
+			// What it said rested on a tool it no longer has.
+			speech = []rerun.Speech{{Text: Cannot}}
+			continue
+		}
+		calls = append(calls, session.ToolCall{ID: fmt.Sprintf("call_%d", i+1), Tool: c.Tool, Args: c.Args})
+	}
 	var out []session.Action
 	if _, ok := e.cfg.Tools["speak"]; ok {
-		for i, s := range a.Take.Speech {
+		for i, s := range speech {
 			out = append(out, session.SpeechDelta{CallID: fmt.Sprintf("speak_%d", i+1), Text: s.Text + s.Unheard, Mode: session.ModeQueue, Last: true})
 		}
 	}
-	for i, c := range a.Take.Calls {
-		if _, ok := e.cfg.Tools[c.Tool]; ok {
-			out = append(out, session.ToolCall{ID: fmt.Sprintf("call_%d", i+1), Tool: c.Tool, Args: c.Args})
-		}
-	}
+	out = append(out, calls...)
 	end := session.TurnEnd{FinishReason: "stop", Completion: "{}"}
 	if a.Fail != "" {
 		end = session.TurnEnd{FinishReason: session.FinishError, Completion: fmt.Sprintf(`{"error":%q}`, a.Fail), Error: a.Fail}
