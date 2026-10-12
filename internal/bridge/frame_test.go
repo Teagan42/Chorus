@@ -98,8 +98,15 @@ func TestReadFrameTruncatedPayload(t *testing.T) {
 	}
 }
 
+// The hello carries the device's nonce and the name it claims, after the
+// format, so the host can prove itself before the device proves anything.
+//
+// verifies SPEC §3.2.2
 func TestHelloRoundTrip(t *testing.T) {
-	want := bridge.Hello{Version: bridge.ProtocolVersion, SampleRate: 16000, BitsPerSample: 16, MicChannels: 2}
+	want := bridge.Hello{
+		Version: bridge.ProtocolVersion, SampleRate: 16000, BitsPerSample: 16, MicChannels: 2,
+		Nonce: [bridge.NonceSize]byte{1, 2, 3, 31: 0xff}, Name: "satellite1-4b2c10",
+	}
 
 	got, err := bridge.ParseHello(want.Frame().Payload)
 	if err != nil {
@@ -107,6 +114,23 @@ func TestHelloRoundTrip(t *testing.T) {
 	}
 	if got != want {
 		t.Errorf("Hello = %+v, want %+v", got, want)
+	}
+}
+
+// verifies SPEC §3.2.2
+func TestParseHelloRejectsMalformedNames(t *testing.T) {
+	base := bridge.Hello{Version: bridge.ProtocolVersion, SampleRate: 16000, BitsPerSample: 16, MicChannels: 2}
+	for name, h := range map[string]bridge.Hello{
+		"no name":       base,
+		"name too long": {Version: base.Version, Name: strings.Repeat("a", bridge.MaxNameLen+1)},
+		"not utf-8":     {Version: base.Version, Name: "\xff\xfe"},
+	} {
+		if _, err := bridge.ParseHello(h.Frame().Payload); err == nil {
+			t.Errorf("%s: ParseHello accepted it", name)
+		}
+	}
+	if _, err := bridge.ParseHello(nil); err == nil {
+		t.Error("ParseHello accepted an empty payload")
 	}
 }
 
@@ -120,7 +144,7 @@ func TestParseHelloRejectsForeignVersion(t *testing.T) {
 		"stale flash": 1,
 	} {
 		t.Run(name, func(t *testing.T) {
-			h := bridge.Hello{Version: version, SampleRate: 16000, BitsPerSample: 16, MicChannels: 2}
+			h := bridge.Hello{Version: version, SampleRate: 16000, BitsPerSample: 16, MicChannels: 2, Name: "kitchen"}
 			_, err := bridge.ParseHello(h.Frame().Payload)
 			if err == nil {
 				t.Fatal("ParseHello = nil, want error")

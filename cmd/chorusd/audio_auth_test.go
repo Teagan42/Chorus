@@ -62,10 +62,17 @@ func dialRaw(t *testing.T, r *rig, ip string) *rawDevice {
 // it against the daemon's reads otherwise.
 func (d *rawDevice) script(f func() error) { go func() { d.errs <- f() }() }
 
-func (d *rawDevice) hello(version uint8) error {
+// hello is the kitchen's, at this checkout's version.
+func (d *rawDevice) hello() error {
 	return d.w.WriteFrame(bridge.Hello{
-		Version: version, SampleRate: bridge.SampleRate, BitsPerSample: bridge.BitsPerSample, MicChannels: 2,
+		Version: bridge.ProtocolVersion, SampleRate: bridge.SampleRate, BitsPerSample: bridge.BitsPerSample,
+		MicChannels: 2, Name: "kitchen",
 	}.Frame())
+}
+
+// v3Hello is a protocol 3 satellite's hello: format only, no nonce, no name.
+func (d *rawDevice) v3Hello() error {
+	return d.w.WriteFrame(bridge.Frame{Type: bridge.TypeHello, Payload: []byte{0x03, 0x00, 0x00, 0x3e, 0x80, 0x10, 0x02}})
 }
 
 // challenge reads the frame the daemon sends after the hello.
@@ -106,15 +113,33 @@ func (d *rawDevice) hungUp(t *testing.T) {
 	}
 }
 
+// The kitchen satellite flashed with a key that is not its psk: the
+// daemon's proof fails on it, so it hangs up before proving anything, and
+// the daemon's log says which satellite refused it and what that suggests.
+//
+// verifies SPEC §3.2.2, §13
+func TestASatelliteWithAnotherKeyRefusesTheDaemon(t *testing.T) {
+	r := newRig(t, inventory())
+
+	dev := bridgetest.Connect(r.ln.dial(t, kitchenIP), 2, bridgetest.As("kitchen", officeKey))
+	r.refused(t, dev, "challenge refused")
+	if !errors.Is(dev.Refused(), bridge.ErrHostUnproven) {
+		t.Errorf("the satellite gave up because %v, want the daemon's proof", dev.Refused())
+	}
+	if !r.logs.contains("kitchen") || !r.logs.contains("psk") {
+		t.Errorf("the refusal does not name the satellite and its key:\n%s", r.logs.String())
+	}
+}
+
 // Someone on the LAN who knows the kitchen satellite's name, from the
 // kitchen's own address, but answers with a key that is not its psk: the
-// MAC fails, the link is refused with that reason, and nothing is heard.
+// proof fails, the link is refused with that reason, and nothing is heard.
 //
 // verifies SPEC §3.2.2, §13
 func TestAnAnswerUnderTheWrongKeyIsRefused(t *testing.T) {
 	r := newRig(t, inventory())
 
-	dev := bridgetest.Connect(r.ln.dial(t, kitchenIP), 2, bridgetest.As("kitchen", officeKey))
+	dev := bridgetest.Connect(r.ln.dial(t, kitchenIP), 2, bridgetest.SkipHostCheck(), bridgetest.As("kitchen", officeKey))
 	r.refused(t, dev, "bad MAC")
 	if !r.logs.contains("kitchen") {
 		t.Errorf("the refusal does not name the satellite claimed:\n%s", r.logs.String())
@@ -151,19 +176,19 @@ func TestTheRightNameFromTheWrongAddressIsRefused(t *testing.T) {
 	}
 }
 
-// A satellite still flashed with protocol 2 has no answer to give. It is
-// refused at its hello, and the log names both versions, so the fix it
-// points at is reflashing the satellite (ADR-0066).
+// A satellite still flashed with protocol 3 sends no nonce and cannot open
+// a sealed frame. It is refused at its hello, and the log names both
+// versions, so the fix it points at is reflashing the satellite (ADR-0074).
 //
 // verifies SPEC §3.2.2
-func TestAVersion2SatelliteIsRefusedWithBothVersionsNamed(t *testing.T) {
+func TestAVersion3SatelliteIsRefusedWithBothVersionsNamed(t *testing.T) {
 	r := newRig(t, inventory())
 
 	dev := dialRaw(t, r, kitchenIP)
-	dev.script(func() error { return dev.hello(2) })
+	dev.script(dev.v3Hello)
 	dev.hungUp(t)
 	r.logs.await(t, `reason="protocol version"`)
-	if s := r.logs.String(); !strings.Contains(s, "protocol 2") || !strings.Contains(s, "speaks 3") {
+	if s := r.logs.String(); !strings.Contains(s, "protocol 3") || !strings.Contains(s, "speaks 4") {
 		t.Errorf("the refusal does not name the two versions:\n%s", s)
 	}
 	if n := len(r.store.events()); n != 0 {
@@ -181,7 +206,7 @@ func TestAHandshakeThatIsNeverAnsweredTimesOut(t *testing.T) {
 
 	dev := dialRaw(t, r, kitchenIP)
 	dev.script(func() error {
-		if err := dev.hello(bridge.ProtocolVersion); err != nil {
+		if err := dev.hello(); err != nil {
 			return err
 		}
 		return dev.challenge()
@@ -210,7 +235,7 @@ func TestAudioBeforeTheAnswerIsRefused(t *testing.T) {
 
 	dev := dialRaw(t, r, kitchenIP)
 	dev.script(func() error {
-		if err := dev.hello(bridge.ProtocolVersion); err != nil {
+		if err := dev.hello(); err != nil {
 			return err
 		}
 		if err := dev.challenge(); err != nil {
@@ -266,7 +291,7 @@ func TestARefusedConnectionLeavesTheLiveLinkAlone(t *testing.T) {
 	live := r.join(t, kitchenIP)
 	lst := r.dm.linked("kitchen")
 
-	impostor := bridgetest.Connect(r.ln.dial(t, kitchenIP), 2, bridgetest.As("kitchen", officeKey))
+	impostor := bridgetest.Connect(r.ln.dial(t, kitchenIP), 2, bridgetest.SkipHostCheck(), bridgetest.As("kitchen", officeKey))
 	gone(t, impostor, "the impostor")
 	r.logs.await(t, `reason="bad MAC"`)
 

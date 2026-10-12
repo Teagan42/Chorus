@@ -1,13 +1,14 @@
 package bridge
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -36,12 +37,10 @@ type Handler interface {
 type Link struct {
 	conn  net.Conn
 	hello Hello
-	name  string
-	r     *Reader
+	r     *SealedReader
 
-	mu sync.Mutex // serializes writes; a torn frame is unparseable
-	bw *bufio.Writer
-	w  *Writer
+	mu sync.Mutex // serializes writes; a torn record is unopenable
+	w  *SealedWriter
 	// Bumped by Stop. SendTTS captures it and abandons the rest of its payload
 	// if it changes, because the mutex alone only makes each frame whole: a
 	// multi-chunk SendTTS releases it between chunks, so a Stop could land
@@ -55,13 +54,14 @@ type Link struct {
 // still writing. Distinct from a transport failure: the link is fine.
 var ErrStopped = errors.New("bridge: utterance stopped by barge-in")
 
-// NewLink completes the opening handshake: the hello, then a challenge the
-// device answers under its PSK. Nothing else is read or sent first (ADR-0066).
+// NewLink completes the opening handshake: the hello, the host's challenge
+// and proof, then the device's proof. Nothing else is read or sent first,
+// and every frame after it is sealed (ADR-0074).
 func NewLink(conn net.Conn, keys Keys) (*Link, error) {
-	bw := bufio.NewWriterSize(conn, HeaderSize+ttsChunkBytes)
-	l := &Link{conn: conn, r: NewReader(conn), bw: bw, w: NewWriter(bw)}
+	l := &Link{conn: conn}
+	plain := NewReader(conn)
 
-	f, err := l.r.ReadFrame()
+	f, err := plain.ReadFrame()
 	if err != nil {
 		return nil, fmt.Errorf("read hello: %w", err)
 	}
@@ -80,46 +80,69 @@ func NewLink(conn net.Conn, keys Keys) (*Link, error) {
 		return nil, fmt.Errorf("device declared %d Hz/%d-bit audio, want %d Hz/%d-bit",
 			l.hello.SampleRate, l.hello.BitsPerSample, SampleRate, BitsPerSample)
 	}
-	if l.name, err = l.authenticate(keys); err != nil {
+	deviceToHost, hostToDevice, err := l.authenticate(plain, keys)
+	if err != nil {
+		return nil, err
+	}
+	if l.r, err = NewSealedReader(conn, deviceToHost); err != nil {
+		return nil, err
+	}
+	if l.w, err = NewSealedWriter(conn, hostToDevice); err != nil {
 		return nil, err
 	}
 	return l, nil
 }
 
-// authenticate challenges the device and returns the name its answer proved.
-// The name is looked up before the MAC is checked, but both must hold.
-func (l *Link) authenticate(keys Keys) (string, error) {
-	c := NewChallenge()
-	if err := l.send(c.Frame()); err != nil {
-		return "", fmt.Errorf("send challenge: %w", err)
-	}
-	f, err := l.r.ReadFrame()
-	if err != nil {
-		return "", fmt.Errorf("read auth: %w", err)
-	}
-	if f.Type != TypeAuth {
-		return "", fmt.Errorf("%w: device sent %s, want auth", ErrUnauthenticated, f.Type)
-	}
-	a, err := ParseAuth(f.Payload)
-	if err != nil {
-		return "", err
-	}
-	psk, ok := keys(a.Name)
+// authenticate proves the host to the satellite the hello names, then
+// checks the device's proof, and returns the session's two keys.
+func (l *Link) authenticate(plain *Reader, keys Keys) (deviceToHost, hostToDevice []byte, err error) {
+	name := l.hello.Name
+	psk, ok := keys(name)
 	if !ok {
-		return "", fmt.Errorf("%w: device names itself %q", ErrUnknownDevice, a.Name)
+		return nil, nil, fmt.Errorf("%w: device names itself %q", ErrUnknownDevice, name)
 	}
 	key, err := LinkKey(psk)
 	if err != nil {
-		return "", fmt.Errorf("satellite %s: %w", a.Name, err)
+		return nil, nil, fmt.Errorf("satellite %s: %w", name, err)
 	}
-	if !a.Verify(key, c, l.hello) {
-		return "", fmt.Errorf("%w: device names itself %q, and its key is not that satellite's psk", ErrBadMAC, a.Name)
+	c := NewChallenge(key, l.hello)
+	if err := writeWhole(l.conn, c.Frame()); err != nil {
+		return nil, nil, fmt.Errorf("send challenge: %w", err)
 	}
-	return a.Name, nil
+	f, err := plain.ReadFrame()
+	if err != nil {
+		if errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) {
+			return nil, nil, fmt.Errorf("%w: device names itself %q, and may hold another key than "+
+				"that satellite's psk: %w", ErrChallengeRefused, name, err)
+		}
+		return nil, nil, fmt.Errorf("read auth: %w", err)
+	}
+	if f.Type != TypeAuth {
+		return nil, nil, fmt.Errorf("%w: device sent %s, want auth", ErrUnauthenticated, f.Type)
+	}
+	a, err := ParseAuth(f.Payload)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !a.Verify(key, l.hello, c) {
+		return nil, nil, fmt.Errorf("%w: device names itself %q, and its key is not that satellite's psk",
+			ErrBadMAC, name)
+	}
+	return SessionKeys(key, l.hello, c.Nonce)
+}
+
+// writeWhole sends one plaintext frame in a single Write.
+func writeWhole(w io.Writer, f Frame) error {
+	var b bytes.Buffer
+	if err := NewWriter(&b).WriteFrame(f); err != nil {
+		return err
+	}
+	_, err := w.Write(b.Bytes())
+	return err
 }
 
 // Name is the satellite the device proved it is.
-func (l *Link) Name() string { return l.name }
+func (l *Link) Name() string { return l.hello.Name }
 
 // Hello is the format the device declared.
 func (l *Link) Hello() Hello { return l.hello }
@@ -178,15 +201,12 @@ func dispatch(h Handler, f Frame) error {
 	}
 }
 
-// send writes one whole frame. Buffered so the header and payload leave in a
-// single segment, then flushed because barge-in latency is the point.
+// send seals one whole frame. The record leaves in a single write, at once,
+// because barge-in latency is the point.
 func (l *Link) send(f Frame) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if err := l.w.WriteFrame(f); err != nil {
-		return err
-	}
-	return l.bw.Flush()
+	return l.w.WriteFrame(f)
 }
 
 // SendTTS streams downlink PCM as 16 kHz signed 16-bit mono. Chunks from
@@ -219,10 +239,7 @@ func (l *Link) sendTTSChunk(gen uint64, payload []byte) error {
 	if l.utterance != gen {
 		return ErrStopped
 	}
-	if err := l.w.WriteFrame(Frame{Type: TypeTTS, Payload: payload}); err != nil {
-		return err
-	}
-	return l.bw.Flush()
+	return l.w.WriteFrame(Frame{Type: TypeTTS, Payload: payload})
 }
 
 // Stop is barge-in: the device discards its speaker buffer immediately. Audio
@@ -241,7 +258,7 @@ func (l *Link) Stop() (tag uint8, err error) {
 	if err := l.w.WriteFrame(Frame{Type: TypeStop, Flags: tag}); err != nil {
 		return 0, err
 	}
-	return tag, l.bw.Flush()
+	return tag, nil
 }
 
 // stopTag folds the utterance generation into the flags byte. Never zero, so

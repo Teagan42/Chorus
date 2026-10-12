@@ -52,25 +52,14 @@ func keys(name string) ([]byte, bool) {
 	return kitchenPSK(), true
 }
 
-// handshake is the firmware's half of the opening exchange: hello, then the
-// MAC over the host's nonce, as name under psk.
-func handshake(conn net.Conn, h bridge.Hello, name string, psk []byte) error {
-	w := bridge.NewWriter(conn)
-	if err := w.WriteFrame(h.Frame()); err != nil {
-		return err
-	}
-	c, err := readChallenge(conn)
-	if err != nil {
-		return err
-	}
-	key, err := bridge.LinkKey(psk)
-	if err != nil {
-		return err
-	}
-	return w.WriteFrame(bridge.AnswerChallenge(key, c, name, h).Frame())
+// handshake is the firmware's half of the opening exchange, as name holding
+// psk: hello, the host's proof checked, then the device's own.
+func handshake(conn io.ReadWriter, h bridge.Hello, name string, psk []byte) (*bridge.DeviceConn, error) {
+	h.Name = name
+	return bridge.Join(conn, h, psk)
 }
 
-func readChallenge(conn net.Conn) (bridge.Challenge, error) {
+func readChallenge(conn io.Reader) (bridge.Challenge, error) {
 	f, err := bridge.NewReader(conn).ReadFrame()
 	if err != nil {
 		return bridge.Challenge{}, err
@@ -81,9 +70,34 @@ func readChallenge(conn net.Conn) (bridge.Challenge, error) {
 	return bridge.ParseChallenge(f.Payload)
 }
 
-// joins answers as the kitchen with a channels-wide hello.
-func joins(conn net.Conn, channels uint8) error {
+// joins is the kitchen joining with a channels-wide hello.
+func joins(conn io.ReadWriter, channels uint8) (*bridge.DeviceConn, error) {
 	return handshake(conn, helloOf(channels), kitchen, kitchenPSK())
+}
+
+// joined runs the kitchen's handshake against NewLink and returns the host's
+// link, the device's sealed end, and the device's raw connection.
+func joined(t *testing.T, channels uint8) (*bridge.Link, *bridge.DeviceConn, net.Conn) {
+	t.Helper()
+	host, device := newPipe(t)
+	type result struct {
+		dc  *bridge.DeviceConn
+		err error
+	}
+	got := make(chan result, 1)
+	go func() {
+		dc, err := joins(device, channels)
+		got <- result{dc, err}
+	}()
+	l, err := bridge.NewLink(host, keys)
+	if err != nil {
+		t.Fatalf("NewLink: %v", err)
+	}
+	r := <-got
+	if r.err != nil {
+		t.Fatalf("device side: %v", r.err)
+	}
+	return l, r.dc, device
 }
 
 // collector records what Serve dispatched. Guarded because Serve's read loop
@@ -177,22 +191,15 @@ func serve(t *testing.T, l *bridge.Link, h bridge.Handler) <-chan error {
 
 // verifies SPEC §3.1
 func TestNewLinkReadsHello(t *testing.T) {
-	host, device := newPipe(t)
-	go func() { _ = joins(device, 2) }()
-
-	l, err := bridge.NewLink(host, keys)
-	if err != nil {
-		t.Fatalf("NewLink: %v", err)
-	}
+	l, dc, _ := joined(t, 2)
 	got := l.Hello()
-	want := bridge.Hello{
-		Version:       bridge.ProtocolVersion,
-		SampleRate:    bridge.SampleRate,
-		BitsPerSample: bridge.BitsPerSample,
-		MicChannels:   2,
-	}
+	want := helloOf(2)
+	want.Name, want.Nonce = kitchen, dc.Hello().Nonce
 	if got != want {
 		t.Errorf("Hello() = %+v, want %+v", got, want)
+	}
+	if got.Nonce == ([bridge.NonceSize]byte{}) {
+		t.Error("the device's nonce is zero")
 	}
 }
 
@@ -204,6 +211,7 @@ func TestNewLinkRejectsBadProtocolVersion(t *testing.T) {
 		SampleRate:    bridge.SampleRate,
 		BitsPerSample: bridge.BitsPerSample,
 		MicChannels:   1,
+		Name:          kitchen,
 	}
 	go func() { _ = bridge.NewWriter(device).WriteFrame(bad.Frame()) }()
 
@@ -228,12 +236,14 @@ func TestNewLinkRejectsIncompatibleAudioFormat(t *testing.T) {
 			SampleRate:    48000,
 			BitsPerSample: bridge.BitsPerSample,
 			MicChannels:   2,
+			Name:          kitchen,
 		}},
 		{"bit depth", bridge.Hello{
 			Version:       bridge.ProtocolVersion,
 			SampleRate:    bridge.SampleRate,
 			BitsPerSample: 32,
 			MicChannels:   2,
+			Name:          kitchen,
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -252,7 +262,9 @@ func TestNewLinkRejectsNonHelloFirstFrame(t *testing.T) {
 	// A payload that would parse as a valid hello body, so only the frame type
 	// can reject it. A short payload would fail ParseHello's length check and
 	// pass this test even with the type check gone.
-	body := helloOf(1).Frame().Payload
+	h := helloOf(1)
+	h.Name = kitchen
+	body := h.Frame().Payload
 	go func() {
 		_ = bridge.NewWriter(device).WriteFrame(bridge.Frame{Type: bridge.TypeMic, Payload: body})
 	}()
@@ -264,15 +276,7 @@ func TestNewLinkRejectsNonHelloFirstFrame(t *testing.T) {
 
 // verifies SPEC §3.2
 func TestServeDispatchesDeviceFrames(t *testing.T) {
-	host, device := newPipe(t)
-	w := bridge.NewWriter(device)
-	go func() {
-		_ = joins(device, 2)
-	}()
-	l, err := bridge.NewLink(host, keys)
-	if err != nil {
-		t.Fatal(err)
-	}
+	l, w, _ := joined(t, 2)
 	c := newCollector()
 	serve(t, l, c)
 
@@ -313,6 +317,8 @@ func TestServeDispatchesDeviceFrames(t *testing.T) {
 // chorus_bridge's loop() interleaves pump_uplink_ and pump_downlink_.
 type fakeDevice struct {
 	conn net.Conn
+	// dc is the sealed end, stored before the first mic chunk counts as sent.
+	dc atomic.Pointer[bridge.DeviceConn]
 
 	// sent counts mic chunks the host has actually taken delivery of. net.Pipe
 	// is unbuffered, so it only advances when the host reads.
@@ -342,11 +348,12 @@ func newFakeDevice(conn net.Conn) *fakeDevice {
 // stored only after the write completes, so it measures delivery rather than
 // intent: a blocked write leaves it frozen.
 func (d *fakeDevice) streamMic() {
-	w := bridge.NewWriter(d.conn)
-	if err := joins(d.conn, 1); err != nil {
+	w, err := joins(d.conn, 1)
+	if err != nil {
 		d.closed.Store(true)
 		return
 	}
+	d.dc.Store(w)
 	for n := uint32(1); ; n++ {
 		pcm := make([]byte, 4)
 		binary.BigEndian.PutUint32(pcm, n)
@@ -392,7 +399,6 @@ func (d *fakeDevice) awaitTTSBytes(t *testing.T, want int) {
 // net.Pipe's synchronous rendezvous lets the TTS writer and this reader run hot
 // and starve the uplink entirely, which made the assertion flaky.
 func (d *fakeDevice) readDownlink() {
-	r := bridge.NewReader(d.conn)
 	lastMic := uint32(0)
 	for {
 		for d.sent.Load() == lastMic {
@@ -403,7 +409,7 @@ func (d *fakeDevice) readDownlink() {
 		}
 		lastMic = d.sent.Load()
 
-		f, err := r.ReadFrame()
+		f, err := d.dc.Load().ReadFrame()
 		if err != nil {
 			return
 		}
@@ -551,12 +557,7 @@ func TestHostControlFrames(t *testing.T) {
 // report carries, and consecutive stops must not share one, or the answer to
 // the previous barge-in could pass for this one's.
 func TestStopTagsEachStopDistinctlyAndNeverZero(t *testing.T) {
-	host, device := newPipe(t)
-	go func() { _ = joins(device, 1) }()
-	l, err := bridge.NewLink(host, keys)
-	if err != nil {
-		t.Fatal(err)
-	}
+	l, dc, _ := joined(t, 1)
 
 	// More stops than the flags byte has values, so the tag has to wrap and
 	// still never land on zero.
@@ -565,7 +566,7 @@ func TestStopTagsEachStopDistinctlyAndNeverZero(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		r := bridge.NewReader(device)
+		r := dc
 		for range stops {
 			f, err := r.ReadFrame()
 			if err != nil || f.Type != bridge.TypeStop {
@@ -604,12 +605,7 @@ func TestStopTagsEachStopDistinctlyAndNeverZero(t *testing.T) {
 // A TTS utterance exceeds the uint16 length field, so SendTTS must split it and
 // every chunk must stay frame-aligned: a half sample desynchronises the device.
 func TestSendTTSChunksOnSampleBoundaries(t *testing.T) {
-	host, device := newPipe(t)
-	go func() { _ = joins(device, 1) }()
-	l, err := bridge.NewLink(host, keys)
-	if err != nil {
-		t.Fatal(err)
-	}
+	l, dc, _ := joined(t, 1)
 
 	pcm := make([]byte, 3*bridge.MaxPayload+7*2)
 	for i := range pcm {
@@ -627,7 +623,7 @@ func TestSendTTSChunksOnSampleBoundaries(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		r := bridge.NewReader(device)
+		r := dc
 		for {
 			f, err := r.ReadFrame()
 			if err != nil {
@@ -668,12 +664,7 @@ func TestSendTTSChunksOnSampleBoundaries(t *testing.T) {
 // Send is called from the turn engine while Serve runs; concurrent writes must
 // not interleave into an unparseable stream.
 func TestConcurrentSendsDoNotInterleave(t *testing.T) {
-	host, device := newPipe(t)
-	go func() { _ = joins(device, 1) }()
-	l, err := bridge.NewLink(host, keys)
-	if err != nil {
-		t.Fatal(err)
-	}
+	l, dc, _ := joined(t, 1)
 
 	const senders, each = 8, 25
 	chunk := make([]byte, 512)
@@ -682,7 +673,7 @@ func TestConcurrentSendsDoNotInterleave(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		r := bridge.NewReader(device)
+		r := dc
 		for n := 0; n < senders*each; n++ {
 			f, err := r.ReadFrame()
 			if err != nil {
@@ -726,12 +717,7 @@ func TestConcurrentSendsDoNotInterleave(t *testing.T) {
 // Serve returns when the device hangs up, so the supervisor can reconnect
 // rather than hold a dead link (SPEC §7).
 func TestServeReturnsOnDeviceClose(t *testing.T) {
-	host, device := newPipe(t)
-	go func() { _ = joins(device, 1) }()
-	l, err := bridge.NewLink(host, keys)
-	if err != nil {
-		t.Fatal(err)
-	}
+	l, _, device := joined(t, 1)
 	errc := serve(t, l, newCollector())
 
 	_ = device.Close()
@@ -749,12 +735,7 @@ func TestServeReturnsOnDeviceClose(t *testing.T) {
 // Cancelling the context tears the link down; a blocked socket read must not
 // outlive it.
 func TestServeStopsOnContextCancel(t *testing.T) {
-	host, device := newPipe(t)
-	go func() { _ = joins(device, 1) }()
-	l, err := bridge.NewLink(host, keys)
-	if err != nil {
-		t.Fatal(err)
-	}
+	l, _, _ := joined(t, 1)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
@@ -775,16 +756,10 @@ func TestServeStopsOnContextCancel(t *testing.T) {
 // A handler error is the host's own failure; it must surface rather than be
 // swallowed into a silently deaf link.
 func TestServeReturnsHandlerError(t *testing.T) {
-	host, device := newPipe(t)
-	w := bridge.NewWriter(device)
+	l, w, _ := joined(t, 1)
 	go func() {
-		_ = joins(device, 1)
 		_ = w.WriteFrame(bridge.Frame{Type: bridge.TypeMic, Payload: []byte{0, 0}})
 	}()
-	l, err := bridge.NewLink(host, keys)
-	if err != nil {
-		t.Fatal(err)
-	}
 	errc := serve(t, l, failingHandler{})
 
 	select {
@@ -807,17 +782,11 @@ func (failingHandler) OnMute(bridge.Mute) error     { return nil }
 // An unknown frame type is skippable by design, so newer firmware does not
 // break an older host.
 func TestServeIgnoresUnknownFrameTypes(t *testing.T) {
-	host, device := newPipe(t)
-	w := bridge.NewWriter(device)
+	l, w, _ := joined(t, 1)
 	go func() {
-		_ = joins(device, 1)
 		_ = w.WriteFrame(bridge.Frame{Type: 0x7f, Payload: []byte("from the future")})
 		_ = w.WriteFrame(bridge.Frame{Type: bridge.TypeWake, Payload: []byte("hey_eddie")})
 	}()
-	l, err := bridge.NewLink(host, keys)
-	if err != nil {
-		t.Fatal(err)
-	}
 	c := newCollector()
 	serve(t, l, c)
 
@@ -842,7 +811,8 @@ func TestListenerAcceptsADialingDevice(t *testing.T) {
 			return
 		}
 		defer func() { _ = conn.Close() }()
-		dialed <- joins(conn, 2)
+		_, err = joins(conn, 2)
+		dialed <- err
 		<-time.After(50 * time.Millisecond)
 	}()
 
@@ -913,7 +883,8 @@ func TestListenerAcceptCancellationDoesNotStealTheNextDevice(t *testing.T) {
 			return
 		}
 		defer func() { _ = conn.Close() }()
-		dialed <- joins(conn, 2)
+		_, err = joins(conn, 2)
+		dialed <- err
 		<-time.After(50 * time.Millisecond)
 	}()
 
@@ -940,12 +911,7 @@ func TestListenerAcceptCancellationDoesNotStealTheNextDevice(t *testing.T) {
 // barge-in was cancelling, so Stop has to invalidate an utterance that is still
 // being written rather than merely queue behind its next chunk.
 func TestStopAbandonsTheUtteranceBeingWritten(t *testing.T) {
-	host, device := newPipe(t)
-	go func() { _ = joins(device, 1) }()
-	l, err := bridge.NewLink(host, keys)
-	if err != nil {
-		t.Fatal(err)
-	}
+	l, dc, _ := joined(t, 1)
 
 	// Far more than one chunk, so the write is still in progress when Stop
 	// lands. net.Pipe is unbuffered, so every frame blocks on the drain below.
@@ -958,7 +924,7 @@ func TestStopAbandonsTheUtteranceBeingWritten(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		r := bridge.NewReader(device)
+		r := dc
 		seen := false
 		for {
 			f, err := r.ReadFrame()

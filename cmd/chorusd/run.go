@@ -426,6 +426,8 @@ func refusedBecause(err error) string {
 		return "unknown name"
 	case errors.Is(err, bridge.ErrBadMAC):
 		return "bad MAC"
+	case errors.Is(err, bridge.ErrChallengeRefused):
+		return "challenge refused"
 	case errors.Is(err, bridge.ErrUnauthenticated):
 		return "frame before auth"
 	case errors.Is(err, bridge.ErrVersion):
@@ -435,9 +437,9 @@ func refusedBecause(err error) string {
 	}
 }
 
-// handshake completes the hello and the device's proof of identity, bounded
-// by the injected timers rather than a socket deadline, so no wall clock is
-// read here.
+// handshake completes the hello and both proofs (ADR-0074), bounded by the
+// injected timers rather than a socket deadline, so no wall clock is read
+// here.
 func (d *daemon) handshake(ctx context.Context, conn net.Conn) (*bridge.Link, error) {
 	if tcp, ok := conn.(*net.TCPConn); ok {
 		// Nagle would coalesce the 32 ms chunks barge-in timing depends on.
