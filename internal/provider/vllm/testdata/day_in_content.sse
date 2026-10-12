@@ -1,0 +1,14 @@
+data: {"id":"chatcmpl-5f1a9c3e7b2d4086","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-5f1a9c3e7b2d4086","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"reasoning_content":"The system message says it is Friday 9 October 2026."},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-5f1a9c3e7b2d4086","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"reasoning_content":" No tool is needed."},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-5f1a9c3e7b2d4086","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"content":"Today is Friday,"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-5f1a9c3e7b2d4086","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"content":" 9 October 2026."},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-5f1a9c3e7b2d4086","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"stop"}]}
+
+data: [DONE]
+

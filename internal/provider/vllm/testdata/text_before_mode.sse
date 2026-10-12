@@ -1,0 +1,16 @@
+data: {"id":"chatcmpl-6c2e8a1f4d9b4073","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-6c2e8a1f4d9b4073","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"id":"chatcmpl-tool-9e3a5c7b2d1f4e60","type":"function","index":0,"function":{"name":"speak"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-6c2e8a1f4d9b4073","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"text\": \"It's eighteen degrees"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-6c2e8a1f4d9b4073","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":" and sunny"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-6c2e8a1f4d9b4073","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":".\", \"mode\": \"inter"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-6c2e8a1f4d9b4073","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ject\"}"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-6c2e8a1f4d9b4073","object":"chat.completion.chunk","created":1791820800,"model":"Qwen/Qwen3-32B-AWQ","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+
