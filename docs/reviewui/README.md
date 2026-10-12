@@ -558,13 +558,16 @@ ships, how many a reviewer confirmed, how many are held as
 row is one JSON object:
 
 ```json
-{"id":"device:kitchen/7","label":0,"source":"stage2_reject","reason":"no_speech","satellite":"kitchen","at":"2025-10-09T14:02:00Z","audio":"blob://wake/kitchen-dishwasher","second_audio":"blob://wake/kitchen-dishwasher-second","confirmed":true,"conversation_id":"device:kitchen","seq":7}
+{"id":"device:kitchen/7","label":0,"source":"stage2_reject","reason":"no_speech","wake_word":"hey_eddie","satellite":"kitchen","at":"2025-10-09T14:02:00Z","audio":"blob://wake/kitchen-dishwasher","second_audio":"blob://wake/kitchen-dishwasher-second","confirmed":true,"conversation_id":"device:kitchen","seq":7}
 ```
 
 `audio` and `second_audio` are blob refs, as the DPO rows' audio is, so the
 clips stay under the blob store's retention. `second_audio` is empty
 when the satellite kept no second channel. `reason` is what stage two said,
-so a trainer can keep or drop each kind (ADR-0058).
+so a trainer can keep or drop each kind (ADR-0058). `wake_word` is the name
+the wake frame carried, empty for a rejection journalled before it was
+recorded (ADR-0072). `task wake:corpus` lays this file out for retraining
+([the guide](../wake-retraining.md)).
 
 Retention may remove a clip, and the disk guard may never write one
 (ADR-0065). The log then records `audio_dropped`, and the page shows

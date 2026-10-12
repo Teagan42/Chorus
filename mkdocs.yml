@@ -52,6 +52,7 @@ nav:
   - Review UI:
       - reviewui/README.md
       - Live demo: https://teagan42.github.io/Chorus/demo/
+  - Wake-word retraining: wake-retraining.md
   - Reference:
       - reference/events.md
       - reference/tools.md
