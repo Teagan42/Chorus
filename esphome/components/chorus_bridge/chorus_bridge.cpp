@@ -155,6 +155,7 @@ void ChorusBridge::start_connect_() {
   this->socket_ = socket::socket_loop_monitored(AF_INET, SOCK_STREAM, 0);
   if (this->socket_ == nullptr) {
     ESP_LOGW(TAG, "Socket creation failed");
+    this->set_link_state_(false);
     return;
   }
   this->socket_->setblocking(false);
@@ -169,12 +170,14 @@ void ChorusBridge::start_connect_() {
   if (this->connect_addrlen_ == 0) {
     ESP_LOGW(TAG, "Bad host '%s'", this->host_.c_str());
     this->socket_ = nullptr;
+    this->set_link_state_(false);
     return;
   }
   if (this->socket_->connect((struct sockaddr *) &this->connect_addr_, this->connect_addrlen_) != 0 &&
       errno != EINPROGRESS) {
     ESP_LOGW(TAG, "Connect to %s:%u failed: %s", this->host_.c_str(), this->port_, strerror(errno));
     this->socket_ = nullptr;
+    this->set_link_state_(false);
     return;
   }
   this->connecting_ = true;
@@ -275,6 +278,20 @@ void ChorusBridge::verify_host_(const uint8_t *payload, size_t length) {
   if (this->mic_requested_) {
     this->start_microphones_();
   }
+  this->set_link_state_(true);
+}
+
+void ChorusBridge::set_link_state_(bool connected) {
+  const LinkState next = connected ? LinkState::CONNECTED : LinkState::DISCONNECTED;
+  if (next == this->link_state_) {
+    return;
+  }
+  this->link_state_ = next;
+  if (connected) {
+    this->connected_trigger_.trigger();
+  } else {
+    this->disconnected_trigger_.trigger();
+  }
 }
 
 void ChorusBridge::disconnect_(const char *reason) {
@@ -307,6 +324,8 @@ void ChorusBridge::disconnect_(const char *reason) {
   if (this->speaker_ != nullptr) {
     this->speaker_->stop();
   }
+  // Last: the automation it runs sees the link already down.
+  this->set_link_state_(false);
 }
 
 bool ChorusBridge::queue_plain_(FrameType type, const uint8_t *payload, size_t length) {

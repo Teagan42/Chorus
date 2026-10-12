@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
 
@@ -79,6 +80,11 @@ enum class FrameType : uint8_t {
   CHALLENGE = 0x15,  // in the clear: the host's nonce and its proof
 };
 
+// What the bridge last told its automations. Unknown until the first link is
+// sealed or the first attempt fails, so on_disconnected also fires for a
+// satellite that never reaches the host at all.
+enum class LinkState : uint8_t { UNKNOWN, CONNECTED, DISCONNECTED };
+
 // MUTE frame bits. Hardware is the board's physical switch; software is the
 // Microphone's own mute, which zero-fills what it delivers (SPEC §3.2).
 static const uint8_t MUTE_HARDWARE = 1 << 0;
@@ -128,7 +134,16 @@ class ChorusBridge : public Component {
   /// The host proved the key and the link is sealed.
   bool is_connected() const { return this->socket_ != nullptr && this->authenticated_; }
 
+  /// on_connected: a link is sealed, the host having proved the key.
+  Trigger<> *get_connected_trigger() { return &this->connected_trigger_; }
+  /// on_disconnected: the satellite stopped being connected, or its first
+  /// attempt after boot failed. A refused host proof is one such failure.
+  Trigger<> *get_disconnected_trigger() { return &this->disconnected_trigger_; }
+
  protected:
+  /// Fires the trigger for a change of state, and nothing for a repeat: a
+  /// host that stays down is one on_disconnected, not one per redial.
+  void set_link_state_(bool connected);
   void start_connect_();
   bool finish_connect_();
   void disconnect_(const char *reason);
@@ -179,6 +194,10 @@ class ChorusBridge : public Component {
   // The record at the head of rx_ is opened in place but not yet handled: a
   // TTS frame waiting for the speaker queue. It must not be opened twice.
   bool rx_head_open_{false};
+
+  LinkState link_state_{LinkState::UNKNOWN};
+  Trigger<> connected_trigger_;
+  Trigger<> disconnected_trigger_;
 
   microphone::Microphone *mic_{nullptr};
   speaker::Speaker *speaker_{nullptr};

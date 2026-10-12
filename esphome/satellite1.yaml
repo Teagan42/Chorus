@@ -245,6 +245,21 @@ script:
                 volume: !lambda return id(speaker_volume).state / 100.0f;
             - speaker.mute_off: i2s_audio_speaker
 
+  # Unreachable on the ring after 10 s without a link: a redial, or chorusd
+  # restarting, is not worth showing. Restarted by each on_disconnected and
+  # stopped by on_connected.
+  - id: show_unreachable
+    mode: restart
+    then:
+      - delay: 10s
+      - if:
+          condition:
+            lambda: return !id(chorus).is_connected();
+          then:
+            - light.turn_on:
+                id: led_ring
+                effect: Unreachable
+
 # The XMOS handshake and the PD negotiation both complete in the first seconds
 # of boot, before a log client can attach. Reported periodically so the state
 # is observable at any time: a silent board is almost always one of these two.
@@ -317,6 +332,19 @@ microphone:
 chorus_bridge:
   ducking_speaker: media_source
   hardware_mute: hat_mute_switch
+  # chorusd cannot show on the ring that the satellite cannot reach it, so the
+  # satellite does: Unreachable, once the link has been down long enough not
+  # to be a redial, including when the host failed to prove its key. Cleared
+  # when a link is sealed, and chorusd drives the ring again (ADR-0074).
+  on_disconnected:
+    - script.execute: show_unreachable
+  on_connected:
+    - script.stop: show_unreachable
+    - if:
+        condition:
+          lambda: return id(led_ring).get_effect_name() == "Unreachable";
+        then:
+          - light.turn_off: led_ring
 
 # The HAT's mute slide switch, read from the XMOS's button port as their
 # config/common/buttons.yaml reads it ("Button Left (HW Mute)"): on while
@@ -364,11 +392,12 @@ number:
 
 # ------------------------------------------------------------------ LED ring
 
-# The ring's wiring, from their config/common/led_ring.yaml. Nothing on the
-# device animates it: the orchestrator finds it by its three session effects
-# and sets one per session state over the native API (SPEC §3.3.1, ADR-0056),
-# or Muted or Error when it has them (ADR-0069). The effect names are that
-# contract; the colours are this board's own.
+# The ring's wiring, from their config/common/led_ring.yaml. The orchestrator
+# finds it by its three session effects and sets one per session state over
+# the native API (SPEC §3.3.1, ADR-0056), or Muted or Error when it has them
+# (ADR-0069). The effect names are that contract; the colours are this
+# board's own. The device animates it only with Unreachable, while it cannot
+# reach the orchestrator (ADR-0074).
 light:
   - platform: esp32_rmt_led_strip
     id: led_ring
@@ -417,3 +446,17 @@ light:
             static bool lit = false;
             it.all() = lit ? Color(255, 96, 0) : Color::BLACK;
             lit = !lit;
+      # Four violet points turning slowly, once in 6 s: the satellite cannot
+      # reach chorusd, or chorusd could not prove its key. Set by the device
+      # itself, never by the orchestrator (ADR-0074).
+      - addressable_lambda:
+          name: Unreachable
+          update_interval: 250ms
+          lambda: |-
+            static int32_t head = 0;
+            const int32_t quarter = it.size() / 4;
+            it.all() = Color::BLACK;
+            for (int32_t i = 0; i < 4; i++) {
+              it[(head + i * quarter) % it.size()] = Color(120, 0, 200);
+            }
+            head = (head + 1) % it.size();
