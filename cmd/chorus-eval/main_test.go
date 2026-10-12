@@ -43,32 +43,45 @@ func write(t *testing.T, name, body string) string {
 	return p
 }
 
-// The seed suite against today's build exits 1: the registry has deferred
-// media_search, so the music search regresses, and a gate stops there.
+// noTimerCancel is a candidate tool schema that lost timer_cancel.
+func noTimerCancel(t *testing.T) string {
+	t.Helper()
+	tools := registry.Offered()
+	delete(tools, "timer_cancel")
+	return write(t, "tools.json", ollama.ToolSchema(tools))
+}
+
+// A candidate tool set without timer_cancel cannot call off the pasta
+// timer: the case regresses, and the gate exits 1.
 //
 // verifies SPEC §13
 func TestARegressionExitsOne(t *testing.T) {
 	e, out, errs := testEnv(t, nil, nil)
-	if code := run(context.Background(), []string{"-demo", "-cache", t.TempDir(), seed}, e); code != exitRegressed {
+	if code := run(context.Background(), []string{"-demo", "-cache", t.TempDir(), "-tools", noTimerCancel(t), seed}, e); code != exitRegressed {
 		t.Fatalf("exit %d, want %d\nstdout:\n%s\nstderr:\n%s", code, exitRegressed, out, errs)
 	}
-	if !strings.Contains(out.String(), "zeppelin-searches") || !strings.Contains(out.String(), "REGRESSED: 1 check regressed") {
+	if !strings.Contains(out.String(), "pasta-cancel-by-id") || !strings.Contains(out.String(), "REGRESSED: 1 check regressed") {
 		t.Errorf("stdout:\n%s", out)
 	}
 }
 
-// The same build, offered the day's tools from a file, holds its ground and
-// exits 0. Flags may follow the suite, as `task eval -- <suite> …` passes them.
+// Today's build holds its ground on the seed suite and exits 0, as
+// `task eval:demo` runs it; so does the build offered the day's tools from
+// a file. Flags may follow the suite, as `task eval -- <suite> …` passes them.
 //
 // verifies SPEC §13
 func TestACandidateThatHoldsItsGroundExitsZero(t *testing.T) {
-	tools := write(t, "tools.json", ollama.ToolSchema(registry.Specs))
-	e, out, errs := testEnv(t, nil, nil)
-	if code := run(context.Background(), []string{"-demo", seed, "-no-cache", "-tools", tools}, e); code != exitOK {
-		t.Fatalf("exit %d, want 0\nstdout:\n%s\nstderr:\n%s", code, out, errs)
-	}
-	if !strings.Contains(out.String(), "ok: 22 checks compared") {
-		t.Errorf("stdout:\n%s", out)
+	for _, args := range [][]string{
+		{"-demo", "-no-cache", seed},
+		{"-demo", seed, "-no-cache", "-tools", write(t, "tools.json", ollama.ToolSchema(registry.Specs))},
+	} {
+		e, out, errs := testEnv(t, nil, nil)
+		if code := run(context.Background(), args, e); code != exitOK {
+			t.Fatalf("%v: exit %d, want 0\nstdout:\n%s\nstderr:\n%s", args, code, out, errs)
+		}
+		if !strings.Contains(out.String(), "ok: 25 checks compared") {
+			t.Errorf("%v: stdout:\n%s", args, out)
+		}
 	}
 }
 
@@ -111,11 +124,11 @@ func TestASetupThatCannotRunExitsTwoWithTheReason(t *testing.T) {
 //
 // verifies SPEC §13
 func TestTheReportsLandWhereAskedAndASecondRunIsCached(t *testing.T) {
-	dir, cache := t.TempDir(), t.TempDir()
+	dir, cache, tools := t.TempDir(), t.TempDir(), noTimerCancel(t)
 	js, md := filepath.Join(dir, "eval.json"), filepath.Join(dir, "eval.md")
 	for i := range 2 {
 		e, out, errs := testEnv(t, nil, nil)
-		if code := run(context.Background(), []string{"-demo", "-cache", cache, "-json", js, "-markdown", md, "-reps", "2", seed}, e); code != exitRegressed {
+		if code := run(context.Background(), []string{"-demo", "-cache", cache, "-tools", tools, "-json", js, "-markdown", md, "-reps", "2", seed}, e); code != exitRegressed {
 			t.Fatalf("run %d: exit %d\nstdout:\n%s\nstderr:\n%s", i, code, out, errs)
 		}
 	}
@@ -141,18 +154,19 @@ func TestTheReportsLandWhereAskedAndASecondRunIsCached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(m), "## Eval: household-thursday") || !strings.Contains(string(m), "| `zeppelin-searches` |") {
+	if !strings.Contains(string(m), "## Eval: household-thursday") || !strings.Contains(string(m), "| `pasta-cancel-by-id` |") {
 		t.Errorf("markdown report:\n%s", m)
 	}
 }
 
-// The recorded baseline asks nobody: only the candidate is run.
+// The recorded baseline asks nobody: only the candidate is run, and today's
+// build holds its ground against what the day said.
 //
 // verifies SPEC §13
 func TestTheRecordedBaselineScoresWhatTheDaySaid(t *testing.T) {
 	e, out, errs := testEnv(t, nil, nil)
 	code := run(context.Background(), []string{"-demo", "-no-cache", "-baseline", "recorded", "-json", "-", seed}, e)
-	if code != exitRegressed {
+	if code != exitOK {
 		t.Fatalf("exit %d\nstderr:\n%s", code, errs)
 	}
 	if !strings.Contains(out.String(), "baseline: the recorded takes") {
