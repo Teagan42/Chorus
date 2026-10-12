@@ -36,7 +36,7 @@ import (
 // none. *session.Supervisor fills it.
 type Opener interface {
 	Open(ctx context.Context, w session.Wake) (*session.Session, error)
-	Announce(ctx context.Context, satellite string, a session.Announcement) (*session.Session, error)
+	AnnounceOpened(ctx context.Context, satellite string, a session.Announcement, opened func(*session.Session)) (*session.Session, error)
 	Misheard(ctx context.Context, satellite, log string, rejected journal.Record) error
 }
 
@@ -732,20 +732,29 @@ func (l *Listener) Announce(ctx context.Context, a session.Announcement) (string
 		}
 		return sess.ConversationID(), nil
 	}
-	sess, err := l.cfg.Sessions.Announce(l.ctx, l.cfg.Satellite, a)
+	// Overheard from before its first word, however late Announce returns.
+	var held bool
+	sess, err := l.cfg.Sessions.AnnounceOpened(l.ctx, l.cfg.Satellite, a, func(sess *session.Session) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if held = !l.closed; held {
+			l.announcing = sess
+		}
+	})
 	if err != nil {
 		return "", err
 	}
 	l.mu.Lock()
-	closed := l.closed
+	closed, mine := l.closed, held
 	if !closed && sess.Answerable() {
-		l.sess = sess
-	} else if !closed {
-		l.announcing = sess
+		l.announcing, l.sess = nil, sess
 	}
 	l.mu.Unlock()
 	if closed {
-		l.lost(sess)
+		if !mine {
+			// Opened after the link closed, so watch never had it to close.
+			l.lost(sess)
+		}
 		return "", ErrLinkClosed
 	}
 	return sess.ConversationID(), nil

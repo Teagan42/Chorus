@@ -47,9 +47,18 @@ type Announcement struct {
 // unless a asks for an answer: then the silence backstop closes it (SPEC
 // §4.5).
 func (sup *Supervisor) Announce(ctx context.Context, satellite string, a Announcement) (*Session, error) {
+	return sup.AnnounceOpened(ctx, satellite, a, nil)
+}
+
+// AnnounceOpened is Announce, telling opened of the session before anything
+// is said in it: the satellite's listener overhears it from the first word.
+func (sup *Supervisor) AnnounceOpened(ctx context.Context, satellite string, a Announcement, opened func(*Session)) (*Session, error) {
 	s, err := sup.open(ctx, Wake{Satellite: satellite}, true)
 	if err != nil {
 		return nil, err
+	}
+	if opened != nil {
+		opened(s)
 	}
 	if err := s.Announce(ctx, a); err != nil {
 		_ = s.Close(context.Background(), "error")

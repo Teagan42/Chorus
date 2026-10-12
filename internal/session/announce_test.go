@@ -277,3 +277,26 @@ func TestAnAnnouncementIsRefusedByAClosedSession(t *testing.T) {
 		t.Errorf("%d announcements logged by a closed session", n)
 	}
 }
+
+// The kitchen's listener is told of the oven timer's session before a word
+// of it is said, so a stop over its first word is heard (ADR-0064).
+//
+// verifies SPEC §4.3
+func TestAnAnnouncementsSessionIsToldBeforeItSpeaks(t *testing.T) {
+	r := newRig(t, nil, nil)
+	var told *session.Session
+	var before []journal.Kind
+	s, err := r.sup.AnnounceOpened(context.Background(), "kitchen", ovenDone, func(s *session.Session) {
+		told, before = s, r.kinds(t, s.ConversationID())
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitDone(t, s)
+	if told != s {
+		t.Fatalf("opened was told %p, want the session announcing, %p", told, s)
+	}
+	if want := []journal.Kind{journal.KindSessionOpened}; !slices.Equal(before, want) {
+		t.Errorf("the log when opened was told = %v, want %v: nothing said yet", before, want)
+	}
+}
