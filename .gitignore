@@ -26,6 +26,8 @@ esphome/*.bin
 
 # The speaker-ID model `task speakerid:serve` fetches; pinned, so never committed.
 .models/
+# The wake-word pipeline's working directory: household audio (docs/wake-retraining.md).
+/.wake/
 
 # Tool caches
 .buf-cache/
