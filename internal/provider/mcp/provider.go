@@ -321,6 +321,10 @@ func (s *server) connect(ctx context.Context) (up bool, err error) {
 	client.AddReceivingMiddleware(func(next sdk.MethodHandler) sdk.MethodHandler {
 		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
 			if method == subscriptionsAcknowledged {
+				// The SDK subscribes only to tool changes: an ack without them is a refusal.
+				if ack, ok := req.GetParams().(*sdk.SubscriptionsAcknowledgedParams); ok && !ack.Notifications.ToolsListChanged {
+					s.log.Warn("mcp server will not say when its tools change; a change is seen only when it reconnects")
+				}
 				s.poke()
 			}
 			return next(ctx, method, req)

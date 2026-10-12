@@ -137,9 +137,14 @@ type house struct {
 // newHouse declares its tools: the SDK otherwise infers the capability from
 // the list, and refuses a subscription taken up while the list is empty.
 func newHouse(name string) *house {
-	h := &house{srv: sdk.NewServer(&sdk.Implementation{Name: name, Version: "1.0.0"}, &sdk.ServerOptions{
+	return houseWith(name, &sdk.ServerOptions{
 		Capabilities: &sdk.ServerCapabilities{Tools: &sdk.ToolCapabilities{ListChanged: true}},
-	})}
+	})
+}
+
+// houseWith is a house on the SDK server options given.
+func houseWith(name string, opts *sdk.ServerOptions) *house {
+	h := &house{srv: sdk.NewServer(&sdk.Implementation{Name: name, Version: "1.0.0"}, opts)}
 	h.srv.AddReceivingMiddleware(h.gateListen)
 	return h
 }
