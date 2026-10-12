@@ -20,6 +20,7 @@
 #include "esphome/components/speaker/speaker.h"
 
 #include "chorus_auth.h"
+#include "chorus_seal.h"
 
 #ifdef USE_CHORUS_BRIDGE_DUCKING
 #include "esphome/components/mixer/speaker/mixer_speaker.h"
@@ -42,35 +43,40 @@ static const size_t SPEAKER_BUFFER_SIZE = 16 * 1024;
 // speaker_pending_ are allowed. Both are reserved once in setup() and never
 // grown past it: a repeated 16 KB reallocation out of a fragmented internal
 // heap aborts the firmware, because exceptions are off and there is nothing to
-// catch std::bad_alloc. RX_CAPACITY is therefore also the largest frame the
+// catch std::bad_alloc. RX_CAPACITY is therefore also the largest record the
 // device accepts; a longer one drops the link (see pump_downlink_).
 static const size_t RX_CHUNK_SIZE = 4 * 1024;
 static const size_t RX_CAPACITY = SPEAKER_BUFFER_SIZE + RX_CHUNK_SIZE;
 
-// Version 3 answers the host's challenge before sending anything else
-// (ADR-0066). internal/bridge/frame.go's ProtocolVersion moves with it.
-static const uint8_t PROTOCOL_VERSION = 3;
+// Version 4 sends the host nothing but its hello until the host has proved
+// the key, and seals every frame after the handshake (ADR-0074).
+// internal/bridge/frame.go's ProtocolVersion moves with it.
+static const uint8_t PROTOCOL_VERSION = 4;
+// The handshake frames' header: type, flags, length. Sealed frames have their
+// own (chorus_seal.h).
 static const size_t HEADER_SIZE = 4;
 
-// How long the link may sit unauthenticated before the device redials. The
-// host's own bound is 10 s; a host that never challenges is not ours.
+// How long a connect, then the host's proof, may take before the device
+// redials. The host's own bound is 10 s; a host that never proves is not ours.
 static const uint32_t HANDSHAKE_TIMEOUT_MS = 15000;
+// The most a host that failed its proof is waited out before the next dial.
+static const uint32_t MAX_BACKOFF_MS = 60000;
 
 // Frame types. See internal/bridge/frame.go, which must stay in step.
 enum class FrameType : uint8_t {
-  HELLO = 0x01,
+  HELLO = 0x01,  // in the clear: version, format, the device's nonce, its name
   MIC = 0x02,
   WAKE = 0x03,
   PLAYED = 0x04,
   MUTE = 0x05,
-  AUTH = 0x06,
+  AUTH = 0x06,  // in the clear: the device's proof
 
   TTS = 0x10,
   STOP = 0x11,
   FINISH = 0x12,
   DUCK = 0x13,
   MIC_ENABLE = 0x14,
-  CHALLENGE = 0x15,
+  CHALLENGE = 0x15,  // in the clear: the host's nonce and its proof
 };
 
 // MUTE frame bits. Hardware is the board's physical switch; software is the
@@ -119,6 +125,7 @@ class ChorusBridge : public Component {
   /// of voice_assistant, so it reaches us through an automation (SPEC §3.2).
   void on_wake_word(const std::string &wake_word);
 
+  /// The host proved the key and the link is sealed.
   bool is_connected() const { return this->socket_ != nullptr && this->authenticated_; }
 
  protected:
@@ -126,10 +133,12 @@ class ChorusBridge : public Component {
   bool finish_connect_();
   void disconnect_(const char *reason);
 
-  /// Appends a whole frame to tx_. False means it did not fit: a MIC caller
-  /// must keep its data rather than consume it (see pump_uplink_).
+  /// Seals a whole frame onto tx_. False means it did not fit, or the link is
+  /// not sealed yet: a MIC caller must keep its data (see pump_uplink_).
   bool queue_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length);
   bool queue_frame_(FrameType type, uint8_t flags) { return this->queue_frame_(type, flags, nullptr, 0); }
+  /// Appends a handshake frame, in the clear: the hello and the answer only.
+  bool queue_plain_(FrameType type, const uint8_t *payload, size_t length);
   bool flush_tx_();
 
   void pump_uplink_();
@@ -139,8 +148,7 @@ class ChorusBridge : public Component {
   void publish_mute_();
 
   void handle_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length);
-  void answer_challenge_(const uint8_t *nonce, size_t length);
-  void encode_hello_(uint8_t out[auth::HELLO_SIZE]) const;
+  void verify_host_(const uint8_t *payload, size_t length);
   void start_microphones_();
   void stop_microphones_();
 
@@ -148,19 +156,29 @@ class ChorusBridge : public Component {
   uint16_t port_{0};
   uint32_t reconnect_interval_{5000};
   uint32_t last_connect_attempt_{0};
+  // Added to the interval after a host fails its proof; zero once one passes.
+  uint32_t backoff_ms_{0};
 
   std::unique_ptr<socket::Socket> socket_;
   struct sockaddr_storage connect_addr_{};
   socklen_t connect_addrlen_{0};
   bool connecting_{false};
-  bool handshake_sent_{false};
-  // The challenge is answered. Until then nothing but the hello leaves, and
-  // nothing but a challenge is accepted.
+  uint32_t attempt_started_{0};
+  // The host proved the key and the answer is queued. Until then nothing but
+  // the hello leaves, and nothing but a challenge is accepted.
   bool authenticated_{false};
   uint32_t connected_at_{0};
 
   std::array<uint8_t, auth::PSK_SIZE> psk_{};
   std::array<uint8_t, auth::KEY_SIZE> link_key_{};
+  // The hello as sent, nonce and name included: both proofs cover it.
+  std::array<uint8_t, auth::MAX_HELLO_SIZE> hello_{};
+  size_t hello_len_{0};
+  seal::Sealer tx_seal_;  // device to host
+  seal::Sealer rx_seal_;  // host to device
+  // The record at the head of rx_ is opened in place but not yet handled: a
+  // TTS frame waiting for the speaker queue. It must not be opened twice.
+  bool rx_head_open_{false};
 
   microphone::Microphone *mic_{nullptr};
   speaker::Speaker *speaker_{nullptr};
@@ -172,7 +190,7 @@ class ChorusBridge : public Component {
   binary_sensor::BinarySensor *hardware_mute_{nullptr};
 #endif
 
-  std::vector<uint8_t> tx_;  // whole frames only; a partial frame is unparseable
+  std::vector<uint8_t> tx_;  // whole records only; a partial one is unopenable
   std::vector<uint8_t> rx_;
   std::vector<uint8_t> speaker_pending_;  // bytes play() refused; backpressure
 

@@ -33,8 +33,9 @@ CONF_RECONNECT_INTERVAL = "reconnect_interval"
 # second output (SPEC §3.2).
 MAX_MICROPHONE_SOURCES = 2
 
-# The satellite's api.encryption.key: the device proves it holds it before
-# the host takes any audio (docs/adr/0066). Same length as Noise's PSK.
+# The satellite's api.encryption.key: the host proves it holds it before the
+# device sends any audio, the device proves it back, and the link is sealed
+# under keys derived from it (docs/adr/0074). Same length as Noise's PSK.
 PSK_BYTES = 32
 
 chorus_bridge_ns = cg.esphome_ns.namespace("chorus_bridge")
