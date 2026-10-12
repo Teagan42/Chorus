@@ -465,8 +465,13 @@ vocabulary for:
 - `requires_confirmation` (optional, per-tool, default off)
 - latency hints
 
-MCP-sourced tools get conservative default policies. The MCP provider is
-not built yet (§14).
+MCP-sourced tools get conservative default policies (ADR-0075). The servers
+`CHORUS_MCP_CONFIG` names, over stdio or Streamable HTTP, offer each tool
+as `mcp_<server>_<tool>`, `person`-scoped with an unidentified voice
+denied, every call held for the asker's yes, `cancel` on a barge-in, and a
+5 s timeout. A household relaxes any of these per server or per tool, and
+can leave a tool unoffered. A provided tool is held to the same rules as a
+declared one, checked when it is listed rather than at build time.
 
 Person scoping is one of three. A `household` tool runs for anyone, a guest
 included. A `person` tool needs an identified speaker, unless it declares that
@@ -481,7 +486,11 @@ and the tool-schema version every event records, belong to the build, and a
 re-run offers what the build offers, which is what the turn was offered
 unless the build has changed since. A tool declared `deferred`, as
 `media_search` is while media is deferred (§14), keeps its policy and its docs
-but is not offered (ADR-0060).
+but is not offered (ADR-0060). The MCP servers' tools are the exception: they
+belong to the house, so they join the offer, and the version, as the servers
+list them when `chorusd` starts, and stay fixed until it restarts. A server
+that drops is reconnected and its tools answer `mcp_unavailable` meanwhile;
+a tool it stops listing answers `mcp_tool_gone` (ADR-0075).
 
 A tool can act through a satellite rather than a backend. `set_volume` sets
 a satellite's speaker over its native API connection (§3.3.1), in the room
@@ -804,7 +813,11 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
   prompt and tools its turn ran under.
 - ~~Memory~~ **Done — ADR-0040, ADR-0043, ADR-0044, ADR-0049.** Summaries are
   kept per conversation, not as one rolling summary per person.
-- MCP provider
+- ~~MCP provider~~ **Done — ADR-0075.** Servers' tools are offered under
+  conservative defaults a household relaxes per server or tool, fixed at
+  startup. Resources, prompts and OAuth are not built, a re-run offers
+  only the build's tools, and an MCP turn's export says `context_missing`
+  for its tools.
 - ~~Confirmation gates~~ **Done — ADR-0038, ADR-0041, ADR-0063.** Garage, gate
   and door covers are held by the class Home Assistant gives them, and a yes
   counts only from the person who asked, when they were identified, and
