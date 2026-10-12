@@ -814,6 +814,15 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
 - ~~Keep `transcription_failed` rejections out of the wake corpus~~
   **Done.** A wake nothing could decode no longer ships as a hard negative
   (§9.3, ADR-0060); the review UI says why it has no verdict.
+- ~~Drop a clip from a satellite's own log, such as a guest's rejected
+  wake, from the review UI~~ **Done — ADR-0076.** A device log's clips drop
+  behind the same second press as a conversation's, recorded as
+  `redacted` in that log; a journal append whose seq another process took
+  writes after it, so chorusd loses nothing to the review UI.
+- ~~Show arbitration's margins in the review UI~~ **Done.** `/arbitration`
+  counts each pair's contests from the journalled levels, with the median
+  margin, how the margins fall and the closest calls, each linked to the
+  lost wake and the conversation the winner opened.
 - Wake-word retraining from the harvested negative corpus. The firmware
   wakes on the household's "Hey Eddie" model (§13) and the rejected wakes export
   as their own corpus (ADR-0058); nothing retrains from them yet.
@@ -828,11 +837,10 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
 - A ring effect for a satellite that cannot reach `chorusd`, driven by the
   bridge's connection state (ADR-0069)
 - Teach the harvester the ear's `unheard` canned line (ADR-0069)
-- Check arbitration's choice against the journalled levels: channel 0 is
-  AGC'd, which narrows the gap between a near and a far satellite (ADR-0072)
-- Drop a clip from a satellite's own log, such as a guest's rejected wake,
-  from the review UI; retention removes it by its horizon meanwhile
-  (ADR-0070)
+- Check arbitration's choice against the journalled levels once a
+  household runs it: channel 0 is AGC'd, which narrows the gap between a
+  near and a far satellite (ADR-0072). The review UI's arbitration report
+  shows the margins and the closest calls to listen to
 
 ### Phase 3
 
