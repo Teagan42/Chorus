@@ -913,7 +913,15 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
 
 ### Phase 3
 
-Speculative execution · S2S adapter · eval replay suites.
+Speculative execution · S2S adapter · ~~eval replay suites~~.
+
+- ~~Eval replay suites~~ **Done in part — ADR-0079, [the eval
+  guide](eval.md).** A checked-in suite names journalled turns and what a
+  good answer does; `chorus-eval` asks each again under a candidate
+  prompt, model and tools beside the recorded versions, N times a side,
+  and exits 1 when the candidate regresses. Each case is its turn's first
+  ask, as Replay's are: follow-ups fed the recorded results, and a model
+  judging the speech, are not built.
 
 ### Explicitly deferred
 

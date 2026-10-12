@@ -276,6 +276,21 @@ tasks:
     cmds:
       - go run ./internal/tools/docexec docs/ CONTRIBUTING.md
 
+  # ---------------------------------------------------------------- eval suites
+  # docs/eval.md. Reads the journal at CHORUS_POSTGRES_DSN and asks OLLAMA_URL,
+  # so neither is part of `task check`; the hermetic tests run the same path.
+  eval:
+    desc: Score an eval suite's turns under this build's prompt and tools against the recorded ones, e.g. -- eval/household.yaml -prompt persona.txt. Exits 1 on a regression.
+    cmds: ["go run ./cmd/chorus-eval {{.CLI_ARGS}}"]
+
+  eval:demo:
+    desc: The seed suite over the household's Thursday, with its scripted model, no database or model needed
+    cmds: ["go run ./cmd/chorus-eval -demo -no-cache eval/household.yaml {{.CLI_ARGS}}"]
+
+  eval:draft:
+    desc: Draft a suite from what reviewers marked good or corrected in the review UI, to tighten and check in
+    cmds: ["go run ./cmd/chorus-eval draft {{.CLI_ARGS}}"]
+
   # ----------------------------------------------------------------- docs site
   # The site is docs/ and the root Markdown as they are; mkdocs.yml says how.
   # Material nags about MkDocs 2 on every run; the pin in pyproject.toml is
