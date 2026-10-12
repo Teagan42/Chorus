@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/teagan42/chorus/internal/config"
 	"github.com/teagan42/chorus/internal/journal"
@@ -47,6 +48,39 @@ func volumeSetTo(t *testing.T, conn *fakeNative, level float32) {
 	c := sent[*pb.NumberCommandRequest](t, conn, "the volume command")
 	if c.GetKey() != volumeKey || c.GetState() != level {
 		t.Errorf("number command %v, want key %#x set to %v", c, volumeKey, level)
+	}
+}
+
+// volumeEchoed waits for the daemon to set the kitchen's volume, then has the
+// device report the level it took, as ESPHome does after a number command.
+func volumeEchoed(t *testing.T, conn *fakeNative, sent, reported float32) {
+	t.Helper()
+	volumeSetTo(t, conn, sent)
+	conn.in <- &pb.NumberStateResponse{Key: volumeKey, State: reported}
+}
+
+// setVolumeAsync runs set_volume in the background, so the test can play the
+// device while the call waits for its report.
+func setVolumeAsync(t *testing.T, r *rig, sat, args string) func() (string, error) {
+	t.Helper()
+	type res struct {
+		out string
+		err error
+	}
+	done := make(chan res, 1)
+	go func() {
+		out, err := setVolume(t, r, sat, args)
+		done <- res{out, err}
+	}()
+	return func() (string, error) {
+		t.Helper()
+		select {
+		case got := <-done:
+			return got.out, got.err
+		case <-time.After(patience):
+			t.Fatalf("set_volume %s never returned", args)
+			return "", nil
+		}
 	}
 }
 
@@ -101,7 +135,7 @@ func TestTeaganTurnsTheKitchenDown(t *testing.T) {
 	dev := r.join(t, kitchenIP)
 	dev.SendWake(t, "hey_eddie")
 	r.utter(t, dev, r.line("turn it down", teagan))
-	volumeSetTo(t, conn, 50)
+	volumeEchoed(t, conn, 50, 50)
 
 	res := r.store.awaitKind(t, journal.KindToolResult, 1)
 	want := `{"set":[{"satellite":"kitchen","room":"kitchen","level":50,"was":60}]}`
@@ -128,23 +162,72 @@ func TestTheKitchensVolumeStepsFromWhatTheDeviceLastReported(t *testing.T) {
 	volumeAt(t, conn, 60)
 	volumeAt(t, conn, 30)
 
-	out, err := setVolume(t, r, "kitchen", `{"step":15}`)
+	wait := setVolumeAsync(t, r, "kitchen", `{"step":15}`)
+	volumeEchoed(t, conn, 45, 45)
+	out, err := wait()
 	if err != nil {
 		t.Fatal(err)
 	}
-	volumeSetTo(t, conn, 45)
 	if want := `{"set":[{"satellite":"kitchen","room":"kitchen","level":45,"was":30}]}`; out != want {
 		t.Errorf("result = %s, want %s", out, want)
 	}
-	// Before the device echoes it, the level just set is where the next step starts.
-	if _, err := setVolume(t, r, "kitchen", `{"step":-5}`); err != nil {
+	wait = setVolumeAsync(t, r, "kitchen", `{"step":-5}`)
+	volumeEchoed(t, conn, 40, 40)
+	if _, err := wait(); err != nil {
 		t.Fatal(err)
 	}
+	wait = setVolumeAsync(t, r, "kitchen", `{"level":0}`)
+	volumeEchoed(t, conn, 0, 0)
+	if _, err := wait(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The result is the level the kitchen reports back after the command, not
+// the one sent: a firmware that rounds its volume to fives answers 45 for
+// 43, and that is what the model is told and the next step starts from. A
+// device that answers nothing within a second is taken at the level sent,
+// marked unconfirmed, so the model does not state it as fact (ADR-0067).
+//
+// verifies SPEC §3.3.1, §7
+func TestTheKitchensVolumeIsWhatTheDeviceReportsBack(t *testing.T) {
+	inv := &config.Config{Satellites: []config.Satellite{inventory().Satellites[0]}}
+	dialer, clk := newDialer(), newClock()
+	r := newRig(t, inv, func(d *deps) { d.Native, d.Clock, d.Timers = dialer, clk, clk })
+	r.join(t, kitchenIP)
+
+	conn := connect(t, dialer)
+	listing(t, conn, volumeNumber())
+	sent[*pb.SubscribeStatesRequest](t, conn, "the state subscription")
+	volumeAt(t, conn, 50)
+
+	wait := setVolumeAsync(t, r, "kitchen", `{"step":-7}`)
+	volumeEchoed(t, conn, 43, 45)
+	out, err := wait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"set":[{"satellite":"kitchen","room":"kitchen","level":45,"was":50}]}`; out != want {
+		t.Errorf("result = %s, want %s", out, want)
+	}
+
+	wait = setVolumeAsync(t, r, "kitchen", `{"step":-5}`)
 	volumeSetTo(t, conn, 40)
-	if _, err := setVolume(t, r, "kitchen", `{"level":0}`); err != nil {
+	clk.awaitWait(t, volumeConfirmWait)
+	clk.advance(volumeConfirmWait)
+	out, err = wait()
+	if err != nil {
 		t.Fatal(err)
 	}
-	volumeSetTo(t, conn, 0)
+	if want := `{"set":[{"satellite":"kitchen","room":"kitchen","level":40,"was":45,"unconfirmed":true}]}`; out != want {
+		t.Errorf("unanswered: result = %s, want %s", out, want)
+	}
+	// Unconfirmed, the level sent is still where the next step starts.
+	wait = setVolumeAsync(t, r, "kitchen", `{"step":-10}`)
+	volumeEchoed(t, conn, 30, 30)
+	if _, err := wait(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // The office's Voice PE lists no volume control, so set_volume there answers

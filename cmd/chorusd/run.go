@@ -179,7 +179,7 @@ func newDaemon(inv *config.Config, d deps) (*daemon, error) {
 	for _, sat := range inv.Satellites {
 		dm.rooms[sat.Name] = sat.Room
 		dm.rings[sat.Name] = newRing()
-		dm.volumes[sat.Name] = &speakerVolume{log: d.Log.With("satellite", sat.Name, "address", sat.Address)}
+		dm.volumes[sat.Name] = &speakerVolume{log: d.Log.With("satellite", sat.Name, "address", sat.Address), timers: d.Timers}
 		dm.panels[sat.Name] = session.NewPanel(dm.rings[sat.Name])
 	}
 	dm.wireOps()
@@ -627,15 +627,15 @@ func (d *daemon) Level(satellite string) (int, error) {
 
 // SetLevel sets the named satellite's speaker volume over its native API
 // connection (volume.Speakers).
-func (d *daemon) SetLevel(ctx context.Context, satellite string, level int) error {
+func (d *daemon) SetLevel(ctx context.Context, satellite string, level int) (int, bool, error) {
 	v, ok := d.volumes[satellite]
 	if !ok {
-		return volume.ErrNotConnected
+		return 0, false, volume.ErrNotConnected
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return 0, false, err
 	}
-	return v.Set(level)
+	return v.Set(ctx, level)
 }
 
 // handlers fans one link's frames out to both children: the satellite

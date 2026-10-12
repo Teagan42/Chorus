@@ -368,7 +368,8 @@ const speakerVolumeID = "speaker_volume"
 // connection listed and last reported it: what set_volume reads and sets
 // (ADR-0067). It lives as long as the daemon; a redial lists it again.
 type speakerVolume struct {
-	log *slog.Logger
+	log    *slog.Logger
+	timers session.Timers
 
 	mu sync.Mutex
 	// conn is the connection that listed the device, nil while none has.
@@ -379,7 +380,14 @@ type speakerVolume struct {
 	// level is the last the device reported, or the last set since.
 	level int
 	known bool
+	// waiting is each Set waiting for the device's next report.
+	waiting []chan int
 }
+
+// volumeConfirmWait is how long Set waits for the device to report the
+// level it took. ESPHome answers a number command with its state at once,
+// so this covers Wi-Fi, not the device.
+const volumeConfirmWait = time.Second
 
 // entity takes the speaker volume number. One with no range is not a volume.
 func (v *speakerVolume) entity(e *pb.ListEntitiesNumberResponse) {
@@ -420,6 +428,10 @@ func (v *speakerVolume) state(m *pb.NumberStateResponse) {
 	}
 	span := float64(v.max - v.min)
 	v.level, v.known = min(100, max(0, int(math.Round(float64(m.GetState()-v.min)/span*100)))), true
+	for _, w := range v.waiting {
+		w <- v.level
+	}
+	v.waiting = nil
 }
 
 // dropped forgets the connection and what it listed.
@@ -427,6 +439,17 @@ func (v *speakerVolume) dropped() {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.conn, v.found, v.key, v.min, v.max, v.known = nil, false, 0, 0, 0, false
+	for _, w := range v.waiting {
+		close(w)
+	}
+	v.waiting = nil
+}
+
+// forget stops w waiting for a report.
+func (v *speakerVolume) forget(w chan int) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.waiting = slices.DeleteFunc(v.waiting, func(c chan int) bool { return c == w })
 }
 
 // Level is the volume, 0 to 100, or why there is none to read.
@@ -444,26 +467,47 @@ func (v *speakerVolume) Level() (int, error) {
 	return v.level, nil
 }
 
-// Set sends the volume, scaled to the number's own range. It does not wait
-// for the device's report: the level is the next step's start until one comes.
-func (v *speakerVolume) Set(level int) error {
+// Set sends the volume, scaled to the number's own range, and returns the
+// level the device reports next, confirmed. With no report within
+// volumeConfirmWait, or the connection gone, it returns the level sent,
+// unconfirmed, which is the next step's start until a report comes. A report
+// the device sends for another reason in that second, its own buttons say,
+// is taken as the answer: it is the level the speaker is at.
+func (v *speakerVolume) Set(ctx context.Context, level int) (int, bool, error) {
+	w := make(chan int, 1)
 	v.mu.Lock()
 	c, found, key := v.conn, v.found, v.key
 	value := float32(float64(v.min) + float64(v.max-v.min)*float64(level)/100)
+	if c != nil && found {
+		v.waiting = append(v.waiting, w)
+	}
 	v.mu.Unlock()
 	switch {
 	case c == nil:
-		return volume.ErrNotConnected
+		return 0, false, volume.ErrNotConnected
 	case !found:
-		return volume.ErrNotImplemented
+		return 0, false, volume.ErrNotImplemented
 	}
 	if err := c.Send(&pb.NumberCommandRequest{Key: key, State: value}); err != nil {
-		return fmt.Errorf("set %s to %d: %w", speakerVolumeID, level, err)
+		v.forget(w)
+		return 0, false, fmt.Errorf("set %s to %d: %w", speakerVolumeID, level, err)
 	}
 	v.mu.Lock()
-	defer v.mu.Unlock()
-	if v.conn == c {
+	if v.conn == c && len(w) == 0 {
 		v.level, v.known = level, true
 	}
-	return nil
+	v.mu.Unlock()
+	select {
+	case got, ok := <-w:
+		if !ok {
+			return level, false, nil
+		}
+		return got, true, nil
+	case <-v.timers.After(volumeConfirmWait):
+		v.forget(w)
+		return level, false, nil
+	case <-ctx.Done():
+		v.forget(w)
+		return 0, false, ctx.Err()
+	}
 }
