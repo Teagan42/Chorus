@@ -77,7 +77,7 @@ func (s *Session) Announce(_ context.Context, a Announcement) error {
 	}
 	s.annMu.Lock()
 	defer s.annMu.Unlock()
-	if s.ending || s.ctx.Err() != nil {
+	if s.ending || s.closingLocked() {
 		return ErrClosed
 	}
 	id := "an_" + newID()[:8]
@@ -118,6 +118,17 @@ func (s *Session) Announce(_ context.Context, a Announcement) error {
 	s.answerable = s.answerable || a.StartConversation
 	s.poke()
 	return nil
+}
+
+// closingLocked reports whether the session has begun to end, so an
+// announcement would be journalled after its close. Called under annMu.
+func (s *Session) closingLocked() bool {
+	select {
+	case <-s.closing:
+		return true
+	default:
+		return s.ctx.Err() != nil
+	}
 }
 
 // closeWhenSaid ends an announcing session once everything it was given to
