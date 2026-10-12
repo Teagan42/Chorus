@@ -314,6 +314,31 @@ func TestAChangedToolListIsReconciledForCallsNotOffers(t *testing.T) {
 	})
 }
 
+// The weather server is slow to take up chorusd's subscription to its
+// changes, and drops its forecast before it does. Its tools are declared,
+// not inferred from a list that is empty for the moment, so the forecast's
+// return is still heard, and the call works again.
+//
+// verifies SPEC §6
+func TestAForecastDroppedBeforeTheSubscriptionTakesIsHeardComingBack(t *testing.T) {
+	h := weather()
+	release := h.holdSubscription()
+	logs := &logBuffer{}
+	p := start(t, configured(t, weatherOnly), houses{"weather": h}, &clock{}, logs)
+	forecast := p.Tools()["mcp_weather_get_forecast"]
+
+	h.srv.RemoveTools("get_forecast")
+	release()
+	logs.await(t, "no longer lists tools the model is offered")
+	h.tool(&sdk.Tool{Name: "get_forecast", Description: "Forecast."}, func(context.Context, map[string]any) (*sdk.CallToolResult, error) {
+		return text("Rain."), nil
+	})
+	await(t, "the forecast to come back", func() bool {
+		out, err := forecast.Invoke(context.Background(), `{"city":"Lisbon"}`)
+		return err == nil && out == `{"text":"Rain."}`
+	})
+}
+
 // Two tools the server tells apart only by a dash are one name once made a
 // tool name; neither is offered, rather than whichever the server listed
 // last. A name chorusd already has is refused too.

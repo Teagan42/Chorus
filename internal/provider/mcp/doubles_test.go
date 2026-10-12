@@ -130,10 +130,44 @@ type house struct {
 	// wires is each session's server end, which a crash cuts.
 	wires  []net.Conn
 	called []string
+	// listenGate, while set, holds each subscriptions/listen until closed.
+	listenGate chan struct{}
 }
 
+// newHouse declares its tools: the SDK otherwise infers the capability from
+// the list, and refuses a subscription taken up while the list is empty.
 func newHouse(name string) *house {
-	return &house{srv: sdk.NewServer(&sdk.Implementation{Name: name, Version: "1.0.0"}, nil)}
+	h := &house{srv: sdk.NewServer(&sdk.Implementation{Name: name, Version: "1.0.0"}, &sdk.ServerOptions{
+		Capabilities: &sdk.ServerCapabilities{Tools: &sdk.ToolCapabilities{ListChanged: true}},
+	})}
+	h.srv.AddReceivingMiddleware(h.gateListen)
+	return h
+}
+
+// holdSubscription makes the server take up a subscription to its changes
+// only once release is called, as a loaded server might.
+func (h *house) holdSubscription() (release func()) {
+	gate := make(chan struct{})
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.listenGate = gate
+	return sync.OnceFunc(func() { close(gate) })
+}
+
+func (h *house) gateListen(next sdk.MethodHandler) sdk.MethodHandler {
+	return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
+		h.mu.Lock()
+		gate := h.listenGate
+		h.mu.Unlock()
+		if method == "subscriptions/listen" && gate != nil {
+			select {
+			case <-gate:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return next(ctx, method, req)
+	}
 }
 
 // tool adds a tool that answers with fn, recording each call's arguments.
