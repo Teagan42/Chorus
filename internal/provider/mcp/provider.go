@@ -43,6 +43,10 @@ const (
 // maxResult bounds what one call's result puts in the model's context.
 const maxResult = 16 << 10
 
+// subscriptionsAcknowledged is the server saying it will now send
+// list_changed, under protocol 2026-07-28 and later.
+const subscriptionsAcknowledged = "notifications/subscriptions/acknowledged"
+
 // Timers is the clock's timer half.
 type Timers interface {
 	After(d time.Duration) <-chan time.Time
@@ -311,6 +315,16 @@ func (s *server) connect(ctx context.Context) (up bool, err error) {
 		// No roots: chorusd has no files to show a server.
 		Capabilities:           &sdk.ClientCapabilities{},
 		ToolListChangedHandler: func(context.Context, *sdk.ToolListChangedRequest) { s.poke() },
+	})
+	// The subscription to list_changed is acknowledged after the first
+	// listing may have been read; listing again then misses no change.
+	client.AddReceivingMiddleware(func(next sdk.MethodHandler) sdk.MethodHandler {
+		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
+			if method == subscriptionsAcknowledged {
+				s.poke()
+			}
+			return next(ctx, method, req)
+		}
 	})
 	hctx, cancel := bounded(ctx, s.opts.Timers, requestTimeout)
 	cs, err := client.Connect(hctx, t, nil)
