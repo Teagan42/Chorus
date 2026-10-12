@@ -48,6 +48,7 @@ satellite. What exists today:
 | `esphome/voice-pe.yaml` — the Home Assistant Voice PE, wired from its stock firmware: the same bridge, wake word, ring effects, Speaker Volume (which its dial turns) and mute switch as the Satellite1, and a centre button that wakes it | validated by `esphome config`; not compiled or flashed (ADR-0073) |
 | `cmd/probe` — connect to a satellite and dump what it exposes | works |
 | LLM — `internal/provider/ollama`, the turn engine | dials a real endpoint; asked again with each tool result and the conversation so far |
+| LLM — `internal/provider/vllm`, the turn engine on vLLM with `CHORUS_LLM_PROVIDER=vllm`: each call dispatched as its arguments close, each speak call's words streamed as they arrive (ADR-0077) | under test against streams in vLLM's shape and through the daemon; not yet run against a real vLLM server |
 | TTS — `internal/provider/kokoro`, resampled to the device's rate | dials a real endpoint |
 | STT — `internal/stt` partials over `internal/provider/speaches` | measured against real Parakeet TDT 0.6B v2 on CPU |
 | speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX) | thresholds measured on 37 speakers; sidecar runs without Docker |

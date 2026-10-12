@@ -1,7 +1,7 @@
 # 0077. The turn engine may run on vLLM, and a speak call's words stream out of its arguments
 
-- **Status:** accepted · refines [ADR-0013](0013-local-first-model-stack.md) and [ADR-0046](0046-a-turn-that-calls-nothing-has-its-answer-spoken-from-its-content.md)
-- **Source:** SPEC §4.1, §4.2, §4.4, §10, §11, §12, §13, §14 · ADR-0003, ADR-0013, ADR-0014, ADR-0037, ADR-0046, ADR-0051, ADR-0068, ADR-0071
+- **Status:** accepted · refines [ADR-0013](0013-local-first-model-stack.md), [ADR-0037](0037-the-model-is-asked-again-with-the-dialogue-from-the-log.md) and [ADR-0046](0046-a-turn-that-calls-nothing-has-its-answer-spoken-from-its-content.md)
+- **Source:** SPEC §4.1, §4.2, §4.4, §8, §10, §11, §12, §13, §14 · ADR-0003, ADR-0013, ADR-0014, ADR-0037, ADR-0046, ADR-0051, ADR-0068, ADR-0071
 
 SPEC §10 puts Qwen3 on vLLM because vLLM parses tool calls as they stream,
 which §4.1 needs; §14 said the seam ran on Ollama and vLLM was not wired
@@ -124,7 +124,36 @@ decoder then closes the utterance and reports the end on a context that
 cannot be cancelled, as `session.Engine` requires. A turn the model
 finished reports its end that way too. Without that, an `end_session`
 that closes the session as the stream ends could drop the turn's last
-`model_completed`.
+`model_completed`. The Ollama engine had the same race on its done line,
+and now sends its end the same way.
+
+## A follow-up is told streamed words still playing
+
+The session records a speak call's `tool_called` at its first delta, so
+a streamed call's carries no words: they are not known yet. Left there, a
+follow-up asked while "Let me check the garage door." still plays would
+not be told it, since the dialogue leaves out a call with no words, and
+the model could say it again. On Ollama every speak arrives whole, and
+its words are in its `tool_called` (ADR-0037).
+
+So the session keeps the words of each speak call whose first delta was
+not its last, and `model_completed` records them as
+`streamed_speech_json`, keyed by call id. The reducer gives a call that is
+still playing and has no words the ones its completion recorded, and
+playback then replaces them with what was heard. The follow-up is asked
+after the completion is journalled, from the state the log folds to, so
+it is told the words pending, as it is told a whole speak. Replay and any
+reader that folds the log, the eval runner included, rebuild the same
+dialogue from the same field. A completion with no streamed speech
+records nothing, so the Ollama path's events and dialogue are as they
+were. The one exception is the Ollama engine's `SpeakInlineContent`,
+which is off by default and does stream.
+
+The words ride on the completion, not on an event of their own. A new
+event kind would have to be folded by every reader that switches on
+kinds, the harvester and the review UI among them. The completion is
+journalled after every delta of its ask and before any follow-up, which
+is the only time the words are needed.
 
 ## Thinking is off by default
 
@@ -160,9 +189,9 @@ model name re-runs only once the reviewer names a model vLLM serves.
   behind another wire, and SPEC §10's reason for vLLM is the engine's tool
   parsing, not the wire.
 - **Buffer a speak call to its closing brace, as Ollama delivers it.**
-  Simpler, and it would keep ADR-0037's note that an ask made while
-  speech plays knows its words. But a paragraph's first words would wait
-  for its last, which is exactly what vLLM was chosen to avoid.
+  Simpler, and the words would be in its `tool_called`. But a
+  paragraph's first words would wait for its last, which is exactly what
+  vLLM was chosen to avoid.
 - **A streaming JSON parser library.** The arguments are a flat object
   of a few hundred bytes. Rereading them from the start on each fragment
   costs nothing, and keeps no tokenizer state between fragments to go
@@ -173,13 +202,9 @@ model name re-runs only once the reviewer names a model vLLM serves.
 
 ## Forecloses
 
-- **A follow-up ask does not see streamed speech that is still playing.**
-  The session records a streamed speak call when its first delta arrives,
-  before its words are known, and its words reach the log only when
-  playback settles them. A follow-up asked while "Turning off the lights"
-  still plays is not told it, and may say it again. On Ollama every speak
-  arrives whole, so the words are recorded with the call. Recording the
-  words when the last delta arrives is the session's change to make.
+- **A log from before `streamed_speech_json` replays without the words.**
+  A streamed speak call there is left out of a follow-up's dialogue until
+  playback settled it, as it was when that log was written.
 - **Nothing here is measured against a real server.** The streams in
   `testdata` are written in the shape vLLM's OpenAI server and its Hermes
   parser send. The models tier (`-vllm-url`) logs time to first words, the
