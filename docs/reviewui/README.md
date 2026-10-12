@@ -39,6 +39,7 @@ carries its templates and htmx, so it needs only the variables below.
 | `CHORUS_POSTGRES_DSN` | no | The journal. Defaults to the docker-compose database. |
 | `CHORUS_BLOB_DIR` | yes | The audio the journal refers to; served to the browser as WAV. |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | no | What Replay re-runs turns against. Unset, Replay shows the recorded turns and says it has nothing to ask. |
+| `CHORUS_LLM_PROVIDER`, `VLLM_URL`, `VLLM_MODEL`, `VLLM_API_KEY`, `VLLM_THINKING` | no | With the provider `vllm`, Replay re-runs turns on vLLM instead, as `chorusd` runs them ([ADR-0077](../adr/0077-the-turn-engine-may-run-on-vllm-and-a-speak-calls-words-stream-out-of-its-arguments.md)). |
 | `CHORUS_REVIEWUI_HOSTS` | no | The names the UI answers as, like `-hosts`. Unset, the listen address's host, or `localhost`, `127.0.0.1` and `::1` when it binds loopback or every interface. |
 | `CHORUS_REVIEWUI_READ_ONLY` | no | `true` starts it [read-only](#read-only-mode), like `-read-only`. A value that is not a boolean stops it from starting. |
 
