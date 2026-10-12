@@ -198,7 +198,7 @@ func writeClip(ctx context.Context, z *zip.Writer, clips Clips, ref, path string
 	if err != nil {
 		return false, fmt.Errorf("archive %s: %w", path, err)
 	}
-	if _, err := cw.Write(wavHeader(len(pcm))); err != nil {
+	if _, err := cw.Write(WAVHeader(len(pcm))); err != nil {
 		return false, fmt.Errorf("archive %s: %w", path, err)
 	}
 	if _, err := cw.Write(pcm); err != nil {
@@ -256,9 +256,9 @@ func (c *lineCounter) Write(p []byte) (int, error) {
 	return c.w.Write(p)
 }
 
-// wavHeader is the 44-byte PCM WAV preamble for n bytes of device audio
+// WAVHeader is the 44-byte PCM WAV preamble for n bytes of device audio
 // (ADR-0007): the store keeps raw PCM, and a trainer's loader wants a file.
-func wavHeader(n int) []byte {
+func WAVHeader(n int) []byte {
 	const bytesPerFrame = bridge.BitsPerSample / 8
 	h := make([]byte, 0, 44)
 	h = append(h, "RIFF"...)
