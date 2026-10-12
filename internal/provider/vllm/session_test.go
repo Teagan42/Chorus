@@ -2,11 +2,13 @@ package vllm_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -57,12 +59,14 @@ func (d *deadline) expire(stop <-chan struct{}) {
 }
 
 // kitchen plays every utterance whole and keeps what it played. started
-// closes when the first utterance begins to play.
+// closes when the first utterance begins to play; hold, when set, keeps
+// each utterance playing until it closes.
 type kitchen struct {
 	mu      sync.Mutex
 	played  []string
 	started chan struct{}
 	once    sync.Once
+	hold    chan struct{}
 }
 
 func (k *kitchen) Open(context.Context, string) (session.Stream, error) {
@@ -84,6 +88,9 @@ type kitchenStream struct {
 func (s *kitchenStream) Write(text string) error { s.text += text; return nil }
 
 func (s *kitchenStream) Close() session.Playback {
+	if s.k.hold != nil {
+		<-s.k.hold
+	}
 	s.k.mu.Lock()
 	s.k.played = append(s.k.played, s.text)
 	s.k.mu.Unlock()
@@ -97,7 +104,7 @@ type household struct {
 	sess    *session.Session
 }
 
-func newHousehold(t *testing.T, h http.Handler) *household {
+func newHousehold(t *testing.T, h http.Handler, tweak ...func(*session.Config, *household)) *household {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
@@ -106,11 +113,15 @@ func newHousehold(t *testing.T, h http.Handler) *household {
 		t.Fatalf("engine: %v", err)
 	}
 	hh := &household{store: journal.NewMemStore(), kitchen: &kitchen{started: make(chan struct{})}, clock: newDeadline(session.DefaultModelTimeout)}
-	sup, err := session.New(session.Config{
+	cfg := session.Config{
 		Journal: journal.New(hh.store, hh.clock, eng.Versions()),
 		Store:   hh.store, Clock: hh.clock, Timers: hh.clock,
 		Engine: eng, Speaker: hh.kitchen,
-	})
+	}
+	for _, f := range tweak {
+		f(&cfg, hh)
+	}
+	sup, err := session.New(cfg)
 	if err != nil {
 		t.Fatalf("supervisor: %v", err)
 	}
@@ -294,5 +305,131 @@ func TestAVLLMThatStallsMidSpeechIsGivenUpOnAtTheDeadline(t *testing.T) {
 	case <-h.sess.Done():
 		t.Error("the session closed; it should be listening again")
 	default:
+	}
+}
+
+// asked answers each ask with the next stream, as streams does, keeping
+// each request's body; asked[i] closes when ask i+1 arrives.
+type askedServer struct {
+	mu     sync.Mutex
+	bodies []string
+	sent   [][]byte
+	asked  []chan struct{}
+}
+
+func newAskedServer(bodies ...string) *askedServer {
+	a := &askedServer{bodies: bodies}
+	for range bodies {
+		a.asked = append(a.asked, make(chan struct{}))
+	}
+	return a
+}
+
+func (a *askedServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	a.mu.Lock()
+	n := len(a.sent)
+	a.sent = append(a.sent, body)
+	a.mu.Unlock()
+	w.Header().Set("Content-Type", "text/event-stream")
+	_, _ = io.WriteString(w, a.bodies[min(n, len(a.bodies)-1)])
+	if n < len(a.asked) {
+		close(a.asked[n])
+	}
+}
+
+func (a *askedServer) request(i int) []byte {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sent[i]
+}
+
+// sentMessages is the messages one request carried.
+func sentMessages(t *testing.T, body []byte) []json.RawMessage {
+	t.Helper()
+	var req struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		t.Fatalf("request is not JSON: %v", err)
+	}
+	return req.Messages
+}
+
+// Teagan asks whether the garage door is closed. "Let me check the garage
+// door." streams in three fragments while the cover is read, and the
+// follow-up is asked while those words are still playing. It is told them,
+// as the speak call it made with {"playing":true} for its result, so it does
+// not say them again; and the follow-up rebuilt from the journal alone, as
+// Replay and the eval runner rebuild a turn, is the same request (ADR-0077).
+//
+// verifies SPEC §4.1, §4.4, §8
+func TestAFollowUpOverVLLMIsToldTheStreamedWordsStillPlaying(t *testing.T) {
+	srv := newAskedServer(readFixture(t, "check_the_garage.sse"), readFixture(t, "done_and_end.sse"))
+	read := make(chan struct{})
+	h := newHousehold(t, srv, func(cfg *session.Config, hh *household) {
+		cfg.Tools = map[string]session.Tool{"ha_get_state": session.ToolFunc(func(context.Context, string) (string, error) {
+			close(read)
+			return `{"entity_id":"cover.garage_door","state":"open"}`, nil
+		})}
+		hh.kitchen.hold = make(chan struct{})
+	})
+	errc := h.ask("is the garage door closed")
+	<-read
+	<-srv.asked[1]
+
+	live := sentMessages(t, srv.request(1))
+	var said, heard bool
+	for i, m := range live {
+		if strings.Contains(string(m), `"name":"speak","arguments":"{\"text\":\"Let me check the garage door.\"}"`) {
+			said = true
+			heard = i+1 < len(live) && strings.Contains(string(live[i+1]), `"content":"{\"playing\":true}"`)
+		}
+	}
+	if !said || !heard {
+		t.Errorf("the follow-up was not told the words still playing:\n%s", srv.request(1))
+	}
+
+	close(h.kitchen.hold)
+	h.answered(t, errc)
+
+	// The state the follow-up was asked from: the log up to the first ask's
+	// completion and the cover's result, whichever came last, which are what
+	// the session waits for before it asks again.
+	events, err := h.store.Events(context.Background(), h.sess.ConversationID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st journal.State
+	completed, resulted := false, false
+	for _, e := range events {
+		if st, err = journal.Reduce(st, e); err != nil {
+			t.Fatalf("reduce %s: %v", e.Kind, err)
+		}
+		completed = completed || e.Kind == journal.KindModelCompleted
+		resulted = resulted || e.Kind == journal.KindToolResult && e.Fields["call_id"] == "chatcmpl-tool-3f7c1a5e9d2b4860"
+		if completed && resulted {
+			break
+		}
+	}
+	again := newAskedServer(readFixture(t, "reply.sse"))
+	replay := httptest.NewServer(again)
+	t.Cleanup(replay.Close)
+	eng, err := vllm.New(vllm.Config{BaseURL: replay.URL, Model: "Qwen/Qwen3-32B-AWQ", HTTP: replay.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, err := eng.Turn(context.Background(), session.Input{
+		ConversationID: h.sess.ConversationID(), Speaker: st.Speaker, Room: st.Room,
+		Text: "is the garage door closed", Dialogue: st.Dialogue, Now: st.HeardAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+	rebuilt := sentMessages(t, again.request(0))
+	if !reflect.DeepEqual(rebuilt, live) {
+		t.Errorf("the follow-up rebuilt from the journal differs from the one asked:\nlive    %s\nrebuilt %s", live, rebuilt)
 	}
 }
