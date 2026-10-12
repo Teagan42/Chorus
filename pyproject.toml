@@ -33,6 +33,12 @@ docs = [
 voice = [
   "kokoro-onnx==0.6.1",
 ]
+# Wake-word retraining's host side (task wake:*): the training config is
+# YAML, as microWakeWord reads it. The trainer runs in a container with its
+# own pins (internal/tools/waketrain/requirements.txt), never this lockfile.
+wake = [
+  "pyyaml==6.0.3",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["sidecars"]

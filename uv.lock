@@ -144,6 +144,9 @@ docs = [
 voice = [
     { name = "kokoro-onnx" },
 ]
+wake = [
+    { name = "pyyaml" },
+]
 
 [package.metadata]
 
@@ -159,6 +162,7 @@ docs = [
     { name = "mkdocs-material", specifier = "==9.7.7" },
 ]
 voice = [{ name = "kokoro-onnx", specifier = "==0.6.1" }]
+wake = [{ name = "pyyaml", specifier = "==6.0.3" }]
 
 [[package]]
 name = "click"

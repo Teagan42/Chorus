@@ -392,8 +392,8 @@ type walker struct {
 	summaries []journal.Summary
 
 	// unchosen are the speak calls that said an announcement, or a canned
-	// line for a failed model or voice. Nobody's turn chose those words, so
-	// they are no side of a pair (ADR-0045, ADR-0051).
+	// line for a failed model, voice or ear. Nobody's turn chose those words,
+	// so they are no side of a pair (ADR-0045, ADR-0051, ADR-0069).
 	unchosen map[string]bool
 
 	// acks are the speak calls that said a slow call's acknowledgement:
@@ -519,8 +519,10 @@ func (w *walker) fold(e journal.Event) error {
 			w.cur.unheard = append(w.cur.unheard, e.Fields["unspoken_text"])
 		}
 	case journal.KindToolCalled:
-		if e.Fields["tool"] == "speak" && repeats(e.Fields["args_json"]) {
-			// Said again from the log: no turn chose these words (ADR-0064).
+		if e.Fields["tool"] == "speak" && (repeats(e.Fields["args_json"]) || unheard(e.Fields["args_json"])) {
+			// Said again from the log (ADR-0064), or the ear's apology for
+			// words nothing decoded, which no failure event names (ADR-0069):
+			// no turn chose these words.
 			w.skip(e.Fields["call_id"])
 			return nil
 		}
@@ -590,6 +592,17 @@ func repeats(args string) bool {
 	}
 	_ = json.Unmarshal([]byte(args), &a)
 	return a.Repeats
+}
+
+// unheard reports the canned line the session says for an utterance the ear
+// failed on, which answers no turn (ADR-0069).
+func unheard(args string) bool {
+	var a struct {
+		Canned  bool `json:"canned"`
+		Unheard bool `json:"unheard"`
+	}
+	_ = json.Unmarshal([]byte(args), &a)
+	return a.Canned && a.Unheard
 }
 
 // cutByPerson reports a truncation the barge-in made. A log from before

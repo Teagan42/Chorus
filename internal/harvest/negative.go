@@ -27,6 +27,10 @@ type Negative struct {
 	// unknown_speaker.
 	Reason string
 
+	// WakeWord is the name the wake frame carried, empty in a log from
+	// before rejections recorded it (ADR-0072).
+	WakeWord string
+
 	// Audio is the processed stream; SecondAudio the XMOS's lighter output
 	// of the same span, empty from a one-channel device (ADR-0050).
 	Audio, SecondAudio string
@@ -95,6 +99,7 @@ func Negatives(ctx context.Context, store journal.Store, conversationID string) 
 			Satellite:      strings.TrimPrefix(conversationID, "device:"),
 			At:             e.At.UTC(),
 			Reason:         e.Fields["reason"],
+			WakeWord:       e.Fields["wake_word"],
 			Audio:          e.AudioRef,
 			SecondAudio:    second,
 			AudioGone:      gone[e.AudioRef],
@@ -110,6 +115,7 @@ type negativeRow struct {
 	Label          int    `json:"label"`
 	Source         string `json:"source"`
 	Reason         string `json:"reason"`
+	WakeWord       string `json:"wake_word"`
 	Satellite      string `json:"satellite"`
 	At             string `json:"at"`
 	Audio          string `json:"audio"`
@@ -126,7 +132,7 @@ func ExportNegatives(w io.Writer, ns []Negative) error {
 	enc.SetEscapeHTML(false)
 	for _, n := range ns {
 		r := negativeRow{
-			ID: n.ID, Source: "stage2_reject", Reason: n.Reason, Satellite: n.Satellite, At: stamp(n.At),
+			ID: n.ID, Source: "stage2_reject", Reason: n.Reason, WakeWord: n.WakeWord, Satellite: n.Satellite, At: stamp(n.At),
 			Audio: n.Audio, SecondAudio: n.SecondAudio, Confirmed: n.Confirmed, AudioGone: n.AudioGone,
 			ConversationID: n.ConversationID, Seq: n.Seq,
 		}

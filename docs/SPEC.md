@@ -877,9 +877,15 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
   counts each pair's contests from the journalled levels, with the median
   margin, how the margins fall and the closest calls, each linked to the
   lost wake and the conversation the winner opened.
-- Wake-word retraining from the harvested negative corpus. The firmware
-  wakes on the household's "Hey Eddie" model (§13) and the rejected wakes export
-  as their own corpus (ADR-0058); nothing retrains from them yet.
+- ~~Wake-word retraining from the harvested negative corpus~~ **Built —
+  ADR-0078, [the guide](wake-retraining.md).** `task wake:corpus` lays the
+  wake corpus export out for microWakeWord with each clip's journal row,
+  `task wake:positives` speaks the wake word in Kokoro's voices,
+  `task wake:train` trains in a pinned container, and `task wake:evaluate`
+  ships a model only if it beats the deployed one on held-out clips. No
+  model has been trained by it yet, and its container has not run in CI.
+  The clips are the audio after the wake, since the wire carries no
+  pre-roll (§9.3).
 - Near-miss buffer if false rejects surface
 - ~~Encrypt the audio link, and authenticate the host to the device~~
   **Done — ADR-0074.** Protocol 4: the host proves the satellite's key over
@@ -896,7 +902,10 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
   bridge's connection state~~ **Done — ADR-0074.** `chorus_bridge` fires
   `on_connected` and `on_disconnected`, and the Satellite1 and Voice PE rings
   show Unreachable after 10 s without a sealed link.
-- Teach the harvester the ear's `unheard` canned line (ADR-0069)
+- ~~Teach the harvester the ear's `unheard` canned line (ADR-0069)~~
+  **Done.** The apology for words the ear could not decode is nobody's
+  turn: it joins neither the turn before it nor either side of a pair,
+  and cutting it is no preference.
 - Check arbitration's choice against the journalled levels once a
   household runs it: channel 0 is AGC'd, which narrows the gap between a
   near and a far satellite (ADR-0072). The review UI's arbitration report

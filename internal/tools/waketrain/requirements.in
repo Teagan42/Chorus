@@ -1,0 +1,25 @@
+# The wake-word trainer's dependencies (Dockerfile): microWakeWord's own,
+# from its setup.py at the commit the Dockerfile checks out. microWakeWord
+# itself is not installed from here: its audio and layers packages have no
+# __init__.py, so a non-editable install leaves them out. The Dockerfile
+# clones it at the commit and puts it on PYTHONPATH, as the notebook's
+# editable install does. It pins none of these, so requirements.txt is
+# resolved as of that commit's era (see its header) and installed exactly.
+audiomentations
+# The fork microWakeWord's notebook installs: upstream pins an attrs that breaks.
+audio-metadata @ git+https://github.com/whatsnowplaying/audio-metadata@d4ebb238e6a401bb1a5aaaac60c9e2b3cb30929f
+# Below 4: from 4.0, datasets decodes audio only through torchcodec and
+# torch, which microWakeWord does not declare; 3.x decodes WAV with soundfile.
+datasets<4
+mmap_ninja
+numpy>=2.0
+pymicro-features
+pyyaml
+# and-cuda brings CUDA's libraries as wheels: with --gpus it trains on the
+# GPU, without one TensorFlow falls back to the CPU.
+tensorflow[and-cuda]>=2.18
+# microWakeWord logs with tf.summary, and TensorFlow 2.21 no longer brings it.
+tensorboard
+webrtcvad-wheels
+ai-edge-litert
+scipy

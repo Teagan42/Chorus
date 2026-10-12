@@ -1,0 +1,86 @@
+# How "Hey Eddie" is retrained (ADR-0078, docs/wake-retraining.md). wake.py
+# renders this into microWakeWord's training_parameters.yaml, adding a
+# feature set only for data that exists, and builds the model's manifest
+# from `manifest`. Hyperparameters start from microWakeWord's
+# basic_training_notebook.ipynb at the commit the Dockerfile checks out; the
+# household's hard negatives are what this adds.
+
+manifest:
+  wake_word: Hey Eddie
+  author: Chorus wake-word retraining
+  website: https://teagan42.github.io/Chorus/
+  model: hey_eddie.tflite
+  trained_languages: [en]
+  # The firmware fires when five inferences in a row average above the
+  # cutoff. Read the cutoff sweep in .wake/evaluation.json before shipping.
+  probability_cutoff: 0.97
+  sliding_window_size: 5
+  feature_step_size: 10
+  # A hint: ESPHome 2026.7 probes the arena it needs, trying this size,
+  # then half again and double it. The stock mixednet models need ~26 KB.
+  tensor_arena_size: 30000
+  # The first ESPHome that reads a version 2 manifest.
+  minimum_esphome_version: 2024.7.0
+
+# Positives are augmented as the notebook does, with the household's own
+# training negatives as background noise beside any in .wake/augment.
+augmentation:
+  augmentation_duration_s: 3.2
+  augmentation_probabilities:
+    SevenBandParametricEQ: 0.1
+    TanhDistortion: 0.1
+    PitchShift: 0.1
+    BandStopFilter: 0.1
+    AddColorNoise: 0.1
+    AddBackgroundNoise: 0.75
+    Gain: 1.0
+    RIR: 0.5
+  background_min_snr_db: -5
+  background_max_snr_db: 10
+  min_jitter_s: 0.195
+  max_jitter_s: 0.205
+
+# Each feature set's weight in a batch, and the cost of getting it wrong.
+# The household's hard negatives are few and precisely what the deployed
+# model fires on (SPEC §9.3), so they are drawn and penalised above the
+# general ones; a reviewer's confirmed ones above the rule's (ADR-0058).
+feature_sets:
+  positives: {sampling_weight: 2.0, penalty_weight: 1.0, truncation_strategy: truncate_start}
+  household_confirmed: {sampling_weight: 4.0, penalty_weight: 3.0, truncation_strategy: random}
+  household_auto: {sampling_weight: 3.0, penalty_weight: 2.0, truncation_strategy: random}
+  speech: {sampling_weight: 10.0, penalty_weight: 1.0, truncation_strategy: random}
+  dinner_party: {sampling_weight: 10.0, penalty_weight: 1.0, truncation_strategy: random}
+  no_speech: {sampling_weight: 5.0, penalty_weight: 1.0, truncation_strategy: random}
+  # Only scored: long ambient audio split into 100 ms-strided windows.
+  dinner_party_eval: {sampling_weight: 0.0, penalty_weight: 1.0, truncation_strategy: split}
+
+# Passed through to microWakeWord as they are.
+training:
+  window_step_ms: 10
+  training_steps: [10000]
+  positive_class_weight: [1]
+  negative_class_weight: [20]
+  learning_rates: [0.001]
+  batch_size: 128
+  time_mask_max_size: [0]
+  time_mask_count: [0]
+  freq_mask_max_size: [0]
+  freq_mask_count: [0]
+  eval_step_interval: 500
+  clip_duration_ms: 1500
+  # Pick the weights with the fewest false accepts an hour on the ambient
+  # sets first, then the best recall among those under the target.
+  target_minimization: 0.5
+  minimization_metric: ambient_false_positives_per_hour
+  maximization_metric: average_viable_recall
+
+# model_train_eval's model and its flags: the notebook's mixednet.
+model:
+  - mixednet
+  - --pointwise_filters=64,64,64,64
+  - --repeat_in_block=1,1,1,1
+  - --mixconv_kernel_sizes=[5],[7,11],[9,15],[23]
+  - --residual_connection=0,0,0,0
+  - --first_conv_filters=32
+  - --first_conv_kernel_size=5
+  - --stride=3

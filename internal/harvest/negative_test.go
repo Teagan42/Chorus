@@ -25,7 +25,7 @@ func kitchenLog(t *testing.T) journal.Store {
 		rec journal.Record
 	}{
 		{12*time.Hour + 8*time.Minute, record(journal.KindPresenceChanged, "", "state", "present", "sensor", "room_presence")},
-		{14*time.Hour + 2*time.Minute, record(journal.KindWakeRejected, "blob://wake/kitchen-dishwasher", "reason", "no_speech", "second_audio_ref", "blob://wake/kitchen-dishwasher-second")},
+		{14*time.Hour + 2*time.Minute, record(journal.KindWakeRejected, "blob://wake/kitchen-dishwasher", "reason", "no_speech", "wake_word", "hey_eddie", "second_audio_ref", "blob://wake/kitchen-dishwasher-second")},
 		{19*time.Hour + 2*time.Minute, record(journal.KindWakeRejected, "blob://wake/kitchen-guest", "reason", "unknown_speaker")},
 	} {
 		clk.now = day.Add(r.at)
@@ -55,7 +55,7 @@ func TestEveryRejectedWakeIsAHardNegative(t *testing.T) {
 	dish := ns[0]
 	want := harvest.Negative{
 		ID: "device:kitchen/2", ConversationID: "device:kitchen", Seq: 2, Satellite: "kitchen",
-		At: time.Date(2025, time.October, 9, 14, 2, 0, 0, time.UTC), Reason: "no_speech",
+		At: time.Date(2025, time.October, 9, 14, 2, 0, 0, time.UTC), Reason: "no_speech", WakeWord: "hey_eddie",
 		Audio: "blob://wake/kitchen-dishwasher", SecondAudio: "blob://wake/kitchen-dishwasher-second",
 	}
 	if dish != want {
@@ -84,14 +84,15 @@ func TestHardNegativesExportAsOneRowEach(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("got %d rows, want 2:\n%s", len(lines), buf.Bytes())
 	}
-	if got, want := string(lines[0]), `{"id":"device:kitchen/2","label":0,"source":"stage2_reject","reason":"no_speech","satellite":"kitchen","at":"2025-10-09T14:02:00Z","audio":"blob://wake/kitchen-dishwasher","second_audio":"blob://wake/kitchen-dishwasher-second","confirmed":false,"conversation_id":"device:kitchen","seq":2}`; got != want {
+	if got, want := string(lines[0]), `{"id":"device:kitchen/2","label":0,"source":"stage2_reject","reason":"no_speech","wake_word":"hey_eddie","satellite":"kitchen","at":"2025-10-09T14:02:00Z","audio":"blob://wake/kitchen-dishwasher","second_audio":"blob://wake/kitchen-dishwasher-second","confirmed":false,"conversation_id":"device:kitchen","seq":2}`; got != want {
 		t.Errorf("row =\n%s\nwant\n%s", got, want)
 	}
 	var guest map[string]any
 	if err := json.Unmarshal(lines[1], &guest); err != nil {
 		t.Fatal(err)
 	}
-	if guest["second_audio"] != "" || guest["confirmed"] != true || guest["reason"] != "unknown_speaker" {
+	// A rejection journalled before ADR-0072 named no wake word.
+	if guest["second_audio"] != "" || guest["confirmed"] != true || guest["reason"] != "unknown_speaker" || guest["wake_word"] != "" {
 		t.Errorf("guest row = %v", guest)
 	}
 }

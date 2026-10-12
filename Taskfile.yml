@@ -12,6 +12,14 @@ vars:
   ESPHOME_VERSION: 2026.7.2
   # task hardware:kicad builds boards in this; .github/workflows/hardware.yml pins the same.
   KICAD_IMAGE: kicad/kicad:9.0.5@sha256:699f65fd2e4670bbdbe6846586768207f9f1528edd526c0e0502fda7c7f9bfad
+  # The wake-word trainer (internal/tools/waketrain/Dockerfile), built locally.
+  WAKE_IMAGE: chorus-waketrain:local
+  # As the household's own user, so what it writes in .wake stays theirs; the
+  # GPU when the host has one, unless WAKE_DOCKER_GPUS says otherwise.
+  WAKE_RUN: >-
+    docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp
+    ${WAKE_DOCKER_GPUS-$(command -v nvidia-smi >/dev/null 2>&1 && echo --gpus all)}
+    -v "{{.ROOT_DIR}}/.wake:/wake" {{.WAKE_IMAGE}} --esphome {{.ESPHOME_VERSION}}
 
 env:
   PATH: "{{.GOBIN}}/bin:{{.PATH}}"
@@ -345,6 +353,54 @@ tasks:
       - uv run --group voice ruff check internal/tools/householdvoice
       - uv run --group voice ruff format --check internal/tools/householdvoice
       - uv run --group voice pytest internal/tools/householdvoice
+
+  # ---------------------------------------------------------------- wake word
+  # Retraining "Hey Eddie" from the rejected wakes (ADR-0078). Each step reads
+  # what the one before left in .wake/ (internal/tools/waketrain/layout.py);
+  # docs/wake-retraining.md is the guide. Like canned:voice, none of it is
+  # hermetic: it needs the household's journal export, Kokoro or Docker.
+  wake:corpus:
+    desc: Lay the review UI's wake corpus export out for training in .wake/corpus, e.g. -- -negatives chorus-wake-negatives.jsonl (CHORUS_BLOB_DIR from .env)
+    dotenv: [".env"]
+    cmds: ["go run ./internal/tools/wakecorpus -out .wake/corpus {{.CLI_ARGS}}"]
+
+  wake:positives:
+    desc: Speak "hey eddie" in every English Kokoro voice, and blends of them, into .wake/positives (fetches the model once)
+    cmds: ["uv run --group voice python internal/tools/waketrain/positives.py --out .wake/positives {{.CLI_ARGS}}"]
+
+  wake:image:
+    desc: Build the wake-word trainer's image (needs Docker)
+    cmds: ["docker build -t {{.WAKE_IMAGE}} internal/tools/waketrain"]
+
+  wake:train:
+    desc: Train a model from .wake's corpus and positives into .wake/model (needs Docker; uses the GPU if nvidia-smi finds one, and takes hours without)
+    deps: [wake:image]
+    cmds:
+      - mkdir -p .wake
+      - "{{.WAKE_RUN}} fetch"
+      - "{{.WAKE_RUN}} train {{.CLI_ARGS}}"
+
+  wake:evaluate:
+    desc: Score .wake/model against the deployed model on held-out clips; fails unless it is better (needs Docker)
+    deps: [wake:image]
+    vars:
+      # The model the satellites load: the one their shared package names.
+      WAKE_DEPLOYED:
+        sh: "sed -n 's|^ *- model: \\(https*://.*\\.json\\)$|\\1|p' esphome/packages/chorus-bridge.yaml | head -n 1"
+    cmds:
+      - mkdir -p .wake
+      - "{{.WAKE_RUN}} evaluate --deployed {{.WAKE_DEPLOYED}} {{.CLI_ARGS}}"
+
+  wake:validate:
+    desc: Check a model's manifest and .tflite as ESPHome and the satellite would, e.g. -- .wake/model/hey_eddie.json
+    cmds: ["uv run --group wake python internal/tools/waketrain/wake.py --esphome {{.ESPHOME_VERSION}} validate {{.CLI_ARGS}}"]
+
+  wake:test:
+    desc: The wake-word pipeline's Python tests and lint, with stand-ins for Kokoro and TFLite. Python, so not part of `task test`.
+    cmds:
+      - uv run --group voice --group wake ruff check internal/tools/waketrain
+      - uv run --group voice --group wake ruff format --check internal/tools/waketrain
+      - uv run --group voice --group wake pytest internal/tools/waketrain
 
   # -------------------------------------------------------------- spec tracing
   spec:
