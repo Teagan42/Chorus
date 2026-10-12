@@ -94,7 +94,8 @@ func NewLink(conn net.Conn, keys Keys) (*Link, error) {
 }
 
 // authenticate proves the host to the satellite the hello names, then
-// checks the device's proof, and returns the session's two keys.
+// checks the device's proof, and returns the session's two keys. The host's
+// ephemeral private key lives only in this call.
 func (l *Link) authenticate(plain *Reader, keys Keys) (deviceToHost, hostToDevice []byte, err error) {
 	name := l.hello.Name
 	psk, ok := keys(name)
@@ -105,7 +106,17 @@ func (l *Link) authenticate(plain *Reader, keys Keys) (deviceToHost, hostToDevic
 	if err != nil {
 		return nil, nil, fmt.Errorf("satellite %s: %w", name, err)
 	}
-	c := NewChallenge(key, l.hello)
+	c, priv, err := NewChallenge(key, l.hello)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Before anything is sent: a low-order key would seal under a secret
+	// anyone can compute, so it gets no challenge.
+	shared, err := SharedSecret(priv, l.hello.Ephemeral)
+	if err != nil {
+		return nil, nil, fmt.Errorf("device names itself %q: %w", name, err)
+	}
+	defer clear(shared)
 	if err := writeWhole(l.conn, c.Frame()); err != nil {
 		return nil, nil, fmt.Errorf("send challenge: %w", err)
 	}
@@ -128,7 +139,7 @@ func (l *Link) authenticate(plain *Reader, keys Keys) (deviceToHost, hostToDevic
 		return nil, nil, fmt.Errorf("%w: device names itself %q, and its key is not that satellite's psk",
 			ErrBadMAC, name)
 	}
-	return SessionKeys(key, l.hello, c.Nonce)
+	return SessionKeys(key, shared, l.hello, c)
 }
 
 // writeWhole sends one plaintext frame in a single Write.

@@ -178,6 +178,11 @@ func (d *Device) pose() error {
 	if err != nil {
 		return err
 	}
+	priv, err := bridge.NewEphemeral()
+	if err != nil {
+		return err
+	}
+	d.hello.Ephemeral = bridge.PublicOf(priv)
 	if err := bridge.NewWriter(d.conn).WriteFrame(d.hello.Frame()); err != nil {
 		return fmt.Errorf("hello: %w", err)
 	}

@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"crypto/ecdh"
 	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/rand"
@@ -15,6 +16,8 @@ const (
 	NonceSize = 32          // each side's, from a CSPRNG, fresh per connection
 	MACSize   = sha256.Size // HMAC-SHA256, both proofs
 	KeySize   = 32          // AES-256, one key per direction
+	// PublicKeySize is an X25519 public key, each side's fresh per connection.
+	PublicKeySize = 32
 	// MaxNameLen bounds the name a hello may carry. ESPHome node names are
 	// 31 bytes at most, MAC suffix included.
 	MaxNameLen = 64
@@ -43,6 +46,9 @@ var (
 	ErrChallengeRefused = errors.New("bridge: the device hung up on the host's proof")
 	// ErrHostUnproven is the device's refusal: the host does not hold its key.
 	ErrHostUnproven = errors.New("bridge: the host's proof does not verify")
+	// ErrWeakKey is an ephemeral public key of low order: its shared secret
+	// is all zeros whatever the other side's key, so it would seal nothing.
+	ErrWeakKey = errors.New("bridge: the peer's ephemeral key is a low-order point")
 )
 
 // Keys returns the PSK of the satellite a device names itself as, or false
@@ -50,8 +56,8 @@ var (
 type Keys func(name string) (psk []byte, ok bool)
 
 // LinkKey derives the audio link's key from a satellite's API PSK, by
-// HKDF-SHA256 with no salt. Both proofs are made under it, and the session
-// keys are derived from it.
+// HKDF-SHA256 with no salt. Both proofs are made under it, and it is mixed
+// into the session keys beside the X25519 secret.
 func LinkKey(psk []byte) ([]byte, error) {
 	if len(psk) != PSKSize {
 		return nil, fmt.Errorf("link key: psk is %d bytes, want %d", len(psk), PSKSize)
@@ -59,43 +65,82 @@ func LinkKey(psk []byte) ([]byte, error) {
 	return hkdf.Key(sha256.New, psk, nil, linkKeyInfo, MACSize)
 }
 
-// Challenge is the host's answer to the hello: its own nonce, and its proof
-// that it holds the key of the satellite the hello names.
-type Challenge struct {
-	Nonce [NonceSize]byte
-	Proof [MACSize]byte
+// NewEphemeral draws a connection's X25519 key pair. It is never stored:
+// once the shared secret is taken it goes out of scope with the handshake.
+func NewEphemeral() (*ecdh.PrivateKey, error) {
+	return ecdh.X25519().GenerateKey(rand.Reader)
 }
 
-// NewChallenge draws a fresh host nonce and proves the host under key.
-// crypto/rand never fails short of crashing the process.
-func NewChallenge(key []byte, h Hello) Challenge {
-	var c Challenge
-	_, _ = rand.Read(c.Nonce[:])
-	c.Proof = HostProof(key, h, c.Nonce)
-	return c
+// PublicOf is priv's public key as the wire carries it.
+func PublicOf(priv *ecdh.PrivateKey) [PublicKeySize]byte {
+	var out [PublicKeySize]byte
+	copy(out[:], priv.PublicKey().Bytes())
+	return out
 }
+
+// SharedSecret is X25519(priv, peer). A low-order peer key, whose secret
+// is all zeros, is ErrWeakKey.
+func SharedSecret(priv *ecdh.PrivateKey, peer [PublicKeySize]byte) ([]byte, error) {
+	pub, err := ecdh.X25519().NewPublicKey(peer[:])
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrWeakKey, err)
+	}
+	shared, err := priv.ECDH(pub)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %x", ErrWeakKey, peer)
+	}
+	return shared, nil
+}
+
+// Challenge is the host's answer to the hello: its nonce, its ephemeral
+// public key, and its proof that it holds the key of the satellite the
+// hello names.
+type Challenge struct {
+	Nonce     [NonceSize]byte
+	Ephemeral [PublicKeySize]byte
+	Proof     [MACSize]byte
+}
+
+// NewChallenge draws a fresh host nonce and ephemeral key pair and proves
+// the host under key. The private key is the caller's, for the shared secret.
+func NewChallenge(key []byte, h Hello) (Challenge, *ecdh.PrivateKey, error) {
+	var c Challenge
+	priv, err := NewEphemeral()
+	if err != nil {
+		return c, nil, fmt.Errorf("challenge: %w", err)
+	}
+	_, _ = rand.Read(c.Nonce[:])
+	c.Ephemeral = PublicOf(priv)
+	c.Proof = HostProof(key, h, c)
+	return c, priv, nil
+}
+
+// challengeSize is the payload: nonce, ephemeral, proof.
+const challengeSize = NonceSize + PublicKeySize + MACSize
 
 func (c Challenge) Frame() Frame {
-	p := make([]byte, 0, NonceSize+MACSize)
+	p := make([]byte, 0, challengeSize)
 	p = append(p, c.Nonce[:]...)
+	p = append(p, c.Ephemeral[:]...)
 	p = append(p, c.Proof[:]...)
 	return Frame{Type: TypeChallenge, Payload: p}
 }
 
 func ParseChallenge(p []byte) (Challenge, error) {
 	var c Challenge
-	if len(p) != NonceSize+MACSize {
-		return c, fmt.Errorf("challenge: payload %d bytes, want %d", len(p), NonceSize+MACSize)
+	if len(p) != challengeSize {
+		return c, fmt.Errorf("challenge: payload %d bytes, want %d", len(p), challengeSize)
 	}
 	copy(c.Nonce[:], p[:NonceSize])
-	copy(c.Proof[:], p[NonceSize:])
+	copy(c.Ephemeral[:], p[NonceSize:NonceSize+PublicKeySize])
+	copy(c.Proof[:], p[NonceSize+PublicKeySize:])
 	return c, nil
 }
 
 // Verify is the device's check that the host holds key, over the hello the
-// device sent, in constant time.
+// device sent and the host's own nonce and ephemeral key, in constant time.
 func (c Challenge) Verify(key []byte, h Hello) bool {
-	want := HostProof(key, h, c.Nonce)
+	want := HostProof(key, h, c)
 	return hmac.Equal(c.Proof[:], want[:])
 }
 
@@ -120,50 +165,61 @@ func ParseAuth(p []byte) (Auth, error) {
 // AnswerChallenge is the device's half: what chorus_bridge.cpp sends once
 // the host's proof verifies, and what Join sends.
 func AnswerChallenge(key []byte, h Hello, c Challenge) Auth {
-	return Auth{Proof: DeviceProof(key, h, c.Nonce)}
+	return Auth{Proof: DeviceProof(key, h, c)}
 }
 
 // Verify reports whether a was made with key over this hello and challenge,
 // in constant time.
 func (a Auth) Verify(key []byte, h Hello, c Challenge) bool {
-	want := DeviceProof(key, h, c.Nonce)
+	want := DeviceProof(key, h, c)
 	return hmac.Equal(a.Proof[:], want[:])
 }
 
-// HostProof is HMAC-SHA256(key, host label || hello payload || host nonce).
-// The hello carries the format, the device's nonce and the name, so the
-// proof covers all three. Only the name varies in length, and the host
-// nonce after it is fixed, so no length prefix is needed.
-func HostProof(key []byte, h Hello, hostNonce [NonceSize]byte) [MACSize]byte {
-	return proof(key, hostProofContext, h, hostNonce)
+// HostProof is HMAC-SHA256(key, host label || hello payload || host nonce ||
+// host ephemeral). The hello carries the format, the device's nonce and
+// ephemeral key and the name, so the proof covers both public keys: a peer
+// on the path that swaps either one breaks it. Only the name varies in
+// length, and what follows it is fixed, so no length prefix is needed.
+// c.Proof is not read.
+func HostProof(key []byte, h Hello, c Challenge) [MACSize]byte {
+	return proof(key, hostProofContext, h, c)
 }
 
 // DeviceProof is HostProof's input under the device's label.
-func DeviceProof(key []byte, h Hello, hostNonce [NonceSize]byte) [MACSize]byte {
-	return proof(key, deviceProofContext, h, hostNonce)
+func DeviceProof(key []byte, h Hello, c Challenge) [MACSize]byte {
+	return proof(key, deviceProofContext, h, c)
 }
 
-func proof(key []byte, label string, h Hello, hostNonce [NonceSize]byte) [MACSize]byte {
+func proof(key []byte, label string, h Hello, c Challenge) [MACSize]byte {
 	m := hmac.New(sha256.New, key)
 	m.Write([]byte(label))
 	m.Write(h.Frame().Payload)
-	m.Write(hostNonce[:])
+	m.Write(c.Nonce[:])
+	m.Write(c.Ephemeral[:])
 	var out [MACSize]byte
 	m.Sum(out[:0])
 	return out
 }
 
 // SessionKeys derives this connection's two AES-256-GCM keys: HKDF-SHA256
-// over the link key, salted with both nonces, one info per direction. Either
-// side's fresh nonce makes them new.
-func SessionKeys(key []byte, h Hello, hostNonce [NonceSize]byte) (deviceToHost, hostToDevice []byte, err error) {
+// over the X25519 secret then the link key, salted with both nonces, one
+// info per direction. The secret is what a recording cannot recover from a
+// leaked PSK; the link key is what an unauthenticated exchange lacks.
+func SessionKeys(key, shared []byte, h Hello, c Challenge) (deviceToHost, hostToDevice []byte, err error) {
+	if len(shared) != PublicKeySize {
+		return nil, nil, fmt.Errorf("session keys: shared secret is %d bytes, want %d", len(shared), PublicKeySize)
+	}
+	ikm := make([]byte, 0, len(shared)+len(key))
+	ikm = append(ikm, shared...)
+	ikm = append(ikm, key...)
+	defer clear(ikm)
 	salt := make([]byte, 0, 2*NonceSize)
 	salt = append(salt, h.Nonce[:]...)
-	salt = append(salt, hostNonce[:]...)
-	if deviceToHost, err = hkdf.Key(sha256.New, key, salt, deviceToHostInfo, KeySize); err != nil {
+	salt = append(salt, c.Nonce[:]...)
+	if deviceToHost, err = hkdf.Key(sha256.New, ikm, salt, deviceToHostInfo, KeySize); err != nil {
 		return nil, nil, fmt.Errorf("session keys: %w", err)
 	}
-	if hostToDevice, err = hkdf.Key(sha256.New, key, salt, hostToDeviceInfo, KeySize); err != nil {
+	if hostToDevice, err = hkdf.Key(sha256.New, ikm, salt, hostToDeviceInfo, KeySize); err != nil {
 		return nil, nil, fmt.Errorf("session keys: %w", err)
 	}
 	return deviceToHost, hostToDevice, nil

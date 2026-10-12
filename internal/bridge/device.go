@@ -26,7 +26,8 @@ func (d *DeviceConn) WriteFrame(f Frame) error { return d.w.WriteFrame(f) }
 // Join is the device's half of the handshake, step for step what
 // chorus_bridge.cpp does: send the hello, check the host's proof, and only
 // then answer with its own. h.Name is the satellite it claims to be; a zero
-// h.Nonce is drawn fresh. bridgetest's satellite joins through it.
+// h.Nonce is drawn fresh, and the ephemeral key pair always is.
+// bridgetest's satellite joins through it.
 func Join(rw io.ReadWriter, h Hello, psk []byte) (*DeviceConn, error) {
 	if h.Name == "" {
 		return nil, errors.New("join: the hello names no satellite")
@@ -38,6 +39,11 @@ func Join(rw io.ReadWriter, h Hello, psk []byte) (*DeviceConn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("join: %w", err)
 	}
+	priv, err := NewEphemeral()
+	if err != nil {
+		return nil, fmt.Errorf("join: %w", err)
+	}
+	h.Ephemeral = PublicOf(priv)
 	if err := writeWhole(rw, h.Frame()); err != nil {
 		return nil, fmt.Errorf("join: send hello: %w", err)
 	}
@@ -57,10 +63,15 @@ func Join(rw io.ReadWriter, h Hello, psk []byte) (*DeviceConn, error) {
 	if !c.Verify(key, h) {
 		return nil, fmt.Errorf("%w: as %q", ErrHostUnproven, h.Name)
 	}
+	shared, err := SharedSecret(priv, c.Ephemeral)
+	if err != nil {
+		return nil, fmt.Errorf("join: as %q: %w", h.Name, err)
+	}
+	defer clear(shared)
 	if err := writeWhole(rw, AnswerChallenge(key, h, c).Frame()); err != nil {
 		return nil, fmt.Errorf("join: send auth: %w", err)
 	}
-	deviceToHost, hostToDevice, err := SessionKeys(key, h, c.Nonce)
+	deviceToHost, hostToDevice, err := SessionKeys(key, shared, h, c)
 	if err != nil {
 		return nil, err
 	}

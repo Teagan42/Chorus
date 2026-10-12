@@ -62,11 +62,16 @@ func dialRaw(t *testing.T, r *rig, ip string) *rawDevice {
 // it against the daemon's reads otherwise.
 func (d *rawDevice) script(f func() error) { go func() { d.errs <- f() }() }
 
-// hello is the kitchen's, at this checkout's version.
+// hello is the kitchen's, at this checkout's version, with an ephemeral key
+// the device then never uses.
 func (d *rawDevice) hello() error {
+	priv, err := bridge.NewEphemeral()
+	if err != nil {
+		return err
+	}
 	return d.w.WriteFrame(bridge.Hello{
 		Version: bridge.ProtocolVersion, SampleRate: bridge.SampleRate, BitsPerSample: bridge.BitsPerSample,
-		MicChannels: 2, Name: "kitchen",
+		MicChannels: 2, Name: "kitchen", Ephemeral: bridge.PublicOf(priv),
 	}.Frame())
 }
 

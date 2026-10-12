@@ -194,12 +194,12 @@ func TestNewLinkReadsHello(t *testing.T) {
 	l, dc, _ := joined(t, 2)
 	got := l.Hello()
 	want := helloOf(2)
-	want.Name, want.Nonce = kitchen, dc.Hello().Nonce
+	want.Name, want.Nonce, want.Ephemeral = kitchen, dc.Hello().Nonce, dc.Hello().Ephemeral
 	if got != want {
 		t.Errorf("Hello() = %+v, want %+v", got, want)
 	}
-	if got.Nonce == ([bridge.NonceSize]byte{}) {
-		t.Error("the device's nonce is zero")
+	if got.Nonce == ([bridge.NonceSize]byte{}) || got.Ephemeral == ([bridge.PublicKeySize]byte{}) {
+		t.Error("the device's nonce or ephemeral key is zero")
 	}
 }
 

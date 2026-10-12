@@ -182,8 +182,9 @@ func (w *Writer) WriteFrame(f Frame) error {
 
 // Hello opens every connection. The device states its format rather than
 // trusting the host's assumption, because a YAML change can alter it. It
-// also names the satellite it claims to be and brings its own nonce, so the
-// host can prove itself before the device proves anything (ADR-0074).
+// also names the satellite it claims to be and brings its own nonce and
+// ephemeral X25519 key, so the host can prove itself, over both, before the
+// device proves anything (ADR-0074).
 type Hello struct {
 	Version       uint8
 	SampleRate    uint32
@@ -191,20 +192,28 @@ type Hello struct {
 	MicChannels   uint8
 	// Nonce is the device's, fresh per connection. Join draws one when it is zero.
 	Nonce [NonceSize]byte
+	// Ephemeral is the device's X25519 public key for this connection only.
+	// Join draws the key pair, whatever the field held.
+	Ephemeral [PublicKeySize]byte
 	// Name is the ESPHome node name, MAC suffix included: the inventory's key.
 	Name string
 }
 
-// helloFixed is the payload before the name: version, rate, bits, channels
-// and the nonce.
-const helloFixed = 7 + NonceSize
+// helloFixed is the payload before the name: version, rate, bits, channels,
+// the nonce and the ephemeral key.
+const (
+	helloNonce     = 7
+	helloEphemeral = helloNonce + NonceSize
+	helloFixed     = helloEphemeral + PublicKeySize
+)
 
 func (h Hello) Frame() Frame {
 	p := make([]byte, helloFixed, helloFixed+len(h.Name))
 	p[0] = h.Version
 	binary.BigEndian.PutUint32(p[1:5], h.SampleRate)
 	p[5], p[6] = h.BitsPerSample, h.MicChannels
-	copy(p[7:helloFixed], h.Nonce[:])
+	copy(p[helloNonce:helloEphemeral], h.Nonce[:])
+	copy(p[helloEphemeral:helloFixed], h.Ephemeral[:])
 	p = append(p, h.Name...)
 	return Frame{Type: TypeHello, Payload: p}
 }
@@ -236,7 +245,8 @@ func ParseHello(p []byte) (Hello, error) {
 		MicChannels:   p[6],
 		Name:          string(name),
 	}
-	copy(h.Nonce[:], p[7:helloFixed])
+	copy(h.Nonce[:], p[helloNonce:helloEphemeral])
+	copy(h.Ephemeral[:], p[helloEphemeral:helloFixed])
 	return h, nil
 }
 

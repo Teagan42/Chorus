@@ -30,6 +30,12 @@ static const size_t TX_CAPACITY = 2 * RING_BUFFER_SIZE;
 static const size_t UPLINK_COALESCE_BYTES = 1400;
 static const uint32_t UPLINK_FLUSH_MS = 100;
 
+// mbedTLS's RNG callback over the ESP32's hardware RNG. X25519 uses it to
+// blind its ladder; the nonces and keys come from random_bytes directly.
+static int mbedtls_random(void * /*ctx*/, unsigned char *out, size_t len) {
+  return random_bytes(out, len) ? 0 : -1;
+}
+
 static void put_be16(std::vector<uint8_t> &out, uint16_t v) {
   out.push_back(v >> 8);
   out.push_back(v & 0xff);
@@ -206,14 +212,22 @@ bool ChorusBridge::finish_connect_() {
   // as devices.yaml does, MAC suffix included, and brings a fresh nonce the
   // host's proof must cover. Nothing else goes out until that proof holds.
   uint8_t nonce[auth::NONCE_SIZE];
-  if (!random_bytes(nonce, sizeof(nonce))) {
+  if (!random_bytes(nonce, sizeof(nonce)) || !random_bytes(this->ephemeral_.data(), this->ephemeral_.size())) {
     this->disconnect_("no random bytes for the nonce");
     return false;
   }
+  // One X25519 scalar multiplication, in loop(), once per connection.
+  uint8_t ephemeral_pub[x25519::KEY_SIZE];
+  const uint32_t keygen_started = millis();
+  if (!x25519::public_key(this->ephemeral_.data(), ephemeral_pub, mbedtls_random, nullptr)) {
+    this->disconnect_("ephemeral key failed");
+    return false;
+  }
+  [[maybe_unused]] const uint32_t keygen_ms = millis() - keygen_started;
   const StringRef &name = App.get_name();
   this->hello_len_ = auth::encode_hello(PROTOCOL_VERSION, SAMPLE_RATE_HZ, 8 * sizeof(int16_t),
-                                        this->mic_channels_.size(), nonce, name.c_str(), name.size(),
-                                        this->hello_.data());
+                                        this->mic_channels_.size(), nonce, ephemeral_pub, name.c_str(),
+                                        name.size(), this->hello_.data());
   if (this->hello_len_ == 0) {
     this->disconnect_("node name does not fit the hello");
     return false;
@@ -223,7 +237,8 @@ bool ChorusBridge::finish_connect_() {
   }
   this->connected_at_ = millis();
 
-  ESP_LOGI(TAG, "Connected to %s:%u, awaiting the host's proof", this->host_.c_str(), this->port_);
+  ESP_LOGI(TAG, "Connected to %s:%u, awaiting the host's proof (ephemeral key in %" PRIu32 " ms)",
+           this->host_.c_str(), this->port_, keygen_ms);
   return true;
 }
 
@@ -232,10 +247,13 @@ void ChorusBridge::verify_host_(const uint8_t *payload, size_t length) {
     this->disconnect_("malformed challenge");
     return;
   }
+  // The host's nonce then its ephemeral key, which both proofs cover.
+  const uint8_t *host = payload;
   const uint8_t *host_nonce = payload;
-  const uint8_t *proof = payload + auth::NONCE_SIZE;
+  const uint8_t *host_ephemeral = payload + auth::CHALLENGE_EPHEMERAL_OFFSET;
+  const uint8_t *proof = payload + auth::CHALLENGE_PROOF_OFFSET;
   uint8_t want[auth::MAC_SIZE];
-  if (!auth::host_proof(this->link_key_.data(), this->hello_.data(), this->hello_len_, host_nonce, want)) {
+  if (!auth::host_proof(this->link_key_.data(), this->hello_.data(), this->hello_len_, host, want)) {
     this->disconnect_("host proof failed to compute");
     return;
   }
@@ -252,14 +270,28 @@ void ChorusBridge::verify_host_(const uint8_t *payload, size_t length) {
     return;
   }
 
+  // The second scalar multiplication. The private key goes the moment it is
+  // used: what a recording plus a leaked PSK cannot recover is this secret.
+  uint8_t shared[x25519::KEY_SIZE];
+  const uint32_t dh_started = millis();
+  const bool exchanged = x25519::shared(this->ephemeral_.data(), host_ephemeral, shared, mbedtls_random, nullptr);
+  [[maybe_unused]] const uint32_t dh_ms = millis() - dh_started;
+  mbedtls_platform_zeroize(this->ephemeral_.data(), this->ephemeral_.size());
+  if (!exchanged) {
+    // A low-order key would seal the link under a secret anyone can compute.
+    this->disconnect_("the host's ephemeral key is weak");
+    return;
+  }
+
   uint8_t answer[auth::MAC_SIZE];
   uint8_t up[auth::KEY_SIZE];
   uint8_t down[auth::KEY_SIZE];
   const bool keyed =
-      auth::device_proof(this->link_key_.data(), this->hello_.data(), this->hello_len_, host_nonce, answer) &&
-      auth::derive_session_keys(this->link_key_.data(), this->hello_.data() + auth::HELLO_NONCE_OFFSET, host_nonce,
-                                up, down) &&
+      auth::device_proof(this->link_key_.data(), this->hello_.data(), this->hello_len_, host, answer) &&
+      auth::derive_session_keys(this->link_key_.data(), shared, this->hello_.data() + auth::HELLO_NONCE_OFFSET,
+                                host_nonce, up, down) &&
       this->tx_seal_.set_key(up) && this->rx_seal_.set_key(down);
+  mbedtls_platform_zeroize(shared, sizeof(shared));
   mbedtls_platform_zeroize(up, sizeof(up));
   mbedtls_platform_zeroize(down, sizeof(down));
   if (!keyed) {
@@ -274,7 +306,8 @@ void ChorusBridge::verify_host_(const uint8_t *payload, size_t length) {
   this->authenticated_ = true;
   this->backoff_ms_ = 0;
   this->last_mute_flags_ = 0xff;  // force a mute report on the new connection
-  ESP_LOGI(TAG, "The host proved the key; link sealed as %s", App.get_name().c_str());
+  ESP_LOGI(TAG, "The host proved the key; link sealed as %s (X25519 in %" PRIu32 " ms)", App.get_name().c_str(),
+           dh_ms);
   if (this->mic_requested_) {
     this->start_microphones_();
   }
@@ -307,6 +340,7 @@ void ChorusBridge::disconnect_(const char *reason) {
   this->rx_seal_.reset();
   this->rx_head_open_ = false;
   this->hello_len_ = 0;
+  mbedtls_platform_zeroize(this->ephemeral_.data(), this->ephemeral_.size());
   // Before stop(), so no straggling callback is attributed to the next link.
   this->playing_.store(false, std::memory_order_release);
   this->tx_.clear();

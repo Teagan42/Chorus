@@ -22,6 +22,7 @@
 
 #include "chorus_auth.h"
 #include "chorus_seal.h"
+#include "chorus_x25519.h"
 
 #ifdef USE_CHORUS_BRIDGE_DUCKING
 #include "esphome/components/mixer/speaker/mixer_speaker.h"
@@ -186,7 +187,11 @@ class ChorusBridge : public Component {
 
   std::array<uint8_t, auth::PSK_SIZE> psk_{};
   std::array<uint8_t, auth::KEY_SIZE> link_key_{};
-  // The hello as sent, nonce and name included: both proofs cover it.
+  // This connection's X25519 private key: drawn at connect, wiped as soon as
+  // the shared secret is taken or the link drops. Never reused.
+  std::array<uint8_t, x25519::KEY_SIZE> ephemeral_{};
+  // The hello as sent, nonce, ephemeral key and name included: both proofs
+  // cover it.
   std::array<uint8_t, auth::MAX_HELLO_SIZE> hello_{};
   size_t hello_len_{0};
   seal::Sealer tx_seal_;  // device to host

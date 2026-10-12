@@ -3,10 +3,12 @@ package bridge_test
 import (
 	"bufio"
 	"bytes"
+	"crypto/ecdh"
 	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -29,7 +31,9 @@ type golden struct {
 }
 
 // goldenInputs are the lines nothing derives; every other line is derived.
-var goldenInputs = []string{"psk", "device_nonce", "host_nonce"}
+// The two ephemeral private keys are fixed here so the file is
+// deterministic; on the wire each is fresh per connection.
+var goldenInputs = []string{"psk", "device_nonce", "host_nonce", "device_ephemeral_private", "host_ephemeral_private"}
 
 func readGolden(t *testing.T) golden {
 	t.Helper()
@@ -68,11 +72,23 @@ func readGolden(t *testing.T) golden {
 }
 
 // goldenHello is the living-room Satellite1's: both mic channels.
-func goldenHello(name string, nonce []byte) bridge.Hello {
+func goldenHello(name string, nonce []byte, ephemeral [bridge.PublicKeySize]byte) bridge.Hello {
 	h := helloOf(2)
 	h.Name = name
 	copy(h.Nonce[:], nonce)
+	h.Ephemeral = ephemeral
 	return h
+}
+
+// x25519 is a fixed private key, for vectors and for tests that need to
+// know both ends of an exchange.
+func x25519(t *testing.T, priv []byte) *ecdh.PrivateKey {
+	t.Helper()
+	k, err := ecdh.X25519().NewPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("x25519 private key: %v", err)
+	}
+	return k
 }
 
 // The sealed frames the golden file fixes, in the order each side sends them.
@@ -98,20 +114,34 @@ func (g golden) derive(t *testing.T) ([]string, map[string][]byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := goldenHello(g.name, dn)
-	var c bridge.Challenge
+	devPriv := x25519(t, g.lines["device_ephemeral_private"])
+	hostPriv := x25519(t, g.lines["host_ephemeral_private"])
+	h := goldenHello(g.name, dn, bridge.PublicOf(devPriv))
+	c := bridge.Challenge{Ephemeral: bridge.PublicOf(hostPriv)}
 	copy(c.Nonce[:], hn)
-	c.Proof = bridge.HostProof(key, h, c.Nonce)
+	c.Proof = bridge.HostProof(key, h, c)
 	a := bridge.AnswerChallenge(key, h, c)
-	up, down, err := bridge.SessionKeys(key, h, c.Nonce)
+	shared, err := bridge.SharedSecret(devPriv, c.Ephemeral)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mirror, err := bridge.SharedSecret(hostPriv, h.Ephemeral)
+	if err != nil || !bytes.Equal(shared, mirror) {
+		t.Fatalf("the two ends' X25519 secrets differ: %x, %x (%v)", shared, mirror, err)
+	}
+	up, down, err := bridge.SessionKeys(key, shared, h, c)
 	if err != nil {
 		t.Fatal(err)
 	}
 	order := []string{
+		"device_ephemeral", "host_ephemeral", "shared_secret",
 		"hello", "link_key", "host_proof", "challenge", "device_proof", "auth",
 		"key_device_to_host", "key_host_to_device", "uplink_0", "uplink_1", "downlink_0", "downlink_1",
 	}
 	out := map[string][]byte{
+		"device_ephemeral":   h.Ephemeral[:],
+		"host_ephemeral":     c.Ephemeral[:],
+		"shared_secret":      shared,
 		"hello":              wire(t, h.Frame()),
 		"link_key":           key,
 		"host_proof":         c.Proof[:],
@@ -162,9 +192,12 @@ func writeGolden(t *testing.T, g golden, order []string, derived map[string][]by
 	t.Helper()
 	var b strings.Builder
 	b.WriteString(`# The chorus_bridge v4 handshake and its first sealed frames on fixed
-# inputs (ADR-0074). The first four lines are inputs; every line after them
-# is derived. Frames are whole, header included; uplink_N and downlink_N are
-# sealed records, counter N, carrying the frames auth_test.go names.
+# inputs (ADR-0074). The first six lines are inputs, the two ephemeral
+# private keys among them fixed only so this file is deterministic; they are
+# RFC 7748 section 6.1's, so its public keys and shared secret check the
+# three lines after them. Every line after the inputs is derived. Frames are
+# whole, header included; uplink_N and downlink_N are sealed records,
+# counter N, carrying the frames auth_test.go names.
 # Checked by internal/bridge/auth_test.go and, on the firmware's side, by
 # esphome/test/chorus_auth_test.cpp.
 # Regenerate with: go test ./internal/bridge -run Golden -update
@@ -213,6 +246,15 @@ func TestHandshakeGoldenFrames(t *testing.T) {
 	if bytes.Equal(got["host_proof"], got["device_proof"]) {
 		t.Error("the host's proof is the device's: one could be reflected as the other")
 	}
+	for name, secret := range map[string][]byte{
+		"the device's private key": g.lines["device_ephemeral_private"],
+		"the host's private key":   g.lines["host_ephemeral_private"],
+		"the shared secret":        got["shared_secret"],
+	} {
+		if bytes.Contains(got["hello"], secret) || bytes.Contains(got["challenge"], secret) {
+			t.Errorf("%s crosses the wire", name)
+		}
+	}
 }
 
 // A device that holds the inventory's key for the name it claims gets a link
@@ -236,8 +278,7 @@ func TestEachChallengeIsFresh(t *testing.T) {
 		host, device := newPipe(t)
 		nonce := make(chan bridge.Challenge, 1)
 		go func() {
-			h := helloOf(1)
-			h.Name = kitchen
+			h := named(kitchen, 1)
 			_ = bridge.NewWriter(device).WriteFrame(h.Frame())
 			c, _ := readChallenge(device)
 			nonce <- c
@@ -311,9 +352,16 @@ func impostor(c net.Conn, h bridge.Hello, psk []byte, answer func(key []byte, h 
 	return bridge.NewWriter(c).WriteFrame(answer(key, h, ch).Frame())
 }
 
+// named is a hello as name, with a fresh ephemeral key whose private half
+// is thrown away: enough for a host to answer, not to finish an exchange.
 func named(name string, channels uint8) bridge.Hello {
 	h := helloOf(channels)
 	h.Name = name
+	priv, err := bridge.NewEphemeral()
+	if err != nil {
+		panic(err)
+	}
+	h.Ephemeral = bridge.PublicOf(priv)
 	return h
 }
 
@@ -434,6 +482,15 @@ func TestNewLinkRefusesAVersion3DeviceBeforeChallengingIt(t *testing.T) {
 	}
 }
 
+// challengeFor is a fresh challenge whose private key the caller discards.
+func challengeFor(key []byte, h bridge.Hello) bridge.Challenge {
+	c, _, err := bridge.NewChallenge(key, h)
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
+
 // fakeHost reads the device's hello and answers with whatever challenge
 // answer builds from it, then reports whether the device sent anything more.
 func fakeHost(t *testing.T, psk []byte, answer func(key []byte, h bridge.Hello) bridge.Challenge) (joinErr, after error) {
@@ -474,7 +531,7 @@ func fakeHost(t *testing.T, psk []byte, answer func(key []byte, h bridge.Hello) 
 // verifies SPEC §3.2.2
 func TestJoinRefusesAHostWithoutTheKey(t *testing.T) {
 	joinErr, after := fakeHost(t, officePSK(), func(key []byte, h bridge.Hello) bridge.Challenge {
-		return bridge.NewChallenge(key, h)
+		return challengeFor(key, h)
 	})
 	if !errors.Is(joinErr, bridge.ErrHostUnproven) {
 		t.Errorf("Join err = %v, want ErrHostUnproven", joinErr)
@@ -490,8 +547,8 @@ func TestJoinRefusesAHostWithoutTheKey(t *testing.T) {
 // verifies SPEC §3.2.2
 func TestJoinRefusesItsOwnProofReflected(t *testing.T) {
 	joinErr, after := fakeHost(t, kitchenPSK(), func(key []byte, h bridge.Hello) bridge.Challenge {
-		c := bridge.Challenge{Nonce: h.Nonce}
-		c.Proof = bridge.DeviceProof(key, h, c.Nonce)
+		c := bridge.Challenge{Nonce: h.Nonce, Ephemeral: h.Ephemeral}
+		c.Proof = bridge.DeviceProof(key, h, c)
 		return c
 	})
 	if !errors.Is(joinErr, bridge.ErrHostUnproven) {
@@ -503,20 +560,22 @@ func TestJoinRefusesItsOwnProofReflected(t *testing.T) {
 }
 
 // The host's proof covers the hello, so a peer on the path that rewrites the
-// device's declared format, its nonce or its name breaks the proof, and the
-// device refuses rather than stream under a format it did not declare.
+// device's declared format, its nonce, its ephemeral key or its name breaks
+// the proof, and the device refuses rather than stream under a format it did
+// not declare or a key exchange it did not make.
 //
 // verifies SPEC §3.2.2
 func TestJoinRefusesAProofOverARewrittenHello(t *testing.T) {
 	for name, rewrite := range map[string]func(*bridge.Hello){
-		"channels": func(h *bridge.Hello) { h.MicChannels = 1 },
-		"nonce":    func(h *bridge.Hello) { h.Nonce[0] ^= 1 },
-		"name":     func(h *bridge.Hello) { h.Name = "office-sat" },
+		"channels":  func(h *bridge.Hello) { h.MicChannels = 1 },
+		"nonce":     func(h *bridge.Hello) { h.Nonce[0] ^= 1 },
+		"ephemeral": func(h *bridge.Hello) { h.Ephemeral[0] ^= 1 },
+		"name":      func(h *bridge.Hello) { h.Name = "office-sat" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			joinErr, after := fakeHost(t, kitchenPSK(), func(key []byte, h bridge.Hello) bridge.Challenge {
 				rewrite(&h)
-				return bridge.NewChallenge(key, h)
+				return challengeFor(key, h)
 			})
 			if !errors.Is(joinErr, bridge.ErrHostUnproven) {
 				t.Errorf("Join err = %v, want ErrHostUnproven", joinErr)
@@ -649,7 +708,7 @@ func TestARecordedChallengeReplayedIsRefused(t *testing.T) {
 func TestARecordedDeviceProofReflectedIsRefused(t *testing.T) {
 	r := record(t)
 	joinErr, after := fakeHost(t, kitchenPSK(), func([]byte, bridge.Hello) bridge.Challenge {
-		return bridge.Challenge{Nonce: r.challenge.Nonce, Proof: r.auth.Proof}
+		return bridge.Challenge{Nonce: r.challenge.Nonce, Ephemeral: r.challenge.Ephemeral, Proof: r.auth.Proof}
 	})
 	if !errors.Is(joinErr, bridge.ErrHostUnproven) {
 		t.Errorf("Join err = %v, want ErrHostUnproven", joinErr)
@@ -659,36 +718,283 @@ func TestARecordedDeviceProofReflectedIsRefused(t *testing.T) {
 	}
 }
 
+// Fixed X25519 private keys: the kitchen's ephemeral, a second one of its,
+// the host's, and a peer on the path's.
+var (
+	kitchenEphemeral = bytes.Repeat([]byte{0x11}, 32)
+	kitchenAgain     = bytes.Repeat([]byte{0x22}, 32)
+	hostEphemeral    = bytes.Repeat([]byte{0x33}, 32)
+	mitmEphemeral    = bytes.Repeat([]byte{0x44}, 32)
+)
+
+// exchange is one handshake's inputs with every secret known to the test.
+func exchange(t *testing.T, devPriv, hostPriv []byte, nonce byte) (key, shared []byte, h bridge.Hello, c bridge.Challenge) {
+	t.Helper()
+	key, err := bridge.LinkKey(kitchenPSK())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, hp := x25519(t, devPriv), x25519(t, hostPriv)
+	h = helloOf(2)
+	h.Name = kitchen
+	h.Nonce[0] = nonce
+	h.Ephemeral = bridge.PublicOf(d)
+	c = bridge.Challenge{Ephemeral: bridge.PublicOf(hp)}
+	c.Nonce[31] = nonce
+	if shared, err = bridge.SharedSecret(d, c.Ephemeral); err != nil {
+		t.Fatal(err)
+	}
+	return key, shared, h, c
+}
+
 // Either side's fresh nonce makes the session keys new, and the two
 // directions never share one, so a record cannot be replayed into another
 // session or reflected back the way it came.
 //
 // verifies SPEC §3.2.2
 func TestSessionKeysAreFreshPerNonceAndDirection(t *testing.T) {
-	key, err := bridge.LinkKey(kitchenPSK())
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := named(kitchen, 2)
-	var hn [bridge.NonceSize]byte
-	up, down, err := bridge.SessionKeys(key, h, hn)
+	key, shared, h, c := exchange(t, kitchenEphemeral, hostEphemeral, 0)
+	up, down, err := bridge.SessionKeys(key, shared, h, c)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Equal(up, down) {
 		t.Error("both directions share a key")
 	}
-	hn2 := hn
-	hn2[31] = 1
+	c2 := c
+	c2.Nonce[0] = 1
 	h2 := h
-	h2.Nonce[0] = 1
+	h2.Nonce[1] = 1
 	for name, keys := range map[string][2][]byte{
-		"a new host nonce":   must2(bridge.SessionKeys(key, h, hn2)),
-		"a new device nonce": must2(bridge.SessionKeys(key, h2, hn)),
+		"a new host nonce":   must2(bridge.SessionKeys(key, shared, h, c2)),
+		"a new device nonce": must2(bridge.SessionKeys(key, shared, h2, c)),
 	} {
 		if bytes.Equal(keys[0], up) || bytes.Equal(keys[1], down) {
 			t.Errorf("%s left a session key as it was", name)
 		}
+	}
+}
+
+// Two sessions under one PSK with the same nonces, as a broken RNG or a
+// replay would give them, still seal under different keys when either
+// side's ephemeral differs: the X25519 secret is in the key schedule.
+//
+// verifies SPEC §3.2.2
+func TestSessionKeysAreFreshPerEphemeral(t *testing.T) {
+	key, shared, h, c := exchange(t, kitchenEphemeral, hostEphemeral, 7)
+	first := must2(bridge.SessionKeys(key, shared, h, c))
+	up, down := first[0], first[1]
+	for name, ends := range map[string][2][]byte{
+		"a new device ephemeral": {kitchenAgain, hostEphemeral},
+		"a new host ephemeral":   {kitchenEphemeral, mitmEphemeral},
+	} {
+		key2, shared2, h2, c2 := exchange(t, ends[0], ends[1], 7)
+		if h2.Nonce != h.Nonce || c2.Nonce != c.Nonce {
+			t.Fatal("the two sessions' nonces differ; the test proves nothing")
+		}
+		keys := must2(bridge.SessionKeys(key2, shared2, h2, c2))
+		if bytes.Equal(keys[0], up) || bytes.Equal(keys[1], down) {
+			t.Errorf("%s left a session key as it was", name)
+		}
+	}
+}
+
+// Forward secrecy, as far as a test can show it: a recorded session, with the
+// satellite's PSK leaked afterwards. Everything that crossed the wire and the
+// PSK give the hello, the challenge and both public keys, but not the X25519
+// secret, so no key a recorder can derive opens the first sealed frame.
+//
+// verifies SPEC §3.2.2
+func TestARecordedSessionStaysSealedWhenThePSKLeaks(t *testing.T) {
+	r := record(t)
+	ru := bridge.NewReader(bytes.NewReader(r.uplink))
+	hf, _ := ru.ReadFrame()
+	h, err := bridge.ParseHello(hf.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ru.ReadFrame() // the auth
+	firstSealed := r.uplink[len(wire(t, hf))+bridge.HeaderSize+bridge.MACSize:]
+	key, err := bridge.LinkKey(kitchenPSK())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The recorder's guesses: protocol 3's lack of a secret, and an exchange
+	// of its own with each public key it saw.
+	mitm := x25519(t, mitmEphemeral)
+	guesses := map[string][]byte{"an all-zero secret": make([]byte, 32)}
+	for name, pub := range map[string][32]byte{"the device's key": h.Ephemeral, "the host's key": r.challenge.Ephemeral} {
+		s, err := bridge.SharedSecret(mitm, pub)
+		if err != nil {
+			t.Fatal(err)
+		}
+		guesses["its own exchange with "+name] = s
+	}
+	for name, shared := range guesses {
+		up, _, err := bridge.SessionKeys(key, shared, h, r.challenge)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sr, err := bridge.NewSealedReader(bytes.NewReader(firstSealed), up)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f, err := sr.ReadFrame(); !errors.Is(err, bridge.ErrBadRecord) {
+			t.Errorf("with the PSK and %s, the recording opened: %s, %v", name, f.Type, err)
+		}
+	}
+}
+
+// mitm relays the kitchen's handshake to a real host, rewriting the hello on
+// the way up and the challenge on the way down, and returns both ends'
+// errors.
+func mitm(t *testing.T, up func(*bridge.Hello), down func(*bridge.Challenge)) (joinErr, linkErr error) {
+	t.Helper()
+	devHost, devDev := newPipe(t)
+	hostHost, hostDev := newPipe(t)
+	joinc := make(chan error, 1)
+	go func() {
+		_, err := joins(devDev, 2)
+		joinc <- err
+		_ = devDev.Close()
+	}()
+	linkc := make(chan error, 1)
+	go func() {
+		_, err := bridge.NewLink(hostHost, keys)
+		linkc <- err
+		_ = hostHost.Close()
+	}()
+	go func() {
+		defer func() { _ = hostDev.Close() }()
+		f, err := bridge.NewReader(devHost).ReadFrame()
+		if err != nil {
+			return
+		}
+		h, err := bridge.ParseHello(f.Payload)
+		if err != nil {
+			return
+		}
+		up(&h)
+		if bridge.NewWriter(hostDev).WriteFrame(h.Frame()) != nil {
+			return
+		}
+		c, err := readChallenge(hostDev)
+		if err != nil {
+			return
+		}
+		down(&c)
+		if bridge.NewWriter(devHost).WriteFrame(c.Frame()) != nil {
+			return
+		}
+		_, _ = io.Copy(hostDev, devHost)
+	}()
+	return <-joinc, <-linkc
+}
+
+// A peer on the path that holds no PSK swaps in its own ephemeral key each
+// way, to sit between two X25519 exchanges. Both proofs cover both public
+// keys, so the device sees a host proof over a hello it did not send, and
+// refuses before it proves anything.
+//
+// verifies SPEC §3.2.2
+func TestAPeerSwappingEphemeralKeysIsRefused(t *testing.T) {
+	theirs := bridge.PublicOf(x25519(t, mitmEphemeral))
+	for name, swap := range map[string]struct {
+		up   func(*bridge.Hello)
+		down func(*bridge.Challenge)
+	}{
+		"both ways":       {func(h *bridge.Hello) { h.Ephemeral = theirs }, func(c *bridge.Challenge) { c.Ephemeral = theirs }},
+		"the device's":    {func(h *bridge.Hello) { h.Ephemeral = theirs }, func(*bridge.Challenge) {}},
+		"the host's only": {func(*bridge.Hello) {}, func(c *bridge.Challenge) { c.Ephemeral = theirs }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			joinErr, linkErr := mitm(t, swap.up, swap.down)
+			if !errors.Is(joinErr, bridge.ErrHostUnproven) {
+				t.Errorf("Join err = %v, want ErrHostUnproven", joinErr)
+			}
+			if !errors.Is(linkErr, bridge.ErrChallengeRefused) {
+				t.Errorf("NewLink err = %v, want ErrChallengeRefused", linkErr)
+			}
+		})
+	}
+}
+
+// lowOrder are the Curve25519 u-coordinates whose X25519 output is all zeros
+// for every clamped scalar, non-canonical encodings included.
+var lowOrder = map[string]string{
+	"zero":     "0000000000000000000000000000000000000000000000000000000000000000",
+	"one":      "0100000000000000000000000000000000000000000000000000000000000000",
+	"order 8":  "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800",
+	"order 8'": "5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157",
+	"p-1":      "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+	"p":        "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+	"p+1":      "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+}
+
+func lowOrderPoint(t *testing.T, s string) [bridge.PublicKeySize]byte {
+	t.Helper()
+	var out [bridge.PublicKeySize]byte
+	b, err := hex.DecodeString(s)
+	if err != nil || len(b) != len(out) {
+		t.Fatalf("low-order point %q: %v", s, err)
+	}
+	copy(out[:], b)
+	return out
+}
+
+// A device whose ephemeral key is a low-order point would have the link
+// sealed under an all-zero secret anyone can compute. The host refuses it
+// before it sends a challenge, so it proves nothing to such a hello.
+//
+// verifies SPEC §3.2.2
+func TestTheHostRefusesALowOrderEphemeral(t *testing.T) {
+	for name, u := range lowOrder {
+		t.Run(name, func(t *testing.T) {
+			sent := make(chan error, 1)
+			err := refusal(t, func(c net.Conn) error {
+				h := named(kitchen, 2)
+				h.Ephemeral = lowOrderPoint(t, u)
+				if err := bridge.NewWriter(c).WriteFrame(h.Frame()); err != nil {
+					return err
+				}
+				if f, err := bridge.NewReader(c).ReadFrame(); err == nil {
+					sent <- fmt.Errorf("the host sent %s to a low-order key", f.Type)
+				} else {
+					sent <- nil
+				}
+				return nil
+			})
+			if !errors.Is(err, bridge.ErrWeakKey) {
+				t.Errorf("err = %v, want ErrWeakKey", err)
+			}
+			if e := <-sent; e != nil {
+				t.Error(e)
+			}
+		})
+	}
+}
+
+// The device's half: even a host that proves the key, over a low-order
+// ephemeral of its own, gets no answer, since the link would be sealed
+// under a secret anyone on the LAN can compute.
+//
+// verifies SPEC §3.2.2
+func TestTheDeviceRefusesALowOrderEphemeral(t *testing.T) {
+	for name, u := range lowOrder {
+		t.Run(name, func(t *testing.T) {
+			joinErr, after := fakeHost(t, kitchenPSK(), func(key []byte, h bridge.Hello) bridge.Challenge {
+				c := bridge.Challenge{Ephemeral: lowOrderPoint(t, u)}
+				c.Nonce[0] = 1
+				c.Proof = bridge.HostProof(key, h, c)
+				return c
+			})
+			if !errors.Is(joinErr, bridge.ErrWeakKey) {
+				t.Errorf("Join err = %v, want ErrWeakKey", joinErr)
+			}
+			if after != nil {
+				t.Error(after)
+			}
+		})
 	}
 }
 

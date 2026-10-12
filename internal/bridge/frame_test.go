@@ -98,14 +98,16 @@ func TestReadFrameTruncatedPayload(t *testing.T) {
 	}
 }
 
-// The hello carries the device's nonce and the name it claims, after the
-// format, so the host can prove itself before the device proves anything.
+// The hello carries the device's nonce, its ephemeral key and the name it
+// claims, after the format, so the host can prove itself over all of them
+// before the device proves anything.
 //
 // verifies SPEC §3.2.2
 func TestHelloRoundTrip(t *testing.T) {
 	want := bridge.Hello{
 		Version: bridge.ProtocolVersion, SampleRate: 16000, BitsPerSample: 16, MicChannels: 2,
-		Nonce: [bridge.NonceSize]byte{1, 2, 3, 31: 0xff}, Name: "satellite1-4b2c10",
+		Nonce: [bridge.NonceSize]byte{1, 2, 3, 31: 0xff}, Ephemeral: [bridge.PublicKeySize]byte{9, 31: 0x40},
+		Name: "satellite1-4b2c10",
 	}
 
 	got, err := bridge.ParseHello(want.Frame().Payload)

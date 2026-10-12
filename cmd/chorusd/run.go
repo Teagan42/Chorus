@@ -428,6 +428,8 @@ func refusedBecause(err error) string {
 		return "bad MAC"
 	case errors.Is(err, bridge.ErrChallengeRefused):
 		return "challenge refused"
+	case errors.Is(err, bridge.ErrWeakKey):
+		return "weak key"
 	case errors.Is(err, bridge.ErrUnauthenticated):
 		return "frame before auth"
 	case errors.Is(err, bridge.ErrVersion):
