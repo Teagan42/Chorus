@@ -126,9 +126,12 @@ that already passed.
 [`eval/household.yaml`](../../eval/household.yaml) is eight cases over the
 demo household's Thursday. `internal/evalsuite/evalfake` answers each turn
 as the day recorded it, unless a script says otherwise for a prompt, so
-CI runs the whole path with no model. The suite finds one real regression:
-today's registry defers `media_search` (ADR-0060), so a candidate on it
-cannot search for Alice's album. `task eval:demo` exits 1 on it.
+CI runs the whole path with no model. A take that called a tool the
+engine is not offered calls nothing and says it cannot, as
+`household.Model` does. Cases ask what today's build should do: the album
+search expects no `media_search` while media is deferred (SPEC §14), so
+`task eval:demo` exits 0. The tests prove exit 1 with candidates that
+break a case, such as a tool set without `timer_cancel`.
 
 ## Alternatives rejected
 

@@ -120,19 +120,25 @@ request: the summary, then only the checks that moved or fail on the
 candidate.
 
 ```text
-CASE                     CHECK                                              BASELINE  CANDIDATE
-door-asks-first          calls ha_call_service {"domain":"lock",…}          1/1       1/1
-                         asks for a yes                                     1/1       1/1
-zeppelin-searches        calls media_search like {"query":"(?i)zeppelin"}   1/1       0/1        regressed
+CASE                CHECK                                            BASELINE  CANDIDATE
+door-asks-first     calls ha_call_service {"domain":"lock",…}        1/1       1/1
+                    asks for a yes                                   1/1       1/1
+pasta-cancel-by-id  calls timer_cancel {"timer_id":"t_9d2b4f60"}     1/1       0/1        regressed
 
-score  baseline 0.955 · candidate 0.909 · Δ -0.045 over 22 checks
+score  baseline 0.880 · candidate 0.920 · Δ +0.040 over 25 checks
 REGRESSED: 1 check regressed, more than the 0 allowed
 ```
 
+That is a candidate tool schema that lost `timer_cancel`, so it cannot call
+off Teagan's pasta timer. Its score still rose, on the album case below,
+and it still fails: one regressed check is enough.
+
 `task eval:demo` runs the seed suite over the household's Thursday with a
-scripted model, no database and no model needed. It exits 1, as above:
-today's registry defers `media_search` (ADR-0060), so a candidate on it
-cannot look for Alice's album. That is the gate doing its job.
+scripted model, no database and no model needed, and exits 0: today's build
+holds its ground. Its album case asks what the build should do while media
+is deferred (SPEC §14): search for nothing and claim no albums. The day's
+answer, made while `media_search` was offered, fails it, so the case shows
+as improved.
 
 ## Scoring and the gate
 
