@@ -200,7 +200,10 @@ func (d decoder) decode(ctx context.Context, r io.Reader, out chan<- session.Act
 			ended = true
 			// done_reason is "stop" even for a tool call: this endpoint has no
 			// tool_calls equivalent, so nothing may infer tool use from it.
-			return emit(ctx, out, session.TurnEnd{
+			// Sent even if the turn was cancelled meanwhile, as end_session
+			// closing the session does: the model finished, and the
+			// completion is the journal's (session.Engine).
+			return emit(context.WithoutCancel(ctx), out, session.TurnEnd{
 				FinishReason: c.DoneReason,
 				Completion:   string(raw),
 			})
