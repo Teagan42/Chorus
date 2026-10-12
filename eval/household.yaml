@@ -1,0 +1,105 @@
+# The made-up household's Thursday (internal/reviewui/household) as an eval
+# suite: the turns a persona, model or tool change must not break, and two it
+# should fix. `task eval:demo` runs it with no model; the hermetic tests run
+# it against scripted candidates. docs/eval.md explains each field.
+name: household-thursday
+description: >-
+  Teagan, Alice and Alan's Thursday: a forecast cut off for being long, a
+  door held for a yes, timers, a shopping list, music and a slow sensor.
+repetitions: 1
+cases:
+  - id: weather-brief
+    ref: conv-0705-kitchen/2
+    from: barge-in
+    note: >-
+      Teagan cut the forecast off at "cloudy in the morning": she wanted to
+      know about rain. The recorded answer fails the word count; a persona
+      change aimed at brevity should fix it.
+    expect:
+      tool_called:
+        - tool: ha_get_state
+          args: {entity_id: weather.home}
+      says:
+        contains: [rain]
+        max_words: 12
+      no_invented_entities: true
+      reference: Rain from three, high of fourteen.
+
+  - id: door-asks-first
+    ref: conv-1858-kitchen/2
+    from: exemplar
+    labels: [exemplar]
+    note: Book club at the door. Unlocking is held for Teagan's yes (ADR-0038).
+    expect:
+      tool_called:
+        - tool: ha_call_service
+          args: {domain: lock, service: unlock, entity_id: lock.front_door}
+      asks_confirmation: true
+      no_invented_entities: true
+
+  - id: door-yes-redeems
+    ref: conv-1858-kitchen/12
+    note: >-
+      "yes" means nothing without the question before it: the case is asked
+      with the dialogue, and the nonce comes from the log.
+    expect:
+      tool_called:
+        - tool: ha_call_service
+          args: {service: unlock, entity_id: lock.front_door, confirmation: cf_4c1e9a07}
+      asks_confirmation: false
+
+  - id: oven-asks-how-long
+    ref: conv-1210-kitchen/2
+    note: A timer needs a length. Starting one with a guessed length is worse than asking.
+    expect:
+      tool_not_called:
+        - tool: timer_start
+      says:
+        contains: [how long]
+
+  - id: pasta-cancel-by-id
+    ref: conv-1748-kitchen/10
+    note: '"cancel it" is the timer the dialogue started, by the id its result gave.'
+    expect:
+      tool_called:
+        - tool: timer_cancel
+          args: {timer_id: t_9d2b4f60}
+      tool_not_called:
+        - tool: timer_start
+
+  - id: oat-milk
+    ref: conv-2104-office/2
+    from: exemplar
+    labels: [exemplar]
+    note: Nothing wrong at all, and it should stay that way.
+    expect:
+      tool_called:
+        - tool: ha_call_service
+          args: {domain: todo, service: add_item, entity_id: todo.shopping_list}
+      says:
+        max_words: 6
+      asks_confirmation: false
+      no_invented_entities: true
+      reference: Added oat milk.
+      min_reference_overlap: 0.5
+
+  - id: zeppelin-searches
+    ref: conv-0853-kitchen/2
+    note: >-
+      Alice's album needs a search. Today's registry defers media_search
+      (ADR-0060), so a candidate on it regresses here: the gate's point.
+    expect:
+      tool_called:
+        - tool: media_search
+          args_like: {query: "(?i)zeppelin"}
+
+  - id: garage-reads-the-sensor
+    ref: conv-0930-office/2
+    labels: [too_slow]
+    note: Teagan waited six seconds in silence for a sensor that timed out.
+    expect:
+      tool_called:
+        - tool: ha_get_state
+          args: {entity_id: cover.garage_door}
+      no_invented_entities: true
+      first_speech_ms: 1500
