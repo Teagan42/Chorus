@@ -488,14 +488,15 @@ func (l *Listener) spawnLocked(f func()) bool {
 }
 
 // liveLocked reports whether the session is still open, forgetting one that
-// ended on its own: the model closed it, the backstop fired, or the person
-// woke another satellite (SPEC §4.5).
+// has begun to end on its own: the model closed it, the backstop fired, or
+// the person woke another satellite (SPEC §4.5).
 func (l *Listener) liveLocked() bool {
 	if l.sess == nil {
 		return false
 	}
+	// Closing, not Done: its close is in the log before Done closes.
 	select {
-	case <-l.sess.Done():
+	case <-l.sess.Closing():
 		l.sess = nil
 		return false
 	default:

@@ -184,7 +184,7 @@ func (sup *Supervisor) Misheard(ctx context.Context, satellite, log string, reje
 	// No session: the speech is the device's, like the rejection it answers.
 	s := &Session{
 		sup: sup, convID: log, satellite: satellite,
-		done: make(chan struct{}), activity: make(chan struct{}, 1), children: map[string]int{},
+		done: make(chan struct{}), closing: make(chan struct{}), activity: make(chan struct{}, 1), children: map[string]int{},
 	}
 	s.ctx, s.cancel = context.WithCancel(context.WithoutCancel(ctx))
 	defer s.cancel()

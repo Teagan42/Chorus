@@ -137,6 +137,81 @@ func TestAStopOverATimersFirstWordsSilencesIt(t *testing.T) {
 	}
 }
 
+// closingStore holds whoever writes a session's close, once it is written,
+// until let go: the close is in the log while the session is still ending.
+type closingStore struct {
+	journal.Store
+	held chan struct{}
+}
+
+func (s *closingStore) Append(ctx context.Context, e journal.Event) error {
+	if err := s.Store.Append(ctx, e); err != nil {
+		return err
+	}
+	if e.Kind == journal.KindSessionClosed {
+		<-s.held
+	}
+	return nil
+}
+
+// Nobody answered Teagan's question about wine, and its session is ending,
+// its close already in the log, when the oven timer goes off and Alan says
+// "stop" over it. A session that has begun to end is not the one the mic
+// feeds any more: the timer is, and the stop silences it.
+//
+// verifies SPEC §4.2, §4.3
+func TestAStopOverATimerAsTheLastSessionEndsSilencesIt(t *testing.T) {
+	ending := &closingStore{held: make(chan struct{})}
+	r := newRigSession(t, silent(), func(c *session.Config) {
+		ending.Store = c.Store
+		c.Journal = journal.New(ending, c.Clock, versions())
+	})
+	letGo := sync.OnceFunc(func() { close(ending.held) })
+	t.Cleanup(letGo)
+	asked, err := r.l.Announce(context.Background(), wine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.awaitKind(t, asked, journal.KindSpeechSpoken, 1)
+	question := r.session(t)
+	go func() { _ = question.Close(context.Background(), "silence_timeout") }()
+	r.awaitKind(t, asked, journal.KindSessionClosed, 1)
+
+	r.speaker.hold = true
+	announced, failed := make(chan string, 1), make(chan error, 1)
+	go func() {
+		conv, err := r.l.Announce(context.Background(), ovenDone)
+		if err != nil {
+			failed <- err
+			return
+		}
+		announced <- conv
+	}()
+	var conv string
+	select {
+	case conv = <-announced:
+	case err := <-failed:
+		t.Fatal(err)
+	case <-time.After(patience):
+		t.Fatal("the timer waited on the session that was ending")
+	}
+	if conv == asked {
+		t.Fatal("the timer was said in the session that was ending")
+	}
+	r.speaker.wrote(t)
+	r.speak(t, r.line("stop", alan), 2*rigPartials)
+	if det := r.awaitKind(t, conv, journal.KindBargeInDetected, 1); det.Fields["hot_word"] != "stop" {
+		t.Errorf("barge_in_detected = %v, want the stop", det.Fields)
+	}
+	if cut := r.awaitKind(t, conv, journal.KindSpeechTruncated, 1); cut.Fields["reason"] != "barge_in" {
+		t.Errorf("speech_truncated = %v, want the timer cut by Alan", cut.Fields)
+	}
+	letGo()
+	if n := r.count(t, asked, journal.KindAnnouncementMade); n != 1 {
+		t.Errorf("%d announcements in the question's conversation, want the question alone", n)
+	}
+}
+
 // The television says "stop" over the oven timer. It is nobody in the
 // household, so the timer is said to the end, and the refusal is kept.
 // Alan thanking it is no hot phrase, and is not offered at all.
