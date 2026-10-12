@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "source": {
+    "file": "chorus-wake-negatives.jsonl",
+    "sha256": "0ae6885f562b3ad65b132fd334f2b492f015126a537a00ec5755b203dddd8156",
+    "rows": 5
+  },
+  "channel": "processed",
+  "audio": "WAV, 16 kHz, 16-bit signed, mono",
+  "split": "sha256(satellite + \"/\" + the UTC hour of at)[:8] as a big-endian fraction of 2^64; below testing_fraction is testing, below testing_fraction + validation_fraction is validation, the rest training",
+  "validation_fraction": 0.2,
+  "testing_fraction": 0.45,
+  "sets": {
+    "auto": {
+      "training": {
+        "clips": 1,
+        "seconds": 0.75
+      },
+      "validation": {
+        "clips": 1,
+        "seconds": 1.5
+      }
+    },
+    "confirmed": {
+      "testing": {
+        "clips": 1,
+        "seconds": 2.25
+      }
+    }
+  },
+  "clips": [
+    {
+      "id": "device:kitchen/2",
+      "conversation_id": "device:kitchen",
+      "seq": 2,
+      "satellite": "kitchen",
+      "at": "2025-10-09T14:02:00Z",
+      "reason": "no_speech",
+      "wake_word": "hey_eddie",
+      "confirmed": false,
+      "audio": "blob://wake/kitchen-dishwasher",
+      "set": "auto",
+      "split": "validation",
+      "path": "negatives/auto/validation/kitchen-2.wav",
+      "seconds": 1.5
+    },
+    {
+      "id": "device:kitchen/3",
+      "conversation_id": "device:kitchen",
+      "seq": 3,
+      "satellite": "kitchen",
+      "at": "2025-10-09T19:02:00Z",
+      "reason": "unknown_speaker",
+      "wake_word": "hey_eddie",
+      "confirmed": true,
+      "audio": "blob://wake/kitchen-guest",
+      "set": "confirmed",
+      "split": "testing",
+      "path": "negatives/confirmed/testing/kitchen-3.wav",
+      "seconds": 2.25
+    },
+    {
+      "id": "device:office/2",
+      "conversation_id": "device:office",
+      "seq": 2,
+      "satellite": "office",
+      "at": "2025-10-09T09:30:00Z",
+      "reason": "no_speech",
+      "wake_word": "hey_eddie",
+      "confirmed": false,
+      "audio": "blob://wake/office-cough",
+      "set": "auto",
+      "split": "training",
+      "path": "negatives/auto/training/office-2.wav",
+      "seconds": 0.75
+    }
+  ],
+  "skipped": [
+    {
+      "id": "device:kitchen/5",
+      "why": "audio_gone"
+    },
+    {
+      "id": "device:office/1",
+      "why": "audio_missing"
+    }
+  ]
+}
