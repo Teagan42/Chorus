@@ -108,37 +108,46 @@ not the satellite's audience until it has proved it is chorusd (SPEC §3.2.2,
 ADR-0074). Protocol version 4 opens every connection like this:
 
 ```
-device → host  0x01 hello      04 00003e80 10 02 Nd[32] name     v4, 16 kHz, 16-bit, 2 channels, e.g. satellite1-4b2c10
-host → device  0x15 challenge  Nh[32] host_proof[32]
+device → host  0x01 hello      04 00003e80 10 02 Nd[32] Ed[32] name   v4, 16 kHz, 16-bit, 2 channels, e.g. satellite1-4b2c10
+host → device  0x15 challenge  Nh[32] Eh[32] host_proof[32]
 device → host  0x06 auth       device_proof[32]
                ... every frame after this is sealed, both ways
 ```
 
 ```
 k            = HKDF-SHA256(ikm = psk, salt = none, info = "chorus-bridge link v4")
-host_proof   = HMAC-SHA256(k, "chorus-bridge v4 host proof"   || hello payload || Nh)
-device_proof = HMAC-SHA256(k, "chorus-bridge v4 device proof" || hello payload || Nh)
-d2h, h2d     = HKDF-SHA256(ikm = k, salt = Nd || Nh, info = "chorus-bridge v4 device to host" | "... host to device")
+host_proof   = HMAC-SHA256(k, "chorus-bridge v4 host proof"   || hello payload || Nh || Eh)
+device_proof = HMAC-SHA256(k, "chorus-bridge v4 device proof" || hello payload || Nh || Eh)
+s            = X25519(ed, Eh) = X25519(eh, Ed)
+d2h, h2d     = HKDF-SHA256(ikm = s || k, salt = Nd || Nh, info = "chorus-bridge v4 device to host" | "... host to device")
 ```
 
 `psk` is the satellite's `api_encryption_key`, decoded: the same 32 bytes
 `devices.yaml` holds, passed to the component as `psk:` by the package. The
 derivation keeps the link and the native API's Noise handshake from ever
-sharing a key. Both proofs cover the whole hello as sent, so the format, the
-device's nonce and the name are covered too, and each opens with its own role,
-so neither can be reflected as the other.
+sharing a key. `Ed` and `Eh` are each side's X25519 public key, drawn fresh per
+connection; the private halves are wiped once `s` is taken. Both proofs cover
+the whole hello as sent and the host's nonce and key, so the format, both
+nonces, both public keys and the name are covered, and a peer on the path
+cannot swap in its own keys. Each proof opens with its own role, so neither
+can be reflected as the other. Because the session keys need `s`, a recorded
+session stays sealed even if the PSK leaks later. A low-order public key,
+whose `s` would be all zeros, is refused by either side before it sends
+anything more; the host logs `weak key`. Each side does two X25519 scalar
+multiplications per connection, which the device logs the time of.
 `internal/bridge/testdata/handshake-v4.hex` holds the whole exchange and the
-first sealed records each way for fixed keys, nonces and name; `go test
-./internal/bridge` checks the host against it and `task firmware:test` checks
-`chorus_auth.h` and `chorus_seal.h`, the firmware's arithmetic, built for the
-host against mbedTLS.
+first sealed records each way for fixed keys, nonces and name, with RFC 7748's
+test keys as the ephemeral ones; `go test ./internal/bridge` checks the host
+against it and `task firmware:test` checks `chorus_auth.h`, `chorus_seal.h`
+and `chorus_x25519.h`, the firmware's arithmetic, built for the host against
+mbedTLS.
 
 The host looks the name up in its inventory and proves itself only to a name
 it holds a key for. It checks the device's proof under that satellite's key in
 constant time, and requires the connection to come from that satellite's
 address. Anything else is a disconnect, logged with its reason: `unknown
-name`, `bad MAC`, `challenge refused` (the device hung up on the host's proof,
-which is what a satellite with another key does), `wrong address`, `frame
+name`, `weak key`, `bad MAC`, `challenge refused` (the device hung up on the
+host's proof, which is what a satellite with another key does), `wrong address`, `frame
 before auth`, `protocol version`, or `timeout` (10 s, on chorusd's injected
 clock). A verified connection for a satellite that already has a live link
 closes the old one first; an unverified one cannot.
@@ -161,9 +170,6 @@ sends the device anything, with `device speaks chorus_bridge protocol 3, this
 host speaks 4`. A version 3 host refuses a version 4 device the same way, so
 there is no mixed-version mode: **reflash every satellite in step with the
 host.**
-
-The link has no forward secrecy: anyone who records it and later learns the
-PSK can decrypt it (ADR-0074).
 
 ## Hardware mute, passive sources, and other sharp edges
 
