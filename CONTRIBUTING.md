@@ -278,6 +278,7 @@ cmd/
   harvest/              barge-in DPO candidates as JSONL
   probe/                connect to a satellite and dump what it exposes
   enroll/               add, list and remove voiceprints in identities.yaml (SPEC §5)
+  chorus-eval/          score an eval suite against a candidate; exits 1 on a regression (docs/eval.md)
 internal/
   esphome/              native API client, Noise transport
   pb/                   generated ESPHome bindings (do not edit)
@@ -303,6 +304,8 @@ internal/
   contexts/             the text behind every prompt and tool-schema version (SPEC §13)
   triage/               signals worth a reviewer's time, derived on read
   rerun/                edit-and-replay (SPEC §9.2)
+  evalsuite/            eval suites: journalled turns replayed under a candidate, scored (ADR-0079)
+    evalfake/           a scripted turn engine, for the hermetic tier and the demo
   curation/             reviewer verdicts, beside the journal (ADR-0034)
   erasure/              the trail of what a reviewer deleted, beside the journal (ADR-0070)
   ops/                  chorusd's /healthz, /readyz and /metrics (ADR-0068)
@@ -319,11 +322,13 @@ sidecars/               Python model services (uv workspace): speakerid, smarttu
 esphome/                chorus_bridge external component + YAML packages
   test/                 the handshake and sealing host test (`task firmware:test`)
 hardware/               satellite PCB sources; pins.yaml is the net-name source of truth
+eval/                   the seed eval suite, over the household's Thursday
 docs/
   SPEC.md               normative spec
   adr/                  architecture decision records
   reference/            generated reference docs (do not edit)
   reviewui/             review UI guide and screenshots
+  eval.md               the eval suite guide
   hardware/             the satellite board's design
 mkdocs.yml              the docs site: which Markdown, in what nav
 proto/esphome/          vendored ESPHome protos
