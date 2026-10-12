@@ -197,6 +197,8 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) (row logRow)
 			// The wake word, answered nearer: no rejection to judge (ADR-0072).
 			row.Text = "wake lost to " + f["lost_to"]
 			row.Note = "arbitrated: " + f["energy_dbfs"] + " dBFS against " + f["winner_energy_dbfs"]
+		case f["reason"] == harvest.ReasonTranscriptionFailed:
+			row.Note = "nothing could decode it, so nothing judged the audio: no hard negative"
 		case f["wake_word"] == bridge.WakeButton:
 			row.Note = "a button press: the wake model never fired, so no hard negative"
 		}

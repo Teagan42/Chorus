@@ -811,6 +811,9 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
 - ~~Record the wake word on `session_opened`~~ **Done.** A session names
   the wake that opened it, as a rejection does; the review UI marks one a
   button press opened.
+- ~~Keep `transcription_failed` rejections out of the wake corpus~~
+  **Done.** A wake nothing could decode no longer ships as a hard negative
+  (§9.3, ADR-0060); the review UI says why it has no verdict.
 - Wake-word retraining from the harvested negative corpus. The firmware
   wakes on the household's "Hey Eddie" model (§13) and the rejected wakes export
   as their own corpus (ADR-0058); nothing retrains from them yet.
@@ -825,8 +828,6 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
 - A ring effect for a satellite that cannot reach `chorusd`, driven by the
   bridge's connection state (ADR-0069)
 - Teach the harvester the ear's `unheard` canned line (ADR-0069)
-- Keep `transcription_failed` rejections out of the wake corpus: §9.3 calls
-  them no hard negative, and the harvester still ships them
 - Check arbitration's choice against the journalled levels: channel 0 is
   AGC'd, which narrows the gap between a near and a far satellite (ADR-0072)
 - Drop a clip from a satellite's own log, such as a guest's rejected wake,

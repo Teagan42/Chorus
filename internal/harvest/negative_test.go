@@ -168,3 +168,37 @@ func TestAButtonPressIsNoHardNegative(t *testing.T) {
 		t.Error("HardNegative ships a press")
 	}
 }
+
+// Alan says "hey eddie, is the oven on" while the STT box is restarting.
+// The first utterance could not be decoded, so the wake is rejected as
+// transcription_failed and he is told the ear failed. Nothing judged the
+// audio, and the wake word may well have been said: it is no hard negative,
+// so it never reaches the corpus, while the kitchen's cough still does
+// (SPEC §9.3, ADR-0060).
+//
+// verifies SPEC §9.3
+func TestAWakeNothingCouldDecodeIsNoHardNegative(t *testing.T) {
+	store := journal.NewMemStore()
+	clk := &stepClock{now: time.Date(2025, time.October, 9, 18, 5, 0, 0, time.UTC)}
+	j := journal.New(store, clk, versions())
+	for _, r := range []journal.Record{
+		record(journal.KindWakeRejected, "blob://wake/kitchen-oven", "reason", "transcription_failed",
+			"wake_word", "hey_eddie", "canned_call_id", "cn_0a1b2c3d"),
+		record(journal.KindWakeRejected, "blob://wake/kitchen-cough", "reason", "no_speech", "wake_word", "hey_eddie"),
+	} {
+		if _, err := j.Append(context.Background(), "device:kitchen", r); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+
+	ns, err := harvest.Negatives(context.Background(), store, "device:kitchen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ns) != 1 || ns[0].Audio != "blob://wake/kitchen-cough" {
+		t.Fatalf("negatives = %+v, want only the cough", ns)
+	}
+	if harvest.HardNegative(map[string]string{"reason": "transcription_failed"}) {
+		t.Error("HardNegative ships a wake nothing could decode")
+	}
+}

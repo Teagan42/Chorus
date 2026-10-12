@@ -23,8 +23,8 @@ type Negative struct {
 	Satellite      string
 	At             time.Time
 
-	// Reason is the gate that rejected it: low_confidence, no_speech,
-	// unknown_speaker or transcription_failed.
+	// Reason is the gate that rejected it: low_confidence, no_speech or
+	// unknown_speaker.
 	Reason string
 
 	// Audio is the processed stream; SecondAudio the XMOS's lighter output
@@ -49,11 +49,20 @@ func (n Negative) Held() bool { return n.Reason == "unknown_speaker" }
 // a real wake in this satellite's log, never a negative (ADR-0072).
 const ReasonArbitrated = "arbitrated"
 
+// ReasonTranscriptionFailed is a wake whose first utterance STT could not
+// decode: nothing judged the audio, so it is never a negative (ADR-0060).
+const ReasonTranscriptionFailed = "transcription_failed"
+
 // HardNegative reports whether a rejection may ship in the wake corpus.
 // An arbitrated wake never does: it was the wake word, not a false accept.
-// Nor does a button press (bridge.WakeButton): the wake model never fired.
+// Nor does a wake nothing could decode, which may have been the wake word,
+// or a button press (bridge.WakeButton): the wake model never fired.
 func HardNegative(fields map[string]string) bool {
-	return fields["reason"] != ReasonArbitrated && fields["wake_word"] != bridge.WakeButton
+	switch fields["reason"] {
+	case ReasonArbitrated, ReasonTranscriptionFailed:
+		return false
+	}
+	return fields["wake_word"] != bridge.WakeButton
 }
 
 // Negatives returns every wake rejection in a log that is a hard negative,
