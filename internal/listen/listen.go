@@ -100,6 +100,16 @@ type Config struct {
 	// the listener's goroutines, which end with the link.
 	Endpointer Endpointer
 
+	// SpeechEnergy is this satellite's speech level, the same one its
+	// endpointer gates on (ADR-0083). Zero takes DefaultSpeechEnergy.
+	SpeechEnergy float64
+
+	// MinSustained is how much of an utterance must hold that level before
+	// its words are believed. Zero takes DefaultMinSustained; a negative
+	// value believes every decode, which is what a test wanting a click to
+	// become a turn asks for.
+	MinSustained int
+
 	// Clock stamps when each utterance's speech stopped, where the wait for
 	// an answer starts (ADR-0035). Nil leaves the ask without that time, and
 	// its turn records no wait.
@@ -197,6 +207,12 @@ func Open(ctx context.Context, cfg Config) (*Listener, error) {
 	}
 	if cfg.Endpointer == nil {
 		cfg.Endpointer = NewEnergy()
+	}
+	if cfg.SpeechEnergy == 0 {
+		cfg.SpeechEnergy = DefaultSpeechEnergy
+	}
+	if cfg.MinSustained == 0 {
+		cfg.MinSustained = DefaultMinSustained
 	}
 	if cfg.WakeWindow <= 0 {
 		cfg.WakeWindow = DefaultWakeWindow
@@ -1009,6 +1025,13 @@ func (l *Listener) complete(u *utterance) {
 	l.cfg.Indicator.Recover(session.FaultEar)
 	pcm, _ := u.snapshot()
 	second := u.seconds()
+	// A loud transient is not speech, whatever the ear read in it: a mouse
+	// click became "Yeah." and nearly answered a held confirmation
+	// (ADR-0086). Treated as silence, which is what it is.
+	if res.Text != "" && Sustained(pcm, l.cfg.SpeechEnergy) < l.cfg.MinSustained {
+		l.warn("decoded words from too little speech to believe", fmt.Errorf("%q over %d ms of speech", res.Text, 1000*Sustained(pcm, l.cfg.SpeechEnergy)/bytesPerSecond))
+		res.Text = ""
+	}
 	if res.Text == "" {
 		// Silence is not a request; after a wake it is a false accept.
 		if u.first {

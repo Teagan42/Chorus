@@ -137,3 +137,31 @@ func rms(sumsq float64, samples int) float64 {
 	}
 	return math.Sqrt(sumsq/float64(samples)) / -math.MinInt16
 }
+
+// sustainWindow is the frame sustained speech is counted in, in bytes. 20 ms,
+// as the trim uses: shorter than a syllable, long enough for a stable RMS.
+const sustainWindow = 20 * bytesPerSecond / 1000
+
+// DefaultMinSustained is how much of an utterance must hold speech-level
+// energy before its words are believed, in bytes. 200 ms.
+//
+// A mouse click is loud and empty: measured 2026-10-13, three clicks a
+// household never spoke peaked at -8 to -14 dBFS and held speech level for
+// 20, 40 and 120 ms, with a crest factor of 24 to 26 dB. The ear turned each
+// into a word -- "Yeah.", "No." -- and each became a turn, and one of them
+// could have answered a held confirmation. Real speech from the same room
+// held 740 to 2520 ms at a crest factor of 14 to 20 dB. So the floor sits
+// above the longest click and far below the shortest sentence (ADR-0086).
+const DefaultMinSustained = 200 * bytesPerSecond / 1000
+
+// Sustained is how much of pcm holds energy at or above threshold, in bytes,
+// counted in whole windows.
+func Sustained(pcm []byte, threshold float64) int {
+	kept := 0
+	for i := 0; i+sustainWindow <= len(pcm); i += sustainWindow {
+		if RMS(pcm[i:i+sustainWindow]) >= threshold {
+			kept += sustainWindow
+		}
+	}
+	return kept
+}
