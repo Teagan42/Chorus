@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.0](https://github.com/Teagan42/Chorus/compare/v0.17.0...v0.18.0) (2026-10-13)
+
+
+### Features
+
+* pluggable TTS and STT providers — OpenAI-compatible and Wyoming (ADR-0081) ([#120](https://github.com/Teagan42/Chorus/issues/120)) ([9805b26](https://github.com/Teagan42/Chorus/commit/9805b26c7f4e37ca49a6a7b8904f88cbe55441b6))
+
+
+### Documentation
+
+* bring SPEC, README and guides up to the implementation ([#123](https://github.com/Teagan42/Chorus/issues/123)) ([8af35fb](https://github.com/Teagan42/Chorus/commit/8af35fb5d9c0908f78f501d23eedac470a68d4fb))
+* **readme:** chorusd runs a Satellite1 on protocol 4 firmware ([#122](https://github.com/Teagan42/Chorus/issues/122)) ([41b1591](https://github.com/Teagan42/Chorus/commit/41b1591c733ff1ba34c3ddfa326468e9227344a5))
+
 ## [0.17.0](https://github.com/Teagan42/Chorus/compare/v0.16.0...v0.17.0) (2026-10-13)
 
 
