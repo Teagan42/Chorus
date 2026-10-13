@@ -486,12 +486,15 @@ func TestAlicesYesDoesNotUnlockWhatTeaganAsked(t *testing.T) {
 	refusedThenRedeemed(t, r, s.ConversationID(), journal.RefusedWrongPerson)
 }
 
-// A dinner guest says yes to Teagan's question. Their voice matched nobody
-// the household enrolled, so the lock is not sent and the model is told a
-// guest cannot confirm it; Teagan's yes then unlocks the door.
+// A dinner guest says yes to Teagan's question and the door unlocks. A
+// one-word yes cannot be attributed on this hardware, so refusing an answer
+// nothing identified made the question unanswerable; the household chose to
+// accept that anyone already in the room can answer one asked aloud in it,
+// a lock included (ADR-0087). An answer identified as another enrolled
+// person is still refused -- see TestTheYesIsTheAskers.
 //
 // verifies SPEC §5, §6
-func TestAGuestsYesUnlocksNothing(t *testing.T) {
+func TestAGuestsYesInTheRoomCounts(t *testing.T) {
 	lock := &lockTool{}
 	m := &model{answer: askerModel()}
 	r := modelRig(t, m, map[string]session.Tool{"ha_call_service": lock})
@@ -499,17 +502,12 @@ func TestAGuestsYesUnlocksNothing(t *testing.T) {
 
 	wait(t, voiced(s, "unlock the front door", "teagan", "identified"))
 	wait(t, voiced(s, "yes", "", "below_threshold"))
-	if got := lock.calls(); len(got) != 0 {
-		t.Fatalf("the lock was sent %q on a guest's yes", got)
+	if got := lock.calls(); len(got) != 1 || got[0] != `{"domain":"lock","entity_id":"lock.front_door","service":"unlock"}` {
+		t.Fatalf("the lock was sent %q, want the front door once on the answer in the room", got)
 	}
+	// Redeemed on the first try, so no refusal was recorded at all.
 	c := callByID(t, r.state(t, s.ConversationID()), "call_c2")
-	if c.Outcome != "confirmation_required" || !strings.Contains(c.Result, `"refused":"guest"`) || !strings.Contains(c.Result, "not enrolled") {
-		t.Errorf("the guest's yes = %+v, want it refused as guest with a note saying so", c)
+	if c.Outcome == "confirmation_required" {
+		t.Errorf("the answer was held again: %+v", c)
 	}
-
-	wait(t, voiced(s, "yes please", "teagan", "identified"))
-	if got := lock.calls(); len(got) != 1 {
-		t.Fatalf("the lock was sent %q, want the front door once on Teagan's yes", got)
-	}
-	refusedThenRedeemed(t, r, s.ConversationID(), journal.RefusedGuest)
 }

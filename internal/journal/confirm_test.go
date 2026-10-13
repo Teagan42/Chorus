@@ -155,13 +155,14 @@ func TestAConfirmationNeedsItsCall(t *testing.T) {
 	}
 }
 
-// The question was Teagan's, so the yes must be hers. Alice's yes to it is
-// refused, and so is a dinner guest's, whose voice matched nobody; a voice
-// nothing judged stays Teagan's, as every turn does (ADR-0049), and a
-// household that identifies nobody is answered by whoever speaks next.
+// The question was Teagan's, so an answer identified as somebody else is
+// refused. An answer nothing identified is not: a one-word yes cannot be
+// attributed on this hardware, so refusing it made the question
+// unanswerable, and the household chose to accept that anyone already in the
+// room can answer one asked aloud in it (ADR-0087).
 //
 // verifies SPEC §5, §6
-func TestTheYesIsTheAskersAndAGuestsYesRunsNothing(t *testing.T) {
+func TestOnlyAnotherPersonsYesIsRefused(t *testing.T) {
 	teagans := heldFrontDoorAskedBy("teagan", "teagan", "identified")
 	cases := []struct {
 		why    string
@@ -171,12 +172,13 @@ func TestTheYesIsTheAskersAndAGuestsYesRunsNothing(t *testing.T) {
 	}{
 		{"Teagan, identified, says yes", teagans, voiced("yes please", "teagan", "identified"), ""},
 		{"Alice says yes to Teagan's question", teagans, voiced("yes please", "alice", "identified"), journal.RefusedWrongPerson},
-		{"a dinner guest says yes to Teagan's question", teagans, voiced("yes please", "", "below_threshold"), journal.RefusedGuest},
-		{"a voice between Teagan and Alice says yes", teagans, voiced("yes please", "", "ambiguous"), journal.RefusedGuest},
+		{"a dinner guest says yes to Teagan's question, and it counts", teagans, voiced("yes please", "", "below_threshold"), ""},
+		{"a voice between Teagan and Alice says yes, naming neither", teagans, voiced("yes please", "", "ambiguous"), ""},
 		{"a yes the embedder never judged", teagans, voiced("yes please", "", ""), ""},
 		{"a household without speaker identification", heldFrontDoorAskedBy("teagan", "", ""), voiced("yes please", "", ""), ""},
 		{"a household that has enrolled nobody", heldFrontDoorAskedBy("", "", "nobody_enrolled"), voiced("yes please", "", "nobody_enrolled"), ""},
-		{"a guest asked, and the guest says yes", heldFrontDoorAskedBy("alice", "", "below_threshold"), voiced("yes please", "", "below_threshold"), journal.RefusedGuest},
+		{"a guest asked, and the guest says yes", heldFrontDoorAskedBy("alice", "", "below_threshold"), voiced("yes please", "", "below_threshold"), ""},
+		{"Alice asked, and Teagan answers instead", heldFrontDoorAskedBy("alice", "alice", "identified"), voiced("yes please", "teagan", "identified"), journal.RefusedWrongPerson},
 		{"a guest asked, and Alice says yes", heldFrontDoorAskedBy("alice", "", "below_threshold"), voiced("yes please", "alice", "identified"), ""},
 	}
 	for _, c := range cases {

@@ -21,7 +21,10 @@ const (
 	// RefusedWrongPerson: someone other than the person who asked answered.
 	// The question was theirs, so the yes must be too.
 	RefusedWrongPerson = "wrong_person"
-	// RefusedGuest: the answer came from a voice that matched nobody in the
+	// RefusedGuest: no new refusal uses it. ADR-0087 stopped refusing an
+	// answer nothing identified; kept so a log written before it still reads.
+	//
+	// Was: the answer came from a voice that matched nobody in the
 	// household, and a guest's yes runs nothing.
 	RefusedGuest = "guest"
 )
@@ -70,11 +73,18 @@ func (c Confirmation) open() bool { return c.RedeemedBy == "" && c.RefusedBy == 
 // Whether the answer was a yes is the model's to judge: it wrote the
 // question. What the log guarantees is that the person said something in
 // between, so a model cannot confirm its own call (ADR-0038), and that the
-// yes is the asker's (ADR-0063): a voice judged to be nobody's cannot
-// confirm anything, and when the asker was identified, only their answer
-// counts. A household nothing identifies keeps the next thing said as the
-// answer, since SPEC §5 leaves a voice nothing judged with the current
-// speaker, and nobody_enrolled can tell no one apart.
+// answer was not somebody else's (ADR-0087): when both the asker and the
+// answer were identified and they are different people, only the asker's
+// counts.
+//
+// An answer nothing identified is not refused. "This is Bob, not Teagan" and
+// "there was too little voice to tell" are opposite states and only the first
+// is evidence, and a one-word yes carries too little voice to attribute on a
+// processed far-field microphone (ADR-0085) -- so refusing it made a question
+// the assistant had just asked an identified person unanswerable. The
+// household accepts what that admits: anyone already in the room can answer a
+// question asked aloud in it, including for a lock (ADR-0087). A transient is
+// kept out by the sustain floor, not by this check (ADR-0086).
 func (s State) Redeemable(nonce, tool, args string) string {
 	i := s.confirmation(nonce)
 	if i < 0 {
@@ -90,9 +100,7 @@ func (s State) Redeemable(nonce, tool, args string) string {
 		return RefusedNotAnswered
 	case c.Heard > 1:
 		return RefusedExpired
-	case Unmatched(c.AnswerMatch):
-		return RefusedGuest
-	case c.AskedBy != "" && c.AnsweredBy != c.AskedBy:
+	case c.AnsweredBy != "" && c.AskedBy != "" && c.AnsweredBy != c.AskedBy:
 		return RefusedWrongPerson
 	}
 	return ""
