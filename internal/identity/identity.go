@@ -232,3 +232,30 @@ func normalise(v []float32) ([]float32, error) {
 	}
 	return out, nil
 }
+
+// Closest is which enrolled person an embedding is nearest and by how much,
+// whatever the thresholds would decide. Match answers "who is this", and
+// deliberately names nobody once the best score is under Accept; a reviewer
+// choosing enrollment takes needs the other question -- "whose voice does the
+// household's own model think this is" -- so that a clip of someone else is
+// visible before it is ticked (ADR-0082). Empty id with no error means
+// nobody is enrolled to be near.
+func (ids *Identities) Closest(embedding []float32) (string, float64, error) {
+	if len(embedding) != ids.Dim {
+		return "", 0, fmt.Errorf("closest: embedding has %d dims, enrolled centroids have %d", len(embedding), ids.Dim)
+	}
+	if len(ids.People) == 0 {
+		return "", 0, nil
+	}
+	probe, err := normalise(embedding)
+	if err != nil {
+		return "", 0, fmt.Errorf("closest: %w", err)
+	}
+	best, score := "", -2.0
+	for i := range ids.People {
+		if s := dot(probe, ids.People[i].Centroid); s > score {
+			best, score = ids.People[i].ID, s
+		}
+	}
+	return best, score, nil
+}
