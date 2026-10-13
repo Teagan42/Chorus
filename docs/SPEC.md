@@ -369,7 +369,7 @@ still apply, so the television saying "stop" stops nothing. A stop or never
 mind that stopped something is not answered; never mind also reaches a turn
 working in silence, and a stop silences a timer going off. A repeat says
 again what was last heard, without the model. The set is closed because
-each entry bypasses a filter, and English-only because the ear is (§10,
+each entry bypasses a filter, and English-only because the default ear is (§10,
 ADR-0064).
 
 ### 4.4 Interrupted-turn semantics
@@ -394,7 +394,7 @@ the position from `add_audio_output_callback` (§3.2.1) rather than estimating.
 ### 4.5 Session lifecycle
 
 Wake word opens a session; continuous streaming while open; **server-side
-semantic endpointing** (Smart Turn v2 over STT partials, not the big LLM) so
+semantic endpointing** (Smart Turn v3.2 on the audio, not the big LLM, ADR-0036) so
 "turn off the... uh... kitchen lights" works.
 
 Close is **model-decided** via an `end_session` tool, with a ~20 s silence
@@ -600,8 +600,8 @@ way.
 ## 9. Learning loop
 
 Primary target: **the LLM's tool-calling and speech-interleaving decisions.**
-STT adaptation on household voices and vocabulary is a free byproduct. Wake word
-is phase 2 (§10). What a reviewer accepts exports as a versioned dataset: DPO
+STT adaptation on household voices and vocabulary is a free byproduct. Wake-word
+retraining is built and has trained no model yet (§14, ADR-0078). What a reviewer accepts exports as a versioned dataset: DPO
 pairs and SFT exemplars, each row with its context, provenance and a split by
 conversation, optionally zipped with its audio (ADR-0071).
 
@@ -689,6 +689,7 @@ privacy story holds. Not needed today.
 ## 10. Model stack
 
 Local-first, cloud escape hatch per provider. Each behind an HTTP contract,
+or Wyoming's over TCP (ADR-0081),
 every provider declaring capabilities (streaming? tool calls? interruption?)
 so a build-time check can reject a pipeline that cannot work. Those
 declarations and the check are not built: nothing in `schema/` describes a
@@ -707,7 +708,17 @@ provider.
 --tool-call-parser hermes` for Qwen3. Either engine sends the same prompt
 and tools. On vLLM a call dispatches when its arguments close, and a speak
 call's words stream as they arrive. Qwen3's thinking is off there unless
-asked for, for §11's budget. Embeddings stay on Ollama (ADR-0077).
+asked for, for §11's budget. Embeddings stay on Ollama (ADR-0077). The vLLM
+engine has not yet run against a real server.
+
+The voice and the ear default to Kokoro and Parakeet on speaches.
+`CHORUS_TTS_PROVIDER` and `CHORUS_STT_PROVIDER` choose instead any server
+with OpenAI's audio API (`internal/provider/openai`) or Home Assistant's
+Wyoming (`internal/provider/wyoming`), so a household's piper and whisper
+serve as they are; their audio is resampled to the device's rate by
+`internal/provider/pcm`. Every model and voice is named in the environment
+and recorded on every event (§8). Neither has yet run against a real server
+(ADR-0081).
 
 Biggest standing risk: **local tool-calling quality.** The provider abstraction
 exists so a frontier model can be dropped into the LLM seam without touching
@@ -732,8 +743,8 @@ distinction into replay is not.
 
 ## 12. Turn engine abstraction
 
-The turn engine is an interface emitting a stream of events (`SpeechDelta`,
-`ToolCall`, `ToolResult`, `TurnEnd`). Phase 1 implements it as the cascade. A
+The turn engine is an interface emitting a stream of actions (`SpeechDelta`,
+`ToolCall`, `TurnEnd`); tool results are fed back to it, not emitted by it. Phase 1 implements it as the cascade. A
 realtime speech-to-speech provider (OpenAI Realtime, Gemini Live) later becomes
 an adapter mapping their event stream onto ours.
 
@@ -747,7 +758,8 @@ Do not build the S2S path until the cascade works end to end.
 - **Monorepo.** The device component, orchestrator, and sidecars share a
   protocol contract that must version together. Split repos mean a coordinated
   release dance for a one-person project.
-- **docker-compose** runs `chorusd`, Postgres and the four model sidecars,
+- **docker-compose** runs `chorusd`, the review UI, Postgres and the four model
+  sidecars, with a one-shot enrollment helper,
   on CPU images; a household may run the sidecars on a GPU box instead, and
   `chorusd` reaches them by URL. Ollama is not in it.
 - **Satellite inventory:** static YAML for each satellite's address, Noise
@@ -794,7 +806,9 @@ Do not build the S2S path until the cascade works end to end.
 
 Struck through is merged on main and covered at the tiers that can see it.
 Phase 1's pieces run together in `chorusd` against the in-process satellite
-(`bridgetest`); the daemon has not yet run a household on real hardware.
+(`bridgetest`), and run a Satellite1 in the house on protocol 4 firmware
+under Docker Compose. Running it there is what found the television opening
+sessions, so a session now opens only for an enrolled household voice (§5).
 
 ### Phase 1
 
@@ -810,7 +824,8 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
    ADR-0037.** The LLM seam runs Qwen3 on Ollama by default, or on §10's
    vLLM with `CHORUS_LLM_PROVIDER=vllm` (ADR-0077); the vLLM engine is
    tested against recorded-shape streams and has not yet run against a real
-   server.
+   server. The voice and the ear may instead run on an OpenAI-compatible or
+   Wyoming server (ADR-0081), likewise not yet run against a real one.
 4. ~~**Speaker fingerprinting**, pulled early — both barge-in quality (§4.3) and
    two-stage wake confirmation (§9.3) are gated on it.~~ **Done — ADR-0025,
    ADR-0029.** Stage two of §9.3 checks the first utterance for speech and a
@@ -848,8 +863,8 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
 - ~~Retention~~ **Done — ADR-0065.** Audio and journal horizons per
   satellite in `devices.yaml`; everything is kept until they are set.
 - ~~Authenticate the audio link~~ **Done — ADR-0066.** Protocol 3: the
-  device proves its node name with its PSK before any audio. Not yet
-  flashed onto a satellite.
+  device proves its node name with its PSK before any audio. Superseded on
+  the wire by protocol 4 (ADR-0074).
 - ~~Speaker volume and the hardware mute switch~~ **Done — ADR-0067.**
 - ~~Health, readiness and metrics~~ **Done — ADR-0068.**
 - ~~Say failures the household would meet as silence~~ **Done — ADR-0069.**
@@ -893,7 +908,7 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
   both nonces and both sides' ephemeral X25519 keys before the device sends
   any audio, and every frame after the handshake is sealed with AES-256-GCM
   under a key per direction, forward-secret against a PSK that leaks later.
-  Not yet flashed onto a satellite.
+  Flashed onto a Satellite1, which completes the handshake with `chorusd`.
 - Stop the uplink in firmware while the mute switch is on; today the host
   drops the frames (ADR-0067)
 - ~~Confirm a volume level~~ **Done.** `set_volume` answers with the level
@@ -911,6 +926,18 @@ Phase 1's pieces run together in `chorusd` against the in-process satellite
   household runs it: channel 0 is AGC'd, which narrows the gap between a
   near and a far satellite (ADR-0072). The review UI's arbitration report
   shows the margins and the closest calls to listen to
+- ~~Refuse a wake no enrolled voice made~~ **Done.** Found running a
+  Satellite1: the television opened sessions. With nobody enrolled, or no
+  speaker ID, every wake, a button press included, is rejected as
+  `unknown_speaker` (§5, §9.3).
+- ~~Enroll the household from the review UI~~ **Done — ADR-0080.** Voices
+  (`/voices`) lists, enrolls and removes people in the `identities.yaml`
+  chorusd reads; a browser take is made the satellite's format before it is
+  sent.
+- ~~Choose the voice and the ear~~ **Built — ADR-0081.**
+  `CHORUS_TTS_PROVIDER` and `CHORUS_STT_PROVIDER` add OpenAI-compatible and
+  Wyoming servers beside Kokoro and speaches, the defaults. Not yet run
+  against a real server.
 
 ### Phase 3
 
