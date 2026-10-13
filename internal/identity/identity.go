@@ -77,6 +77,13 @@ const (
 	// a low-confidence speaker guest context, and guessing between two
 	// enrolled people would hand one person's context to the other.
 	Ambiguous Reason = "ambiguous"
+
+	// TooShort is not a judgement: there was too little voice to make one.
+	// Distinct from BelowThreshold, which judged the voice and found it was
+	// nobody enrolled, because the two mean opposite things for whose turn
+	// it is -- a verdict makes the utterance a guest's, and the absence of
+	// one leaves the speaker as they were (ADR-0085).
+	TooShort Reason = "too_short"
 )
 
 // Outcome is one utterance's attribution. PersonID is empty unless Reason is
@@ -90,6 +97,17 @@ type Outcome struct {
 	Score       float64
 	RunnerUp    string
 	RunnerScore float64
+
+	// Nearest is the id scored best, set whatever the verdict was. PersonID
+	// is empty unless the verdict named somebody; this says who the voice
+	// was most like even when nothing was named (ADR-0085).
+	Nearest string
+
+	// Leads reports that Nearest beat a runner-up by at least the margin.
+	// False when nobody else is enrolled to be beaten: one centroid is
+	// nearest to every voice in the house, so a lead over nothing is not a
+	// lead (ADR-0084).
+	Leads bool
 
 	// Embedding is the utterance's own vector, set by Resolver.Resolve. SPEC §5
 	// stores it on every trace record; the journal field is a follow-up.
@@ -124,10 +142,11 @@ func (ids *Identities) Match(embedding []float32, th Thresholds) (Outcome, error
 		}
 	}
 
-	out := Outcome{Score: scores[best]}
+	out := Outcome{Score: scores[best], Nearest: ids.People[best].ID}
 	if second >= 0 {
 		out.RunnerUp = ids.People[second].ID
 		out.RunnerScore = scores[second]
+		out.Leads = out.Score-out.RunnerScore >= th.Margin
 	}
 	switch {
 	case out.Score < th.Accept:

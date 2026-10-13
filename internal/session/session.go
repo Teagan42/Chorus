@@ -326,6 +326,14 @@ func (sup *Supervisor) open(ctx context.Context, w Wake, announced bool) (*Sessi
 // ConversationID is the person's conversation, not the device's stream.
 func (s *Session) ConversationID() string { return s.convID }
 
+// Speaker is who the session is currently attributed to, empty for a guest's.
+// Read under the lock: an utterance reattributes it mid-session (SPEC §5).
+func (s *Session) Speaker() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.person
+}
+
 // Resumed reports that this wake word rejoined an existing conversation.
 func (s *Session) Resumed() bool { return s.resumed }
 

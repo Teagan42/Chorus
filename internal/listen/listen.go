@@ -1017,6 +1017,13 @@ func (l *Listener) complete(u *utterance) {
 		return
 	}
 	out := l.resolve(pcm)
+	if !u.first {
+		// A turn inside a session need not re-earn the speaker: too little
+		// voice to judge leaves whoever was speaking speaking (ADR-0085).
+		// The first utterance is exempt -- a wake is confirmed against an
+		// enrolled voice or not at all (SPEC §9.3).
+		out = unjudged(out, pcm, l.sessionSpeaker())
+	}
 	if u.first {
 		ok := l.confirm(pcm, second, out, u.word)
 		// The turn that follows is the session's, not the wake's to confirm.
@@ -1260,4 +1267,46 @@ func (l *Listener) storeSecond(key string, pcm []byte) string {
 
 func (l *Listener) warn(what string, err error) {
 	l.log.Warn(what, "satellite", l.cfg.Satellite, "err", err)
+}
+
+// unjudged turns a below-threshold verdict on too little voice into no
+// verdict at all, so journal.Attribute leaves the session's speaker as it
+// found them instead of making the turn a guest's.
+//
+// Real requests are short -- "is the front door locked" is under two seconds
+// of speech -- and a score from that much audio ranks its speaker first while
+// landing well under any threshold: measured 2026-10-13, a household's own
+// commands scored 0.45 to 0.63 at 1.4 to 2.8 s and 0.72 to 0.89 at four
+// seconds and over. Below identity.MinVoicedSamples the number is not
+// evidence either way, and treating it as evidence against the person is what
+// made a conversation fall out of attribution halfway through.
+//
+// Only BelowThreshold is converted. Ambiguous judged the voice and found two
+// people too close to choose between, which is a verdict and stays one.
+func unjudged(out identity.Outcome, pcm []byte, speaker string) identity.Outcome {
+	if out.Reason != identity.BelowThreshold {
+		return out
+	}
+	if len(identity.TrimSilence(pcm))/2 >= identity.MinVoicedSamples {
+		return out
+	}
+	// The score is not evidence, but the ranking still is: a household's own
+	// short command ranked them first by 0.18 to 0.63 over the next person.
+	// A guest chiming in, or a television, does not lead the person whose
+	// session it is -- which is the whole of what keeps this from handing a
+	// conversation to whoever speaks briefly in the room (ADR-0049).
+	if speaker == "" || out.Nearest != speaker || !out.Leads {
+		return out
+	}
+	out.Reason, out.PersonID = identity.TooShort, ""
+	return out
+}
+
+// sessionSpeaker is who the live session is attributed to, empty when there
+// is none or it is a guest's.
+func (l *Listener) sessionSpeaker() string {
+	if sess := l.Session(); sess != nil {
+		return sess.Speaker()
+	}
+	return ""
 }
