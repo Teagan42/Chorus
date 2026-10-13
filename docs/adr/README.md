@@ -108,5 +108,7 @@ record numbered 0057 was ever committed or dropped.
 
 | [0087](0087-an-answer-in-the-room-counts-and-only-another-persons-does-not.md) | Supersedes 0063's guest refusal: a held call is refused only when both the asker and the answer were identified as different people, because a one-word yes cannot be attributed on a far-field microphone and refusing it made confirmation unanswerable -- one call was held thirteen times while the household answered into a loop. The household knowingly accepts that anyone in the room can answer a question asked aloud in it, a lock included; tiering by what the call acts on was offered and declined. Depends on 0086's sustain floor, without which a mouse click could redeem a lock | §5, §6 |
 
+| [0088](0088-the-barge-in-gate-takes-the-satellites-own-speech-level.md) | Refines 0083, closing what it foreclosed: `session.Gate.MinEnergy` is built per link from the satellite's own speech level, because on the built-in default 140 barge-in candidates in one evening were all rejected at `speaker_id` and none at `vad` -- each costing a transcription and an embedding first. Nothing was falsely interrupting: the assistant's own voice is not enrolled, so leakage never stopped speech. Disabling barge-in during playback was rejected, since that is the only time barge-in means anything | §3.1, §4.3 |
+
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
