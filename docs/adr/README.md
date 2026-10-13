@@ -106,5 +106,7 @@ record numbered 0057 was ever committed or dropped.
 
 | [0086](0086-a-transient-is-not-speech-and-a-held-call-is-given-up-on.md) | Refines 0038: an utterance holding under `listen.DefaultMinSustained` of speech-level energy is treated as silence, because eleven mouse clicks the ear read "Yeah." and "No." in each became a turn and re-asked a held call -- clicks held 20 to 120 ms at a crest factor of 24 to 26 dB against speech's 740 to 2520 ms at 14 to 20 dB; and `journal.MaxHeldTries` stops asking after five, since a model presenting nonces it was never issued cannot converge. Relaxing the guest refusal on a yes was built and reverted: flat, it lets a guest unlock the front door | §4.5, §6 |
 
+| [0087](0087-an-answer-in-the-room-counts-and-only-another-persons-does-not.md) | Supersedes 0063's guest refusal: a held call is refused only when both the asker and the answer were identified as different people, because a one-word yes cannot be attributed on a far-field microphone and refusing it made confirmation unanswerable -- one call was held thirteen times while the household answered into a loop. The household knowingly accepts that anyone in the room can answer a question asked aloud in it, a lock included; tiering by what the call acts on was offered and declined. Depends on 0086's sustain floor, without which a mouse click could redeem a lock | §5, §6 |
+
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
