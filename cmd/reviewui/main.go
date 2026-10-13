@@ -5,7 +5,8 @@
 // each clip playable, verdicts in the curation table, and Replay. It reads
 // CHORUS_POSTGRES_DSN and CHORUS_BLOB_DIR like chorusd, and migrates its
 // schemas on start; OLLAMA_URL and OLLAMA_MODEL, or VLLM_URL and VLLM_MODEL
-// under CHORUS_LLM_PROVIDER=vllm, let Replay re-run turns.
+// under CHORUS_LLM_PROVIDER=vllm, let Replay re-run turns; SPEAKERID_URL lets
+// Voices enroll the household into identities.yaml.
 package main
 
 import (
@@ -24,8 +25,10 @@ import (
 	"github.com/teagan42/chorus/internal/blob"
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/erasure"
+	"github.com/teagan42/chorus/internal/identity"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/provider/speakerid"
 )
 
 // blobDirEnv is where the journal's audio lives, the same variable chorusd
@@ -48,6 +51,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "reviewui: %v\n", err)
 		os.Exit(2)
 	}
+	identities := flag.String("identities", identity.DefaultPath, "the household's voiceprints, the file chorusd reads at startup; the Voices screen lists, enrolls and removes them")
+	speakerIDURL := flag.String("speakerid-url", os.Getenv(speakerIDURLEnv), "speaker-ID sidecar base URL the Voices screen enrolls through; unset, it enrolls nobody ($"+speakerIDURLEnv+")")
 	readOnly := flag.Bool("read-only", readOnlyDefault, "hide and refuse every deletion: conversations, clips, memories and summaries ($"+readOnlyEnv+")")
 	flag.Parse()
 
@@ -58,13 +63,13 @@ func main() {
 	if len(allowed) == 0 {
 		allowed = defaultHosts(*addr)
 	}
-	if err := run(ctx, *addr, allowed, *readOnly); err != nil {
+	if err := run(ctx, *addr, allowed, *readOnly, enrollment(*identities, *speakerIDURL)); err != nil {
 		fmt.Fprintf(os.Stderr, "reviewui: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, addr string, hosts []string, readOnly bool) error {
+func run(ctx context.Context, addr string, hosts []string, readOnly bool, v voices) error {
 	log.Printf("reviewui %s", version)
 	pool, err := pgxpool.New(ctx, journal.DSN())
 	if err != nil {
@@ -91,6 +96,7 @@ func run(ctx context.Context, addr string, hosts []string, readOnly bool) error 
 	s := newServer(pgJournal{journal.NewPgStore(pool)}, curation.NewPgStore(pool), blobs, time.Now)
 	s.engineFor = llmEngines(os.Getenv)
 	s.memories, s.erasures, s.readOnly = memory.NewPgStore(pool), erasure.NewPgStore(pool), readOnly
+	s.voices = v
 	srv := &http.Server{Addr: addr, Handler: s.handler(hosts), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -106,6 +112,19 @@ func run(ctx context.Context, addr string, hosts []string, readOnly bool) error 
 		return err
 	}
 	return nil
+}
+
+// enrollment is the Voices screen's household file and, when a sidecar is
+// named, the real client at its defaults: TitaNet-L, 192 dims, so a sidecar
+// serving anything else is refused on the first take.
+func enrollment(identities, speakerIDURL string) voices {
+	v := voices{identities: identities}
+	if speakerIDURL != "" {
+		v.embedder = func() (identity.Embedder, error) {
+			return speakerid.New(speakerid.Config{BaseURL: speakerIDURL})
+		}
+	}
+	return v
 }
 
 // pgJournal names the two read interfaces PgStore already satisfies.

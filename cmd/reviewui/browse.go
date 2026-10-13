@@ -399,7 +399,7 @@ func (s *server) browse(w http.ResponseWriter, r *http.Request) {
 			Eyebrow: "01 · Browse", Title: "The household's day",
 			Subtitle: "Every conversation, on the satellite it happened at. Flags come from Triage's signals.",
 			Actions: []ui.Button{
-				{Label: "Arbitration ›", Href: arbitrationRoute}, {Label: "Memory ›", Href: memoryRoute}, {Label: "Deletions ›", Href: deletionsRoute},
+				{Label: "Arbitration ›", Href: arbitrationRoute}, {Label: "Memory ›", Href: memoryRoute}, {Label: "Voices ›", Href: voicesRoute}, {Label: "Deletions ›", Href: deletionsRoute},
 			},
 		},
 		"Deleted":   s.deletedAlert(r.Context(), r.URL.Query().Get("deleted")),

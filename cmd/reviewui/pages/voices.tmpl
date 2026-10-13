@@ -1,0 +1,49 @@
+{{/* Voices · the household's enrolled voiceprints: listed, enrolled and removed (SPEC §5, ADR-0025). */}}
+
+{{define "page-voices"}}{{template "doc-start" .Doc}}
+{{template "app-header" .Header}}
+{{template "page-head" .Head}}
+{{with .Said}}{{template "alert" .}}{{end}}
+{{template "voices-list" .List}}
+{{template "enroll-form" .Form}}
+<script src="{{.Doc.Static}}/js/enroll.js" defer></script>
+{{template "doc-end"}}{{end}}
+
+{{/* voices-list · who is enrolled; a removal swaps it whole. Never the vectors. */}}
+{{define "voices-list"}}<section id="voices" aria-label="Enrolled voices">
+{{with .Note}}<div class="band pad"><span class="list__detail">{{.}}</span></div>{{end}}
+{{with .Empty}}{{template "empty-state" .}}{{end}}
+{{with .Rows}}<div class="band pad"><span class="cap">Enrolled · {{len .}}{{with $.Model}} · {{.}}{{end}}</span></div>{{end}}
+{{- range .Rows}}
+<div id="voice-{{.ID}}" class="list__row" style="display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: flex-start">
+<span class="list__text" style="flex: 1 1 320px; min-width: 0"><span class="list__title">{{.ID}}{{with .Name}} · {{.}}{{end}}</span><span class="list__detail">voiceprint from {{.Utterances}} phrase{{if ne .Utterances 1}}s{{end}}</span></span>
+{{with .Remove}}<span style="flex: 0 1 auto; max-width: 100%">{{template "confirm" .}}</span>{{end}}
+</div>
+{{- end}}
+</section>{{end}}
+
+{{/* enroll-form · a person's id, name and at least .Min takes, uploaded or recorded here. */}}
+{{define "enroll-form"}}<section id="enroll" class="stack" aria-label="Enroll someone" style="gap: 0; margin-top: 18px">
+<div class="band pad"><h2 style="margin: 0; font-size: 18px; font-weight: 600">Enroll someone</h2></div>
+{{- if .Off}}<div class="pad">{{template "alert" .Off}}</div>
+{{- else}}
+<form class="stack pad" style="gap: 14px" method="post" action="/voices" enctype="multipart/form-data" data-min="{{.Min}}">
+<div class="row" style="gap: 14px; flex-wrap: wrap">
+<div class="field" style="flex: 1 1 200px"><label for="enroll-id" class="cap">Id · on every transcript</label><input id="enroll-id" name="id" type="text" value="{{.ID}}" placeholder="jordan" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" autocomplete="off"></div>
+<div class="field" style="flex: 1 1 200px"><label for="enroll-name" class="cap">Name · optional</label><input id="enroll-name" name="name" type="text" value="{{.Name}}" placeholder="Jordan" autocomplete="off"></div>
+</div>
+<div class="stack" style="gap: 6px">
+<span class="cap">Phrases · one take each, at least {{.Min}}, in the voice they use with the assistant</span>
+<ol class="list__detail" style="margin: 0; padding-left: 20px">{{range .Phrases}}<li>{{.}}</li>{{end}}</ol>
+</div>
+<div class="field"><label for="enroll-takes" class="cap">Takes · WAV, 16 kHz mono 16-bit, the satellite's own format; nothing is resampled</label><input id="enroll-takes" name="take" type="file" accept=".wav,audio/wav,audio/x-wav" multiple></div>
+<div class="stack" style="gap: 8px" data-recorder hidden>
+<span class="cap">Or record them here</span>
+<span class="list__detail">This browser's microphone is not a satellite's, so a voiceprint from it matches less surely than one from the satellite's own recordings.</span>
+<div class="btn-row"><button class="btn" type="button" data-record>Record a take</button><span class="meta" data-status aria-live="polite"></span></div>
+<ol class="list__detail" style="margin: 0; padding-left: 20px" data-takes></ol>
+</div>
+<div class="btn-row"><button class="btn btn--primary" type="submit">Enroll</button><span class="meta">The takes are embedded over the speaker-ID sidecar; only the voiceprint is kept, in identities.yaml. Restart chorusd afterwards.</span></div>
+</form>
+{{- end}}
+</section>{{end}}

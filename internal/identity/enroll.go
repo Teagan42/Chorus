@@ -2,7 +2,9 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 )
 
 // MinUtterances is how many guided phrases an enrollment needs. One phrase's
@@ -86,4 +88,40 @@ func (ids *Identities) EnrollAudio(ctx context.Context, emb Embedder, id, name s
 		samples = append(samples, e)
 	}
 	return ids.Enroll(id, name, samples)
+}
+
+// EnrollFile is EnrollAudio against the household file at path: the first
+// person starts the file for this embedder, which then pins the model for
+// everyone after. The file is saved atomically and only once the enrollment
+// is accepted, so a refused one writes nothing.
+func EnrollFile(ctx context.Context, path string, emb Embedder, id, name string, utterances [][]byte) (*Identities, error) {
+	ids, err := Load(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		ids = New(emb)
+	case err != nil:
+		return nil, err
+	}
+	if err := ids.EnrollAudio(ctx, emb, id, name, utterances); err != nil {
+		return nil, err
+	}
+	if err := ids.Save(path); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// Remove drops one person, reporting whether they were enrolled.
+func (ids *Identities) Remove(id string) bool {
+	kept := ids.People[:0:0]
+	for _, p := range ids.People {
+		if p.ID != id {
+			kept = append(kept, p)
+		}
+	}
+	if len(kept) == len(ids.People) {
+		return false
+	}
+	ids.People = kept
+	return true
 }
