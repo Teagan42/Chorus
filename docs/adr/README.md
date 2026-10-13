@@ -104,5 +104,7 @@ record numbered 0057 was ever committed or dropped.
 
 | [0085](0085-too-little-voice-to-judge-leaves-the-speaker-speaking.md) | Refines 0049: `too_short` is a fifth `speaker_match` -- no verdict, so the session's speaker keeps the turn -- because a household's own commands scored 0.45 to 0.63 at 1.4 to 2.8 s of speech and a conversation fell out of attribution the moment its owner said something short; converted only when the nearest centroid is the session's speaker and led the runner-up by the margin, so a guest or a television still does not inherit, and never on the first utterance | §5, §9.3 |
 
+| [0086](0086-a-transient-is-not-speech-and-a-held-call-is-given-up-on.md) | Refines 0038: an utterance holding under `listen.DefaultMinSustained` of speech-level energy is treated as silence, because eleven mouse clicks the ear read "Yeah." and "No." in each became a turn and re-asked a held call -- clicks held 20 to 120 ms at a crest factor of 24 to 26 dB against speech's 740 to 2520 ms at 14 to 20 dB; and `journal.MaxHeldTries` stops asking after five, since a model presenting nonces it was never issued cannot converge. Relaxing the guest refusal on a yes was built and reverted: flat, it lets a guest unlock the front door | §4.5, §6 |
+
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
