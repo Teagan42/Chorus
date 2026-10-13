@@ -102,5 +102,7 @@ record numbered 0057 was ever committed or dropped.
 
 | [0084](0084-the-accept-threshold-is-configurable-because-a-front-ends-gain-compresses-every-score.md) | Refines 0029: `CHORUS_SPEAKER_ACCEPT` overrides `identity.DefaultAccept`, because a Voice PE's processed far-field audio compresses every score -- a household's own ordinary commands scored 0.45 to 0.79 against their own voiceprint while a second enrolled voice never passed 0.43, so each was refused though it ranked its speaker first by 0.18 to 0.63; the margin guard is unchanged, the 0.70 default does not move, and it is global because the resolver is shared by every link | §5, §9.3, §13 |
 
+| [0085](0085-too-little-voice-to-judge-leaves-the-speaker-speaking.md) | Refines 0049: `too_short` is a fifth `speaker_match` -- no verdict, so the session's speaker keeps the turn -- because a household's own commands scored 0.45 to 0.63 at 1.4 to 2.8 s of speech and a conversation fell out of attribution the moment its owner said something short; converted only when the nearest centroid is the session's speaker and led the runner-up by the margin, so a guest or a television still does not inherit, and never on the first utterance | §5, §9.3 |
+
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
