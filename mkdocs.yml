@@ -57,6 +57,7 @@ nav:
   - Reference:
       - reference/events.md
       - reference/tools.md
+      - Voice enrollment: voice-enrollment.md
       - Bridge protocol: esphome.md
       - Speaker-ID sidecar: speakerid.md
       - Smart Turn sidecar: smartturn.md
