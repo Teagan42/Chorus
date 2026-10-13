@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.17.0](https://github.com/Teagan42/Chorus/compare/v0.16.0...v0.17.0) (2026-10-13)
+
+
+### Features
+
+* a vLLM turn engine, chosen with CHORUS_LLM_PROVIDER (ADR-0077) ([#113](https://github.com/Teagan42/Chorus/issues/113)) ([f65676b](https://github.com/Teagan42/Chorus/commit/f65676be28c94b5d18412c76a7d999d0cc2c35cb))
+* arbitrate a wake several satellites heard, and record the wake word (ADR-0072) ([#105](https://github.com/Teagan42/Chorus/issues/105)) ([0679dd6](https://github.com/Teagan42/Chorus/commit/0679dd66a061c040fe2e67fecc5de19245afc890))
+* **bridge:** authenticate the audio link device, protocol 3 (ADR-0066) ([#94](https://github.com/Teagan42/Chorus/issues/94)) ([5376049](https://github.com/Teagan42/Chorus/commit/5376049011162ae87a67e295b3ae6ce9affe2dd9))
+* **chorusd:** health, readiness and metrics on a loopback ops listener ([#99](https://github.com/Teagan42/Chorus/issues/99)) ([d24087f](https://github.com/Teagan42/Chorus/commit/d24087f47991a6b12ca63885b2f8d96678c08b94))
+* Dockerize Chorus services and reject unknown wakes ([#118](https://github.com/Teagan42/Chorus/issues/118)) ([b8a0966](https://github.com/Teagan42/Chorus/commit/b8a096698d6922fe546c5548572534db0165c5e9))
+* **esphome:** a Voice PE config wired from its stock firmware (ADR-0073) ([#103](https://github.com/Teagan42/Chorus/issues/103)) ([70f0730](https://github.com/Teagan42/Chorus/commit/70f0730d90f130238bcb7a0c250766b2085e3d15))
+* eval replay suites, gated on what regressed (ADR-0079) ([#114](https://github.com/Teagan42/Chorus/issues/114)) ([fc3e1fb](https://github.com/Teagan42/Chorus/commit/fc3e1fb3e2a6e3cad9126813859b8716e01ac624))
+* **firmware:** wake on the household's own "Hey Eddie" ([#92](https://github.com/Teagan42/Chorus/issues/92)) ([026352f](https://github.com/Teagan42/Chorus/commit/026352f4e3d7422aba6a02b858dfaebe8f42ee31))
+* protocol 4, the host proves itself and the audio link is sealed, forward-secret (ADR-0074) ([#111](https://github.com/Teagan42/Chorus/issues/111)) ([fd98aa2](https://github.com/Teagan42/Chorus/commit/fd98aa2067eea0a7320073e2b47ed6826ecec8c1))
+* **retention:** prune audio and logs by per-satellite horizons ([#96](https://github.com/Teagan42/Chorus/issues/96)) ([8b823b4](https://github.com/Teagan42/Chorus/commit/8b823b4dea8df31c4e91bf06d762e86ec9bc69e1))
+* **reviewui:** an arbitration report, and dropping a clip from a satellite's own log (ADR-0076) ([#109](https://github.com/Teagan42/Chorus/issues/109)) ([07b2fab](https://github.com/Teagan42/Chorus/commit/07b2fabe3134fb05353f2cd41e4a3afe14620e0b))
+* **reviewui:** delete conversations, drop clips and forget memories ([#101](https://github.com/Teagan42/Chorus/issues/101)) ([6bcd1d4](https://github.com/Teagan42/Chorus/commit/6bcd1d4c33868bcf4f4ff56373a1403b8e094c18))
+* **reviewui:** export format 2 with each turn's prompt, tools, split and audio ([#102](https://github.com/Teagan42/Chorus/issues/102)) ([1710b55](https://github.com/Teagan42/Chorus/commit/1710b55e1f234206967e899fe4b5c403159c4bce))
+* **reviewui:** speaker enrollment on a Voices screen (ADR-0080) ([#119](https://github.com/Teagan42/Chorus/issues/119)) ([699a027](https://github.com/Teagan42/Chorus/commit/699a027365bc381fe286916f63eeb73c43c9289e))
+* say failures the household would meet as silence, and show mute and errors on the ring (ADR-0069) ([#100](https://github.com/Teagan42/Chorus/issues/100)) ([b01a24b](https://github.com/Teagan42/Chorus/commit/b01a24be9fe25945bb86136dd65fa0cdaebf1703))
+* session_opened records the wake word that opened it ([#108](https://github.com/Teagan42/Chorus/issues/108)) ([539aec3](https://github.com/Teagan42/Chorus/commit/539aec39c1b42e80ba988bbf787f1da308ab91d7))
+* set_volume reports the level the speaker confirms; follow-ups to [#110](https://github.com/Teagan42/Chorus/issues/110) and [#111](https://github.com/Teagan42/Chorus/issues/111) ([#112](https://github.com/Teagan42/Chorus/issues/112)) ([d9a2981](https://github.com/Teagan42/Chorus/commit/d9a29811353b740eb4b5fabc170124ef401f4331))
+* speaker volume over the native API, and the HAT's mute switch (ADR-0067) ([#98](https://github.com/Teagan42/Chorus/issues/98)) ([cd14350](https://github.com/Teagan42/Chorus/commit/cd1435045c5f5853a8abe9e125c978f50f5be6bf))
+* the MCP provider, under conservative default policies (ADR-0075) ([#110](https://github.com/Teagan42/Chorus/issues/110)) ([bd6c361](https://github.com/Teagan42/Chorus/commit/bd6c361ccb66177e93d7fa5f7eaad7777150e635))
+* wake-word retraining pipeline (ADR-0078); the harvester learns the ear's unheard line ([#115](https://github.com/Teagan42/Chorus/issues/115)) ([a4016e5](https://github.com/Teagan42/Chorus/commit/a4016e5b3ed8b505a13b4c63850fe936cafecca3))
+
+
+### Bug Fixes
+
+* **harvest:** keep a wake nothing could decode out of the wake corpus ([#107](https://github.com/Teagan42/Chorus/issues/107)) ([a9e0e2b](https://github.com/Teagan42/Chorus/commit/a9e0e2be2b1ba25769806eb4c5644b96e8b07976))
+* root causes of three load-only test failures, refuse announcements into closing sessions, requirements*.txt as deps ([#116](https://github.com/Teagan42/Chorus/issues/116)) ([8f49ba9](https://github.com/Teagan42/Chorus/commit/8f49ba900e5068aa9696c289e420db6052f5d57d))
+
+
+### Documentation
+
+* bring the docs and the phase plan up to date with [#88](https://github.com/Teagan42/Chorus/issues/88)–[#102](https://github.com/Teagan42/Chorus/issues/102) ([#104](https://github.com/Teagan42/Chorus/issues/104)) ([c6572fa](https://github.com/Teagan42/Chorus/commit/c6572faf8e437b9d149b90cda97934a330bc3fc8))
+* record the Voice PE config and wake arbitration as done ([#106](https://github.com/Teagan42/Chorus/issues/106)) ([c4200b4](https://github.com/Teagan42/Chorus/commit/c4200b459709d41c2a1a5f18cd08d44e5d799acc))
+
 ## [0.16.0](https://github.com/Teagan42/Chorus/compare/v0.15.0...v0.16.0) (2026-10-11)
 
 
