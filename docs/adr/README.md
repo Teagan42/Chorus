@@ -110,5 +110,7 @@ record numbered 0057 was ever committed or dropped.
 
 | [0088](0088-the-barge-in-gate-takes-the-satellites-own-speech-level.md) | Refines 0083, closing what it foreclosed: `session.Gate.MinEnergy` is built per link from the satellite's own speech level, because on the built-in default 140 barge-in candidates in one evening were all rejected at `speaker_id` and none at `vad` -- each costing a transcription and an embedding first. Nothing was falsely interrupting: the assistant's own voice is not enrolled, so leakage never stopped speech. Disabling barge-in during playback was rejected, since that is the only time barge-in means anything | §3.1, §4.3 |
 
+| [0089](0089-the-assistants-own-voice-is-not-a-turn.md) | Refines 0049: an utterance no household voice owns that arrived while the device was playing is dropped, because the assistant answered its own speech coming back through the microphone -- the echo measured -19.2 dBFS RMS against a household's -18.8 at the same length and crest, and the pre-AGC channel is 50 dB down for both, so only the speaker separates them; sampled while the utterance is open rather than at decode, since playback may finish first; an identified voice and one `too_short` put with the session's speaker still barge in, a guest over an answer no longer does | §3.1, §4.3 |
+
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
