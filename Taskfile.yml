@@ -358,7 +358,7 @@ tasks:
   # Not part of `task gen`: it fetches Kokoro, so it cannot be hermetic.
   # internal/satellite's tests fail when a canned line has no audio here.
   canned:voice:
-    desc: Render the canned lines into the audio chorusd falls back on until Kokoro answers (fetches the model once). Commit the result as chore(gen).
+    desc: Render the canned lines into the audio chorusd falls back on until the voice answers (fetches the model once). Commit the result as chore(gen).
     cmds:
       - go run ./internal/tools/cannedvoice | uv run --group voice python internal/tools/householdvoice/canned.py --out internal/satellite/fallback
 

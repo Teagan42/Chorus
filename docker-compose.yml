@@ -2,8 +2,9 @@
 # storage, and the model sidecars a tier of tests needs a real one of.
 services:
   # The orchestrator daemon (cmd/chorusd). It needs only the database to
-  # start: the sidecars below are optional here, because a household may run
-  # them on a GPU box instead, and the daemon reaches them by URL. On Docker
+  # start. The URLs under environment: override .env, so a sidecar on a GPU
+  # box means editing them here; CHORUS_TTS_PROVIDER, CHORUS_STT_PROVIDER and
+  # their OPENAI_*/WYOMING_* variables come from .env (ADR-0081). On Docker
   # Desktop, port forwarding uses a shared source-NAT address; devices.yaml
   # maps that address to the satellite while its native API uses the real IP.
   chorusd:

@@ -17,7 +17,7 @@ task tools          # install pinned toolchain into GOPATH/bin
 task check          # lint + gen drift + tests + doc examples + spec trace
 ```
 
-Requires Go 1.27+, `uv` for Python sidecars. `task` and `cue` install via `task tools`.
+Requires Go 1.27+, `uv` for Python sidecars. `task` installs with `go install github.com/go-task/task/v3/cmd/task@v3.54.0`; `cue` and the rest via `task tools`.
 
 ## 1. TDD
 
@@ -300,7 +300,9 @@ internal/
   announce/             the announce tool: speech on other satellites (ADR-0045)
   volume/               the set_volume tool: a satellite's speaker level (ADR-0067)
   provider/             model clients: ollama, vllm, kokoro, speaches, openai, wyoming,
-                        speakerid, smartturn (SPEC §10)
+                        speakerid, smartturn; chat, the engines' shared prompt and
+                        dialogue; pcm, the voices' WAV and resampling; mcp, MCP
+                        servers' tools (ADR-0075) (SPEC §10)
   harvest/              barge-ins as preference candidates, and the dataset export (SPEC §9.1)
   contexts/             the text behind every prompt and tool-schema version (SPEC §13)
   triage/               signals worth a reviewer's time, derived on read
@@ -316,7 +318,8 @@ internal/
   board/                a satellite PCB's pin map, checked against its module
   msgid/                ESPHome wire ids, derived from the proto descriptors
   tools/                build-time tooling (schemagen, spectrace, atomic, docexec, docsite,
-                        demosite, householdvoice, cannedvoice, kicadnet, kicadboard)
+                        demosite, householdvoice, cannedvoice, kicadnet, kicadboard,
+                        wakecorpus, waketrain)
 schema/                 CUE source of truth
   json/                 generated JSON Schema (do not edit)
 sidecars/               Python model services (uv workspace): speakerid, smartturn
@@ -330,6 +333,8 @@ docs/
   reference/            generated reference docs (do not edit)
   reviewui/             review UI guide and screenshots
   eval.md               the eval suite guide
+  voice-enrollment.md   enrolling the household's voices
+  wake-retraining.md    retraining the wake word (ADR-0078)
   hardware/             the satellite board's design
 mkdocs.yml              the docs site: which Markdown, in what nav
 proto/esphome/          vendored ESPHome protos
