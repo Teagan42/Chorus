@@ -53,6 +53,13 @@ type server struct {
 	// a household's own review box.
 	notice *ui.Notice
 
+	// described caches what the sidecars said about each clip the Voices
+	// screen lists. A blob never changes, so neither does its description.
+	described struct {
+		mu sync.Mutex
+		by map[string]clipDesc
+	}
+
 	// logs is what each log derives, read again only once it has grown.
 	logs logs
 
@@ -119,6 +126,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET "+deletionsRoute, s.deletions)
 	mux.HandleFunc("GET "+arbitrationRoute, s.arbitration)
 	mux.HandleFunc("GET "+voicesRoute, s.voicesPage)
+	mux.HandleFunc("GET "+clipsRoute, s.voicesClips)
 	mux.HandleFunc("POST "+voicesRoute, s.enroll)
 	mux.HandleFunc("POST "+voicesRoute+"/{id}/remove", s.removeVoice)
 	return http.NewCrossOriginProtection().Handler(mux)

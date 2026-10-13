@@ -124,7 +124,7 @@ func TestOptionalSidecarsDegradeWithALogLine(t *testing.T) {
 	if len(p.tools) != 0 {
 		t.Errorf("tools = %v, want none wired", p.tools)
 	}
-	if p.judge != nil || p.endpointer() != nil {
+	if p.judge != nil || p.endpointer(0) != nil {
 		t.Error("a semantic endpointer was built with no Smart Turn endpoint")
 	}
 	if p.embedder != nil {
@@ -174,14 +174,14 @@ func TestFullyConfiguredProvidersWireEverything(t *testing.T) {
 	if p.speakers == nil {
 		t.Error("no resolver with a speaker-ID endpoint and a household")
 	}
-	ep, ok := p.endpointer().(*listen.Semantic)
+	ep, ok := p.endpointer(0).(*listen.Semantic)
 	if !ok {
-		t.Fatalf("endpointer is %T with a Smart Turn endpoint, want a semantic one", p.endpointer())
+		t.Fatalf("endpointer is %T with a Smart Turn endpoint, want a semantic one", p.endpointer(0))
 	}
 	if d, ok := ep.Judge.(listen.Dangling); !ok || d.Judge != p.judge || d.Words != p.stt {
 		t.Errorf("judge is %#v, want Smart Turn checked against the turn's own transcriber", ep.Judge)
 	}
-	if a, b := p.endpointer(), p.endpointer(); a == b {
+	if a, b := p.endpointer(0), p.endpointer(0); a == b {
 		t.Error("two links share one endpointer, and with it one turn in progress")
 	}
 	for _, name := range []string{"ha_call_service", "ha_get_state", "ha_find_entities"} {

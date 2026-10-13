@@ -31,6 +31,15 @@ type Satellite struct {
 	Room          string `yaml:"room"`
 	Profile       string `yaml:"profile"`
 
+	// SpeechEnergy is the RMS, as a fraction of full scale, at or above
+	// which this satellite's audio counts as speech, overriding
+	// listen.DefaultSpeechEnergy. A front end that rides its own gain needs
+	// its own gate: measured 2026-10-13, the Voice PE's XMOS AGC holds an
+	// empty room at -35 dBFS, over the -40 dBFS default, so no pause ever
+	// reached the 200 ms that asks Smart Turn and every turn ran to its cap
+	// (SPEC §4.5, ADR-0083). Zero takes the default.
+	SpeechEnergy float64 `yaml:"speech_energy"`
+
 	// Retention overrides the house's horizons for this satellite's audio
 	// and logs; what it leaves out is the house's (SPEC §8).
 	Retention *Retention `yaml:"retention"`
@@ -96,6 +105,10 @@ func (s *Satellite) validate() error {
 	}
 	if s.AudioSourceIP != "" && net.ParseIP(s.AudioSourceIP) == nil {
 		return fmt.Errorf("audio_source_ip %q is not an IP literal", s.AudioSourceIP)
+	}
+	// At full scale nothing is ever speech; below zero everything is.
+	if s.SpeechEnergy < 0 || s.SpeechEnergy >= 1 {
+		return fmt.Errorf("speech_energy %v is not a fraction of full scale between 0 and 1", s.SpeechEnergy)
 	}
 	if s.Retention != nil {
 		if err := s.Retention.parse(); err != nil {

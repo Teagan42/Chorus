@@ -49,6 +49,15 @@ const (
 	vllmKeyEnv      = "VLLM_API_KEY"
 	vllmThinkingEnv = "VLLM_THINKING"
 
+	// speakerAcceptEnv is the cosine at or above which a voice is the
+	// enrolled person it is nearest, overriding identity.DefaultAccept.
+	// A front end that rides its own gain compresses the scores: measured
+	// 2026-10-13, a household's own short commands through a Voice PE's
+	// XMOS scored 0.45 to 0.79 against their own voiceprint while a second
+	// enrolled voice never passed 0.43 against it, so who it was stayed
+	// clear while the absolute score fell under the 0.70 default (ADR-0084).
+	speakerAcceptEnv = "CHORUS_SPEAKER_ACCEPT"
+
 	// The voice's and the ear's providers, and the endpoints of the ones
 	// that are not the defaults (ADR-0081). Kokoro's and speaches' are
 	// above.
@@ -114,6 +123,9 @@ type Config struct {
 	// reads it.
 	VLLMThinking string
 
+	// SpeakerAccept is the accept threshold as written; speakerAccept parses it.
+	SpeakerAccept string
+
 	// TTSProvider is the voice: kokoro, openai or wyoming (ADR-0081).
 	TTSProvider     string
 	OpenAITTSURL    string
@@ -153,19 +165,20 @@ type Config struct {
 // the real one. Defaults are the ones the rest of the repo already agrees on.
 func configFromEnv(getenv func(string) string) Config {
 	cfg := Config{
-		Listen:       getenv(listenEnv),
-		DSN:          getenv(journal.DSNEnv),
-		BlobDir:      getenv(blobDirEnv),
-		OllamaURL:    getenv(ollamaURLEnv),
-		OllamaModel:  getenv(ollamaModelEnv),
-		EmbedModel:   getenv(ollamaEmbedEnv),
-		LLMProvider:  getenv(llmProviderEnv),
-		VLLMURL:      getenv(vllmURLEnv),
-		VLLMModel:    getenv(vllmModelEnv),
-		VLLMAPIKey:   getenv(vllmKeyEnv),
-		VLLMThinking: getenv(vllmThinkingEnv),
-		KokoroURL:    getenv(kokoroURLEnv),
-		STTURL:       getenv(sttURLEnv),
+		Listen:        getenv(listenEnv),
+		DSN:           getenv(journal.DSNEnv),
+		BlobDir:       getenv(blobDirEnv),
+		OllamaURL:     getenv(ollamaURLEnv),
+		OllamaModel:   getenv(ollamaModelEnv),
+		EmbedModel:    getenv(ollamaEmbedEnv),
+		LLMProvider:   getenv(llmProviderEnv),
+		VLLMURL:       getenv(vllmURLEnv),
+		VLLMModel:     getenv(vllmModelEnv),
+		VLLMAPIKey:    getenv(vllmKeyEnv),
+		VLLMThinking:  getenv(vllmThinkingEnv),
+		SpeakerAccept: getenv(speakerAcceptEnv),
+		KokoroURL:     getenv(kokoroURLEnv),
+		STTURL:        getenv(sttURLEnv),
 
 		TTSProvider:     getenv(ttsProviderEnv),
 		OpenAITTSURL:    getenv(openaiTTSURLEnv),
@@ -297,6 +310,9 @@ func (c Config) validate() error {
 	if _, err := c.vllmThinking(); err != nil {
 		missing = append(missing, fmt.Sprintf("  %-20s %v", vllmThinkingEnv, err))
 	}
+	if _, err := c.speakerAccept(); err != nil {
+		missing = append(missing, fmt.Sprintf("  %-20s %v", speakerAcceptEnv, err))
+	}
 	for _, r := range required {
 		if r.value == "" {
 			missing = append(missing, fmt.Sprintf("  %-20s %s", r.name, r.purpose))
@@ -395,7 +411,11 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 			// transcript so voices can be clustered before anyone enrolls.
 			ids = identity.New(emb)
 		}
-		resolver, err := identity.NewResolver(emb, ids, identity.Thresholds{})
+		accept, err := cfg.speakerAccept()
+		if err != nil {
+			return providers{}, err
+		}
+		resolver, err := identity.NewResolver(emb, ids, identity.Thresholds{Accept: accept})
 		if err != nil {
 			return providers{}, err
 		}
@@ -503,4 +523,22 @@ func enrolled(ids *identity.Identities) int {
 		return 0
 	}
 	return len(ids.People)
+}
+
+// speakerAccept reads CHORUS_SPEAKER_ACCEPT: zero keeps
+// identity.DefaultAccept. A value at or over full correlation would accept
+// nobody and a negative one everybody, so both are refused at startup rather
+// than at the first word.
+func (c Config) speakerAccept() (float64, error) {
+	if c.SpeakerAccept == "" {
+		return 0, nil
+	}
+	v, err := strconv.ParseFloat(c.SpeakerAccept, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%q is not a number", c.SpeakerAccept)
+	}
+	if v <= 0 || v >= 1 {
+		return 0, fmt.Errorf("%v is not a cosine between 0 and 1", v)
+	}
+	return v, nil
 }
