@@ -32,6 +32,7 @@ Or enroll from a browser: the review UI's Voices screen
 takes on the page, and writes the same volume. Restart chorusd afterwards
 just the same. See [Voices](reviewui/README.md#voices).
 
-The wake confirmation is intentionally fail-closed. Until enrollment is
-complete, this Satellite1 has no push-to-talk button, so it will not answer a
-spoken wake.
+The wake confirmation is intentionally fail-closed. Until someone is
+enrolled, no satellite answers: a Voice PE's button press takes the same
+speaker check as a spoken wake, and each refusal is journalled as a
+`wake_rejected` with reason `unknown_speaker`, which the review UI shows.

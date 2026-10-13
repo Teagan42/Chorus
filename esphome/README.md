@@ -68,7 +68,7 @@ not the host gets near the bound.
 
 | Type | Dir | Payload |
 |---|---|---|
-| `0x01` hello | device | in the clear: version:u8, sample_rate:u32, bits:u8, mic_channels:u8, nonce:32, then the node name, UTF-8, 1-64 bytes |
+| `0x01` hello | device | in the clear: version:u8, sample_rate:u32, bits:u8, mic_channels:u8, nonce:32, X25519 public key:32, then the node name, UTF-8, 1-64 bytes |
 | `0x02` mic | device | 16 kHz s16le PCM; `flags` is the channel: 0 the fully processed mix, 1 the XMOS's second, lighter-processed output (SPEC §3.2) |
 | `0x03` wake | device | wake word name, UTF-8 |
 | `0x04` played | device | cumulative DAC frames:u64, `esp_timer` micros:i64; `flags` echoes the tag of the stop this report answers, 0 otherwise |
@@ -79,7 +79,7 @@ not the host gets near the bound.
 | `0x12` finish | host | none — drains the buffer, then stops |
 | `0x13` duck | host | decibels:u8, duration_ms:u32; applied to the `ducking_speaker` source, never the voice |
 | `0x14` mic_enable | host | none; `flags` bit 0 enables the uplink |
-| `0x15` challenge | host | in the clear: nonce:32, fresh from a CSPRNG for every connection, then the host's proof:32 |
+| `0x15` challenge | host | in the clear: nonce:32, fresh from a CSPRNG for every connection, X25519 public key:32, then the host's proof:32 |
 
 `played` is the truncation point and the reason this component exists in this
 shape. ESPHome's `add_audio_output_callback` reports frames actually written to
@@ -268,7 +268,9 @@ flashed.
 ## Proving full duplex
 
 The point of this component is that the microphone keeps delivering audio while
-the speaker is playing. That cannot be proven without a device.
+the speaker is playing. That cannot be proven without a device. An earlier
+protocol proved it on a Satellite1 (SPEC §3.3.2); protocol 4 firmware is
+flashed on one and completes the handshake with chorusd.
 
 1. `task firmware:upload && task firmware:logs`
 2. `task probe` — confirms the native API still answers, independent of the

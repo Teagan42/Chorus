@@ -42,7 +42,7 @@ household voice. What exists today:
 | `internal/bridge` — the audio link, which authenticates both ends before any audio and seals every frame (protocol 4), and `bridgetest`, the in-process satellite that is the primary test asset | under test; full duplex proven on hardware (§3.3.2), and the protocol 4 handshake runs against a Satellite1 |
 | `internal/session` — actor/supervisor, speech channel, barge-in gate, hot phrases, what the ring shows | under test |
 | `internal/journal` — append-only log on Postgres, `replay()` | under test |
-| `internal/satellite` — renders speech onto a device; the truncation point is the DAC's; canned lines from audio built into the binary until Kokoro answers | under test |
+| `internal/satellite` — renders speech onto a device; the truncation point is the DAC's; canned lines from audio built into the binary until the voice answers | under test |
 | `internal/blob` — the audio a journal event refers to, and the free-space floor below which it is not written | under test |
 | `internal/retention` — prunes audio and logs by each satellite's horizon, and the deletion path the review UI shares | under test; the Postgres delete path in the db tier |
 | `internal/ops` — `chorusd`'s `/healthz`, `/readyz` and `/metrics` on loopback | under test |
@@ -64,9 +64,12 @@ household voice. What exists today:
 | `internal/memory` — what each person asked to be remembered, and a summary of each conversation for the people in it | under test |
 | `internal/harvest`, `cmd/harvest` — barge-ins as DPO candidates, and the dataset export (format 2) | under test |
 | `internal/contexts` — the text of every prompt and tool-schema version, filed by the hash the journal records | under test; a test recomputes every hash |
-| `cmd/reviewui` — Browse, Triage, Review, Replay, Curate, Export, Memory and Deletions over the journal, on loopback unless told otherwise ([guide](docs/reviewui/README.md), [demo](https://teagan42.github.io/Chorus/demo/)) | under test, in a headless Chrome too |
+| `cmd/reviewui` — Browse, Triage, Review, Replay, Curate, Export, Arbitration, Memory, Voices and Deletions over the journal, on loopback unless told otherwise ([guide](docs/reviewui/README.md), [demo](https://teagan42.github.io/Chorus/demo/)) | under test, in a headless Chrome too |
 | `internal/triage` — barge-ins, failures, repeated asks, slow answers and speaker flips, derived on read | under test |
 | `internal/rerun` — edit-and-replay: a conversation's turns asked again under another prompt or model | under test |
+| `internal/provider/mcp` — the household's MCP servers' tools, offered as `mcp_<server>_<tool>` under conservative policy fixed at startup, with `CHORUS_MCP_CONFIG` (ADR-0075) | under test against MCP servers in process, over stdio and Streamable HTTP |
+| `internal/evalsuite`, `cmd/chorus-eval` — journalled turns replayed under a candidate prompt, model and tool set, scored against a baseline; exits 1 on a regression ([guide](docs/eval.md), ADR-0079) | under test; `task eval:demo` runs the seed suite with a scripted model |
+| wake retraining — `internal/tools/wakecorpus` and `internal/tools/waketrain`: "Hey Eddie" retrained from the rejected wakes, shipped only when it beats the deployed model ([guide](docs/wake-retraining.md), ADR-0078) | tested up to training; no model trained by it yet |
 | `internal/curation` — a reviewer's verdicts, in a table beside the journal | under test |
 | `internal/erasure` — the trail of what a reviewer deleted, by id and count, never content | under test |
 
@@ -85,7 +88,7 @@ flowchart LR
         SUP --> JRN["event journal<br/><b>source of truth</b>"]
     end
 
-    SIDE["<b>model services — HTTP</b><br/>STT · Parakeet via speaches<br/>LLM · Qwen3 via Ollama<br/>TTS · Kokoro<br/>speaker-ID · TitaNet-L<br/>endpointing · Smart Turn"]
+    SIDE["<b>model services — HTTP</b><br/>STT · Parakeet via speaches, or OpenAI / Wyoming<br/>LLM · Qwen3 via Ollama or vLLM<br/>TTS · Kokoro, or OpenAI / Wyoming<br/>speaker-ID · TitaNet-L<br/>endpointing · Smart Turn"]
     STORE["<b>storage</b><br/>Postgres · JSONB log<br/>blob directory · raw PCM"]
     UI["<b>review UI</b> — Go + htmx<br/>triage · replay · DPO export"]
 
@@ -216,11 +219,15 @@ task run                                  # go run ./cmd/chorusd
 ```
 
 It fails at startup naming every variable that is missing. The speaker-ID
-and Smart Turn sidecars and Home Assistant are optional and say so in the log
-when absent: without the first everyone is a guest and barge-in gates on
-energy and words alone, so the television can interrupt (ADR-0031); without
-the second every turn ends after 800 ms of quiet (ADR-0036); without the third
-the `ha_*` tools answer `not_implemented`, which the model sees. Point
+sidecar starts optional but answers nothing without it: a session opens only
+for an enrolled household voice, so with `SPEAKERID_URL` unset, or nobody
+enrolled, every wake, a button press included, is rejected as
+`unknown_speaker`; enroll through `task enroll` or the review UI's Voices
+screen ([guide](docs/voice-enrollment.md)). Smart Turn and Home Assistant are
+optional and say so in the log when absent: without Smart Turn every turn ends
+after 800 ms of quiet (ADR-0036); without Home Assistant the `ha_*` tools
+answer `not_implemented`, which the model sees. Unset, `CHORUS_MCP_CONFIG`
+offers no MCP server's tools (ADR-0075); `mcp.example.yaml` shows the file. Point
 `orchestrator_host` in the device YAML at this machine, and the satellites
 dial in on port 6055 and prove who they are before any audio.
 `docker compose up -d chorusd reviewui` runs the daemon and live review UI as
@@ -237,6 +244,9 @@ and PSK.
 The model services start locally one task each: `task stt:up`, `task tts:up`,
 `task speakerid:up` and `task smartturn:up` (or `task speakerid:serve` and
 `task smartturn:serve` without Docker). Ollama is yours to run.
+`CHORUS_TTS_PROVIDER` and `CHORUS_STT_PROVIDER` swap Kokoro and speaches for
+any server with OpenAI's audio API or Home Assistant's Wyoming piper and
+whisper (ADR-0081); `.env.example` lists each one's variables.
 
 ### Enroll the household
 
@@ -377,6 +387,9 @@ The site is these same files, rebuilt and republished on every push to `main`.
 | [`docs/adr/`](docs/adr/) | Every architectural decision, and why each one went that way. |
 | [`docs/reference/`](docs/reference/) | Generated from the CUE schemas — events, tools. |
 | [`docs/reviewui/`](docs/reviewui/README.md) | The review UI: running it, every screen, its browser tests. |
+| [`docs/voice-enrollment.md`](docs/voice-enrollment.md) | Enrolling the household's voices, without which no wake opens a session. |
+| [`docs/eval.md`](docs/eval.md) | Eval suites: scoring a candidate prompt or model against journalled turns. |
+| [`docs/wake-retraining.md`](docs/wake-retraining.md) | Retraining "Hey Eddie" from the wakes the host rejected. |
 | [`docs/hardware/`](docs/hardware/README.md) | The Chorus main board under the Satellite1 HAT: its design, and the XMOS firmware for four raw mics. |
 | [`esphome/README.md`](esphome/README.md) | The `chorus_bridge` wire protocol. |
 | [`sidecars/speakerid/README.md`](sidecars/speakerid/README.md) | The speaker-ID sidecar and its embed contract. |

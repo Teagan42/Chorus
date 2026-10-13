@@ -9,8 +9,8 @@ cannot fix: a cable. It carries a W5500 for Ethernet, 802.3af PoE onto the
 HAT's VBUS, and a speaker connector in the base.
 
 This is rev A of the main board: a machine-checked design, not a fabricated
-board. One footprint pad assignment is inferred rather than read, and
-[what is still open](#open-questions) says which, and what settles it.
+board. [What is still open](#open-questions) says what the bench settles
+before it is ordered.
 
 The decision and what it replaced are
 [ADR-0055](../adr/0055-the-satellite-is-a-bought-satellite1-kit-and-chorus-draws-only-the-board-under-it.md).
