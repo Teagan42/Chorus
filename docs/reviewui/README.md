@@ -28,6 +28,7 @@ task reviewui                  # go run ./cmd/reviewui, loads .env; http://127.0
 task reviewui -- -addr 127.0.0.1:9090                      # somewhere other than :8080
 task reviewui -- -addr :8080 -hosts review.home,10.0.0.5   # on the LAN, by those names
 task reviewui -- -read-only    # for a reviewer who should not delete anything
+task reviewui -- -identities /etc/chorus/identities.yaml   # the household file chorusd reads, if not ./identities.yaml
 ```
 
 With Docker Compose, run `docker compose up -d reviewui` and open
@@ -47,6 +48,7 @@ carries its templates and htmx, so it needs only the variables below.
 | `CHORUS_BLOB_DIR` | yes | The audio the journal refers to; served to the browser as WAV. |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | no | What Replay re-runs turns against. Unset, Replay shows the recorded turns and says it has nothing to ask. |
 | `CHORUS_LLM_PROVIDER`, `VLLM_URL`, `VLLM_MODEL`, `VLLM_API_KEY`, `VLLM_THINKING` | no | With the provider `vllm`, Replay re-runs turns on vLLM instead, as `chorusd` runs them ([ADR-0077](../adr/0077-the-turn-engine-may-run-on-vllm-and-a-speak-calls-words-stream-out-of-its-arguments.md)). |
+| `SPEAKERID_URL` | no | The speaker-ID sidecar [Voices](#voices) enrolls through, like `-speakerid-url`. Unset, Voices lists who is enrolled and enrolls nobody. |
 | `CHORUS_REVIEWUI_HOSTS` | no | The names the UI answers as, like `-hosts`. Unset, the listen address's host, or `localhost`, `127.0.0.1` and `::1` when it binds loopback or every interface. |
 | `CHORUS_REVIEWUI_READ_ONLY` | no | `true` starts it [read-only](#read-only-mode), like `-read-only`. A value that is not a boolean stops it from starting. |
 
@@ -99,10 +101,11 @@ alert above the header until it is dismissed or the next request lands.
 
 `-read-only` (or `CHORUS_REVIEWUI_READ_ONLY=true`) is a review box for
 someone who should not delete anything. No screen offers to delete a
-conversation, drop a clip or forget a memory, and each of those routes
+conversation, drop a clip, forget a memory or remove a voiceprint, and each of those routes
 answers 403 naming the flag, so a crafted form does nothing either. The
 conversation page and the memory screen say *Read-only* where the controls
-would be. Verdicts, labels and promotions are not deletions, and still work.
+would be. Verdicts, labels, promotions and enrolling someone are not
+deletions, and still work.
 
 ## The hosted demo
 
@@ -683,6 +686,35 @@ call that kept it stays in its conversation's log as history (ADR-0040),
 and the panel says so.
 
 ![Forgetting Alice's allergy](e2e/journey-memory-forget.png)
+
+### Voices
+
+`/voices`, linked from Browse, is the household's enrolled voiceprints:
+`identities.yaml`, the file `chorusd` reads, and the screen `cmd/enroll` is
+the terminal's way into ([ADR-0080](../adr/0080-the-review-ui-enrolls-the-household-into-the-same-file-and-a-browser-take-is-made-the-satellites-format-before-it-is-sent.md)).
+It lists each person's id, name and how many phrases built their voiceprint,
+and the model they were enrolled under; never the vector. `-identities`
+names the file, `identities.yaml` in the working directory by default, which
+is where `chorusd` looks when `devices.yaml` is there too.
+
+*Enroll someone* takes an id (one word: it goes on every transcript), an
+optional name, and at least three takes of the guided phrases the screen
+offers. A take is WAV in the satellite's own format, 16 kHz mono 16-bit
+PCM, picked from disk or recorded on the page: the page renders a
+recording to that format before sending it, so the server, which resamples
+nothing, sees one kind of take. The recorder shows where the browser can
+record, which `127.0.0.1` can and a plain-HTTP LAN address cannot; a
+laptop's microphone is not a satellite's, and the page says a voiceprint
+from it matches less surely. Every take is checked before the first is
+embedded over `SPEAKERID_URL`, so too few takes, one in another format, an
+id already enrolled or a malformed one is refused on the page with the form
+kept, costing no sidecar call and writing nothing.
+
+*Remove…* drops one person behind the second press and saves the rest
+atomically. `chorusd` reads the household at startup only, so after either
+the screen says to restart it.
+
+![Alice's three takes, recorded on the page](e2e/voices-recorded.png)
 
 ### Deletions
 

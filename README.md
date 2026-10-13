@@ -259,6 +259,10 @@ model than the file already holds is refused rather than matched as noise.
 `chorusd` reads the household at startup only: restart it after every
 change, and the command says so.
 
+The review UI's Voices screen (`/voices`, below) does the same from a
+browser: it lists the household, enrolls someone from uploaded takes or ones
+recorded on the page, and removes them, writing the same file.
+
 ### Review what happened
 
 ```sh
