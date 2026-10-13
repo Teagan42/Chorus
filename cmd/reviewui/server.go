@@ -63,6 +63,9 @@ type server struct {
 	// redaction is what deleting and forgetting need (ADR-0070).
 	redaction
 
+	// voices is the household file enrollment reads and writes.
+	voices voices
+
 	// One reviewer at a time is the household reality; the lock keeps a
 	// read-modify-write on a pair from racing itself.
 	mu sync.Mutex
@@ -115,6 +118,9 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST "+memoryRoute+"/{person}/summaries/{conv}/forget", s.forgetSummary)
 	mux.HandleFunc("GET "+deletionsRoute, s.deletions)
 	mux.HandleFunc("GET "+arbitrationRoute, s.arbitration)
+	mux.HandleFunc("GET "+voicesRoute, s.voicesPage)
+	mux.HandleFunc("POST "+voicesRoute, s.enroll)
+	mux.HandleFunc("POST "+voicesRoute+"/{id}/remove", s.removeVoice)
 	return http.NewCrossOriginProtection().Handler(mux)
 }
 

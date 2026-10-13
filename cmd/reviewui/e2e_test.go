@@ -78,6 +78,10 @@ func openOn(t *testing.T, h http.Handler) *page {
 		chromedp.WindowSize(1280, 900),
 		// Clips are played by script, not a click.
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
+		// Voices records takes from a microphone: Chrome's fake one, a
+		// tone, granted without asking.
+		chromedp.Flag("use-fake-device-for-media-stream", true),
+		chromedp.Flag("use-fake-ui-for-media-stream", true),
 		// A cold Chrome on a CI runner, right after a build, can take
 		// past chromedp's 20 s to come up; the test's clock starts after.
 		chromedp.WSURLReadTimeout(time.Minute),

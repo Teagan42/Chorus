@@ -255,7 +255,7 @@ func TestNoScreenCarriesAnInlineScript(t *testing.T) {
 	h := s.handler(defaultHosts(defaultAddr))
 	for _, target := range []string{
 		"/conversations", "/conversations/" + convZeppel, "/conversations/" + convDoor, "/queue", "/review",
-		"/replays", "/replays/" + convZeppel, "/curate/pairs", "/export",
+		"/replays", "/replays/" + convZeppel, "/curate/pairs", "/export", voicesRoute,
 	} {
 		body := getAs(h, target).Body.String()
 		for _, tag := range strings.Split(body, "<script")[1:] {
