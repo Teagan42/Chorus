@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/provider/pcm"
 	"github.com/teagan42/chorus/internal/stt"
 )
 
@@ -154,7 +155,7 @@ func (t *Transcriber) Transcribe(ctx context.Context, pcm []byte) (stt.Result, e
 // form builds the multipart body. The file part carries its own media type:
 // the endpoint decodes by content rather than by header, but a part labelled
 // octet-stream is one less clue in a request log.
-func (t *Transcriber) form(pcm []byte) ([]byte, string, error) {
+func (t *Transcriber) form(audio []byte) ([]byte, string, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 
@@ -165,7 +166,7 @@ func (t *Transcriber) form(pcm []byte) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	if _, err := part.Write(wav(pcm)); err != nil {
+	if _, err := part.Write(pcm.WAV(audio)); err != nil {
 		return nil, "", err
 	}
 

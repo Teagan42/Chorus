@@ -51,6 +51,7 @@ satellite. What exists today:
 | LLM — `internal/provider/vllm`, the turn engine on vLLM with `CHORUS_LLM_PROVIDER=vllm`: each call dispatched as its arguments close, each speak call's words streamed as they arrive (ADR-0077) | under test against streams in vLLM's shape and through the daemon; not yet run against a real vLLM server |
 | TTS — `internal/provider/kokoro`, resampled to the device's rate | dials a real endpoint |
 | STT — `internal/stt` partials over `internal/provider/speaches` | measured against real Parakeet TDT 0.6B v2 on CPU |
+| TTS and STT — `internal/provider/openai` and `internal/provider/wyoming`, with `CHORUS_TTS_PROVIDER` / `CHORUS_STT_PROVIDER`: any server with OpenAI's audio API, or Home Assistant's Wyoming piper and whisper, resampled to the device's rate by `internal/provider/pcm` (ADR-0081) | under test against servers in their shape; not yet run against a real one |
 | speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX) | thresholds measured on 37 speakers; sidecar runs without Docker |
 | `cmd/enroll` — adds, lists and removes the household's voiceprints in `identities.yaml` | under test; enrolls from WAV files through the speaker-ID sidecar |
 | endpointing — `listen.Semantic` over `internal/provider/smartturn` and `sidecars/smartturn` (Smart Turn v3.2 on ONNX) | ends a turn ~340 ms after the last word on CPU; right on 76 of 88 synthetic household takes, not yet measured on recorded speech |
