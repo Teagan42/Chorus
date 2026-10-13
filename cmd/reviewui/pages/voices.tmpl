@@ -37,6 +37,7 @@
 <ol class="list__detail" style="margin: 0; padding-left: 20px">{{range .Phrases}}<li>{{.}}</li>{{end}}</ol>
 </div>
 <div class="field"><label for="enroll-takes" class="cap">Takes · WAV, 16 kHz mono 16-bit, the satellite's own format; nothing is resampled</label><input id="enroll-takes" name="take" type="file" accept=".wav,audio/wav,audio/x-wav" multiple></div>
+{{template "enroll-clips" .Clips}}
 <div class="stack" style="gap: 8px" data-recorder hidden>
 <span class="cap">Or record them here</span>
 <span class="list__detail">This browser's microphone is not a satellite's, so a voiceprint from it matches less surely than one from the satellite's own recordings.</span>
@@ -47,3 +48,26 @@
 </form>
 {{- end}}
 </section>{{end}}
+
+{{/* enroll-clips · the satellite's own recordings as takes, which match it more surely than a browser's microphone (ADR-0082). Swapped whole when the dropdown changes. */}}
+{{define "enroll-clips"}}<div id="enroll-clips" class="stack" style="gap: 8px">
+<span class="cap">Or take them from a satellite's own recordings</span>
+<span class="list__detail">These are what chorusd already kept from the room, so a voiceprint from them matches that satellite most surely. Play a clip before you tick it: hearing whose voice it is, and that it is not the television, is the whole check. Only clips with enough speech in them to embed are listed, newest first, with how much was spoken, what the ear read in it, and whose enrolled voice it sounds nearest. Whose voice it <em>is</em> remains yours to judge: play it. Prefer the longer ones, and record from more than one spot in the room, since a voiceprint is the mean of its takes and takes from one place cover only that place.</span>
+{{- with .Satellites}}
+<div class="field" style="max-width: 320px"><label for="enroll-satellite" class="cap">Satellite</label>
+<select id="enroll-satellite" name="satellite" hx-get="/voices/clips" hx-target="#enroll-clips" hx-swap="outerHTML" hx-trigger="change">
+{{- range .}}<option value="{{.}}"{{if eq . $.Satellite}} selected{{end}}>{{.}}</option>{{end}}
+</select></div>
+{{- end}}
+{{- with .Empty}}{{template "empty-state" .}}{{end}}
+{{- range .Rows}}
+<label class="list__row" style="display: flex; gap: 12px; align-items: center">
+<input type="checkbox" name="clip" value="{{.Ref}}">
+<span class="list__text" style="flex: 1 1 240px; min-width: 0"><span class="list__title">{{.When}}{{with .Voiced}} · {{.}}{{end}}</span>
+{{- with .Said}}<span class="list__detail" style="font-style: italic">“{{.}}”</span>{{end}}
+{{- with .Closest}}<span class="list__detail">{{.}}</span>{{end}}
+<span class="list__detail">{{.What}}</span></span>
+<audio controls preload="metadata" src="{{.Audio}}" style="flex: 0 1 260px; max-width: 100%"></audio>
+</label>
+{{- end}}
+</div>{{end}}
