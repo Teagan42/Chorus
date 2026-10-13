@@ -299,7 +299,8 @@ internal/
   timer/                the household's timers, and the tools that set them (ADR-0045)
   announce/             the announce tool: speech on other satellites (ADR-0045)
   volume/               the set_volume tool: a satellite's speaker level (ADR-0067)
-  provider/             model clients: ollama, kokoro, speaches, speakerid, smartturn (SPEC §10)
+  provider/             model clients: ollama, vllm, kokoro, speaches, openai, wyoming,
+                        speakerid, smartturn (SPEC §10)
   harvest/              barge-ins as preference candidates, and the dataset export (SPEC §9.1)
   contexts/             the text behind every prompt and tool-schema version (SPEC §13)
   triage/               signals worth a reviewer's time, derived on read
