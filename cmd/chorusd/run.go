@@ -526,6 +526,10 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 		Satellite: sat.Name, Sessions: sup, Transcriber: d.stt, Speakers: d.speakers,
 		Playback: speaker, Blobs: d.Blobs, Journal: d.journal, Clock: d.Clock, Log: log,
 		Endpointer: d.endpointer(sat.SpeechEnergy), Indicator: d.panels[sat.Name], Arbiter: d.contender(),
+		// The same gate the endpointer uses: the sustain floor counts
+		// windows at this satellite's speech level, and the built-in
+		// default sits under a room that rides its own gain (ADR-0083).
+		SpeechEnergy: sat.SpeechEnergy,
 	})
 	if err != nil {
 		return err
