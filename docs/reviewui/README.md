@@ -36,7 +36,9 @@ With Docker Compose, run `docker compose up -d reviewui` and open
 `chorusd`, and the port is bound to host loopback because the UI has no login
 and can play or delete household recordings. For remote use, put an
 authenticated reverse proxy in front of it and configure its host name in
-`CHORUS_REVIEWUI_HOSTS`.
+`CHORUS_REVIEWUI_HOSTS`. It also mounts the voiceprint volume and reaches the
+`speakerid` service, so [Voices](#voices) enrolls into the file `chorusd`
+reads; run `docker compose up -d speakerid` first.
 
 Without a checkout, each [release](https://github.com/Teagan42/Chorus/releases)
 attaches `reviewui_<version>_<os>_<arch>.tar.gz` beside `chorusd`'s. The binary

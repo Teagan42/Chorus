@@ -58,8 +58,9 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
-  # Prepare the private voiceprint volume for chorusd and the enrollment
-  # helper, both of which run as the image's nonroot user (65532).
+  # Prepare the private voiceprint volume for chorusd, the enrollment
+  # helper and the review UI, all of which run as the image's nonroot user
+  # (65532).
   identity-init:
     image: alpine:3.20
     user: "0:0"
@@ -102,6 +103,14 @@ services:
       CHORUS_REVIEWUI_HOSTS: localhost,127.0.0.1,::1
       # Replay uses the same host Ollama endpoint as `task reviewui`.
       OLLAMA_URL: http://host.docker.internal:11434
+      # Voices enrolls through the same sidecar as chorusd and enroll.
+      SPEAKERID_URL: http://speakerid:8890
+    # Voices lists, enrolls and removes in the file chorusd reads.
+    command:
+      - -addr
+      - :8080
+      - -identities
+      - /var/lib/chorus/identity/identities.yaml
     extra_hosts:
       # Docker Desktop provides this name itself; host-gateway covers Linux.
       - "host.docker.internal:host-gateway"
@@ -109,9 +118,12 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - blobs:/var/lib/chorus/blobs
+      - identities:/var/lib/chorus/identity
     depends_on:
       postgres:
         condition: service_healthy
+      identity-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   postgres:

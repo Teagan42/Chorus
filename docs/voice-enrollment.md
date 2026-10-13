@@ -26,6 +26,12 @@ private Docker volume. Restart chorusd to load it:
 docker compose restart chorusd
 ```
 
+Or enroll from a browser: the review UI's Voices screen
+(`docker compose up -d speakerid reviewui`, then
+`http://127.0.0.1:8080/voices`) takes the same WAV files, or records the
+takes on the page, and writes the same volume. Restart chorusd afterwards
+just the same. See [Voices](reviewui/README.md#voices).
+
 The wake confirmation is intentionally fail-closed. Until enrollment is
 complete, this Satellite1 has no push-to-talk button, so it will not answer a
 spoken wake.
