@@ -3,9 +3,9 @@
 services:
   # The orchestrator daemon (cmd/chorusd). It needs only the database to
   # start: the sidecars below are optional here, because a household may run
-  # them on a GPU box instead, and the daemon reaches them by URL. The
-  # loopback URLs in .env are for `task run` on the host; inside the compose
-  # network the sidecars go by service name, so those five are overridden.
+  # them on a GPU box instead, and the daemon reaches them by URL. On Docker
+  # Desktop, port forwarding uses a shared source-NAT address; devices.yaml
+  # maps that address to the satellite while its native API uses the real IP.
   chorusd:
     build:
       context: .
@@ -17,14 +17,25 @@ services:
         required: false
     environment:
       CHORUS_POSTGRES_DSN: postgres://chorus:${POSTGRES_PASSWORD:-chorus}@postgres:5432/chorus?sslmode=disable
+      # Keep audio in the named volume shared with reviewui; .env's local
+      # default is relative to the container's home directory.
+      CHORUS_BLOB_DIR: /var/lib/chorus/blobs
       KOKORO_URL: http://kokoro:8880
       STT_URL: http://speaches:8000
       SPEAKERID_URL: http://speakerid:8890
       SMARTTURN_URL: http://smartturn:8891
-      # Every interface inside the container, so a scraper on the compose
-      # network reaches it; published on the host's loopback only (ADR-0068).
+      # Replay and turn generation use the Ollama instance on the host.
+      OLLAMA_URL: http://host.docker.internal:11434
+      # Every interface inside the container; published on host loopback only.
       CHORUS_OPS_LISTEN: ":6056"
-    # The satellites dial in from the LAN, so this one is not loopback.
+    command:
+      - -devices
+      - /etc/chorus/devices.yaml
+      - -identities
+      - /var/lib/chorus/identity/identities.yaml
+    extra_hosts:
+      # Docker Desktop provides this name itself; host-gateway covers Linux.
+      - "host.docker.internal:host-gateway"
     ports:
       - "6055:6055"
       - "127.0.0.1:6056:6056"
@@ -36,9 +47,67 @@ services:
       retries: 3
       start_period: 30s
     volumes:
-      # The inventory holds the PSKs and is gitignored; mount identities.yaml
-      # beside it the same way once someone is enrolled.
+      # The inventory holds the PSKs and is gitignored.
       - ./devices.yaml:/etc/chorus/devices.yaml:ro
+      - identities:/var/lib/chorus/identity:ro
+      - blobs:/var/lib/chorus/blobs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      identity-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Prepare the private voiceprint volume for chorusd and the enrollment
+  # helper, both of which run as the image's nonroot user (65532).
+  identity-init:
+    image: alpine:3.20
+    user: "0:0"
+    command: ["sh", "-c", "chown -R 65532:65532 /data && chmod 700 /data"]
+    volumes:
+      - identities:/data
+    restart: "no"
+
+  # One-shot enrollment helper. WAV takes go in ./voice-takes on the host;
+  # voiceprints are written into the private Docker volume.
+  enroll:
+    build:
+      context: .
+      dockerfile: cmd/enroll/Dockerfile
+    profiles: ["tools"]
+    environment:
+      SPEAKERID_URL: http://speakerid:8890
+    volumes:
+      - identities:/var/lib/chorus/identity
+      - ./voice-takes:/takes:ro
+    depends_on:
+      identity-init:
+        condition: service_completed_successfully
+      speakerid:
+        condition: service_healthy
+
+  # The live review UI reads the journal and audio chorusd writes. It can
+  # delete recordings, so publish it on host loopback by default; use an
+  # authenticated reverse proxy for remote access.
+  reviewui:
+    build:
+      context: .
+      dockerfile: cmd/reviewui/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CHORUS_POSTGRES_DSN: postgres://chorus:${POSTGRES_PASSWORD:-chorus}@postgres:5432/chorus?sslmode=disable
+      CHORUS_BLOB_DIR: /var/lib/chorus/blobs
+      CHORUS_REVIEWUI_HOSTS: localhost,127.0.0.1,::1
+      # Replay uses the same host Ollama endpoint as `task reviewui`.
+      OLLAMA_URL: http://host.docker.internal:11434
+    extra_hosts:
+      # Docker Desktop provides this name itself; host-gateway covers Linux.
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
       - blobs:/var/lib/chorus/blobs
     depends_on:
       postgres:
@@ -161,4 +230,5 @@ services:
 volumes:
   journal:
   blobs:
+  identities:
   stt-models:

@@ -123,6 +123,10 @@ passes, you have a working clone.
 
 ## Running
 
+Spoken wake sessions require an enrolled household voice so television audio
+cannot open a session. See [voice enrollment](docs/voice-enrollment.md) for
+the one-time setup.
+
 ### Against the fake satellite
 
 The hermetic test suite needs no hardware, no GPU, and no network. The fake
@@ -216,8 +220,16 @@ the second every turn ends after 800 ms of quiet (ADR-0036); without the third
 the `ha_*` tools answer `not_implemented`, which the model sees. Point
 `orchestrator_host` in the device YAML at this machine, and the satellites
 dial in on port 6055 and prove who they are before any audio.
-`docker compose up chorusd` runs the same daemon as an image beside the
-database.
+`docker compose up -d chorusd reviewui` runs the daemon and live review UI as
+services beside the database. Open `http://127.0.0.1:8080`; Compose publishes
+the UI on host loopback only. It shares the journal and audio volume with
+`chorusd`, and Replay reaches host Ollama at `host.docker.internal:11434`.
+The satellite still needs `orchestrator_host` set to the Docker host's
+reachable LAN IP (not a Compose service name); the bridge dials port 6055.
+Docker Desktop rewrites the inbound source IP, so `audio_source_ip` in
+`devices.yaml` maps that gateway address to the satellite. The native API still
+uses the device's real LAN address, and the bridge handshake checks its name
+and PSK.
 
 The model services start locally one task each: `task stt:up`, `task tts:up`,
 `task speakerid:up` and `task smartturn:up` (or `task speakerid:serve` and

@@ -462,20 +462,20 @@ func TestStoppingMidAnswerDoesNotWaitForAReplyNobodyReads(t *testing.T) {
 	}
 }
 
-// A guest wakes the house: nobody enrolled is the fresh install, and the
-// session opens with no speaker (SPEC §5). The shared stack treats the two
-// satellites alike.
-//
-// verifies SPEC §5
-func TestAGuestOpensASessionOnAnySatellite(t *testing.T) {
+// With no speaker resolver, a spoken wake cannot distinguish a household
+// member from a television, so it fails closed on every satellite.
+func TestAnUnverifiedWakeIsRejectedOnAnySatellite(t *testing.T) {
 	r := newRig(t, inventory(), func(d *deps) { d.speakers, d.household = nil, nil })
 	dev := r.join(t, officeIP)
 	dev.SendWake(t, "hey_eddie")
 	r.utter(t, dev, r.line("what time is it", stranger))
 
-	opened := r.store.awaitKind(t, journal.KindSessionOpened, 1)
-	if opened.Fields["satellite"] != "office" || opened.Fields["speaker_id"] != "" {
-		t.Errorf("session_opened = %v, want office for a guest", opened.Fields)
+	rej := r.store.awaitKind(t, journal.KindWakeRejected, 1)
+	if rej.Fields["reason"] != "unknown_speaker" {
+		t.Errorf("wake_rejected = %v, want unknown_speaker", rej.Fields)
+	}
+	if got := len(r.store.ofKind(journal.KindSessionOpened)); got != 0 {
+		t.Errorf("session_opened count = %d, want none", got)
 	}
 }
 

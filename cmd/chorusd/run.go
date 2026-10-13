@@ -283,21 +283,24 @@ func (d *daemon) rehearse(ctx context.Context, c *satellite.Canned) {
 	}
 }
 
-// indexByHost maps each inventory address's host to its satellite. The audio
-// link's hello carries no name (internal/bridge), so the source address is
-// how a device is known; a host two satellites share, or one that is not an
-// IP literal, cannot be matched and is refused up front.
+// indexByHost maps each inventory address's host, or an explicitly configured
+// source-NAT address, to its satellite. The bridge's authenticated handshake
+// still checks the satellite name and PSK after this source-address lookup.
 func indexByHost(inv *config.Config) (map[string]*config.Satellite, error) {
 	byHost := make(map[string]*config.Satellite, len(inv.Satellites))
 	for i := range inv.Satellites {
 		sat := &inv.Satellites[i]
-		host, _, err := net.SplitHostPort(sat.Address)
-		if err != nil {
-			return nil, fmt.Errorf("satellite %s: address %q: %w", sat.Name, sat.Address, err)
+		host := sat.AudioSourceIP
+		if host == "" {
+			var err error
+			host, _, err = net.SplitHostPort(sat.Address)
+			if err != nil {
+				return nil, fmt.Errorf("satellite %s: address %q: %w", sat.Name, sat.Address, err)
+			}
 		}
 		ip := net.ParseIP(host)
 		if ip == nil {
-			return nil, fmt.Errorf("satellite %s: address host %q is not an IP literal, and the audio link identifies a device by its source address", sat.Name, host)
+			return nil, fmt.Errorf("satellite %s: audio source %q is not an IP literal", sat.Name, host)
 		}
 		key := ip.String()
 		if other, dup := byHost[key]; dup {

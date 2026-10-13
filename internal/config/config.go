@@ -23,9 +23,13 @@ const pskPlaceholder = "BASE64_32_BYTE_KEY_HERE"
 type Satellite struct {
 	Name    string `yaml:"name"`
 	Address string `yaml:"address"`
-	PSK     string `yaml:"psk"`
-	Room    string `yaml:"room"`
-	Profile string `yaml:"profile"`
+	// AudioSourceIP overrides the address used to match inbound audio links.
+	// Useful behind Docker Desktop's source-NAT gateway; Address remains the
+	// satellite's real host:port for the native ESPHome API connection.
+	AudioSourceIP string `yaml:"audio_source_ip"`
+	PSK           string `yaml:"psk"`
+	Room          string `yaml:"room"`
+	Profile       string `yaml:"profile"`
 
 	// Retention overrides the house's horizons for this satellite's audio
 	// and logs; what it leaves out is the house's (SPEC §8).
@@ -89,6 +93,9 @@ func (s *Satellite) validate() error {
 	}
 	if err := validateAddress(s.Address); err != nil {
 		return err
+	}
+	if s.AudioSourceIP != "" && net.ParseIP(s.AudioSourceIP) == nil {
+		return fmt.Errorf("audio_source_ip %q is not an IP literal", s.AudioSourceIP)
 	}
 	if s.Retention != nil {
 		if err := s.Retention.parse(); err != nil {

@@ -30,6 +30,13 @@ task reviewui -- -addr :8080 -hosts review.home,10.0.0.5   # on the LAN, by thos
 task reviewui -- -read-only    # for a reviewer who should not delete anything
 ```
 
+With Docker Compose, run `docker compose up -d reviewui` and open
+`http://127.0.0.1:8080`. The service shares Postgres and the audio volume with
+`chorusd`, and the port is bound to host loopback because the UI has no login
+and can play or delete household recordings. For remote use, put an
+authenticated reverse proxy in front of it and configure its host name in
+`CHORUS_REVIEWUI_HOSTS`.
+
 Without a checkout, each [release](https://github.com/Teagan42/Chorus/releases)
 attaches `reviewui_<version>_<os>_<arch>.tar.gz` beside `chorusd`'s. The binary
 carries its templates and htmx, so it needs only the variables below.

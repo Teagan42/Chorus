@@ -9,7 +9,6 @@ import (
 
 	"github.com/teagan42/chorus/internal/bridge"
 	"github.com/teagan42/chorus/internal/bridge/bridgetest"
-	"github.com/teagan42/chorus/internal/identity"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/listen"
 	"github.com/teagan42/chorus/internal/session"
@@ -131,65 +130,61 @@ func TestOnlyTheNearerSatelliteAnswersTeagan(t *testing.T) {
 	}
 }
 
-// nobodyEnrolled is a household whose speaker ID runs with no voiceprints
-// yet: every voice is a guest who may open a session (SPEC §5).
-func nobodyEnrolled(t *testing.T, emb *fakeEmbedder) func(*deps) {
-	return func(d *deps) {
-		r, err := identity.NewResolver(emb, identity.New(emb), identity.Thresholds{})
-		if err != nil {
-			t.Fatalf("resolver: %v", err)
-		}
-		d.speakers, d.household = r, nil
-	}
-}
-
-// A friend house-sitting before anyone has enrolled asks for the porch
-// light from the kitchen. A guest's conversation is never resumed, so
-// without arbitration the office opened a second one and answered too;
-// with it, only the kitchen answers (SPEC §4.5, §5).
-//
-// verifies SPEC §4.5, §5
-func TestAGuestIsAnsweredByOneSatellite(t *testing.T) {
+// With an empty household, arbitration selects one wake candidate and the
+// identity gate rejects it. The other satellite records the arbitration loss.
+func TestAnUnenrolledVoiceIsRejectedAfterWakeArbitration(t *testing.T) {
 	clk := newClock()
-	emb := newEmbedder()
-	r := newRig(t, inventory(), nobodyEnrolled(t, emb), arbitrating(clk))
-	r.emb = emb // lines are scripted into the embedder the resolver asks
+	r := newRig(t, inventory(), speakerIDOff, arbitrating(clk))
 	kitchen, office := r.join(t, kitchenIP), r.join(t, officeIP)
 
 	bothHear(t, r, kitchen, office, "turn on the porch light", stranger)
-	heardOnce(t, r, office, "turn on the porch light", "")
+	await(t, "two rejected wake candidates", func() bool { return len(r.store.ofKind(journal.KindWakeRejected)) == 2 })
+	var unknown, arbitrated int
+	for _, ev := range r.store.ofKind(journal.KindWakeRejected) {
+		switch ev.Fields["reason"] {
+		case "unknown_speaker":
+			unknown++
+		case "arbitrated":
+			arbitrated++
+		}
+	}
+	if unknown != 1 || arbitrated != 1 || len(r.store.ofKind(journal.KindSessionOpened)) != 0 {
+		t.Errorf("wake rejections = %v, sessions = %d; want one identity rejection, one arbitration loss, no session", r.store.ofKind(journal.KindWakeRejected), len(r.store.ofKind(journal.KindSessionOpened)))
+	}
 }
 
 // speakerIDOff is a household that runs no speaker identification: every
 // voice is a guest (ADR-0031).
 func speakerIDOff(d *deps) { d.speakers, d.household = nil, nil }
 
-// The same ask in a house with speaker identification off is answered once.
-//
-// verifies SPEC §4.5, §5
-func TestWithSpeakerIDOffOneSatelliteAnswers(t *testing.T) {
+// With speaker identification unavailable, arbitration still chooses one
+// candidate, and the fail-closed identity gate rejects it.
+func TestWithSpeakerIDOffAnUnverifiedWakeIsRejected(t *testing.T) {
 	clk := newClock()
 	r := newRig(t, inventory(), speakerIDOff, arbitrating(clk))
 	kitchen, office := r.join(t, kitchenIP), r.join(t, officeIP)
 
 	bothHear(t, r, kitchen, office, "turn on the porch light", stranger)
-	heardOnce(t, r, office, "turn on the porch light", "")
+	await(t, "two rejected wake candidates", func() bool { return len(r.store.ofKind(journal.KindWakeRejected)) == 2 })
+	if len(r.store.ofKind(journal.KindSessionOpened)) != 0 {
+		t.Error("a session opened without speaker identification")
+	}
 }
 
 // With CHORUS_WAKE_ARBITRATION_MS=0 the house behaves as it did before
-// arbitration: both satellites that heard the guest open a session and
-// answer. This is the double answer arbitration exists to prevent.
+// arbitration: both satellites hear an unknown voice, and neither opens a
+// session when there is no speaker identification. The TV cannot answer
+// twice, or even once.
 //
 // verifies SPEC §4.5
-func TestWithArbitrationOffBothSatellitesAnswer(t *testing.T) {
+func TestWithArbitrationOffUnverifiedWakesAreRejected(t *testing.T) {
 	r := newRig(t, inventory(), speakerIDOff)
 	kitchen, office := r.join(t, kitchenIP), r.join(t, officeIP)
 
 	bothHear(t, r, kitchen, office, "turn on the porch light", stranger)
-	r.store.awaitKind(t, journal.KindSessionOpened, 2)
-	await(t, "both turns", func() bool { return len(r.engine.heard()) == 2 })
-	if n := len(r.store.ofKind(journal.KindWakeRejected)); n != 0 {
-		t.Errorf("%d rejections with arbitration off", n)
+	await(t, "both rejected wakes", func() bool { return len(r.store.ofKind(journal.KindWakeRejected)) == 2 })
+	if n := len(r.store.ofKind(journal.KindSessionOpened)); n != 0 {
+		t.Errorf("%d sessions opened without speaker identification", n)
 	}
 }
 
