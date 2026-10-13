@@ -30,21 +30,23 @@ Assistant integration; Home Assistant is one tool backend among several.
 
 **Phase 1 is built, and phase 2 is under way** ([SPEC §14](docs/SPEC.md#14-phase-plan)).
 `cmd/chorusd` runs the device bridge, session engine, and event journal
-together as the orchestrator daemon; it has not yet been run against a real
-satellite. What exists today:
+together as the orchestrator daemon, and runs a Satellite1 in the house on
+protocol 4 firmware, under Docker Compose. Running it there is what found
+the television opening sessions; a spoken wake now has to match an enrolled
+household voice. What exists today:
 
 | Piece | State |
 |---|---|
-| `cmd/chorusd` — the orchestrator daemon: accepts satellites, one session supervisor per link over a shared journal, holds each device's native API open and drives its LED ring and speaker volume | under test against the in-process satellite; unproven on hardware |
+| `cmd/chorusd` — the orchestrator daemon: accepts satellites, one session supervisor per link over a shared journal, holds each device's native API open and drives its LED ring and speaker volume | runs a Satellite1 in the house, under Docker Compose; under test against the in-process satellite |
 | `internal/esphome` — native API client, Noise transport | dials real hardware |
-| `internal/bridge` — the audio link, which authenticates both ends before any audio and seals every frame (protocol 4), and `bridgetest`, the in-process satellite that is the primary test asset | under test; full duplex proven on hardware (§3.3.2), the protocol 4 handshake not yet run against a device |
+| `internal/bridge` — the audio link, which authenticates both ends before any audio and seals every frame (protocol 4), and `bridgetest`, the in-process satellite that is the primary test asset | under test; full duplex proven on hardware (§3.3.2), and the protocol 4 handshake runs against a Satellite1 |
 | `internal/session` — actor/supervisor, speech channel, barge-in gate, hot phrases, what the ring shows | under test |
 | `internal/journal` — append-only log on Postgres, `replay()` | under test |
 | `internal/satellite` — renders speech onto a device; the truncation point is the DAC's; canned lines from audio built into the binary until Kokoro answers | under test |
 | `internal/blob` — the audio a journal event refers to, and the free-space floor below which it is not written | under test |
 | `internal/retention` — prunes audio and logs by each satellite's horizon, and the deletion path the review UI shares | under test; the Postgres delete path in the db tier |
 | `internal/ops` — `chorusd`'s `/healthz`, `/readyz` and `/metrics` on loopback | under test |
-| `esphome/components/chorus_bridge` — firmware component, with the on-device "Hey Eddie" wake word, a Speaker Volume number, the HAT's mute switch and the ring's Muted and Error effects | an earlier protocol ran full duplex on a Satellite1; this firmware is validated by `esphome config` and its handshake MAC on the host, and has not been flashed |
+| `esphome/components/chorus_bridge` — firmware component, with the on-device "Hey Eddie" wake word, a Speaker Volume number, the HAT's mute switch and the ring's Muted and Error effects | flashed onto a Satellite1, which completes the protocol 4 handshake with `chorusd`; validated by `esphome config` and its handshake MAC on the host |
 | `esphome/voice-pe.yaml` — the Home Assistant Voice PE, wired from its stock firmware: the same bridge, wake word, ring effects, Speaker Volume (which its dial turns) and mute switch as the Satellite1, and a centre button that wakes it | validated by `esphome config`; not compiled or flashed (ADR-0073) |
 | `cmd/probe` — connect to a satellite and dump what it exposes | works |
 | LLM — `internal/provider/ollama`, the turn engine | dials a real endpoint; asked again with each tool result and the conversation so far |
