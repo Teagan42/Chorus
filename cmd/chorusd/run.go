@@ -51,11 +51,24 @@ func (p providers) bargeInGate() session.Gate {
 // endpointer is a link's own: it holds the turn in progress on that device.
 // Nil leaves the listener's Energy default. The judge's "finished" is checked
 // against the words, decoded by the transcriber every turn is (ADR-0042).
-func (p providers) endpointer() listen.Endpointer {
+//
+// The satellite's own speech gate overrides the default when it set one: a
+// front end that rides its own gain holds an empty room over the default, and
+// then no pause is ever quiet enough to end a turn (ADR-0083).
+func (p providers) endpointer(energy float64) listen.Endpointer {
 	if p.judge == nil {
-		return nil
+		if energy == 0 {
+			return nil
+		}
+		e := listen.NewEnergy()
+		e.Threshold = energy
+		return e
 	}
-	return listen.NewSemantic(listen.Dangling{Judge: p.judge, Words: p.stt})
+	s := listen.NewSemantic(listen.Dangling{Judge: p.judge, Words: p.stt})
+	if energy != 0 {
+		s.Threshold = energy
+	}
+	return s
 }
 
 // deps is everything the daemon composes that does I/O or reads a clock, so
@@ -512,7 +525,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	lst, err := listen.Open(linkCtx, listen.Config{
 		Satellite: sat.Name, Sessions: sup, Transcriber: d.stt, Speakers: d.speakers,
 		Playback: speaker, Blobs: d.Blobs, Journal: d.journal, Clock: d.Clock, Log: log,
-		Endpointer: d.endpointer(), Indicator: d.panels[sat.Name], Arbiter: d.contender(),
+		Endpointer: d.endpointer(sat.SpeechEnergy), Indicator: d.panels[sat.Name], Arbiter: d.contender(),
 	})
 	if err != nil {
 		return err
