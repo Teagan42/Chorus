@@ -28,7 +28,7 @@ substitutions:
   friendly_name: Satellite1
   # The orchestrator's address. A literal IP: ESPHome's set_sockaddr does not
   # resolve hostnames, so this needs a static lease (SPEC §13).
-  orchestrator_host: "10.0.12.73"
+  orchestrator_host: "10.0.13.70"
 
 esphome:
   name: ${name}

@@ -2,6 +2,8 @@
 devices.yaml
 # Enrolled voiceprints: biometric, and unlike a PSK they cannot be rotated.
 identities.yaml
+# Household voice recordings used for enrollment; keep them out of git.
+/voice-takes/
 *.local.yaml
 .env
 # The household's MCP servers: a header may carry a token written in place.

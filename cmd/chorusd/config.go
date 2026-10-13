@@ -290,7 +290,7 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 		}
 		p.speakers, p.household = resolver, ids.Household()
 		if len(p.household) == 0 {
-			log.Warn("nobody is enrolled: every speaker is a guest until someone is (identities.yaml)")
+			log.Warn("nobody is enrolled: spoken wakes will be rejected until a household voice is enrolled")
 		}
 	}
 

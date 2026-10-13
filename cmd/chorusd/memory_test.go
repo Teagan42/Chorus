@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -80,12 +79,9 @@ func TestTheKitchenRemembersAlanAfterARestart(t *testing.T) {
 	}
 }
 
-// On a fresh install nobody is enrolled, so every voice is a guest, the
-// television's included. It says "remember that", and the call is refused
-// with nothing kept and nothing recalled.
-//
-// verifies SPEC §5
-func TestAGuestCannotTeachTheKitchenAnything(t *testing.T) {
+// Without an enrolled household voice, a wake from the television is
+// rejected before it can open a session or call any tools.
+func TestAnUnenrolledVoiceCannotOpenAConversation(t *testing.T) {
 	memories := memory.NewMemStore()
 	r := newRig(t, inventory(), func(d *deps) {
 		d.speakers, d.household = nil, nil
@@ -96,9 +92,9 @@ func TestAGuestCannotTeachTheKitchenAnything(t *testing.T) {
 	dev.SendWake(t, "hey_eddie")
 	r.utter(t, dev, r.line("remember that i take oat milk in my coffee", stranger))
 
-	res := r.store.awaitKind(t, journal.KindToolResult, 1)
-	if want := map[string]string{"call_id": "call_r1", "outcome": "error", "result_json": `{"error":"unidentified_speaker"}`}; !reflect.DeepEqual(res.Fields, want) {
-		t.Errorf("result = %v, want %v", res.Fields, want)
+	rej := r.store.awaitKind(t, journal.KindWakeRejected, 1)
+	if rej.Fields["reason"] != "unknown_speaker" {
+		t.Errorf("wake_rejected = %v, want unknown_speaker", rej.Fields)
 	}
 	for _, person := range []string{"", "alan"} {
 		if got, _ := memories.Recall(context.Background(), person, memory.RecallLimit); len(got) != 0 {

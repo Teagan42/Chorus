@@ -16,6 +16,9 @@
 satellites:
   - name: satellite1-abcdef
     address: 10.0.0.42:6053
+    # Optional. Docker Desktop's forwarded inbound connections share this
+    # source IP; set it only when the daemon sees a gateway instead of device.
+    # audio_source_ip: 192.168.65.1
     psk: BASE64_32_BYTE_KEY_HERE
     room: kitchen # told to the model, so "the lights" means this room's
     profile: satellite1 # satellite1 | voice-pe; informational, chorusd reads what it has from the device

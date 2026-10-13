@@ -1117,10 +1117,11 @@ func overheard(u *utterance, out identity.Outcome) bool {
 // the score it passes becomes session.Wake.Confidence; until then neither is
 // invented (ADR-0030).
 func (l *Listener) confirm(pcm, second []byte, out identity.Outcome, word string) bool {
-	switch out.Reason {
-	case identity.BelowThreshold, identity.Ambiguous:
-		// Stage three. Nobody enrolled, or no resolver, cannot judge and does
-		// not: the fresh install must answer someone (SPEC §5).
+	if out.Reason != identity.Identified {
+		// A spoken wake must be attributed to an enrolled household voice.
+		// Nobody enrolled, or a missing/failed resolver, cannot distinguish
+		// the television from a person, so fail closed. A button press takes
+		// this same check: it identifies intent, not the speaker.
 		l.rejectWake(pcm, second, "unknown_speaker", false, wakeNamed(word))
 		return false
 	}

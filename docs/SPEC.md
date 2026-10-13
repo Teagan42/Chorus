@@ -431,15 +431,15 @@ current speaker, but a confident mismatch **flips attribution within the same
 conversation** — a second person chiming in is a real case Assist cannot handle.
 
 Unknown or low-confidence speaker → guest context, person-scoped tools gated, no
-interrogation. That holds per utterance: a guest who chimes into someone's
-conversation is a guest for that turn, told none of the other person's
-memories, while a voice nothing could judge stays with the current speaker
-(ADR-0049). A guest cannot open a session, though, once anyone is enrolled:
-§9.3's third stage rejects their wake as `unknown_speaker`. Guest context is
-reached only in a session already open, one a household member woke or an
-announcement that asked for an answer. Whether a guest should be able to wake
-the house is open (ADR-0030). The embedding is stored on every trace record
-regardless, which gives implicit clustering for free later.
+interrogation, but cannot open a spoken wake session. A spoken wake opens only
+when it is attributed to an enrolled household voice; with nobody enrolled, or
+no working speaker resolver, chorusd fails closed because it cannot distinguish
+the television from a person. Inside an already-open session, a guest who
+chimes in is a guest for that turn, told none of the other person's memories,
+while a voice nothing could judge stays with the current speaker (ADR-0049).
+Guest context is reached only in a session already open, one a household member
+woke or an announcement that asked for an answer. The embedding is stored on
+every trace record regardless, which gives implicit clustering for free later.
 
 Memory: explicit `remember` / `forget` tools plus a summary of each
 conversation for the people in it (ADR-0043). Past what a turn is told, both
@@ -647,11 +647,12 @@ when the session opens (ADR-0030):
 2. confirm the segment contains speech at all
 3. confirm the speaker embedding matches a household member
 
-A cough fails all three. A guest fails the third once anyone is enrolled: a
-voice below the accept threshold, or too close to two people, is rejected as
-`unknown_speaker`, so a guest is heard only in a session already open (§5).
-With nobody enrolled, or no speaker ID, stage three passes every voice. Only
-on confirmation does the session become perceptible to the user. Rejections
+A cough fails all three. A guest fails the third: a voice below the accept
+threshold, too close to two people, or otherwise unmatched is rejected as
+`unknown_speaker`. With nobody enrolled, or no working speaker ID, stage three
+cannot verify a household member and rejects the spoken wake the same way.
+Guests are heard only in a session already open (§5). Only on confirmation
+does the session become perceptible to the user. Rejections
 are logged with audio and auto-labeled as hard negatives, so the retraining
 corpus fills itself with precisely the negatives the model lacks — no manual
 labeling, no retraining needed to get immediate relief. A first utterance STT

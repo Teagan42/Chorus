@@ -242,24 +242,20 @@ func TestAnUnknownVoiceCannotConfirmAWake(t *testing.T) {
 	}
 }
 
-// Nobody enrolled is the fresh install: stage three cannot judge, so it does
-// not, and the session opens for a guest (SPEC §5).
-//
-// verifies SPEC §5
-func TestWithNobodyEnrolledTheWakeOpensAGuestSession(t *testing.T) {
+// With nobody enrolled, the listener cannot distinguish a household voice
+// from a television, so a spoken wake fails closed.
+func TestWithNobodyEnrolledASpokenWakeIsRejected(t *testing.T) {
 	r := newRig(t, silent(), func(c *listen.Config) { c.Speakers = nil })
 
 	r.dev.SendWake(t, "hey_eddie")
 	r.utter(t, r.line("what time is it", stranger), 4*chunkBytes)
 
-	s := r.session(t)
-	opened := r.awaitKind(t, s.ConversationID(), journal.KindSessionOpened, 1)
-	if opened.Fields["speaker_id"] != "" {
-		t.Errorf("speaker_id = %q, want a guest", opened.Fields["speaker_id"])
+	rej := r.awaitKind(t, listen.DeviceConversation("kitchen"), journal.KindWakeRejected, 1)
+	if rej.Fields["reason"] != "unknown_speaker" {
+		t.Errorf("reason = %q, want unknown_speaker", rej.Fields["reason"])
 	}
-	heard := r.awaitKind(t, s.ConversationID(), journal.KindUtteranceTranscribed, 1)
-	if _, has := heard.Fields["embedding_json"]; has {
-		t.Error("no resolver, yet an embedding was recorded")
+	if r.l.Session() != nil {
+		t.Error("a spoken wake opened a session without an enrolled speaker")
 	}
 }
 
