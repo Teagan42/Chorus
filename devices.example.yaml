@@ -22,5 +22,13 @@ satellites:
     psk: BASE64_32_BYTE_KEY_HERE
     room: kitchen # told to the model, so "the lights" means this room's
     profile: satellite1 # satellite1 | voice-pe; informational, chorusd reads what it has from the device
+    # Optional. The RMS, as a fraction of full scale, at or above which this
+    # satellite's audio counts as speech; absent takes the built-in -40 dBFS
+    # (listen.DefaultSpeechEnergy). Set it when a front end rides its own
+    # gain: a Voice PE's XMOS AGC was measured holding an empty room at
+    # -35 dBFS, over the default, so no pause was ever quiet enough to end a
+    # turn and every one ran to its cap. Raise it above the room's floor and
+    # below speech; 0.05 is -26 dBFS. See ADR-0083.
+    # speech_energy: 0.05
     # retention: # this satellite's own horizons; what it leaves out is the house's
     #   audio: 7d
