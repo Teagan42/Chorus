@@ -13,7 +13,7 @@ takes.
 Put those files in `voice-takes/` at the repository root, then enroll through
 the one-shot Docker helper:
 
-```sh
+```sh norun
 docker compose run --rm enroll add -id household -name "Household member" \
   -identities /var/lib/chorus/identity/identities.yaml \
   -wav /takes/take-1.wav -wav /takes/take-2.wav -wav /takes/take-3.wav
@@ -22,7 +22,7 @@ docker compose run --rm enroll add -id household -name "Household member" \
 The helper uses the speaker-ID sidecar and writes the biometric voiceprint to a
 private Docker volume. Restart chorusd to load it:
 
-```sh
+```sh norun
 docker compose restart chorusd
 ```
 
