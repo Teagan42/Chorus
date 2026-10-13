@@ -189,19 +189,8 @@ func add(ctx context.Context, f *verbFlags, args []string, d deps) error {
 	if err != nil {
 		return err
 	}
-	ids, err := identity.Load(path)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		// The first person starts the household for this embedder; the
-		// file then pins the model for everyone after.
-		ids = identity.New(emb)
-	case err != nil:
-		return err
-	}
-	if err := ids.EnrollAudio(ctx, emb, *id, *name, takes); err != nil {
-		return err
-	}
-	if err := ids.Save(path); err != nil {
+	ids, err := identity.EnrollFile(ctx, path, emb, *id, *name, takes)
+	if err != nil {
 		return err
 	}
 
@@ -258,16 +247,9 @@ func remove(_ context.Context, f *verbFlags, args []string, d deps) error {
 	if err != nil {
 		return err
 	}
-	kept := ids.People[:0:0]
-	for _, p := range ids.People {
-		if p.ID != *id {
-			kept = append(kept, p)
-		}
-	}
-	if len(kept) == len(ids.People) {
+	if !ids.Remove(*id) {
 		return fmt.Errorf("remove %s: not enrolled in %s (enrolled: %s)", *id, path, strings.Join(ids.Household(), ", "))
 	}
-	ids.People = kept
 	if err := ids.Save(path); err != nil {
 		return err
 	}
