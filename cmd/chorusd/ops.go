@@ -13,6 +13,8 @@ import (
 
 	"github.com/teagan42/chorus/internal/bridge"
 	"github.com/teagan42/chorus/internal/ops"
+	"github.com/teagan42/chorus/internal/provider/openai"
+	"github.com/teagan42/chorus/internal/provider/wyoming"
 )
 
 // opsListenEnv is where /healthz, /readyz and /metrics are served
@@ -66,8 +68,8 @@ func opsChecks(cfg Config, client *http.Client, postgres func(context.Context) e
 	}
 	checks := []ops.Check{
 		{Name: "postgres", Required: true, Probe: postgres},
-		{Name: "stt", Required: true, Probe: ops.HTTPProbe(client, at(cfg.STTURL, "/health"), nil)},
-		{Name: "tts", Required: true, Probe: ops.HTTPProbe(client, at(cfg.KokoroURL, "/health"), nil)},
+		{Name: "stt", Required: true, Probe: earProbe(cfg, client)},
+		{Name: "tts", Required: true, Probe: voiceProbe(cfg, client)},
 		{Name: "llm", Required: true, Probe: ops.HTTPProbe(client, llm, nil)},
 	}
 	if cfg.SpeakerIDURL != "" {
@@ -82,6 +84,38 @@ func opsChecks(cfg Config, client *http.Client, postgres func(context.Context) e
 		checks = append(checks, ops.Check{Name: "home_assistant", Probe: ops.HTTPProbe(client, at(cfg.HassURL, "/api/"), auth)})
 	}
 	return checks
+}
+
+// voiceProbe asks the chosen voice's server whether it is up: Kokoro's
+// /health, an OpenAI-compatible server's model list with its key, or a
+// Wyoming server's describe (ADR-0081).
+func voiceProbe(cfg Config, client *http.Client) func(context.Context) error {
+	switch cfg.TTSProvider {
+	case providerOpenAI:
+		return ops.HTTPProbe(client, openai.HealthURL(cfg.OpenAITTSURL), bearer(cfg.OpenAITTSKey))
+	case providerWyoming:
+		return wyoming.Probe(cfg.WyomingTTSAddr)
+	}
+	return ops.HTTPProbe(client, strings.TrimSuffix(cfg.KokoroURL, "/")+"/health", nil)
+}
+
+// earProbe is voiceProbe for the ear.
+func earProbe(cfg Config, client *http.Client) func(context.Context) error {
+	switch cfg.STTProvider {
+	case providerOpenAI:
+		return ops.HTTPProbe(client, openai.HealthURL(cfg.OpenAISTTURL), bearer(cfg.OpenAISTTKey))
+	case providerWyoming:
+		return wyoming.Probe(cfg.WyomingSTTAddr)
+	}
+	return ops.HTTPProbe(client, strings.TrimSuffix(cfg.STTURL, "/")+"/health", nil)
+}
+
+// bearer is the header a key goes in, or none without one.
+func bearer(key string) http.Header {
+	if key == "" {
+		return nil
+	}
+	return http.Header{"Authorization": {"Bearer " + key}}
 }
 
 // wireOps composes the endpoints' state and taps what feeds it: the

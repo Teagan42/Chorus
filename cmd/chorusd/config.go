@@ -15,10 +15,12 @@ import (
 	"github.com/teagan42/chorus/internal/provider/kokoro"
 	"github.com/teagan42/chorus/internal/provider/mcp"
 	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/provider/openai"
 	"github.com/teagan42/chorus/internal/provider/smartturn"
 	"github.com/teagan42/chorus/internal/provider/speaches"
 	"github.com/teagan42/chorus/internal/provider/speakerid"
 	"github.com/teagan42/chorus/internal/provider/vllm"
+	"github.com/teagan42/chorus/internal/provider/wyoming"
 	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/satellite"
 	"github.com/teagan42/chorus/internal/session"
@@ -46,12 +48,39 @@ const (
 	vllmModelEnv    = "VLLM_MODEL"
 	vllmKeyEnv      = "VLLM_API_KEY"
 	vllmThinkingEnv = "VLLM_THINKING"
+
+	// The voice's and the ear's providers, and the endpoints of the ones
+	// that are not the defaults (ADR-0081). Kokoro's and speaches' are
+	// above.
+	ttsProviderEnv     = "CHORUS_TTS_PROVIDER"
+	sttProviderEnv     = "CHORUS_STT_PROVIDER"
+	openaiTTSURLEnv    = "OPENAI_TTS_URL"
+	openaiTTSKeyEnv    = "OPENAI_TTS_API_KEY"
+	openaiTTSModelEnv  = "OPENAI_TTS_MODEL"
+	openaiTTSVoiceEnv  = "OPENAI_TTS_VOICE"
+	openaiSTTURLEnv    = "OPENAI_STT_URL"
+	openaiSTTKeyEnv    = "OPENAI_STT_API_KEY"
+	openaiSTTModelEnv  = "OPENAI_STT_MODEL"
+	wyomingTTSAddrEnv  = "WYOMING_TTS_ADDR"
+	wyomingTTSVoiceEnv = "WYOMING_TTS_VOICE"
+	wyomingSTTAddrEnv  = "WYOMING_STT_ADDR"
+	wyomingSTTModelEnv = "WYOMING_STT_MODEL"
+	sttLanguageEnv     = "STT_LANGUAGE"
 )
 
 // The turn engines CHORUS_LLM_PROVIDER chooses between.
 const (
 	providerOllama = "ollama"
 	providerVLLM   = "vllm"
+)
+
+// The voices CHORUS_TTS_PROVIDER and the ears CHORUS_STT_PROVIDER choose
+// between. OpenAI's audio API and Wyoming serve both.
+const (
+	providerKokoro   = "kokoro"
+	providerSpeaches = "speaches"
+	providerOpenAI   = "openai"
+	providerWyoming  = "wyoming"
 )
 
 // defaultListen is the port the firmware dials (esphome/packages/chorus-bridge.yaml).
@@ -85,6 +114,26 @@ type Config struct {
 	// reads it.
 	VLLMThinking string
 
+	// TTSProvider is the voice: kokoro, openai or wyoming (ADR-0081).
+	TTSProvider     string
+	OpenAITTSURL    string
+	OpenAITTSKey    string
+	OpenAITTSModel  string
+	OpenAITTSVoice  string
+	WyomingTTSAddr  string
+	WyomingTTSVoice string
+
+	// STTProvider is the ear: speaches, openai or wyoming (ADR-0081).
+	STTProvider     string
+	OpenAISTTURL    string
+	OpenAISTTKey    string
+	OpenAISTTModel  string
+	WyomingSTTAddr  string
+	WyomingSTTModel string
+	// STTLanguage is sent to the ear when set; speaches' Parakeet ignores
+	// it, Whisper honours it.
+	STTLanguage string
+
 	// BlobMinFreeMiB is the disk guard's floor as written; blobFloor reads it.
 	BlobMinFreeMiB string
 
@@ -117,6 +166,22 @@ func configFromEnv(getenv func(string) string) Config {
 		VLLMThinking: getenv(vllmThinkingEnv),
 		KokoroURL:    getenv(kokoroURLEnv),
 		STTURL:       getenv(sttURLEnv),
+
+		TTSProvider:     getenv(ttsProviderEnv),
+		OpenAITTSURL:    getenv(openaiTTSURLEnv),
+		OpenAITTSKey:    getenv(openaiTTSKeyEnv),
+		OpenAITTSModel:  getenv(openaiTTSModelEnv),
+		OpenAITTSVoice:  getenv(openaiTTSVoiceEnv),
+		WyomingTTSAddr:  getenv(wyomingTTSAddrEnv),
+		WyomingTTSVoice: getenv(wyomingTTSVoiceEnv),
+		STTProvider:     getenv(sttProviderEnv),
+		OpenAISTTURL:    getenv(openaiSTTURLEnv),
+		OpenAISTTKey:    getenv(openaiSTTKeyEnv),
+		OpenAISTTModel:  getenv(openaiSTTModelEnv),
+		WyomingSTTAddr:  getenv(wyomingSTTAddrEnv),
+		WyomingSTTModel: getenv(wyomingSTTModelEnv),
+		STTLanguage:     getenv(sttLanguageEnv),
+
 		SpeakerIDURL: getenv(speakerIDURLEnv),
 		SmartTurnURL: getenv(smartTurnURLEnv),
 		HassURL:      getenv(hass.URLEnv),
@@ -137,6 +202,12 @@ func configFromEnv(getenv func(string) string) Config {
 	}
 	if cfg.LLMProvider == "" {
 		cfg.LLMProvider = providerOllama
+	}
+	if cfg.TTSProvider == "" {
+		cfg.TTSProvider = providerKokoro
+	}
+	if cfg.STTProvider == "" {
+		cfg.STTProvider = providerSpeaches
 	}
 	return cfg
 }
@@ -176,12 +247,52 @@ func (c Config) validate() error {
 			need{ollamaURLEnv, c.OllamaURL, "the turn engine's endpoint"},
 			need{ollamaModelEnv, c.OllamaModel, "the model the turn engine runs"})
 	}
-	required = append(required,
-		need{kokoroURLEnv, c.KokoroURL, "the speech synthesis endpoint"},
-		need{sttURLEnv, c.STTURL, "the speech recognition endpoint"})
+	switch c.TTSProvider {
+	case providerOpenAI:
+		required = append(required,
+			need{openaiTTSURLEnv, c.OpenAITTSURL, "the speech synthesis endpoint"},
+			need{openaiTTSModelEnv, c.OpenAITTSModel, "the model the voice runs"},
+			need{openaiTTSVoiceEnv, c.OpenAITTSVoice, "the voice that speaks"})
+	case providerWyoming:
+		required = append(required,
+			need{wyomingTTSAddrEnv, c.WyomingTTSAddr, "the speech synthesis server, host:port"},
+			need{wyomingTTSVoiceEnv, c.WyomingTTSVoice, "the voice that speaks"})
+	default:
+		required = append(required, need{kokoroURLEnv, c.KokoroURL, "the speech synthesis endpoint"})
+	}
+	switch c.STTProvider {
+	case providerOpenAI:
+		required = append(required,
+			need{openaiSTTURLEnv, c.OpenAISTTURL, "the speech recognition endpoint"},
+			need{openaiSTTModelEnv, c.OpenAISTTModel, "the model the ear runs"})
+	case providerWyoming:
+		required = append(required,
+			need{wyomingSTTAddrEnv, c.WyomingSTTAddr, "the speech recognition server, host:port"},
+			need{wyomingSTTModelEnv, c.WyomingSTTModel, "the model the server runs, as the journal records it"})
+	default:
+		required = append(required, need{sttURLEnv, c.STTURL, "the speech recognition endpoint"})
+	}
 	var missing []string
 	if c.LLMProvider != providerOllama && c.LLMProvider != providerVLLM {
 		missing = append(missing, fmt.Sprintf("  %-20s %q is not a turn engine: %s or %s", llmProviderEnv, c.LLMProvider, providerOllama, providerVLLM))
+	}
+	if c.TTSProvider != providerKokoro && c.TTSProvider != providerOpenAI && c.TTSProvider != providerWyoming {
+		missing = append(missing, fmt.Sprintf("  %-20s %q is not a voice: %s, %s or %s", ttsProviderEnv, c.TTSProvider, providerKokoro, providerOpenAI, providerWyoming))
+	}
+	if c.STTProvider != providerSpeaches && c.STTProvider != providerOpenAI && c.STTProvider != providerWyoming {
+		missing = append(missing, fmt.Sprintf("  %-20s %q is not an ear: %s, %s or %s", sttProviderEnv, c.STTProvider, providerSpeaches, providerOpenAI, providerWyoming))
+	}
+	// A Wyoming address without its port fails on the first utterance, not
+	// at startup, unless it is read here.
+	for _, a := range []struct{ name, provider, value string }{
+		{wyomingTTSAddrEnv, c.TTSProvider, c.WyomingTTSAddr},
+		{wyomingSTTAddrEnv, c.STTProvider, c.WyomingSTTAddr},
+	} {
+		if a.provider == providerWyoming && a.value != "" {
+			if _, err := wyoming.Address(a.value); err != nil {
+				missing = append(missing, fmt.Sprintf("  %-20s %v", a.name, err))
+			}
+		}
 	}
 	if _, err := c.vllmThinking(); err != nil {
 		missing = append(missing, fmt.Sprintf("  %-20s %v", vllmThinkingEnv, err))
@@ -252,11 +363,11 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 	if err != nil {
 		return providers{}, err
 	}
-	synth, err := kokoro.New(kokoro.Config{BaseURL: cfg.KokoroURL})
+	synth, err := speechVoice(cfg)
 	if err != nil {
 		return providers{}, err
 	}
-	transcriber, err := speaches.New(speaches.Config{BaseURL: cfg.STTURL})
+	transcriber, err := speechEar(cfg)
 	if err != nil {
 		return providers{}, err
 	}
@@ -348,6 +459,43 @@ func turnEngine(cfg Config, offered map[string]registry.ToolSpec) (llmEngine, er
 		return nil, err
 	}
 	return vllm.New(vllm.Config{BaseURL: cfg.VLLMURL, Model: cfg.VLLMModel, APIKey: cfg.VLLMAPIKey, Thinking: thinking, Specs: offered})
+}
+
+// versioned is a provider that names itself for the journal (SPEC §8).
+type versioned interface{ Version() string }
+
+// synthesizer is the voice CHORUS_TTS_PROVIDER chooses.
+type synthesizer interface {
+	satellite.Synth
+	versioned
+}
+
+// transcriber is the ear CHORUS_STT_PROVIDER chooses.
+type transcriber interface {
+	stt.Transcriber
+	versioned
+}
+
+// speechVoice builds the chosen voice, without touching the network.
+func speechVoice(cfg Config) (synthesizer, error) {
+	switch cfg.TTSProvider {
+	case providerOpenAI:
+		return openai.NewSynth(openai.SynthConfig{BaseURL: cfg.OpenAITTSURL, APIKey: cfg.OpenAITTSKey, Model: cfg.OpenAITTSModel, Voice: cfg.OpenAITTSVoice})
+	case providerWyoming:
+		return wyoming.NewSynth(wyoming.SynthConfig{Address: cfg.WyomingTTSAddr, Voice: cfg.WyomingTTSVoice})
+	}
+	return kokoro.New(kokoro.Config{BaseURL: cfg.KokoroURL})
+}
+
+// speechEar builds the chosen ear, without touching the network.
+func speechEar(cfg Config) (transcriber, error) {
+	switch cfg.STTProvider {
+	case providerOpenAI:
+		return openai.NewTranscriber(openai.TranscriberConfig{BaseURL: cfg.OpenAISTTURL, APIKey: cfg.OpenAISTTKey, Model: cfg.OpenAISTTModel, Language: cfg.STTLanguage})
+	case providerWyoming:
+		return wyoming.NewTranscriber(wyoming.TranscriberConfig{Address: cfg.WyomingSTTAddr, Model: cfg.WyomingSTTModel, Language: cfg.STTLanguage})
+	}
+	return speaches.New(speaches.Config{BaseURL: cfg.STTURL, Language: cfg.STTLanguage})
 }
 
 func enrolled(ids *identity.Identities) int {
