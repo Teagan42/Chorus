@@ -208,3 +208,31 @@ func TestAFreshNonceStillWaitsForTheAsker(t *testing.T) {
 		t.Errorf("fresh confirmation = %+v, want Teagan's question answered by Teagan", c)
 	}
 }
+
+// A call held for a yes too many times is given up on. A model that does not
+// echo the nonce it was handed never converges, and the household answers
+// into a loop while the log fills with fresh nonces (ADR-0086).
+//
+// verifies SPEC §6
+func TestACallHeldTooManyTimesIsGivenUpOn(t *testing.T) {
+	const tool, args = "ha_call_service", `{"domain":"cover","entity_id":"cover.garage_door","service":"open_cover"}`
+	var st journal.State
+	if got := st.HeldTries(tool, args); got != 0 {
+		t.Fatalf("a call never held has %d tries", got)
+	}
+	for i := 1; i <= journal.MaxHeldTries; i++ {
+		st.Confirmations = append(st.Confirmations, journal.Confirmation{
+			Nonce: "cf_" + string(rune('a'+i)), Tool: tool, Args: args, RefusedBy: "call_x",
+		})
+		if got := st.HeldTries(tool, args); got != i {
+			t.Errorf("after %d holds, HeldTries = %d", i, got)
+		}
+	}
+	if st.HeldTries(tool, args) < journal.MaxHeldTries {
+		t.Error("the cap was never reached")
+	}
+	// Another call's holds are not this one's.
+	if got := st.HeldTries(tool, `{"domain":"light"}`); got != 0 {
+		t.Errorf("a different call shares the count: %d", got)
+	}
+}

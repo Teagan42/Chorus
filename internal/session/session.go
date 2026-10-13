@@ -865,6 +865,13 @@ func (s *Session) confirmed(tc ToolCall, args registry.Orchestrated) bool {
 		}
 	}
 
+	// A model that will not echo the nonce it was handed would be asked
+	// forever, and the household is answering into a loop (ADR-0086).
+	if st, err := s.State(context.WithoutCancel(s.ctx)); err == nil && st.HeldTries(tc.Tool, args.Rest) >= journal.MaxHeldTries {
+		s.result(tc.ID, "error", `{"error":"confirmation_not_reached","note":"Not done. This call has been held for a yes too many times without one being redeemed. Stop calling it and tell the person it did not go through."}`)
+		return false
+	}
+
 	fresh := "cf_" + newID()[:8]
 	fields := map[string]string{"call_id": tc.ID, "nonce": fresh}
 	if refused != "" {

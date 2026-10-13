@@ -185,3 +185,24 @@ func (s State) answered(text, speaker, match string) []Confirmation {
 	}
 	return out
 }
+
+// MaxHeldTries is how many times one call may be held for a yes before the
+// session stops asking. A model that does not echo the nonce it was handed
+// never converges: observed 2026-10-13, qwen3:14b presented nonces that were
+// never issued and the same call was held thirteen times across three
+// minutes, minting a fresh nonce each time while the household answered and
+// was ignored. Five is well past any honest retry (ADR-0086).
+const MaxHeldTries = 5
+
+// HeldTries counts the confirmations already handed out for this call's tool
+// and arguments, redeemed or refused or still open. A call the session has
+// stopped asking about is one whose count has reached MaxHeldTries.
+func (s State) HeldTries(tool, args string) int {
+	n := 0
+	for _, c := range s.Confirmations {
+		if c.Tool == tool && c.Args == args {
+			n++
+		}
+	}
+	return n
+}
