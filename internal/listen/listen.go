@@ -430,6 +430,7 @@ func (l *Listener) startLocked(pcm []byte) {
 		ticket: make(chan struct{}), ended: make(chan struct{}), aborted: make(chan struct{}),
 	}
 	u.overhearing = !l.woken && !l.confirming && !l.liveLocked()
+	u.overSpeech = l.speakingLocked()
 	// The wake is spent on this utterance, whatever becomes of it. A wake that
 	// a mute lands on is lost with it; the user muted the house.
 	l.confirming = l.confirming || u.first
@@ -843,6 +844,12 @@ type utterance struct {
 	// a hot phrase that silences it is taken, and the rest is not kept.
 	overhearing bool
 
+	// overSpeech marks that the device was playing while this utterance was
+	// open. Sampled as it opens and again on every candidate, because the
+	// decode lands after it ended and the answer it talked over may have
+	// finished by then (ADR-0089).
+	overSpeech bool
+
 	prev    <-chan struct{}
 	ticket  chan struct{}
 	ended   chan struct{}
@@ -945,6 +952,9 @@ func (l *Listener) candidate(u *utterance, r stt.Result) {
 		sess = l.announcingLocked()
 	}
 	l.mu.Unlock()
+	if sess != nil && slices.Contains(sess.Children(), "speaking") {
+		u.overSpeech = true
+	}
 	if sess == nil || !offered(sess.Children(), session.Hot(r.Text), u.overhearing) {
 		return
 	}
@@ -1079,6 +1089,15 @@ func (l *Listener) complete(u *utterance) {
 	if sess == nil {
 		// Ended between this utterance and its turn; what it said is lost,
 		// which is what a session the model closed means.
+		return
+	}
+	if echoed(u, out) {
+		// The device's own voice, back through its microphone. Measured
+		// 2026-10-13: the echo and a household's speech arrive at the same
+		// level on the AGC'd channel -- -19.2 against -18.8 dBFS -- so
+		// nothing about the audio separates them and only the speaker does
+		// (ADR-0089).
+		l.warn("speech while speaking that nobody in the household owns", fmt.Errorf("%q as %s", res.Text, out.Reason))
 		return
 	}
 	err = sess.Heard(l.ctx, session.Transcript{
@@ -1332,4 +1351,30 @@ func (l *Listener) sessionSpeaker() string {
 		return sess.Speaker()
 	}
 	return ""
+}
+
+// echoed reports an utterance arriving while the device is playing that no
+// household voice owns: the assistant's own speech returning through the
+// microphone, which it answered as a guest and then answered again.
+//
+// Only the speaker tells the two apart. On the channel the bridge sends, the
+// AGC brings the echo and a person to the same level, length and crest, so no
+// threshold separates them (ADR-0089). An identified voice barges in as
+// before, and so does one the ranking put with the session's own speaker
+// (ADR-0085), which a synthesised voice does not reach.
+func echoed(u *utterance, out identity.Outcome) bool {
+	switch out.Reason {
+	case identity.Identified, identity.TooShort:
+		return false
+	}
+	return u.overSpeech
+}
+
+// speakingLocked reports that the live session is playing speech. Held under
+// l.mu, as liveLocked is.
+func (l *Listener) speakingLocked() bool {
+	if !l.liveLocked() {
+		return false
+	}
+	return slices.Contains(l.sess.Children(), "speaking")
 }

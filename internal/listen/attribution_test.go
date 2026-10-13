@@ -123,3 +123,45 @@ func TestAGuestChimingInIsHeardAsAGuestNotAsAlan(t *testing.T) {
 		t.Errorf("the guest's turn was asked as %q, want a guest", in.Speaker)
 	}
 }
+
+// The assistant's own answer comes back through the microphone, decodes to
+// words, and is not answered. Measured 2026-10-13 the echo and a household's
+// speech arrive at the same level on the channel the bridge sends -- -19.2
+// against -18.8 dBFS -- so only the speaker tells them apart, and a turn
+// taken on it had the assistant answering itself (ADR-0089).
+//
+// verifies SPEC §3.1, §4.3
+func TestTheAssistantsOwnVoiceIsNotATurn(t *testing.T) {
+	r := newRig(t, talking())
+	r.speaker.hold = true
+
+	r.dev.SendWake(t, "hey_eddie")
+	r.utter(t, r.line("open the garage door", alan), 4*chunkBytes)
+	s := r.session(t)
+	conv := s.ConversationID()
+	r.speaker.wrote(t)
+	await(t, "the speaking child", func() bool { return slices.Contains(s.Children(), "speaking") })
+
+	// The answer, heard back. Not a hot phrase, and long enough to decode.
+	r.utter(t, r.line("did you want to open the garage door", stranger), 4*chunkBytes)
+	r.pause(t, rigSilence)
+
+	if got := r.heardTexts(t, conv); !slices.Equal(got, []string{"open the garage door"}) {
+		t.Errorf("heard %q, want only what Alan said: the assistant answered itself", got)
+	}
+	for _, in := range r.engine.heard() {
+		if in.Text == "did you want to open the garage door" {
+			t.Errorf("the model was asked to answer the assistant's own voice: %+v", in)
+		}
+	}
+
+	// A household voice still barges in while it speaks, which is the point
+	// of full duplex (SPEC §3.1).
+	r.speaker.let()
+	await(t, "speech to finish", func() bool { return !slices.Contains(s.Children(), "speaking") })
+	r.utter(t, r.line("close it instead", alan), 4*chunkBytes)
+	r.awaitKind(t, conv, journal.KindUtteranceTranscribed, 2)
+	if got := r.heardTexts(t, conv); !slices.Contains(got, "close it instead") {
+		t.Errorf("heard %q, want Alan's second turn kept", got)
+	}
+}
