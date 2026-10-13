@@ -36,12 +36,22 @@ const minBargeInWords = 2
 // synthesiser is not answering, as it may not be yet when the daemon starts.
 const rehearseEvery = 30 * time.Second
 
-// bargeInGate is the detector every link's supervisor shares. Only this place
-// knows whether a resolver was configured, so the speaker mode is set here,
-// not from an empty id (ADR-0031).
-func (p providers) bargeInGate() session.Gate {
+// bargeInGate is one link's detector. Only this place knows whether a
+// resolver was configured, so the speaker mode is set here, not from an
+// empty id (ADR-0031).
+//
+// MinEnergy is the satellite's own speech level, as the endpointer's and the
+// sustain floor's are (ADR-0083, ADR-0086). The built-in default sits under a
+// room that rides its own gain, so the vad stage admitted everything and
+// every candidate cost a decode and an embedding before the speaker stage
+// threw it away: 140 of them in one evening, none rejected on energy
+// (ADR-0088). Zero takes the default.
+func (p providers) bargeInGate(energy float64) session.Gate {
+	if energy == 0 {
+		energy = listen.DefaultSpeechEnergy
+	}
 	return session.Gate{
-		MinEnergy:            listen.DefaultSpeechEnergy,
+		MinEnergy:            energy,
 		MinWords:             minBargeInWords,
 		Household:            p.household,
 		SpeakerIDUnavailable: p.speakers == nil,
@@ -116,7 +126,6 @@ type daemon struct {
 	// convs is the one thing per-satellite supervisors share: the person's
 	// conversation follows them from device to device (SPEC §4.5, ADR-0022).
 	convs    *session.Conversations
-	gate     session.Gate
 	memories session.Memories
 
 	// rooms is where each satellite stands, from the inventory: what every
@@ -182,7 +191,6 @@ func newDaemon(inv *config.Config, d deps) (*daemon, error) {
 		byHost:  byHost,
 		journal: journal.New(d.Store, d.Clock, d.versions),
 		convs:   session.NewConversations(d.Clock, session.MigrationWindow),
-		gate:    d.bargeInGate(),
 		links:   map[string]*listen.Listener{},
 		rooms:   map[string]string{},
 		rings:   map[string]*ring{},
@@ -515,7 +523,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	sup, err := session.New(session.Config{
 		Journal: d.journal, Store: d.Store, Clock: d.Clock, Timers: d.Timers,
 		Engine: d.engine, Speaker: speaker, Conversations: d.convs,
-		Tools: d.tools, Specs: d.specs, Gate: d.gate, Memories: d.memories, Rooms: d.rooms,
+		Tools: d.tools, Specs: d.specs, Gate: d.bargeInGate(sat.SpeechEnergy), Memories: d.memories, Rooms: d.rooms,
 		Summarizer: d.summarizer, Summarizing: &d.wg, Log: log,
 		Ring: d.panels[sat.Name],
 	})

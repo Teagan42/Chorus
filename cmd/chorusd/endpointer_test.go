@@ -86,3 +86,27 @@ func TestTheSpeechGateAlsoReachesTheSustainFloor(t *testing.T) {
 		}
 	}
 }
+
+// The barge-in gate takes the satellite's own speech level too. On the
+// built-in default, under a room that rides its own gain, the vad stage
+// admits everything and every candidate costs a decode and an embedding
+// before the speaker stage throws it away (ADR-0088).
+//
+// verifies SPEC §4.3
+func TestTheSpeechGateAlsoReachesTheBargeInGate(t *testing.T) {
+	if got := (providers{}).bargeInGate(0.03).MinEnergy; got != 0.03 {
+		t.Errorf("MinEnergy = %v, want the satellite's own 0.03", got)
+	}
+	// Unset keeps the built-in, so a board nobody measured is unchanged.
+	if got := (providers{}).bargeInGate(0).MinEnergy; got != listen.DefaultSpeechEnergy {
+		t.Errorf("MinEnergy = %v, want the default %v", got, listen.DefaultSpeechEnergy)
+	}
+	// And the one place it is built reads the satellite, not a shared value.
+	src, err := os.ReadFile("run.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), "Gate: d.bargeInGate(sat.SpeechEnergy)") {
+		t.Error("the supervisor's gate does not read the satellite's speech level")
+	}
+}
