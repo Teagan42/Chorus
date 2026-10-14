@@ -114,5 +114,7 @@ record numbered 0057 was ever committed or dropped.
 
 | [0090](0090-an-impulse-is-told-from-a-voice-by-its-shape-not-its-length.md) | Supersedes 0086's sustain floor, which compared clicks against sentences and so disbelieved a household's one-word "Yes" at 40 and 60 ms, reintroducing the very loop it fixed. Crest factor separates them and was already in 0086's measurements unused: clicks at 24.3 to 25.5 dB against voices at 13.7 to 20.4, loud and quiet, one word and several. `listen.Impulsive` requires both brief and spiky, since brevity alone catches a quiet word | §4.5, §6 |
 
+| [0091](0091-the-yes-can-be-turned-off-because-the-nonce-dies-faster-than-the-model-answers.md) | Refines 0038: `CHORUS_CONFIRM=off` runs a held call as written, because the nonce expires once more than one thing has been said since it was issued and a qwen3:14b turn takes 3.5 to 5.7 s -- so the household answers, speaks again, and the model re-calls with a nonce that died in between, permanently one behind. 0086's cap bounds that into failure rather than success. Unset still holds, an unreadable value is refused, and the expiry rule is left alone because widening it allows redeeming a yes the person has talked past | §6, §13 |
+
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
