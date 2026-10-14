@@ -12,6 +12,10 @@ package = false
 
 [tool.uv.workspace]
 members = ["sidecars/*"]
+# kokoromlx has its own project and lockfile: misaki's English G2P drags spacy
+# and torch in, and a workspace member would put them in everyone's `uv sync`
+# for a sidecar that only runs on Apple Silicon (ADR-0092).
+exclude = ["sidecars/kokoromlx"]
 
 # Shared dev tooling, pinned like the Go toolchain so a release cannot turn
 # a green tree red with no code change.
@@ -41,7 +45,9 @@ wake = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["sidecars"]
+# Named rather than `sidecars`, which would collect kokoromlx too: its imports
+# are not in this environment (see the workspace exclusion above).
+testpaths = ["sidecars/speakerid", "sidecars/smartturn"]
 
 [tool.ruff]
 line-length = 100
@@ -53,4 +59,4 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.ruff.lint.isort]
 # Run from the workspace root, ruff cannot see that a member's own package
 # is first-party; without this its tests sort it among the third parties.
-known-first-party = ["smartturn", "speakerid"]
+known-first-party = ["kokoromlx", "smartturn", "speakerid"]
