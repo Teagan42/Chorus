@@ -155,13 +155,14 @@ func TestAConfirmationNeedsItsCall(t *testing.T) {
 	}
 }
 
-// The question was Teagan's, so the yes must be hers. Alice's yes to it is
-// refused, and so is a dinner guest's, whose voice matched nobody; a voice
-// nothing judged stays Teagan's, as every turn does (ADR-0049), and a
-// household that identifies nobody is answered by whoever speaks next.
+// The question was Teagan's, so an answer identified as somebody else is
+// refused. An answer nothing identified is not: a one-word yes cannot be
+// attributed on this hardware, so refusing it made the question
+// unanswerable, and the household chose to accept that anyone already in the
+// room can answer one asked aloud in it (ADR-0087).
 //
 // verifies SPEC §5, §6
-func TestTheYesIsTheAskersAndAGuestsYesRunsNothing(t *testing.T) {
+func TestOnlyAnotherPersonsYesIsRefused(t *testing.T) {
 	teagans := heldFrontDoorAskedBy("teagan", "teagan", "identified")
 	cases := []struct {
 		why    string
@@ -171,12 +172,13 @@ func TestTheYesIsTheAskersAndAGuestsYesRunsNothing(t *testing.T) {
 	}{
 		{"Teagan, identified, says yes", teagans, voiced("yes please", "teagan", "identified"), ""},
 		{"Alice says yes to Teagan's question", teagans, voiced("yes please", "alice", "identified"), journal.RefusedWrongPerson},
-		{"a dinner guest says yes to Teagan's question", teagans, voiced("yes please", "", "below_threshold"), journal.RefusedGuest},
-		{"a voice between Teagan and Alice says yes", teagans, voiced("yes please", "", "ambiguous"), journal.RefusedGuest},
+		{"a dinner guest says yes to Teagan's question, and it counts", teagans, voiced("yes please", "", "below_threshold"), ""},
+		{"a voice between Teagan and Alice says yes, naming neither", teagans, voiced("yes please", "", "ambiguous"), ""},
 		{"a yes the embedder never judged", teagans, voiced("yes please", "", ""), ""},
 		{"a household without speaker identification", heldFrontDoorAskedBy("teagan", "", ""), voiced("yes please", "", ""), ""},
 		{"a household that has enrolled nobody", heldFrontDoorAskedBy("", "", "nobody_enrolled"), voiced("yes please", "", "nobody_enrolled"), ""},
-		{"a guest asked, and the guest says yes", heldFrontDoorAskedBy("alice", "", "below_threshold"), voiced("yes please", "", "below_threshold"), journal.RefusedGuest},
+		{"a guest asked, and the guest says yes", heldFrontDoorAskedBy("alice", "", "below_threshold"), voiced("yes please", "", "below_threshold"), ""},
+		{"Alice asked, and Teagan answers instead", heldFrontDoorAskedBy("alice", "alice", "identified"), voiced("yes please", "teagan", "identified"), journal.RefusedWrongPerson},
 		{"a guest asked, and Alice says yes", heldFrontDoorAskedBy("alice", "", "below_threshold"), voiced("yes please", "alice", "identified"), ""},
 	}
 	for _, c := range cases {
@@ -206,5 +208,33 @@ func TestAFreshNonceStillWaitsForTheAsker(t *testing.T) {
 	}
 	if c := teagan.Confirmations[1]; c.AskedBy != "teagan" || c.AnsweredBy != "teagan" {
 		t.Errorf("fresh confirmation = %+v, want Teagan's question answered by Teagan", c)
+	}
+}
+
+// A call held for a yes too many times is given up on. A model that does not
+// echo the nonce it was handed never converges, and the household answers
+// into a loop while the log fills with fresh nonces (ADR-0086).
+//
+// verifies SPEC §6
+func TestACallHeldTooManyTimesIsGivenUpOn(t *testing.T) {
+	const tool, args = "ha_call_service", `{"domain":"cover","entity_id":"cover.garage_door","service":"open_cover"}`
+	var st journal.State
+	if got := st.HeldTries(tool, args); got != 0 {
+		t.Fatalf("a call never held has %d tries", got)
+	}
+	for i := 1; i <= journal.MaxHeldTries; i++ {
+		st.Confirmations = append(st.Confirmations, journal.Confirmation{
+			Nonce: "cf_" + string(rune('a'+i)), Tool: tool, Args: args, RefusedBy: "call_x",
+		})
+		if got := st.HeldTries(tool, args); got != i {
+			t.Errorf("after %d holds, HeldTries = %d", i, got)
+		}
+	}
+	if st.HeldTries(tool, args) < journal.MaxHeldTries {
+		t.Error("the cap was never reached")
+	}
+	// Another call's holds are not this one's.
+	if got := st.HeldTries(tool, `{"domain":"light"}`); got != 0 {
+		t.Errorf("a different call shares the count: %d", got)
 	}
 }

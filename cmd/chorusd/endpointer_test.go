@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/teagan42/chorus/internal/listen"
@@ -52,5 +54,59 @@ func TestNoSpeechGateKeepsTheDefault(t *testing.T) {
 	}
 	if s.Threshold != listen.DefaultSpeechEnergy {
 		t.Errorf("semantic threshold is %v, want the default %v", s.Threshold, listen.DefaultSpeechEnergy)
+	}
+}
+
+// The satellite's speech gate also reaches the sustain floor, which counts
+// windows at that level. Passed only to the endpointer, the floor would
+// count windows at the built-in default -- under a room that rides its own
+// gain -- and a mouse click would clear 200 ms of it without trouble
+// (ADR-0083, ADR-0086).
+//
+// verifies SPEC §4.5
+func TestTheSpeechGateAlsoReachesTheSustainFloor(t *testing.T) {
+	src, err := os.ReadFile("run.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The listener is opened in one place; both fields must read the
+	// satellite's own gate rather than one of them defaulting silently.
+	open := string(src)
+	i := strings.Index(open, "listen.Open(linkCtx, listen.Config{")
+	if i < 0 {
+		t.Fatal("listen.Open call not found; this test guards its arguments")
+	}
+	call := open[i:]
+	if end := strings.Index(call, "})"); end > 0 {
+		call = call[:end]
+	}
+	for _, want := range []string{"Endpointer: d.endpointer(sat.SpeechEnergy)", "SpeechEnergy: sat.SpeechEnergy"} {
+		if !strings.Contains(call, want) {
+			t.Errorf("listen.Config is missing %q, so it would take the built-in default", want)
+		}
+	}
+}
+
+// The barge-in gate takes the satellite's own speech level too. On the
+// built-in default, under a room that rides its own gain, the vad stage
+// admits everything and every candidate costs a decode and an embedding
+// before the speaker stage throws it away (ADR-0088).
+//
+// verifies SPEC §4.3
+func TestTheSpeechGateAlsoReachesTheBargeInGate(t *testing.T) {
+	if got := (providers{}).bargeInGate(0.03).MinEnergy; got != 0.03 {
+		t.Errorf("MinEnergy = %v, want the satellite's own 0.03", got)
+	}
+	// Unset keeps the built-in, so a board nobody measured is unchanged.
+	if got := (providers{}).bargeInGate(0).MinEnergy; got != listen.DefaultSpeechEnergy {
+		t.Errorf("MinEnergy = %v, want the default %v", got, listen.DefaultSpeechEnergy)
+	}
+	// And the one place it is built reads the satellite, not a shared value.
+	src, err := os.ReadFile("run.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), "Gate: d.bargeInGate(sat.SpeechEnergy)") {
+		t.Error("the supervisor's gate does not read the satellite's speech level")
 	}
 }

@@ -137,3 +137,68 @@ func rms(sumsq float64, samples int) float64 {
 	}
 	return math.Sqrt(sumsq/float64(samples)) / -math.MinInt16
 }
+
+// sustainWindow is the frame sustained speech is counted in, in bytes. 20 ms,
+// as the trim uses: shorter than a syllable, long enough for a stable RMS.
+const sustainWindow = 20 * bytesPerSecond / 1000
+
+// DefaultMinSustained is how little speech-level energy makes an utterance
+// suspect, in bytes: 200 ms. On its own it is not a reason to disbelieve the
+// words -- a quiet one-word answer holds 40 ms of it, as a click does -- so
+// it is only half the test (ADR-0090).
+const DefaultMinSustained = 200 * bytesPerSecond / 1000
+
+// DefaultMaxCrest is the peak-to-RMS ratio in dB above which audio is an
+// impulse rather than a voice.
+//
+// Measured 2026-10-13. Three mouse clicks the household never spoke: 24.3,
+// 24.9 and 25.5 dB. Five real utterances from the same room, loud and quiet,
+// one word and several: 13.7, 14.5, 16.2, 17.3 and 20.4 dB. A click is a
+// spike in a quiet room and a voice is not, whatever either one says, and
+// nothing else measured separated them -- sustained duration put a quiet
+// "I don't know" at 40 ms, among the clicks (ADR-0090).
+const DefaultMaxCrest = 22.0
+
+// Impulsive reports audio shaped like a transient rather than a voice: a
+// peak far above its own average, holding speech level too briefly to be a
+// word. Both, because either alone catches real speech.
+func Impulsive(pcm []byte, threshold float64, minSustained int) bool {
+	if len(pcm) < bytesPerFrame {
+		return false
+	}
+	if Sustained(pcm, threshold) >= minSustained {
+		return false
+	}
+	mean := RMS(pcm)
+	if mean <= 0 {
+		return false
+	}
+	return 20*math.Log10(peak(pcm)/mean) > DefaultMaxCrest
+}
+
+// peak is the largest absolute sample in pcm, as a fraction of full scale.
+func peak(pcm []byte) float64 {
+	var most int16
+	for i := 0; i+bytesPerFrame <= len(pcm); i += bytesPerFrame {
+		s := int16(binary.LittleEndian.Uint16(pcm[i:]))
+		if s < 0 {
+			s = -s
+		}
+		if s > most {
+			most = s
+		}
+	}
+	return float64(most) / 32768
+}
+
+// Sustained is how much of pcm holds energy at or above threshold, in bytes,
+// counted in whole windows.
+func Sustained(pcm []byte, threshold float64) int {
+	kept := 0
+	for i := 0; i+sustainWindow <= len(pcm); i += sustainWindow {
+		if RMS(pcm[i:i+sustainWindow]) >= threshold {
+			kept += sustainWindow
+		}
+	}
+	return kept
+}

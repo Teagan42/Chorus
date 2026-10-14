@@ -21,7 +21,10 @@ const (
 	// RefusedWrongPerson: someone other than the person who asked answered.
 	// The question was theirs, so the yes must be too.
 	RefusedWrongPerson = "wrong_person"
-	// RefusedGuest: the answer came from a voice that matched nobody in the
+	// RefusedGuest: no new refusal uses it. ADR-0087 stopped refusing an
+	// answer nothing identified; kept so a log written before it still reads.
+	//
+	// Was: the answer came from a voice that matched nobody in the
 	// household, and a guest's yes runs nothing.
 	RefusedGuest = "guest"
 )
@@ -70,11 +73,18 @@ func (c Confirmation) open() bool { return c.RedeemedBy == "" && c.RefusedBy == 
 // Whether the answer was a yes is the model's to judge: it wrote the
 // question. What the log guarantees is that the person said something in
 // between, so a model cannot confirm its own call (ADR-0038), and that the
-// yes is the asker's (ADR-0063): a voice judged to be nobody's cannot
-// confirm anything, and when the asker was identified, only their answer
-// counts. A household nothing identifies keeps the next thing said as the
-// answer, since SPEC §5 leaves a voice nothing judged with the current
-// speaker, and nobody_enrolled can tell no one apart.
+// answer was not somebody else's (ADR-0087): when both the asker and the
+// answer were identified and they are different people, only the asker's
+// counts.
+//
+// An answer nothing identified is not refused. "This is Bob, not Teagan" and
+// "there was too little voice to tell" are opposite states and only the first
+// is evidence, and a one-word yes carries too little voice to attribute on a
+// processed far-field microphone (ADR-0085) -- so refusing it made a question
+// the assistant had just asked an identified person unanswerable. The
+// household accepts what that admits: anyone already in the room can answer a
+// question asked aloud in it, including for a lock (ADR-0087). A transient is
+// kept out by the sustain floor, not by this check (ADR-0086).
 func (s State) Redeemable(nonce, tool, args string) string {
 	i := s.confirmation(nonce)
 	if i < 0 {
@@ -90,9 +100,7 @@ func (s State) Redeemable(nonce, tool, args string) string {
 		return RefusedNotAnswered
 	case c.Heard > 1:
 		return RefusedExpired
-	case Unmatched(c.AnswerMatch):
-		return RefusedGuest
-	case c.AskedBy != "" && c.AnsweredBy != c.AskedBy:
+	case c.AnsweredBy != "" && c.AskedBy != "" && c.AnsweredBy != c.AskedBy:
 		return RefusedWrongPerson
 	}
 	return ""
@@ -184,4 +192,25 @@ func (s State) answered(text, speaker, match string) []Confirmation {
 		}
 	}
 	return out
+}
+
+// MaxHeldTries is how many times one call may be held for a yes before the
+// session stops asking. A model that does not echo the nonce it was handed
+// never converges: observed 2026-10-13, qwen3:14b presented nonces that were
+// never issued and the same call was held thirteen times across three
+// minutes, minting a fresh nonce each time while the household answered and
+// was ignored. Five is well past any honest retry (ADR-0086).
+const MaxHeldTries = 5
+
+// HeldTries counts the confirmations already handed out for this call's tool
+// and arguments, redeemed or refused or still open. A call the session has
+// stopped asking about is one whose count has reached MaxHeldTries.
+func (s State) HeldTries(tool, args string) int {
+	n := 0
+	for _, c := range s.Confirmations {
+		if c.Tool == tool && c.Args == args {
+			n++
+		}
+	}
+	return n
 }

@@ -409,6 +409,11 @@ func newRigSession(t *testing.T, steps []step, sess func(*session.Config), tweak
 		STT:         stt.Options{PartialEvery: rigPartials},
 		WakeWindow:  rigWake,
 		LeadIn:      chunkBytes,
+		// The rig's lines are chunks of a constant amplitude, milliseconds
+		// long, so none of them would clear DefaultMinSustained. Negative
+		// believes every decode: the sustain floor has its own tests, and
+		// these are about what happens to words once they are believed.
+		MinSustained: -1,
 	}
 	for _, f := range tweak {
 		f(&cfg)

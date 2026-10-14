@@ -1,6 +1,6 @@
 # 0063. The yes is the asker's, and a guest's yes runs nothing
 
-- **Status:** accepted
+- **Status:** accepted · its guest refusal superseded by [ADR-0087](0087-an-answer-in-the-room-counts-and-only-another-persons-does-not.md); the asker rule stands
 - **Source:** SPEC §5, §6 · ADR-0038, ADR-0041, ADR-0049
 
 Refines ADR-0038 and ADR-0041, which it does not supersede: a held call,

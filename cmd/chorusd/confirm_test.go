@@ -153,18 +153,60 @@ func TestAlicesYesDoesNotUnlockWhatAlanAsked(t *testing.T) {
 	}
 }
 
-// A dinner guest says yes to Alan's question. Their voice matched nobody the
-// household enrolled, so their yes unlocks nothing; Alan's does.
+// A dinner guest says yes to Alan's question and the front door unlocks. A
+// one-word yes cannot be attributed on a processed far-field microphone
+// (ADR-0085), so refusing an answer nothing identified made a question the
+// assistant had just asked an identified person unanswerable; the household
+// chose to accept that anyone already in the room can answer one asked aloud
+// in it, a lock included (ADR-0087). Alice, who is enrolled, is still
+// refused -- TestAlicesYesDoesNotUnlockWhatAlanAsked.
 //
 // verifies SPEC §5, §6
-func TestAGuestsYesDoesNotUnlockTheFrontDoor(t *testing.T) {
-	heard := someoneElseSaysYes(t, stranger, journal.RefusedGuest)
-	var who []string
-	for _, e := range heard {
-		who = append(who, e.Fields["speaker_id"]+"/"+e.Fields["speaker_match"])
+func TestAGuestsYesInTheRoomUnlocksTheFrontDoor(t *testing.T) {
+	const (
+		unlock   = `{"domain":"lock","service":"unlock","entity_id":"lock.front_door"}`
+		question = "Unlock the front door?"
+		answer   = "Done, the front door is unlocked."
+	)
+	ha := &homeAssistant{}
+	client, err := hass.New(hass.Config{
+		BaseURL: "http://homeassistant.invalid:8123", Token: "ha-test-token",
+		HTTP: &http.Client{Transport: ha},
+	})
+	if err != nil {
+		t.Fatalf("hass: %v", err)
 	}
-	if want := []string{"alan/identified", "/below_threshold", "alan/identified"}; !slices.Equal(who, want) {
-		t.Errorf("utterances = %q, want %q", who, want)
+	emb := newEmbedder()
+	r := newRig(t, inventory(), func(d *deps) {
+		d.engine = &scriptEngine{decide: askerEngine(unlock, question, answer)}
+		d.tools = hass.Tools(client)
+		d.speakers = alanAndAlice(t, emb)
+		d.household = []string{"alan", "alice"}
+	})
+	r.emb = emb
+	dev := r.join(t, kitchenIP)
+
+	dev.SendWake(t, "hey_eddie")
+	r.utter(t, dev, r.line("unlock the front door", alan))
+	dev.AwaitTTS(t, 2*len(question))
+	dev.PlayAll(t)
+	r.spoken(t, "kitchen", 1)
+
+	r.utter(t, dev, r.line("yes", stranger))
+	dev.AwaitTTS(t, 2*len(question)+2*len(answer))
+	dev.PlayAll(t)
+	r.store.awaitKind(t, journal.KindSpeechSpoken, 2)
+
+	if got := ha.paths(); len(got) != 1 || got[0] != "POST /api/services/lock/unlock" {
+		t.Fatalf("home assistant was asked %q, want the front door unlocked once on the answer in the room", got)
+	}
+	// Redeemed on the first try, so the nonce was never refused.
+	if refused := r.store.ofKind(journal.KindConfirmationRequested); len(refused) != 1 {
+		t.Errorf("confirmation_requested = %v, want one nonce handed out and redeemed", refused)
+	}
+	given := r.store.ofKind(journal.KindConfirmationGiven)
+	if len(given) != 1 {
+		t.Errorf("confirmation_given = %v, want the guest's yes to redeem it", given)
 	}
 }
 

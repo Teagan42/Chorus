@@ -1303,3 +1303,57 @@ func TestAnUtteranceCutBeforeItPlayedNeverStarts(t *testing.T) {
 		t.Error("an utterance nobody heard reported a start")
 	}
 }
+
+// A resampler and a mixer cannot report their input rate exactly: the last
+// partial output block never flushes back into the count. Measured on a Voice
+// PE 2026-10-13, every utterance landed 7 or 8 frames short of the end, so
+// nothing was ever confirmed, speak answered the model with an error, and it
+// said everything twice or three times. What the chain loses is fully spoken;
+// anything more is a truncation (ADR-0093).
+//
+// verifies SPEC §3.2.1
+func TestWhatTheChainLosesIsFullySpoken(t *testing.T) {
+	const text = "the garage door is open"
+	frames := uint64(len(text) * framesPerByte)
+
+	for _, tc := range []struct {
+		name      string
+		played    uint64
+		truncated bool
+	}{
+		{"all of it", frames, false},
+		{"eight frames short, as the chain reports", frames - 8, false},
+		{"a word short, which is a truncation", frames - 4*framesPerByte, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t)
+			st, _ := r.open(t, "call-1")
+			if err := st.Write(text); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			r.dev.AwaitTTS(t, int(frames)*2)
+			r.play(t, tc.played)
+
+			done := closeAsync(st)
+			r.dev.AwaitFinish(t, 1)
+			if tc.truncated {
+				// Nothing more is coming, so the drain has to expire.
+				r.drain <- time.Now()
+			}
+			pb := await(t, done)
+
+			if pb.Truncated != tc.truncated {
+				t.Errorf("Truncated = %v, want %v (device confirmed %d of %d)",
+					pb.Truncated, tc.truncated, tc.played, frames)
+			}
+			if !tc.truncated {
+				if pb.Spoken != text {
+					t.Errorf("Spoken = %q, want the whole utterance", pb.Spoken)
+				}
+				if pb.Failure != nil {
+					t.Errorf("Failure = %v, want none: the model must not be told to say it again", pb.Failure)
+				}
+			}
+		})
+	}
+}

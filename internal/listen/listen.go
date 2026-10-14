@@ -100,6 +100,16 @@ type Config struct {
 	// the listener's goroutines, which end with the link.
 	Endpointer Endpointer
 
+	// SpeechEnergy is this satellite's speech level, the same one its
+	// endpointer gates on (ADR-0083). Zero takes DefaultSpeechEnergy.
+	SpeechEnergy float64
+
+	// MinSustained is how briefly an utterance may hold that level before
+	// its shape is questioned (ADR-0090). Zero takes DefaultMinSustained; a
+	// negative value believes every decode, which is what a test wanting a
+	// click to become a turn asks for.
+	MinSustained int
+
 	// Clock stamps when each utterance's speech stopped, where the wait for
 	// an answer starts (ADR-0035). Nil leaves the ask without that time, and
 	// its turn records no wait.
@@ -197,6 +207,12 @@ func Open(ctx context.Context, cfg Config) (*Listener, error) {
 	}
 	if cfg.Endpointer == nil {
 		cfg.Endpointer = NewEnergy()
+	}
+	if cfg.SpeechEnergy == 0 {
+		cfg.SpeechEnergy = DefaultSpeechEnergy
+	}
+	if cfg.MinSustained == 0 {
+		cfg.MinSustained = DefaultMinSustained
 	}
 	if cfg.WakeWindow <= 0 {
 		cfg.WakeWindow = DefaultWakeWindow
@@ -414,6 +430,7 @@ func (l *Listener) startLocked(pcm []byte) {
 		ticket: make(chan struct{}), ended: make(chan struct{}), aborted: make(chan struct{}),
 	}
 	u.overhearing = !l.woken && !l.confirming && !l.liveLocked()
+	u.overSpeech = l.speakingLocked()
 	// The wake is spent on this utterance, whatever becomes of it. A wake that
 	// a mute lands on is lost with it; the user muted the house.
 	l.confirming = l.confirming || u.first
@@ -827,6 +844,12 @@ type utterance struct {
 	// a hot phrase that silences it is taken, and the rest is not kept.
 	overhearing bool
 
+	// overSpeech marks that the device was playing while this utterance was
+	// open. Sampled as it opens and again on every candidate, because the
+	// decode lands after it ended and the answer it talked over may have
+	// finished by then (ADR-0089).
+	overSpeech bool
+
 	prev    <-chan struct{}
 	ticket  chan struct{}
 	ended   chan struct{}
@@ -929,6 +952,9 @@ func (l *Listener) candidate(u *utterance, r stt.Result) {
 		sess = l.announcingLocked()
 	}
 	l.mu.Unlock()
+	if sess != nil && slices.Contains(sess.Children(), "speaking") {
+		u.overSpeech = true
+	}
 	if sess == nil || !offered(sess.Children(), session.Hot(r.Text), u.overhearing) {
 		return
 	}
@@ -1009,6 +1035,14 @@ func (l *Listener) complete(u *utterance) {
 	l.cfg.Indicator.Recover(session.FaultEar)
 	pcm, _ := u.snapshot()
 	second := u.seconds()
+	// A loud transient is not speech, whatever the ear read in it: a mouse
+	// click became "Yeah." and nearly answered a held confirmation. Judged
+	// on its shape and not its length -- a quiet one-word answer is as brief
+	// as a click and is a voice (ADR-0090). Treated as silence.
+	if res.Text != "" && l.cfg.MinSustained >= 0 && Impulsive(pcm, l.cfg.SpeechEnergy, l.cfg.MinSustained) {
+		l.warn("decoded words from an impulse, not a voice", fmt.Errorf("%q over %d ms of speech", res.Text, 1000*Sustained(pcm, l.cfg.SpeechEnergy)/bytesPerSecond))
+		res.Text = ""
+	}
 	if res.Text == "" {
 		// Silence is not a request; after a wake it is a false accept.
 		if u.first {
@@ -1017,6 +1051,13 @@ func (l *Listener) complete(u *utterance) {
 		return
 	}
 	out := l.resolve(pcm)
+	if !u.first {
+		// A turn inside a session need not re-earn the speaker: too little
+		// voice to judge leaves whoever was speaking speaking (ADR-0085).
+		// The first utterance is exempt -- a wake is confirmed against an
+		// enrolled voice or not at all (SPEC §9.3).
+		out = unjudged(out, pcm, l.sessionSpeaker())
+	}
 	if u.first {
 		ok := l.confirm(pcm, second, out, u.word)
 		// The turn that follows is the session's, not the wake's to confirm.
@@ -1049,6 +1090,15 @@ func (l *Listener) complete(u *utterance) {
 	if sess == nil {
 		// Ended between this utterance and its turn; what it said is lost,
 		// which is what a session the model closed means.
+		return
+	}
+	if echoed(u, out) {
+		// The device's own voice, back through its microphone. Measured
+		// 2026-10-13: the echo and a household's speech arrive at the same
+		// level on the AGC'd channel -- -19.2 against -18.8 dBFS -- so
+		// nothing about the audio separates them and only the speaker does
+		// (ADR-0089).
+		l.warn("speech while speaking that nobody in the household owns", fmt.Errorf("%q as %s", res.Text, out.Reason))
 		return
 	}
 	err = sess.Heard(l.ctx, session.Transcript{
@@ -1260,4 +1310,72 @@ func (l *Listener) storeSecond(key string, pcm []byte) string {
 
 func (l *Listener) warn(what string, err error) {
 	l.log.Warn(what, "satellite", l.cfg.Satellite, "err", err)
+}
+
+// unjudged turns a below-threshold verdict on too little voice into no
+// verdict at all, so journal.Attribute leaves the session's speaker as it
+// found them instead of making the turn a guest's.
+//
+// Real requests are short -- "is the front door locked" is under two seconds
+// of speech -- and a score from that much audio ranks its speaker first while
+// landing well under any threshold: measured 2026-10-13, a household's own
+// commands scored 0.45 to 0.63 at 1.4 to 2.8 s and 0.72 to 0.89 at four
+// seconds and over. Below identity.MinVoicedSamples the number is not
+// evidence either way, and treating it as evidence against the person is what
+// made a conversation fall out of attribution halfway through.
+//
+// Only BelowThreshold is converted. Ambiguous judged the voice and found two
+// people too close to choose between, which is a verdict and stays one.
+func unjudged(out identity.Outcome, pcm []byte, speaker string) identity.Outcome {
+	if out.Reason != identity.BelowThreshold {
+		return out
+	}
+	if len(identity.TrimSilence(pcm))/2 >= identity.MinVoicedSamples {
+		return out
+	}
+	// The score is not evidence, but the ranking still is: a household's own
+	// short command ranked them first by 0.18 to 0.63 over the next person.
+	// A guest chiming in, or a television, does not lead the person whose
+	// session it is -- which is the whole of what keeps this from handing a
+	// conversation to whoever speaks briefly in the room (ADR-0049).
+	if speaker == "" || out.Nearest != speaker || !out.Leads {
+		return out
+	}
+	out.Reason, out.PersonID = identity.TooShort, ""
+	return out
+}
+
+// sessionSpeaker is who the live session is attributed to, empty when there
+// is none or it is a guest's.
+func (l *Listener) sessionSpeaker() string {
+	if sess := l.Session(); sess != nil {
+		return sess.Speaker()
+	}
+	return ""
+}
+
+// echoed reports an utterance arriving while the device is playing that no
+// household voice owns: the assistant's own speech returning through the
+// microphone, which it answered as a guest and then answered again.
+//
+// Only the speaker tells the two apart. On the channel the bridge sends, the
+// AGC brings the echo and a person to the same level, length and crest, so no
+// threshold separates them (ADR-0089). An identified voice barges in as
+// before, and so does one the ranking put with the session's own speaker
+// (ADR-0085), which a synthesised voice does not reach.
+func echoed(u *utterance, out identity.Outcome) bool {
+	switch out.Reason {
+	case identity.Identified, identity.TooShort:
+		return false
+	}
+	return u.overSpeech
+}
+
+// speakingLocked reports that the live session is playing speech. Held under
+// l.mu, as liveLocked is.
+func (l *Listener) speakingLocked() bool {
+	if !l.liveLocked() {
+		return false
+	}
+	return slices.Contains(l.sess.Children(), "speaking")
 }

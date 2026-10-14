@@ -256,7 +256,7 @@ func TestBargeInGateSkipsTheSpeakerStageOnlyWithoutSpeakerID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("providers with speaker id: %v", err)
 	}
-	gate := with.bargeInGate()
+	gate := with.bargeInGate(0)
 	if gate.SpeakerIDUnavailable {
 		t.Error("the speaker stage is skipped with " + speakerIDURLEnv + " set")
 	}
@@ -270,10 +270,10 @@ func TestBargeInGateSkipsTheSpeakerStageOnlyWithoutSpeakerID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("providers without speaker id: %v", err)
 	}
-	if gate := without.bargeInGate(); !gate.SpeakerIDUnavailable {
+	if gate := without.bargeInGate(0); !gate.SpeakerIDUnavailable {
 		t.Error("the speaker stage runs with " + speakerIDURLEnv + " unset, so nothing could barge in")
 	}
-	if with.bargeInGate().MinEnergy != without.bargeInGate().MinEnergy || with.bargeInGate().MinWords != without.bargeInGate().MinWords {
+	if with.bargeInGate(0).MinEnergy != without.bargeInGate(0).MinEnergy || with.bargeInGate(0).MinWords != without.bargeInGate(0).MinWords {
 		t.Error("the other stages changed with the speaker mode; only the speaker stage may")
 	}
 }

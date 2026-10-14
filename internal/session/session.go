@@ -60,8 +60,20 @@ type Config struct {
 	// and scoping (ADR-0011).
 	Specs map[string]registry.ToolSpec
 
-	Gate    Gate
-	Silence time.Duration
+	Gate Gate
+
+	// SkipConfirmation runs a held call as written instead of asking for the
+	// person's yes. False, the zero value, holds it as ADR-0038 has it: the
+	// safe default is the one nobody configured.
+	//
+	// A household turns it off when the asking cannot work. Measured
+	// 2026-10-13, a nonce expires once more than one thing has been said
+	// since it was handed out, and a turn on qwen3:14b takes 3.5 to 5.7 s
+	// with thinking on, so the person answers, says something else, and the
+	// model re-calls with a nonce that died in between -- permanently one
+	// behind, converging never (ADR-0091).
+	SkipConfirmation bool
+	Silence          time.Duration
 
 	// Rooms is where each satellite stands, by its name, as the inventory
 	// says: recorded when a session opens there, and told to every turn so
@@ -325,6 +337,14 @@ func (sup *Supervisor) open(ctx context.Context, w Wake, announced bool) (*Sessi
 
 // ConversationID is the person's conversation, not the device's stream.
 func (s *Session) ConversationID() string { return s.convID }
+
+// Speaker is who the session is currently attributed to, empty for a guest's.
+// Read under the lock: an utterance reattributes it mid-session (SPEC §5).
+func (s *Session) Speaker() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.person
+}
 
 // Resumed reports that this wake word rejoined an existing conversation.
 func (s *Session) Resumed() bool { return s.resumed }
@@ -773,7 +793,8 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 		}
 		// A presented nonce goes to the log whatever the target is now: its
 		// class may have changed since the question was asked.
-		held := args.Nonce != "" || spec.NeedsConfirmationFor(args.Rest, s.target(ctx, tc.Tool, args.Rest, spec.Timeout))
+		held := !s.sup.cfg.SkipConfirmation &&
+			(args.Nonce != "" || spec.NeedsConfirmationFor(args.Rest, s.target(ctx, tc.Tool, args.Rest, spec.Timeout)))
 		if held && !s.confirmed(tc, args) {
 			return
 		}
@@ -855,6 +876,13 @@ func (s *Session) confirmed(tc ToolCall, args registry.Orchestrated) bool {
 			}
 			return true
 		}
+	}
+
+	// A model that will not echo the nonce it was handed would be asked
+	// forever, and the household is answering into a loop (ADR-0086).
+	if st, err := s.State(context.WithoutCancel(s.ctx)); err == nil && st.HeldTries(tc.Tool, args.Rest) >= journal.MaxHeldTries {
+		s.result(tc.ID, "error", `{"error":"confirmation_not_reached","note":"Not done. This call has been held for a yes too many times without one being redeemed. Stop calling it and tell the person it did not go through."}`)
+		return false
 	}
 
 	fresh := "cf_" + newID()[:8]

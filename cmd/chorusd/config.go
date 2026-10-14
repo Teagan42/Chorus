@@ -58,6 +58,10 @@ const (
 	// clear while the absolute score fell under the 0.70 default (ADR-0084).
 	speakerAcceptEnv = "CHORUS_SPEAKER_ACCEPT"
 
+	// confirmEnv turns the person's yes off for calls that would be held.
+	// "on" or unset holds them; "off" runs them as written (ADR-0091).
+	confirmEnv = "CHORUS_CONFIRM"
+
 	// The voice's and the ear's providers, and the endpoints of the ones
 	// that are not the defaults (ADR-0081). Kokoro's and speaches' are
 	// above.
@@ -126,6 +130,9 @@ type Config struct {
 	// SpeakerAccept is the accept threshold as written; speakerAccept parses it.
 	SpeakerAccept string
 
+	// Confirm is CHORUS_CONFIRM as written; skipConfirmation parses it.
+	Confirm string
+
 	// TTSProvider is the voice: kokoro, openai or wyoming (ADR-0081).
 	TTSProvider     string
 	OpenAITTSURL    string
@@ -177,6 +184,7 @@ func configFromEnv(getenv func(string) string) Config {
 		VLLMAPIKey:    getenv(vllmKeyEnv),
 		VLLMThinking:  getenv(vllmThinkingEnv),
 		SpeakerAccept: getenv(speakerAcceptEnv),
+		Confirm:       getenv(confirmEnv),
 		KokoroURL:     getenv(kokoroURLEnv),
 		STTURL:        getenv(sttURLEnv),
 
@@ -313,6 +321,9 @@ func (c Config) validate() error {
 	if _, err := c.speakerAccept(); err != nil {
 		missing = append(missing, fmt.Sprintf("  %-20s %v", speakerAcceptEnv, err))
 	}
+	if _, err := c.skipConfirmation(); err != nil {
+		missing = append(missing, fmt.Sprintf("  %-20s %v", confirmEnv, err))
+	}
 	for _, r := range required {
 		if r.value == "" {
 			missing = append(missing, fmt.Sprintf("  %-20s %s", r.name, r.purpose))
@@ -356,7 +367,10 @@ type providers struct {
 	speakers  listen.Speakers
 	judge     listen.Judge
 	household []string
-	tools     map[string]session.Tool
+	// skipConfirm runs a held call as written, for a household that turned
+	// the yes off (ADR-0091).
+	skipConfirm bool
+	tools       map[string]session.Tool
 	// specs is what the session enforces policy from: the registry's, and
 	// any provided tools'. Nil is the registry's alone.
 	specs map[string]registry.ToolSpec
@@ -457,6 +471,12 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 	if extra != nil {
 		maps.Copy(p.tools, extra.Tools())
 	}
+	skip, err := cfg.skipConfirmation()
+	if err != nil {
+		return providers{}, err
+	}
+	p.skipConfirm = skip
+
 	return p, nil
 }
 
@@ -541,4 +561,17 @@ func (c Config) speakerAccept() (float64, error) {
 		return 0, fmt.Errorf("%v is not a cosine between 0 and 1", v)
 	}
 	return v, nil
+}
+
+// skipConfirmation reads CHORUS_CONFIRM: unset or "on" holds a call for the
+// person's yes, "off" runs it as written. Anything else is refused rather
+// than guessed, because guessing wrong on this one runs an unasked-for call.
+func (c Config) skipConfirmation() (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(c.Confirm)) {
+	case "", "on", "true", "yes":
+		return false, nil
+	case "off", "false", "no":
+		return true, nil
+	}
+	return false, fmt.Errorf("%q is not on or off", c.Confirm)
 }
