@@ -104,10 +104,10 @@ type Config struct {
 	// endpointer gates on (ADR-0083). Zero takes DefaultSpeechEnergy.
 	SpeechEnergy float64
 
-	// MinSustained is how much of an utterance must hold that level before
-	// its words are believed. Zero takes DefaultMinSustained; a negative
-	// value believes every decode, which is what a test wanting a click to
-	// become a turn asks for.
+	// MinSustained is how briefly an utterance may hold that level before
+	// its shape is questioned (ADR-0090). Zero takes DefaultMinSustained; a
+	// negative value believes every decode, which is what a test wanting a
+	// click to become a turn asks for.
 	MinSustained int
 
 	// Clock stamps when each utterance's speech stopped, where the wait for
@@ -1036,10 +1036,11 @@ func (l *Listener) complete(u *utterance) {
 	pcm, _ := u.snapshot()
 	second := u.seconds()
 	// A loud transient is not speech, whatever the ear read in it: a mouse
-	// click became "Yeah." and nearly answered a held confirmation
-	// (ADR-0086). Treated as silence, which is what it is.
-	if res.Text != "" && Sustained(pcm, l.cfg.SpeechEnergy) < l.cfg.MinSustained {
-		l.warn("decoded words from too little speech to believe", fmt.Errorf("%q over %d ms of speech", res.Text, 1000*Sustained(pcm, l.cfg.SpeechEnergy)/bytesPerSecond))
+	// click became "Yeah." and nearly answered a held confirmation. Judged
+	// on its shape and not its length -- a quiet one-word answer is as brief
+	// as a click and is a voice (ADR-0090). Treated as silence.
+	if res.Text != "" && l.cfg.MinSustained >= 0 && Impulsive(pcm, l.cfg.SpeechEnergy, l.cfg.MinSustained) {
+		l.warn("decoded words from an impulse, not a voice", fmt.Errorf("%q over %d ms of speech", res.Text, 1000*Sustained(pcm, l.cfg.SpeechEnergy)/bytesPerSecond))
 		res.Text = ""
 	}
 	if res.Text == "" {
