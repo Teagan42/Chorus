@@ -60,8 +60,20 @@ type Config struct {
 	// and scoping (ADR-0011).
 	Specs map[string]registry.ToolSpec
 
-	Gate    Gate
-	Silence time.Duration
+	Gate Gate
+
+	// SkipConfirmation runs a held call as written instead of asking for the
+	// person's yes. False, the zero value, holds it as ADR-0038 has it: the
+	// safe default is the one nobody configured.
+	//
+	// A household turns it off when the asking cannot work. Measured
+	// 2026-10-13, a nonce expires once more than one thing has been said
+	// since it was handed out, and a turn on qwen3:14b takes 3.5 to 5.7 s
+	// with thinking on, so the person answers, says something else, and the
+	// model re-calls with a nonce that died in between -- permanently one
+	// behind, converging never (ADR-0091).
+	SkipConfirmation bool
+	Silence          time.Duration
 
 	// Rooms is where each satellite stands, by its name, as the inventory
 	// says: recorded when a session opens there, and told to every turn so
@@ -781,7 +793,8 @@ func (s *Session) dispatch(ctx context.Context, wg *sync.WaitGroup, tc ToolCall)
 		}
 		// A presented nonce goes to the log whatever the target is now: its
 		// class may have changed since the question was asked.
-		held := args.Nonce != "" || spec.NeedsConfirmationFor(args.Rest, s.target(ctx, tc.Tool, args.Rest, spec.Timeout))
+		held := !s.sup.cfg.SkipConfirmation &&
+			(args.Nonce != "" || spec.NeedsConfirmationFor(args.Rest, s.target(ctx, tc.Tool, args.Rest, spec.Timeout)))
 		if held && !s.confirmed(tc, args) {
 			return
 		}

@@ -524,7 +524,8 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 		Journal: d.journal, Store: d.Store, Clock: d.Clock, Timers: d.Timers,
 		Engine: d.engine, Speaker: speaker, Conversations: d.convs,
 		Tools: d.tools, Specs: d.specs, Gate: d.bargeInGate(sat.SpeechEnergy), Memories: d.memories, Rooms: d.rooms,
-		Summarizer: d.summarizer, Summarizing: &d.wg, Log: log,
+		SkipConfirmation: d.skipConfirm,
+		Summarizer:       d.summarizer, Summarizing: &d.wg, Log: log,
 		Ring: d.panels[sat.Name],
 	})
 	if err != nil {

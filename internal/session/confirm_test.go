@@ -511,3 +511,28 @@ func TestAGuestsYesInTheRoomCounts(t *testing.T) {
 		t.Errorf("the answer was held again: %+v", c)
 	}
 }
+
+// With the yes turned off, a call that would be held runs as written and no
+// nonce is handed out. A household turns it off when the asking cannot work:
+// a nonce expires once more than one thing has been said since it was handed
+// out, and a model slower than the household's answer is permanently one
+// nonce behind (ADR-0091).
+//
+// verifies SPEC §6
+func TestWithTheYesTurnedOffAHeldCallRuns(t *testing.T) {
+	lock := &lockTool{}
+	m := &model{answer: askerModel()}
+	r := newRigWith(t, nil, map[string]session.Tool{"ha_call_service": lock}, nil, func(c *session.Config) {
+		c.Engine = m
+		c.SkipConfirmation = true
+	})
+	s := r.open(t, "teagan")
+
+	wait(t, voiced(s, "unlock the front door", "teagan", "identified"))
+	if got := lock.calls(); len(got) != 1 || !strings.Contains(got[0], `"lock.front_door"`) {
+		t.Fatalf("the lock was sent %q, want the front door once with no yes asked for", got)
+	}
+	if held := r.state(t, s.ConversationID()).Confirmations; len(held) != 0 {
+		t.Errorf("confirmations = %v, want none handed out", held)
+	}
+}
