@@ -323,6 +323,7 @@ internal/
 schema/                 CUE source of truth
   json/                 generated JSON Schema (do not edit)
 sidecars/               Python model services (uv workspace): speakerid, smartturn
+  kokoromlx/            Kokoro on MLX; its own project and lockfile (ADR-0092)
 esphome/                chorus_bridge external component + YAML packages
   test/                 the handshake and sealing host test (`task firmware:test`)
 hardware/               satellite PCB sources; pins.yaml is the net-name source of truth

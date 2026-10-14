@@ -180,6 +180,24 @@ tasks:
     cmds:
       - docker compose stop kokoro
 
+  tts:serve:
+    desc: Serve the same TTS endpoint from MLX on 127.0.0.1:8880, Apple Silicon only. First run fetches ~340 MB into .models/.
+    cmds:
+      # Its own project, not a workspace member, so spacy and torch stay out
+      # of everyone else's environment (ADR-0092).
+      - uv run --project sidecars/kokoromlx kokoromlx --download-only --model-dir .models/kokoromlx
+      - uv run --project sidecars/kokoromlx kokoromlx --model-dir .models/kokoromlx --host 127.0.0.1 --port 8880
+
+  kokoromlx:test:
+    desc: The MLX TTS sidecar's own tests, against the real weights on this Mac's GPU. Apple Silicon only, so not part of `task test:sidecars`.
+    cmds:
+      - uv run ruff check sidecars/kokoromlx
+      - uv run ruff format --check sidecars/kokoromlx
+      - uv run --project sidecars/kokoromlx kokoromlx --download-only --model-dir .models/kokoromlx
+      - uv run --project sidecars/kokoromlx pytest sidecars/kokoromlx
+    env:
+      KOKOROMLX_MODEL_DIR: .models/kokoromlx
+
   stt:up:
     desc: Start the local STT sidecar and download Parakeet into it
     cmds:
@@ -254,7 +272,9 @@ tasks:
       # is kept only if its digest matches, so a cached .models costs nothing.
       - uv run --package speakerid speakerid --download-only --model-dir .models/speakerid
       - uv run --package smartturn smartturn --download-only --model-dir .models/smartturn
-      - uv run pytest sidecars
+      # The workspace's testpaths, not `sidecars`: kokoromlx is neither in this
+      # environment nor runnable on CI's Linux (ADR-0092).
+      - uv run pytest
     env:
       SPEAKERID_MODEL_DIR: .models/speakerid
       SMARTTURN_MODEL_DIR: .models/smartturn
