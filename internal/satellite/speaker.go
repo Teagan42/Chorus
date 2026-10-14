@@ -504,7 +504,7 @@ func (s *stream) Close() session.Playback {
 		// device has drained what it was sent, or it reported nothing for the
 		// whole drain window, so there is nothing in flight to wait for.
 		_, _ = s.sat.cfg.Link.Stop()
-		failure = failureOf(failed)
+		failure = failureOf(failed, played, total, rendered(segs))
 	}
 	spoken, unspoken := split(segs, played)
 	return session.Playback{
@@ -517,11 +517,18 @@ func (s *stream) Close() session.Playback {
 // feeder stopped on an error, else a device that never confirmed the end.
 // Neither is the person interrupting, and the session must not record either
 // as one (ADR-0051).
-func failureOf(failed error) error {
+//
+// The counts ride the unconfirmed error. Whether the device stopped a few
+// frames short of the end or never came close is the difference between a
+// frame-accounting fault and a drain that was simply too short to wait, and
+// without them the log says only that it did not arrive.
+func failureOf(failed error, played, total uint64, rendered bool) error {
 	if failed != nil {
 		return fmt.Errorf("%w: %w", session.ErrVoiceUnavailable, failed)
 	}
-	return session.ErrPlaybackUnconfirmed
+	return fmt.Errorf("%w: device confirmed %d of %d frames (%.0f ms short, rendered=%t)",
+		session.ErrPlaybackUnconfirmed, played, total,
+		1000*(float64(total)-float64(played))/bridge.SampleRate, rendered)
 }
 
 // keepAudio publishes the utterance's audio, or discards it when no event will
