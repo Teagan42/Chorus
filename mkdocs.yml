@@ -38,6 +38,7 @@ extra:
       esphome/README.md: esphome.md
       sidecars/speakerid/README.md: speakerid.md
       sidecars/smartturn/README.md: smartturn.md
+      sidecars/kokoromlx/README.md: kokoromlx.md
       CHANGELOG.md: changelog.md
 
 nav:
@@ -61,6 +62,7 @@ nav:
       - Bridge protocol: esphome.md
       - Speaker-ID sidecar: speakerid.md
       - Smart Turn sidecar: smartturn.md
+      - MLX TTS sidecar: kokoromlx.md
   - Contributing: contributing.md
   - Changelog: changelog.md
 

@@ -51,7 +51,7 @@ household voice. What exists today:
 | `cmd/probe` — connect to a satellite and dump what it exposes | works |
 | LLM — `internal/provider/ollama`, the turn engine | dials a real endpoint; asked again with each tool result and the conversation so far |
 | LLM — `internal/provider/vllm`, the turn engine on vLLM with `CHORUS_LLM_PROVIDER=vllm`: each call dispatched as its arguments close, each speak call's words streamed as they arrive (ADR-0077) | under test against streams in vLLM's shape and through the daemon; not yet run against a real vLLM server |
-| TTS — `internal/provider/kokoro`, resampled to the device's rate | dials a real endpoint |
+| TTS — `internal/provider/kokoro`, resampled to the device's rate | dials a real endpoint; `sidecars/kokoromlx` serves the same contract from the GPU on Apple Silicon, a clause in 0.21 s (ADR-0092) |
 | STT — `internal/stt` partials over `internal/provider/speaches` | measured against real Parakeet TDT 0.6B v2 on CPU |
 | TTS and STT — `internal/provider/openai` and `internal/provider/wyoming`, with `CHORUS_TTS_PROVIDER` / `CHORUS_STT_PROVIDER`: any server with OpenAI's audio API, or Home Assistant's Wyoming piper and whisper, resampled to the device's rate by `internal/provider/pcm` (ADR-0081) | under test against servers in their shape; not yet run against a real one |
 | speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX) | thresholds measured on 37 speakers; sidecar runs without Docker |
@@ -243,7 +243,9 @@ and PSK.
 
 The model services start locally one task each: `task stt:up`, `task tts:up`,
 `task speakerid:up` and `task smartturn:up` (or `task speakerid:serve` and
-`task smartturn:serve` without Docker). Ollama is yours to run.
+`task smartturn:serve` without Docker). On an Apple Silicon Mac `task
+tts:serve` renders the voice on the GPU instead, a clause in 0.21 s against the
+CPU image's 0.56-0.92 (ADR-0092). Ollama is yours to run.
 `CHORUS_TTS_PROVIDER` and `CHORUS_STT_PROVIDER` swap Kokoro and speaches for
 any server with OpenAI's audio API or Home Assistant's Wyoming piper and
 whisper (ADR-0081); `.env.example` lists each one's variables.

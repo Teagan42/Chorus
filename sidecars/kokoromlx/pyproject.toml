@@ -1,0 +1,37 @@
+[project]
+name = "kokoromlx"
+version = "0.1.0"
+description = "Speech over HTTP for Chorus: Kokoro-82M on MLX behind POST /v1/audio/speech (SPEC §10)"
+# Upstream caps itself below 3.13. It runs there anyway, but this project has
+# its own lockfile and uv fetches the interpreter, so the declared range costs
+# nothing to honour.
+requires-python = ">=3.12,<3.13"
+# Exact pins, like the other sidecars. kokoro-mlx is inference code only; the
+# weights are a separate pin in voice.py.
+dependencies = [
+  "fastapi==0.142.4",
+  "uvicorn==0.54.0",
+  "numpy==2.5.3",
+  "kokoro-mlx==0.1.2",
+  # misaki's English G2P fetches this spacy model with uv at first use,
+  # installing into the running environment mid-utterance. Pinned here so
+  # that never happens: the first render must not need the network.
+  "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+]
+
+[project.scripts]
+kokoromlx = "kokoromlx.__main__:main"
+
+[dependency-groups]
+dev = [
+  "pytest==9.1.1",
+  "httpx==0.28.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.32,<0.13"]
+build-backend = "uv_build"
+
+# Its own rootdir, so `pytest` here is not the workspace's run.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
