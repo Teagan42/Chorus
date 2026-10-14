@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.19.0](https://github.com/Teagan42/Chorus/compare/v0.18.0...v0.19.0) (2026-10-14)
+
+
+### Features
+
+* render the voice on Apple Silicon's GPU via an MLX sidecar ([#126](https://github.com/Teagan42/Chorus/issues/126)) ([b5ffd1c](https://github.com/Teagan42/Chorus/commit/b5ffd1cd1fa5778b828684fd39f755c2b083a5db))
+* speaker ID that works on a Voice PE's own audio ([#124](https://github.com/Teagan42/Chorus/issues/124)) ([c96b35c](https://github.com/Teagan42/Chorus/commit/c96b35ce4b282c5f33c4952d3f60f0ef4334caa3))
+
+
+### Bug Fixes
+
+* a Voice PE that answers once, and only to the room ([#127](https://github.com/Teagan42/Chorus/issues/127)) ([79bdc15](https://github.com/Teagan42/Chorus/commit/79bdc157a7743933f1241d02f28a22f2724b403b))
+
 ## [0.18.0](https://github.com/Teagan42/Chorus/compare/v0.17.0...v0.18.0) (2026-10-13)
 
 
