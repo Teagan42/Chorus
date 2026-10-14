@@ -56,6 +56,22 @@ func paceFor(n int) time.Duration {
 // DefaultDrain bounds the wait for the DAC to confirm a finished utterance.
 const DefaultDrain = 10 * time.Second
 
+// playedSlack is how far short of the end the device's own count may fall and
+// the utterance still count as fully played, in frames.
+//
+// A resampler and a mixer cannot report their input rate exactly: the last
+// partial output block never flushes back into the count. Measured on a Voice
+// PE 2026-10-13, whose chain converts 16 kHz up to 48 kHz, every utterance
+// landed 7 or 8 frames short -- 43482 of 43490, 125532 of 125539, 91303 of
+// 91311 -- so nothing was ever confirmed, speak answered the model with an
+// error, and it said everything twice or three times (ADR-0093).
+//
+// The measured figure, with no margin added. A wider one would swallow a
+// real truncation: the host cannot tell a chain that lost its last block
+// from a device that stopped a hair early, so it tolerates exactly what the
+// chain was measured to lose and nothing more.
+const playedSlack = 8
+
 // DefaultSettle bounds the wait for the device's answer to a stop. Short
 // because it only delays the journal record, not the silence: the stop has
 // already gone out by then. The device answers every stop, so this expires
@@ -491,7 +507,7 @@ func (s *stream) Close() session.Playback {
 	// rendered test is not redundant: a delta cut before synthesis adds no
 	// frames, so without it an utterance whose tail never reached the
 	// synthesiser would report as fully spoken.
-	if played >= total && rendered(segs) {
+	if played+playedSlack >= total && rendered(segs) {
 		// Clamped: a device that over-reports must not invent spoken text, and
 		// the frame count the journal carries is this utterance's own audio.
 		return session.Playback{Spoken: allText(segs), AudioRef: ref, Frames: int64(total)}
@@ -600,7 +616,7 @@ func (s *stream) awaitDrain() bool {
 		total := s.total
 		s.mu.Unlock()
 		played, changed := s.sat.position()
-		if played-min(played, s.base) >= total {
+		if played-min(played, s.base)+playedSlack >= total {
 			return true
 		}
 		select {

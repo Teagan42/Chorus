@@ -116,5 +116,7 @@ record numbered 0057 was ever committed or dropped.
 
 | [0091](0091-the-yes-can-be-turned-off-because-the-nonce-dies-faster-than-the-model-answers.md) | Refines 0038: `CHORUS_CONFIRM=off` runs a held call as written, because the nonce expires once more than one thing has been said since it was issued and a qwen3:14b turn takes 3.5 to 5.7 s -- so the household answers, speaks again, and the model re-calls with a nonce that died in between, permanently one behind. 0086's cap bounds that into failure rather than success. Unset still holds, an unreadable value is refused, and the expiry rule is left alone because widening it allows redeeming a yes the person has talked past | §6, §13 |
 
+| [0093](0093-what-the-audio-chain-loses-counts-as-fully-played.md) | Refines 0033: the device's frame count may fall up to `playedSlack` short and still be fully played, because the Voice PE's 16 kHz-to-48 kHz resampler and mixer never flush their last partial block -- every utterance landed 7 or 8 frames short, so `speak` always answered the model with an error and it said everything twice or three times. 8 frames, the measured figure with no margin: a wider tolerance swallows a real truncation, and a 2 ms first attempt broke three interruption tests | §3.2.1, §4.4 |
+
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
