@@ -1,6 +1,6 @@
 # 0086. A transient is not speech, and a held call is given up on
 
-- **Status:** accepted · refines [ADR-0038](0038-hold-a-call-for-the-persons-yes-and-redeem-it-from-the-log.md)
+- **Status:** accepted; its sustain floor superseded by [ADR-0090](0090-an-impulse-is-told-from-a-voice-by-its-shape-not-its-length.md), the held-call cap stands · refines [ADR-0038](0038-hold-a-call-for-the-persons-yes-and-redeem-it-from-the-log.md)
 - **Source:** SPEC §4.5, §6 · ADR-0030, ADR-0063, ADR-0083, ADR-0085
 
 One household conversation on 2026-10-13 held `ha_call_service` for a yes

@@ -112,5 +112,7 @@ record numbered 0057 was ever committed or dropped.
 
 | [0089](0089-the-assistants-own-voice-is-not-a-turn.md) | Refines 0049: an utterance no household voice owns that arrived while the device was playing is dropped, because the assistant answered its own speech coming back through the microphone -- the echo measured -19.2 dBFS RMS against a household's -18.8 at the same length and crest, and the pre-AGC channel is 50 dB down for both, so only the speaker separates them; sampled while the utterance is open rather than at decode, since playback may finish first; an identified voice and one `too_short` put with the session's speaker still barge in, a guest over an answer no longer does | §3.1, §4.3 |
 
+| [0090](0090-an-impulse-is-told-from-a-voice-by-its-shape-not-its-length.md) | Supersedes 0086's sustain floor, which compared clicks against sentences and so disbelieved a household's one-word "Yes" at 40 and 60 ms, reintroducing the very loop it fixed. Crest factor separates them and was already in 0086's measurements unused: clicks at 24.3 to 25.5 dB against voices at 13.7 to 20.4, loud and quiet, one word and several. `listen.Impulsive` requires both brief and spiky, since brevity alone catches a quiet word | §4.5, §6 |
+
 SPEC §15, the decisions that cannot be retrofitted, maps to ADRs 0003, 0005,
 0006, 0007, 0011, and 0022. Those six carry the whole phase-1 risk.
