@@ -48,6 +48,20 @@ type Satellite struct {
 	// the default; above 1 nothing scores, which turns the stage off.
 	EchoThreshold float64 `yaml:"echo_threshold"`
 
+	// SpeakerAccept is the cosine below which this satellite's best match
+	// is a guest, overriding CHORUS_SPEAKER_ACCEPT and with it
+	// identity.DefaultAccept. A far-field front end compresses every score
+	// and a close microphone does not, so one global level either refuses
+	// the household on one satellite or admits strangers on the other
+	// (ADR-0084, ADR-0098). Zero takes the house's.
+	SpeakerAccept float64 `yaml:"speaker_accept"`
+
+	// MaxCrest is the peak-to-RMS ratio in dB above which a brief utterance
+	// on this satellite is a click rather than a voice, overriding
+	// listen.DefaultMaxCrest. That default was measured in one room on one
+	// front end (ADR-0090, ADR-0098). Zero takes it.
+	MaxCrest float64 `yaml:"max_crest"`
+
 	// Retention overrides the house's horizons for this satellite's audio
 	// and logs; what it leaves out is the house's (SPEC §8).
 	Retention *Retention `yaml:"retention"`
@@ -120,6 +134,15 @@ func (s *Satellite) validate() error {
 	}
 	if s.EchoThreshold < 0 {
 		return fmt.Errorf("echo_threshold %v is not a score between 0 and 1, or above 1 to turn the echo stage off", s.EchoThreshold)
+	}
+	// At or over full correlation nobody matches; below zero everybody does.
+	if s.SpeakerAccept < 0 || s.SpeakerAccept >= 1 {
+		return fmt.Errorf("speaker_accept %v is not a cosine between 0 and 1", s.SpeakerAccept)
+	}
+	// A sine wave's crest is 3 dB and nothing has less; past 60 dB is one
+	// sample in a silent minute, so neither bound is a room's.
+	if s.MaxCrest < 0 || (s.MaxCrest != 0 && (s.MaxCrest <= 3 || s.MaxCrest > 60)) {
+		return fmt.Errorf("max_crest %v dB is not a peak-to-RMS ratio between 3 and 60", s.MaxCrest)
 	}
 	if s.Retention != nil {
 		if err := s.Retention.parse(); err != nil {

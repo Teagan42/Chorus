@@ -183,8 +183,12 @@ const DefaultMaxCrest = 22.0
 
 // Impulsive reports audio shaped like a transient rather than a voice: a
 // peak far above its own average, holding speech level too briefly to be a
-// word. Both, because either alone catches real speech.
-func Impulsive(pcm []byte, threshold float64, minSustained int) bool {
+// word. Both, because either alone catches real speech. maxCrest is the
+// satellite's own ceiling in dB; zero takes DefaultMaxCrest (ADR-0098).
+func Impulsive(pcm []byte, threshold float64, minSustained int, maxCrest float64) bool {
+	if maxCrest == 0 {
+		maxCrest = DefaultMaxCrest
+	}
 	if len(pcm) < bytesPerFrame {
 		return false
 	}
@@ -195,7 +199,7 @@ func Impulsive(pcm []byte, threshold float64, minSustained int) bool {
 	if mean <= 0 {
 		return false
 	}
-	return 20*math.Log10(peak(pcm)/mean) > DefaultMaxCrest
+	return 20*math.Log10(peak(pcm)/mean) > maxCrest
 }
 
 // peak is the largest absolute sample in pcm, as a fraction of full scale.

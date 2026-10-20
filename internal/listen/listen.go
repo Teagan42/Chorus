@@ -118,6 +118,10 @@ type Config struct {
 	// click to become a turn asks for.
 	MinSustained int
 
+	// MaxCrest is this satellite's click ceiling in dB, the other half of
+	// that test (ADR-0090). Zero takes DefaultMaxCrest (ADR-0098).
+	MaxCrest float64
+
 	// Clock stamps when each utterance's speech stopped, where the wait for
 	// an answer starts (ADR-0035). Nil leaves the ask without that time, and
 	// its turn records no wait.
@@ -1117,7 +1121,7 @@ func (l *Listener) complete(u *utterance) {
 	// click became "Yeah." and nearly answered a held confirmation. Judged
 	// on its shape and not its length -- a quiet one-word answer is as brief
 	// as a click and is a voice (ADR-0090). Treated as silence.
-	if res.Text != "" && l.cfg.MinSustained >= 0 && Impulsive(pcm, l.cfg.SpeechEnergy, l.cfg.MinSustained) {
+	if res.Text != "" && l.cfg.MinSustained >= 0 && Impulsive(pcm, l.cfg.SpeechEnergy, l.cfg.MinSustained, l.cfg.MaxCrest) {
 		l.warn("decoded words from an impulse, not a voice", fmt.Errorf("%q over %d ms of speech", res.Text, 1000*Sustained(pcm, l.cfg.SpeechEnergy)/bytesPerSecond))
 		res.Text = ""
 	}
