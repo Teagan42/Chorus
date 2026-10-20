@@ -20,6 +20,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/teagan42/chorus/internal/evalsuite/evalfake"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/provider/ollama"
+	"github.com/teagan42/chorus/internal/provider/vllm"
 	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/reviewui/household"
 	"github.com/teagan42/chorus/internal/session"
@@ -39,10 +41,16 @@ import (
 // version is set by the release build (-X main.version=...).
 var version = "dev"
 
-// The same endpoint and model chorusd's turn engine and Replay use.
+// The same endpoints and models chorusd's turn engine and Replay use, on
+// whichever provider CHORUS_LLM_PROVIDER names (ADR-0077).
 const (
-	ollamaURLEnv   = "OLLAMA_URL"
-	ollamaModelEnv = "OLLAMA_MODEL"
+	ollamaURLEnv    = "OLLAMA_URL"
+	ollamaModelEnv  = "OLLAMA_MODEL"
+	llmProviderEnv  = "CHORUS_LLM_PROVIDER"
+	vllmURLEnv      = "VLLM_URL"
+	vllmModelEnv    = "VLLM_MODEL"
+	vllmKeyEnv      = "VLLM_API_KEY"
+	vllmThinkingEnv = "VLLM_THINKING"
 )
 
 // Exit codes: a regression is 1, so a gate tells it from a broken setup.
@@ -90,12 +98,12 @@ func openPostgres(ctx context.Context) (journal.Store, curation.Store, func(), e
 // pgJournal names the two read interfaces PgStore already satisfies.
 type pgJournal struct{ *journal.PgStore }
 
-// provider builds the engines a side asks. A provider is one entry here:
-// the vLLM engine slots in beside Ollama's.
+// provider builds the engines a side asks. A provider is one entry here.
 type provider func(getenv func(string) string, store journal.Store) (evalsuite.Engines, error)
 
 var providers = map[string]provider{
 	"ollama": ollamaEngines,
+	"vllm":   vllmEngines,
 	"demo":   demoEngines,
 }
 
@@ -108,6 +116,32 @@ func ollamaEngines(getenv func(string) string, _ journal.Store) (evalsuite.Engin
 	}
 	return evalsuite.Factory(func(model, prompt string, tools map[string]registry.ToolSpec) (session.Engine, journal.Versions, error) {
 		e, err := ollama.New(ollama.Config{BaseURL: base, Model: model, Prompt: prompt, Specs: tools})
+		if err != nil {
+			return nil, journal.Versions{}, err
+		}
+		return e, e.Versions(), nil
+	}), nil
+}
+
+// vllmEngines builds engines as Replay does under CHORUS_LLM_PROVIDER=vllm,
+// against the server chorusd asks, so a household on vLLM scores the engine
+// that answers it (ADR-0077). Thinking follows VLLM_THINKING, refused as
+// chorusd refuses it when it is not a boolean.
+func vllmEngines(getenv func(string) string, _ journal.Store) (evalsuite.Engines, error) {
+	base, key := getenv(vllmURLEnv), getenv(vllmKeyEnv)
+	if base == "" {
+		return nil, fmt.Errorf("no model to ask: set %s, the server chorusd uses, or try -demo", vllmURLEnv)
+	}
+	thinking := false
+	if v := getenv(vllmThinkingEnv); v != "" {
+		on, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("%s=%q is not a boolean", vllmThinkingEnv, v)
+		}
+		thinking = on
+	}
+	return evalsuite.Factory(func(model, prompt string, tools map[string]registry.ToolSpec) (session.Engine, journal.Versions, error) {
+		e, err := vllm.New(vllm.Config{BaseURL: base, Model: model, APIKey: key, Thinking: thinking, Prompt: prompt, Specs: tools})
 		if err != nil {
 			return nil, journal.Versions{}, err
 		}
@@ -196,7 +230,7 @@ func parseFlags(args []string, e env) (options, int, bool) {
 	fs.SetOutput(e.stderr)
 	fs.Usage = usage(fs)
 	fs.BoolVar(&o.demo, "demo", false, "read the household's Thursday (internal/reviewui/household) instead of the journal, and answer with its scripted model")
-	fs.StringVar(&o.provider, "provider", "", "what answers: "+strings.Join(slices.Sorted(maps.Keys(providers)), ", ")+" (default ollama, or demo with -demo)")
+	fs.StringVar(&o.provider, "provider", "", "what answers: "+strings.Join(slices.Sorted(maps.Keys(providers)), ", ")+" (default $"+llmProviderEnv+" as chorusd reads it, else ollama; demo with -demo)")
 	fs.StringVar(&o.model, "model", "", "the candidate's model (default $"+ollamaModelEnv+", else each turn's recorded model)")
 	fs.StringVar(&o.prompt, "prompt", "", "file holding the candidate's system prompt (default this build's; -print-prompt writes it)")
 	fs.StringVar(&o.tools, "tools", "", "file holding the candidate's tool schema, as Replay edits it (default this build's offered tools; -print-tools writes it)")
@@ -235,13 +269,20 @@ func parseFlags(args []string, e env) (options, int, bool) {
 	}
 	o.suite = positional[0]
 	if o.provider == "" {
-		o.provider = "ollama"
+		// The provider chorusd answers with, so the score is of that engine.
+		o.provider = e.getenv(llmProviderEnv)
+		if o.provider == "" {
+			o.provider = "ollama"
+		}
 		if o.demo {
 			o.provider = "demo"
 		}
 	}
 	if o.model == "" {
 		o.model = e.getenv(ollamaModelEnv)
+		if o.provider == "vllm" {
+			o.model = e.getenv(vllmModelEnv)
+		}
 	}
 	return o, 0, true
 }

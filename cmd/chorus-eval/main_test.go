@@ -218,3 +218,45 @@ func TestThePromptAndToolsToStartFromArePrinted(t *testing.T) {
 		t.Errorf("printed tools do not read back: %v", err)
 	}
 }
+
+// A household on vLLM scores the engine that answers it: the provider and
+// model follow CHORUS_LLM_PROVIDER as chorusd reads them, and a vLLM setup
+// that cannot run exits 2 naming what is missing (ADR-0077).
+//
+// verifies SPEC §13
+func TestTheProviderIsTheOneChorusdAnswersWith(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		vars map[string]string
+		args []string
+		want string
+	}{
+		{"vllm without a server", map[string]string{llmProviderEnv: "vllm", vllmModelEnv: "Qwen/Qwen3-32B-AWQ"}, []string{seed}, "no model to ask: set VLLM_URL"},
+		{"vllm named on the command line", nil, []string{"-provider", "vllm", seed}, "no model to ask: set VLLM_URL"},
+		{"thinking that is not a boolean", map[string]string{llmProviderEnv: "vllm", vllmURLEnv: "http://127.0.0.1:1", vllmThinkingEnv: "maybe"}, []string{seed}, `VLLM_THINKING="maybe"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, out, errs := testEnv(t, nil, tc.vars)
+			if code := run(context.Background(), tc.args, e); code != exitError {
+				t.Fatalf("exit %d, want %d\nstdout:\n%s\nstderr:\n%s", code, exitError, out, errs)
+			}
+			if !strings.Contains(errs.String(), tc.want) {
+				t.Errorf("stderr = %s, want it to say %s", errs, tc.want)
+			}
+		})
+	}
+
+	e, _, _ := testEnv(t, nil, map[string]string{llmProviderEnv: "vllm", vllmModelEnv: "Qwen/Qwen3-32B-AWQ", ollamaModelEnv: "qwen3:32b"})
+	o, code, ok := parseFlags([]string{seed}, e)
+	if !ok || code != 0 {
+		t.Fatalf("parse: code %d", code)
+	}
+	if o.provider != "vllm" || o.model != "Qwen/Qwen3-32B-AWQ" {
+		t.Errorf("provider %q model %q, want vllm and the model vLLM serves", o.provider, o.model)
+	}
+	if _, err := vllmEngines(func(k string) string {
+		return map[string]string{vllmURLEnv: "http://127.0.0.1:1", vllmThinkingEnv: "true"}[k]
+	}, nil); err != nil {
+		t.Errorf("a configured vLLM did not build: %v", err)
+	}
+}
