@@ -344,15 +344,25 @@ was actually heard, and may repeat itself in its own words.
 Detection gate, stacked, ~300 ms from user speech to TTS stop:
 
 1. VAD energy
-2. **Speaker-ID match** against the session's current speaker or a known
+2. **Echo**: the candidate's newest audio is the device's own voice when it
+   matches what the DAC was playing under it (§3.2.1) — the host keeps what
+   it sent, on the count PLAYED reports, and compares the shape of the mic's
+   spectrum against it over the lags the uplink can trail by. Before the
+   speaker stage and whatever it says: the device's voice is no reason to stop
+   it, and with no speaker ID it is the only stage that can tell. A refused
+   echo costs no embedding. Audio with too little voice to compare, or a
+   reference silent at every lag, passes (ADR-0096).
+3. **Speaker-ID match** against the session's current speaker or a known
    household member — the high-value filter. The TV and the wrong housemate both
    fail it. Much stronger than energy thresholds.
-3. STT partial length gate (not "uh", not a single word)
+4. STT partial length gate (not "uh", not a single word)
 
 No semantic "was this addressed to me" check: it costs latency exactly where
 latency is viscerally felt, and a wrong stop is cheap (keep talking) while a
 slow stop feels broken. **Every rejected candidate barge-in is logged** as the
-tuning corpus for this gate. Each candidate names its utterance's one blob and
+tuning corpus for this gate, and every candidate the echo stage compared,
+admitted or not, carries its score and lag, which is what tunes the
+satellite's `echo_threshold`. Each candidate names its utterance's one blob and
 how many frames of it were judged, so a long overlap keeps its audio once
 (ADR-0060).
 
@@ -361,11 +371,11 @@ talked over speech, never stopped it, and is a voice the household does not
 know is not answered as a turn (ADR-0049). A household voice the other stages
 refused is still heard.
 
-**Hot phrases** skip the third stage and only it. A partial that is wholly
+**Hot phrases** skip the partial-length stage and only it. A partial that is wholly
 one of a small closed set (*stop*, *never mind*, *say that again* and a few
 variants of each) stops speech on one word, because "stop" is what a
-household says most to a voice assistant. Energy and the speaker stage
-still apply, so the television saying "stop" stops nothing. A stop or never
+household says most to a voice assistant. Energy, the echo and the speaker
+stages still apply, so the television saying "stop" stops nothing. A stop or never
 mind that stopped something is not answered; never mind also reaches a turn
 working in silence, and a stop silences a timer going off. A repeat says
 again what was last heard, without the model. The set is closed because
