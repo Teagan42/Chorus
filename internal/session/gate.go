@@ -15,7 +15,11 @@ type Candidate struct {
 	AudioFrames int
 
 	SpeakerID string
-	Energy    float64
+	// SpeakerFailed is the embedder failing on this candidate: nothing
+	// judged the voice, so the speaker stage refuses it as a failure rather
+	// than as a stranger (ADR-0097).
+	SpeakerFailed bool
+	Energy        float64
 
 	// Echo is the Listening child's verdict that the audio is the device's
 	// own voice coming back: it matches what the DAC was playing (ADR-0096).
@@ -59,7 +63,13 @@ func (g Gate) admit(c Candidate, sessionSpeaker string) (stage string, hot HotWo
 		return "echo", hot, false
 	}
 	// Unidentified while identification runs is the television, not a
-	// missing sidecar.
+	// missing sidecar. An identifier that failed on this candidate still
+	// refuses it -- only a recognised voice stops speech -- but says so, so
+	// the tuning corpus does not count an outage as the television
+	// (ADR-0097).
+	if !g.SpeakerIDUnavailable && c.SpeakerFailed {
+		return "speaker_id_failed", hot, false
+	}
 	if !g.SpeakerIDUnavailable && !g.known(c.SpeakerID, sessionSpeaker) {
 		return "speaker_id", hot, false
 	}

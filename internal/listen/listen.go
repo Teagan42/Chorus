@@ -1027,12 +1027,14 @@ func (l *Listener) candidate(u *utterance, r stt.Result) {
 		AudioRef:    blob.RefFor(u.key()),
 		AudioFrames: len(pcm) / bytesPerFrame,
 		SpeakerID:   out.PersonID,
-		Energy:      energy,
-		Partial:     r.Text,
-		Echo:        v.Echo,
-		EchoJudged:  v.Judged,
-		EchoScore:   v.Score,
-		EchoLagMS:   v.Lag * 1000 / bridge.SampleRate,
+		// Refused all the same, but as the outage it is (ADR-0097).
+		SpeakerFailed: out.Reason == identity.Failed,
+		Energy:        energy,
+		Partial:       r.Text,
+		Echo:          v.Echo,
+		EchoJudged:    v.Judged,
+		EchoScore:     v.Score,
+		EchoLagMS:     v.Lag * 1000 / bridge.SampleRate,
 	})
 	if err != nil {
 		l.warn("offer barge-in", err)
@@ -1249,6 +1251,13 @@ func overheard(u *utterance, out identity.Outcome) bool {
 // the score it passes becomes session.Wake.Confidence; until then neither is
 // invented (ADR-0030).
 func (l *Listener) confirm(pcm, second []byte, out identity.Outcome, word string) bool {
+	if out.Reason == identity.Failed {
+		// Still fail closed, but say why: the embedder failed, so nothing
+		// judged the voice and the clip is no guest's wake (ADR-0097). The
+		// ring already shows the fault.
+		l.rejectWake(pcm, second, "speaker_id_failed", false, wakeNamed(word))
+		return false
+	}
 	if out.Reason != identity.Identified {
 		// A spoken wake must be attributed to an enrolled household voice.
 		// Nobody enrolled, or a missing/failed resolver, cannot distinguish
@@ -1345,17 +1354,24 @@ func (l *Listener) append(ctx context.Context, r journal.Record) bool {
 	return true
 }
 
-// resolve attributes audio. A resolver that fails yields a guest: a sidecar
-// that is down must not stop the household talking to the house (SPEC §5).
+// resolve attributes audio. A resolver that fails yields identity.Failed,
+// never a stranger: nothing judged the voice, so inside a session the
+// speaker stays who they were, while a spoken wake and a barge-in are each
+// refused as speaker_id_failed. The ring shows the fault until the embedder
+// next answers (SPEC §5, ADR-0097).
 func (l *Listener) resolve(pcm []byte) identity.Outcome {
 	if l.cfg.Speakers == nil {
 		return identity.Outcome{}
 	}
 	out, err := l.cfg.Speakers.Resolve(l.ctx, pcm)
 	if err != nil {
-		l.warn("resolve speaker", err)
-		return identity.Outcome{}
+		if l.ctx.Err() == nil {
+			l.cfg.Indicator.Fault(session.FaultSpeakerID)
+			l.warn("resolve speaker", err)
+		}
+		return identity.Outcome{Reason: identity.Failed}
 	}
+	l.cfg.Indicator.Recover(session.FaultSpeakerID)
 	return out
 }
 

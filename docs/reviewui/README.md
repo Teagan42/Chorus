@@ -254,6 +254,16 @@ satellite held while the contest ran (ADR-0072). It is the wake word said
 farther away, so it offers no verdict and never ships as a negative; Browse
 draws no tick for it. [Arbitration](#arbitration) gathers them.
 
+A wake rejected because the speaker-ID sidecar failed, `speaker_id_failed`,
+offers no verdict either. Stage three failed closed, but nothing judged the
+voice, so it is neither a guest's wake to hold nor a hard negative
+(ADR-0097). An utterance heard while the embedder failed says so under its
+words: the turn stayed with whoever was speaking.
+
+![A wake speaker ID failed on](e2e/journey-speaker-id-failed-wake.png)
+
+![An ask heard while speaker ID was down](e2e/journey-speaker-id-failed-utterance.png)
+
 The log also shows what the model was told and what the house vouched for.
 A `memory_recalled` row lists each memory the turn was told, whose it is
 when someone shared it, and the earlier conversations it was told of. A

@@ -203,3 +203,35 @@ func TestAWakeNothingCouldDecodeIsNoHardNegative(t *testing.T) {
 		t.Error("HardNegative ships a wake nothing could decode")
 	}
 }
+
+// Teagan says "hey eddie, is the garage shut" in the hallway while the
+// speaker-ID sidecar is failing. The wake fails closed, as stage three
+// requires, but nothing judged her voice: it is no guest's wake to hold and
+// no hard negative to ship, while the hallway's door slam still is
+// (SPEC §9.3, ADR-0097).
+//
+// verifies SPEC §9.3
+func TestAWakeNothingCouldAttributeIsNoHardNegative(t *testing.T) {
+	store := journal.NewMemStore()
+	clk := &stepClock{now: time.Date(2025, time.October, 9, 21, 40, 0, 0, time.UTC)}
+	j := journal.New(store, clk, versions())
+	for _, r := range []journal.Record{
+		record(journal.KindWakeRejected, "blob://wake/hallway-garage", "reason", "speaker_id_failed", "wake_word", "hey_eddie"),
+		record(journal.KindWakeRejected, "blob://wake/hallway-door-slam", "reason", "no_speech", "wake_word", "hey_eddie"),
+	} {
+		if _, err := j.Append(context.Background(), "device:hallway", r); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+
+	ns, err := harvest.Negatives(context.Background(), store, "device:hallway")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ns) != 1 || ns[0].Audio != "blob://wake/hallway-door-slam" {
+		t.Fatalf("negatives = %+v, want only the door slam", ns)
+	}
+	if harvest.HardNegative(map[string]string{"reason": harvest.ReasonSpeakerIDFailed, "wake_word": "hey_eddie"}) {
+		t.Error("HardNegative ships a wake nothing could attribute")
+	}
+}

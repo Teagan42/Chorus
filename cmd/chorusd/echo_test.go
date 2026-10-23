@@ -72,6 +72,9 @@ func cloudyKitchen(t *testing.T, inv *config.Config) (*rig, *scriptEngine, *brid
 	played := echotest.Clip(t, "tts/weather-forecast")
 	eng := cloudyModel()
 	emb := newEmbedder()
+	// The kitchen's own Kokoro voice is nobody the household enrolled. A
+	// stranger, not a failed call: a failed one judges nobody (ADR-0097).
+	emb.otherwise = stranger
 	r := newRig(t, inv, func(d *deps) {
 		d.engine = eng
 		d.household = []string{"alan", "teagan", "alice"}

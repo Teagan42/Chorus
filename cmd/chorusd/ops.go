@@ -13,7 +13,10 @@ import (
 
 	"github.com/teagan42/chorus/internal/bridge"
 	"github.com/teagan42/chorus/internal/ops"
+	"github.com/teagan42/chorus/internal/provider/kokoro"
 	"github.com/teagan42/chorus/internal/provider/openai"
+	"github.com/teagan42/chorus/internal/provider/smartturn"
+	"github.com/teagan42/chorus/internal/provider/speakerid"
 	"github.com/teagan42/chorus/internal/provider/wyoming"
 )
 
@@ -72,11 +75,16 @@ func opsChecks(cfg Config, client *http.Client, postgres func(context.Context) e
 		{Name: "tts", Required: true, Probe: voiceProbe(cfg, client)},
 		{Name: "llm", Required: true, Probe: ops.HTTPProbe(client, llm, nil)},
 	}
+	// The sidecars that refuse a reply from another model are asked which
+	// model they serve, so one that answers but would refuse every call is
+	// down here, not discovered at the first wake (ADR-0097).
 	if cfg.SpeakerIDURL != "" {
-		checks = append(checks, ops.Check{Name: "speaker_id", Probe: ops.HTTPProbe(client, at(cfg.SpeakerIDURL, "/health"), nil)})
+		emb, err := speakerid.New(speakerid.Config{BaseURL: cfg.SpeakerIDURL, HTTP: client})
+		checks = append(checks, ops.Check{Name: "speaker_id", Probe: healthOf(emb, err)})
 	}
 	if cfg.SmartTurnURL != "" {
-		checks = append(checks, ops.Check{Name: "smart_turn", Probe: ops.HTTPProbe(client, at(cfg.SmartTurnURL, "/health"), nil)})
+		judge, err := smartturn.New(smartturn.Config{BaseURL: cfg.SmartTurnURL, HTTP: client})
+		checks = append(checks, ops.Check{Name: "smart_turn", Probe: healthOf(judge, err)})
 	}
 	if cfg.HassURL != "" {
 		// HA's API root answers "API running." to a token it accepts.
@@ -96,7 +104,20 @@ func voiceProbe(cfg Config, client *http.Client) func(context.Context) error {
 	case providerWyoming:
 		return wyoming.Probe(cfg.WyomingTTSAddr)
 	}
-	return ops.HTTPProbe(client, strings.TrimSuffix(cfg.KokoroURL, "/")+"/health", nil)
+	// Kokoro's voice list, not its /health: it answers only once the server
+	// is up, and it is the one place an unknown voice shows before the first
+	// utterance is a 400 (ADR-0097).
+	synth, err := kokoro.New(kokoro.Config{BaseURL: cfg.KokoroURL, HTTP: client})
+	return healthOf(synth, err)
+}
+
+// healthOf is a client's own health check as a probe, or the error that
+// building it returned.
+func healthOf[C interface{ Health(context.Context) error }](c C, err error) func(context.Context) error {
+	if err != nil {
+		return func(context.Context) error { return err }
+	}
+	return c.Health
 }
 
 // earProbe is voiceProbe for the ear.

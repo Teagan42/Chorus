@@ -33,6 +33,10 @@ const (
 	FaultJournal Fault = "journal"
 	FaultModel   Fault = "model"
 	FaultVoice   Fault = "voice"
+
+	// FaultSpeakerID is the speaker embedder failing: no spoken wake can be
+	// confirmed while it is, and the rejection says nothing (ADR-0097).
+	FaultSpeakerID Fault = "speaker_id"
 )
 
 // Faults is a Ring that is also told what is down and what came back. A

@@ -84,6 +84,12 @@ const (
 	// it is -- a verdict makes the utterance a guest's, and the absence of
 	// one leaves the speaker as they were (ADR-0085).
 	TooShort Reason = "too_short"
+
+	// Failed is no judgement either: the embedder failed, so the voice was
+	// never compared with anyone. The Resolver never returns it; its caller
+	// records it, so a sidecar that is down reads as down and not as a
+	// house full of strangers (ADR-0097).
+	Failed Reason = "failed"
 )
 
 // Outcome is one utterance's attribution. PersonID is empty unless Reason is

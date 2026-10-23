@@ -284,6 +284,9 @@ type fakeEmbedder struct {
 	sizes []int
 	// otherwise is the voice of audio nobody scripted: real speech.
 	otherwise []float32
+	// down fails every call, whatever was scripted, as a sidecar that went
+	// away does.
+	down error
 }
 
 func newEmbedder() *fakeEmbedder {
@@ -294,6 +297,10 @@ func (f *fakeEmbedder) Embed(_ context.Context, pcm []byte) ([]float32, error) {
 	f.mu.Lock()
 	f.calls++
 	f.sizes = append(f.sizes, len(pcm))
+	if f.down != nil {
+		f.mu.Unlock()
+		return nil, f.down
+	}
 	v, ok := f.by[peak(pcm)]
 	if !ok && f.otherwise != nil {
 		v, ok = f.otherwise, true

@@ -194,6 +194,10 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) (row logRow)
 		if w := f["hot_word"]; w != "" {
 			row.Note = hotPhrase(w) + " · the model was not asked"
 		}
+		if f["speaker_match"] == "failed" {
+			// Nothing judged the voice, so the turn stayed put (ADR-0097).
+			row.Note = strings.TrimPrefix(row.Note+" · speaker ID failed, so the turn stayed with whoever was speaking", " · ")
+		}
 	case journal.KindBargeInDetected, journal.KindBargeInRejected:
 		row.Text = "barge-in at " + f["tts_position_ms"] + " ms of playback"
 		if e.Kind == journal.KindBargeInRejected {
@@ -215,6 +219,8 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) (row logRow)
 			row.Note = "arbitrated: " + f["energy_dbfs"] + " dBFS against " + f["winner_energy_dbfs"]
 		case f["reason"] == harvest.ReasonTranscriptionFailed:
 			row.Note = "nothing could decode it, so nothing judged the audio: no hard negative"
+		case f["reason"] == harvest.ReasonSpeakerIDFailed:
+			row.Note = "speaker ID failed, so nothing judged the voice: no hard negative"
 		case f["wake_word"] == bridge.WakeButton:
 			row.Note = "a button press: the wake model never fired, so no hard negative"
 		}

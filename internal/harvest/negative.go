@@ -57,13 +57,19 @@ const ReasonArbitrated = "arbitrated"
 // decode: nothing judged the audio, so it is never a negative (ADR-0060).
 const ReasonTranscriptionFailed = "transcription_failed"
 
+// ReasonSpeakerIDFailed is a wake whose first utterance the speaker
+// embedder failed on: the wake failed closed, but nothing judged the voice,
+// so it is no more a negative than a guest's (ADR-0097).
+const ReasonSpeakerIDFailed = "speaker_id_failed"
+
 // HardNegative reports whether a rejection may ship in the wake corpus.
 // An arbitrated wake never does: it was the wake word, not a false accept.
-// Nor does a wake nothing could decode, which may have been the wake word,
-// or a button press (bridge.WakeButton): the wake model never fired.
+// Nor does a wake nothing could decode or nothing could attribute, which
+// may have been the wake word, or a button press (bridge.WakeButton): the
+// wake model never fired.
 func HardNegative(fields map[string]string) bool {
 	switch fields["reason"] {
-	case ReasonArbitrated, ReasonTranscriptionFailed:
+	case ReasonArbitrated, ReasonTranscriptionFailed, ReasonSpeakerIDFailed:
 		return false
 	}
 	return fields["wake_word"] != bridge.WakeButton

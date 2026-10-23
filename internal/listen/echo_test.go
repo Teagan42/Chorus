@@ -50,6 +50,11 @@ func livingRoom(t *testing.T, gate func(*session.Gate), tweak ...func(*listen.Co
 		}
 	}, cfg...)
 	r.speaker.hold = true
+	// The device's own voice is nobody the household enrolled: a stranger,
+	// not a failed call, which judges nobody (ADR-0097).
+	r.emb.mu.Lock()
+	r.emb.otherwise = stranger
+	r.emb.mu.Unlock()
 
 	r.dev.SendWake(t, "hey_eddie")
 	r.speak(t, r.line("and put on some jazz", alan), 4*chunkBytes)
