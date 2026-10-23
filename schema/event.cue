@@ -239,6 +239,8 @@ events: {
 			{name: "speaker_stage_skipped", type: "boolean", description: "The gate's speaker-ID stage did not run, because nothing identifies speakers: the voice was never checked against the household (ADR-0031). Absent when the stage ran and passed, and in logs from before it was recorded."},
 			{name: "hot_word", type: "string", description: "The hot phrase the partial was, which admitted it on one or two words past the partial-length stage; energy and the speaker stage still ran (SPEC §4.3, ADR-0064). The final utterance may say more: whether it was answered as a hot phrase is its own hot_word. Absent when the partial was no hot phrase.", enum: ["stop", "never_mind", "repeat"]},
 			{name: "audio_frames", type: "integer", description: "How much of the audio the gate judged, in device frames from the blob's start. The candidate refers to its utterance's blob, which runs on past it and is written once the utterance ends, so a long overlap keeps its audio once. Absent in logs from before it was recorded, where the blob is the candidate's own."},
+			{name: "echo_score", type: "number", description: "How closely the candidate's newest audio matched what the device was playing, from 0 to 1: the echo stage's evidence, kept whichever way it went so the threshold can be tuned on a real room (ADR-0096). Absent when nothing was compared: no reference, too little voiced audio, or silence at every lag."},
+			{name: "echo_lag_ms", type: "integer", description: "Where that match was found: milliseconds from the DAC reporting a frame to it reaching the uplink. Negative is the mic ahead of the report. Absent whenever echo_score is."},
 		]
 	}
 	barge_in_rejected: {
@@ -246,9 +248,11 @@ events: {
 		description: "Candidate interruption failed the detection gate. Tuning corpus for SPEC §4.3."
 		has_audio:   true
 		fields: [
-			{name: "stage", type: "string", description: "Gate that rejected it.", required: true, enum: ["vad", "speaker_id", "partial_length"]},
+			{name: "stage", type: "string", description: "Gate that rejected it. echo is the device's own voice coming back through its microphone, matched against what the DAC was playing (ADR-0096).", required: true, enum: ["vad", "echo", "speaker_id", "partial_length"]},
 			{name: "hot_word", type: "string", description: "The hot phrase the partial was, refused all the same by energy or the speaker stage: the television saying stop (ADR-0064). Absent when the partial was no hot phrase.", enum: ["stop", "never_mind", "repeat"]},
 			{name: "audio_frames", type: "integer", description: "How much of the audio the gate judged, in device frames from the blob's start. The candidate refers to its utterance's blob, which runs on past it and is written once the utterance ends, so a long overlap keeps its audio once. Absent in logs from before it was recorded, where the blob is the candidate's own."},
+			{name: "echo_score", type: "number", description: "How closely the candidate's newest audio matched what the device was playing, from 0 to 1: the echo stage's evidence, kept whichever way it went so the threshold can be tuned on a real room (ADR-0096). Absent when nothing was compared: no reference, too little voiced audio, or silence at every lag."},
+			{name: "echo_lag_ms", type: "integer", description: "Where that match was found: milliseconds from the DAC reporting a frame to it reaching the uplink. Negative is the mic ahead of the report. Absent whenever echo_score is."},
 		]
 	}
 	session_closed: {

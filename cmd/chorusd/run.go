@@ -15,6 +15,7 @@ import (
 	"github.com/teagan42/chorus/internal/blob"
 	"github.com/teagan42/chorus/internal/bridge"
 	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/echo"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/listen"
 	"github.com/teagan42/chorus/internal/memory"
@@ -518,8 +519,11 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 	linkCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// What this device is sent to play, kept for its own mic to be judged
+	// against: one per link, because the DAC's count is (ADR-0096).
+	played := echo.NewReference(0)
 	speaker, err := satellite.New(satellite.Config{
-		Link: link, Synth: d.synth, Timers: d.Timers, Blobs: d.Blobs,
+		Link: link, Synth: d.synth, Timers: d.Timers, Blobs: d.Blobs, Reference: played,
 	})
 	if err != nil {
 		return err
@@ -544,6 +548,9 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 		// default sits under a room that rides its own gain (ADR-0083).
 		SpeechEnergy: sat.SpeechEnergy,
 		Speculate:    d.speculate,
+		// Compared only over audio at the same level, so the quiet before a
+		// person starts is not lined up against the device's last word.
+		Reference: played, Echo: echo.Judge{Threshold: sat.EchoThreshold, Voiced: sat.SpeechEnergy},
 	})
 	if err != nil {
 		return err

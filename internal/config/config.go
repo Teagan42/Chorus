@@ -40,6 +40,14 @@ type Satellite struct {
 	// (SPEC §4.5, ADR-0083). Zero takes the default.
 	SpeechEnergy float64 `yaml:"speech_energy"`
 
+	// EchoThreshold is the score, from 0 to 1, at or above which a barge-in
+	// candidate is this device's own voice coming back through its
+	// microphone, overriding echo.DefaultThreshold. The default was measured
+	// on simulated echo, not a real room: the gate journals every
+	// candidate's echo_score, which is what tunes this (ADR-0096). Zero takes
+	// the default; above 1 nothing scores, which turns the stage off.
+	EchoThreshold float64 `yaml:"echo_threshold"`
+
 	// Retention overrides the house's horizons for this satellite's audio
 	// and logs; what it leaves out is the house's (SPEC §8).
 	Retention *Retention `yaml:"retention"`
@@ -109,6 +117,9 @@ func (s *Satellite) validate() error {
 	// At full scale nothing is ever speech; below zero everything is.
 	if s.SpeechEnergy < 0 || s.SpeechEnergy >= 1 {
 		return fmt.Errorf("speech_energy %v is not a fraction of full scale between 0 and 1", s.SpeechEnergy)
+	}
+	if s.EchoThreshold < 0 {
+		return fmt.Errorf("echo_threshold %v is not a score between 0 and 1, or above 1 to turn the echo stage off", s.EchoThreshold)
 	}
 	if s.Retention != nil {
 		if err := s.Retention.parse(); err != nil {

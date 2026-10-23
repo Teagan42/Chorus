@@ -17,6 +17,15 @@ type Candidate struct {
 	SpeakerID string
 	Energy    float64
 
+	// Echo is the Listening child's verdict that the audio is the device's
+	// own voice coming back: it matches what the DAC was playing (ADR-0096).
+	// EchoJudged says a comparison ran, with EchoScore and EchoLagMS what it
+	// found; unjudged, the stage passes.
+	Echo       bool
+	EchoJudged bool
+	EchoScore  float64
+	EchoLagMS  int
+
 	// Partial is the STT partial so far. One word is usually "uh", unless
 	// it is a hot phrase such as "stop".
 	Partial string
@@ -42,6 +51,12 @@ func (g Gate) admit(c Candidate, sessionSpeaker string) (stage string, hot HotWo
 	hot = Hot(c.Partial)
 	if c.Energy < g.MinEnergy {
 		return "vad", hot, false
+	}
+	// Before the speaker, and whatever the speaker: the device's own voice
+	// is no reason to stop it, identified or not, and with no identifier at
+	// all it is the only stage that can tell (ADR-0096).
+	if c.Echo {
+		return "echo", hot, false
 	}
 	// Unidentified while identification runs is the television, not a
 	// missing sidecar.

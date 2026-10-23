@@ -18,6 +18,7 @@ import (
 
 	"github.com/teagan42/chorus/internal/blob"
 	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/echo"
 	"github.com/teagan42/chorus/internal/session"
 )
 
@@ -102,6 +103,11 @@ type Config struct {
 	// Settle bounds the wait for the device's answer to a barge-in stop.
 	// Defaults to DefaultSettle.
 	Settle time.Duration
+
+	// Reference keeps what is sent to play, on the DAC's count, for the
+	// Listening side to tell the device's own voice from a person's
+	// (ADR-0096). Nil keeps nothing.
+	Reference *echo.Reference
 
 	// OnMic, OnWake and OnMute forward the device's other uplink frames. A nil
 	// hook drops its frames.
@@ -418,10 +424,15 @@ func (s *stream) send(i int) bool {
 	}
 
 	s.mu.Lock()
+	at := s.base + s.total
 	s.total += uint64(len(pcm) / bytesPerFrame)
 	s.segs[i].end = s.total
 	s.segs[i].synthesised = true
 	s.mu.Unlock()
+	// Placed before any of it is sent, so the reference never trails what
+	// the room can hear: the DAC reaches frame at once it has played
+	// everything before this delta.
+	s.sat.cfg.Reference.Write(at, pcm)
 
 	for off := 0; off < len(pcm); off += sliceBytes {
 		slice := pcm[off:min(off+sliceBytes, len(pcm))]
@@ -502,6 +513,10 @@ func (s *stream) Close() session.Playback {
 	// point. A stop the link could not deliver has no answer to wait for, and
 	// the position already known is then the honest one.
 	played := s.playedFrames()
+	if cut {
+		// The device discarded the rest, so the room never heard it.
+		s.sat.cfg.Reference.Cut(s.base + played)
+	}
 	ref := s.keepAudio(played > 0)
 	// Every delta rendered *and* the DAC reached the end of all of it. The
 	// rendered test is not redundant: a delta cut before synthesis adds no
