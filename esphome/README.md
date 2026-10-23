@@ -72,7 +72,7 @@ not the host gets near the bound.
 | `0x02` mic | device | 16 kHz s16le PCM; `flags` is the channel: 0 the fully processed mix, 1 the XMOS's second, lighter-processed output (SPEC §3.2) |
 | `0x03` wake | device | wake word name, UTF-8 |
 | `0x04` played | device | cumulative DAC frames:u64, `esp_timer` micros:i64; `flags` echoes the tag of the stop this report answers, 0 otherwise |
-| `0x05` mute | device | none; `flags` bit 0 hardware (the board's mute switch), bit 1 software (the `Microphone`'s own mute) |
+| `0x05` mute | device | none; `flags` bit 0 hardware (the board's mute switch), bit 1 software (the `Microphone`'s own mute). While either bit is set the device sends no `mic` frames (ADR-0100) |
 | `0x06` auth | device | in the clear: the device's proof:32, sent only once the host's proof holds |
 | `0x10` tts | host | 16 kHz s16le PCM |
 | `0x11` stop | host | none — barge-in, discards the speaker buffer; `flags` is a tag, never 0 |
@@ -180,6 +180,11 @@ host.**
   HAT's slide switch on the XMOS's button port; on the Voice PE, the side
   switch on GPIO3. A board that names none never sets it, and a switch not
   yet read counts as on (ADR-0067).
+- **Muted, the mics' audio never leaves the device.** While either bit is
+  set, `pump_uplink_` sends no `mic` frames and drains the rings instead, so
+  unmuting does not send what was buffered during the mute (ADR-0100). The
+  `mute` frame goes first, from the same `loop()`, so the host learns why
+  the audio stopped before it stops.
 - **Both microphone sources are non-passive.** `MicrophoneSource` is a
   per-consumer gate, not a hardware refcount: a `passive` source receives audio
   only while some non-passive consumer has started the mic. Registering passive

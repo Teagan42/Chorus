@@ -443,6 +443,23 @@ bool ChorusBridge::flush_tx_() {
 }
 
 void ChorusBridge::pump_uplink_() {
+  // Muted means nothing the mics hear leaves the device, whichever bit says
+  // so: the host already drops the room's audio on either (ADR-0067), and a
+  // switch labelled mute that still transmits is trusting the far end. Read
+  // fresh rather than from last_mute_flags_, which a full TX queue may have
+  // left reporting a state the host has not yet been sent.
+  if (this->mute_flags_() != 0) {
+    if (!this->uplink_held_) {
+      this->uplink_held_ = true;
+      ESP_LOGI(TAG, "Muted: mic audio is no longer sent");
+    }
+    this->discard_uplink_();
+    return;
+  }
+  if (this->uplink_held_) {
+    this->uplink_held_ = false;
+    ESP_LOGI(TAG, "Unmuted: mic audio is sent again");
+  }
   // Round robin, resuming after the channel served last. Draining channel 0 to
   // empty before touching channel 1 starves channel 1 outright once the socket
   // ever blocks: measured on the device, channel 1's ring sat 100% full for a
@@ -683,9 +700,37 @@ void ChorusBridge::publish_played_() {
   }
 }
 
+// discard_uplink_ drains every mic ring without queueing it. Kept, it would
+// be sent the moment the device unmuted: up to a ring's worth of the room the
+// household muted, arriving as if live.
+void ChorusBridge::discard_uplink_() {
+  for (MicChannel &ch : this->mic_channels_) {
+    if (ch.reader == nullptr) {
+      continue;
+    }
+    while (ch.reader->fill(0, false) > 0 || ch.reader->available() > 0) {
+      size_t available = ch.reader->available();
+      if (available == 0) {
+        break;
+      }
+      ch.reader->consume(available);
+    }
+  }
+}
+
 void ChorusBridge::publish_mute_() {
   // Reported, never negotiated: hardware mute is authoritative and there is no
   // host frame that could clear it.
+  const uint8_t flags = this->mute_flags_();
+  if (flags == this->last_mute_flags_) {
+    return;
+  }
+  this->last_mute_flags_ = flags;
+  this->queue_frame_(FrameType::MUTE, flags);
+}
+
+// mute_flags_ is the device's mute as the mute frame reports it.
+uint8_t ChorusBridge::mute_flags_() const {
   uint8_t flags = 0;
 #ifdef USE_CHORUS_BRIDGE_HARDWARE_MUTE
   // A switch not read yet counts as on: not knowing is not consent.
@@ -698,11 +743,7 @@ void ChorusBridge::publish_mute_() {
   if (this->mic_ != nullptr && this->mic_->get_mute_state()) {
     flags |= MUTE_SOFTWARE;
   }
-  if (flags == this->last_mute_flags_) {
-    return;
-  }
-  this->last_mute_flags_ = flags;
-  this->queue_frame_(FrameType::MUTE, flags);
+  return flags;
 }
 
 void ChorusBridge::on_wake_word(const std::string &wake_word) {
