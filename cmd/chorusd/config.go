@@ -13,6 +13,7 @@ import (
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/listen"
 	"github.com/teagan42/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/otel"
 	"github.com/teagan42/chorus/internal/provider/kokoro"
 	"github.com/teagan42/chorus/internal/provider/mcp"
 	"github.com/teagan42/chorus/internal/provider/ollama"
@@ -187,6 +188,12 @@ type Config struct {
 	// MCPConfig is the household's MCP servers' file. Empty is none
 	// (ADR-0075).
 	MCPConfig string
+
+	// Traces is where spans derived from the journal are exported, from
+	// the standard OTEL_* variables; tracesErr is what was wrong with them
+	// (ADR-0101).
+	Traces    otel.Settings
+	tracesErr error
 }
 
 // configFromEnv reads the environment through getenv, so a test never reads
@@ -237,6 +244,7 @@ func configFromEnv(getenv func(string) string) Config {
 	cfg.OpsListen = getenv(opsListenEnv)
 	cfg.WakeArbitrationMS = getenv(wakeArbitrationEnv)
 	cfg.MCPConfig = getenv(mcp.ConfigEnv)
+	cfg.Traces, cfg.tracesErr = otel.SettingsFromEnv(getenv)
 	if cfg.Listen == "" {
 		cfg.Listen = defaultListen
 	}
@@ -368,6 +376,9 @@ func (c Config) validate() error {
 	}
 	if _, err := c.wakeArbitration(); err != nil {
 		missing = append(missing, fmt.Sprintf("  %-20s %v", wakeArbitrationEnv, err))
+	}
+	if c.tracesErr != nil {
+		missing = append(missing, fmt.Sprintf("  %-20s %v", "OTEL_*", c.tracesErr))
 	}
 	// Half a Home Assistant configuration is a mistake, not a choice.
 	switch {

@@ -36,6 +36,7 @@ import (
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/memory"
 	"github.com/teagan42/chorus/internal/ops"
+	"github.com/teagan42/chorus/internal/otel"
 )
 
 // version is set by the release build (-X main.version=...).
@@ -161,6 +162,15 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 	} else {
 		log.Warn("ops endpoints are off: " + opsListenEnv + "=off, so nothing serves health, readiness or metrics")
 	}
+	var traces *otel.Exporter
+	if cfg.Traces.Enabled() {
+		// No client timeout: each export is bounded by the exporter's own.
+		traces = otel.New(otel.Config{
+			Settings: cfg.Traces, Version: version, Client: &http.Client{},
+			Timers: wallTimers{}, Meter: metrics, Log: log,
+		})
+		log.Info("exporting spans derived from the journal over OTLP/HTTP", "endpoint", cfg.Traces.Endpoint, "words", cfg.Traces.Words)
+	}
 	log.Info("chorusd listening", "version", version, "addr", ln.Addr().String(),
 		"satellites", len(inv.Satellites), "llm", cfg.LLMProvider, "model", prov.versions.Model,
 		"stt", prov.versions.STT, "tts", prov.versions.TTS, "tool_schema", prov.versions.ToolSchema,
@@ -178,6 +188,7 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 		Timers:    wallTimers{},
 		providers: prov,
 		Ops:       watch,
+		Traces:    traces,
 		Log:       log,
 
 		WakeArbitration: arbitration,
