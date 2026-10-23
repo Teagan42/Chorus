@@ -733,13 +733,24 @@ Target **700 ms wake-word-to-first-audio.** Assist on local models is 1.5–3 s
 and feels bad; realtime S2S is ~300 ms and feels alive.
 
 Phase 1 is the straightforward streaming cascade with honest measurements —
-expect TTS first-chunk and LLM prefill to dominate, not STT. Speculative
-execution (LLM prefill on STT partials before endpointing, discarded if the user
-keeps talking) is a later measured optimization.
+expect TTS first-chunk and LLM prefill to dominate, not STT.
 
-**Speculative events are a recorded distinction from day one**, even though
-phase 1 generates none. Adding an event type later is cheap; retrofitting the
-distinction into replay is not.
+**Speculative execution is built, off by default — ADR-0095.** With
+`CHORUS_SPECULATE=on`, the endpointer's pause (200 ms of quiet, short of the
+end) is decoded, attributed and asked of the model before the utterance has
+ended. The answer is buffered: nothing is dispatched and nothing is played.
+When the turn is confirmed it is kept only if the log would ask the model the
+same thing (the same words and speaker, the same dialogue, memories and room,
+the same minute); its buffered stream then plays as if just asked, and its
+`model_completed` records `asked_early_ms`. Otherwise it is thrown away as one
+`speculation_discarded`: the person went on speaking, the turn changed, the
+utterance was never a turn, or the session closed. Only a turn in a session at
+rest is guessed at; the wake's own utterance is not, and speech is not rendered
+ahead.
+
+**Speculative events are a recorded distinction from day one.** A
+`speculation_discarded` is journalled with the flag, and `replay()` skips it:
+a log with one replays to the state it would have without it.
 
 ## 12. Turn engine abstraction
 
@@ -941,7 +952,13 @@ sessions, so a session now opens only for an enrolled household voice (§5).
 
 ### Phase 3
 
-Speculative execution · S2S adapter · ~~eval replay suites~~.
+~~Speculative execution~~ · S2S adapter · ~~eval replay suites~~.
+
+- ~~Speculative execution~~ **Done in part — ADR-0095.** A turn is asked in
+  its pause and kept only when the confirmed turn would ask the same, behind
+  `CHORUS_SPECULATE`. Not yet: the wake's own utterance, speech rendered
+  ahead, and one decode shared with the Dangling judge. Its saving is not yet
+  measured on a real model.
 
 - ~~Eval replay suites~~ **Done in part — ADR-0079, [the eval
   guide](eval.md).** A checked-in suite names journalled turns and what a
