@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -59,8 +60,9 @@ func (p providers) bargeInGate(energy float64) session.Gate {
 }
 
 // endpointer is a link's own: it holds the turn in progress on that device.
-// Nil leaves the listener's Energy default. The judge's "finished" is checked
-// against the words, decoded by the transcriber every turn is (ADR-0042).
+// Nil leaves the listener's Energy default. A verdict that could end the turn
+// is checked against the words, decoded by the transcriber every turn is
+// (ADR-0042), and the household's bands read its probability (ADR-0094).
 //
 // The satellite's own speech gate overrides the default when it set one: a
 // front end that rides its own gain holds an empty room over the default, and
@@ -74,7 +76,9 @@ func (p providers) endpointer(energy float64) listen.Endpointer {
 		e.Threshold = energy
 		return e
 	}
-	s := listen.NewSemantic(listen.Dangling{Judge: p.judge, Words: p.stt})
+	s := listen.NewSemantic(nil)
+	s.Sure, s.Doubt = cmp.Or(p.sure, s.Sure), cmp.Or(p.doubt, s.Doubt)
+	s.Judge = listen.Dangling{Judge: p.judge, Words: p.stt, Doubt: s.Doubt}
 	if energy != 0 {
 		s.Threshold = energy
 	}

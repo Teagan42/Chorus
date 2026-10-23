@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -57,6 +58,14 @@ const (
 	// enrolled voice never passed 0.43 against it, so who it was stayed
 	// clear while the absolute score fell under the 0.70 default (ADR-0084).
 	speakerAcceptEnv = "CHORUS_SPEAKER_ACCEPT"
+
+	// The bands Smart Turn's probability is read in, overriding
+	// listen.DefaultSure and listen.DefaultDoubt: at or above sure a turn
+	// ends at the pause, under doubt it is held, and between them it ends
+	// after Energy's silence. Each utterance journals the probability it
+	// ended on, which is what a household tunes these from (ADR-0094).
+	smartTurnSureEnv  = "CHORUS_SMARTTURN_SURE"
+	smartTurnDoubtEnv = "CHORUS_SMARTTURN_DOUBT"
 
 	// confirmEnv turns the person's yes off for calls that would be held.
 	// "on" or unset holds them; "off" runs them as written (ADR-0091).
@@ -140,6 +149,11 @@ type Config struct {
 	// Speculate is CHORUS_SPECULATE as written; speculate parses it.
 	Speculate string
 
+	// SmartTurnSure and SmartTurnDoubt are the bands as written; turnBands
+	// parses them.
+	SmartTurnSure  string
+	SmartTurnDoubt string
+
 	// TTSProvider is the voice: kokoro, openai or wyoming (ADR-0081).
 	TTSProvider     string
 	OpenAITTSURL    string
@@ -193,8 +207,11 @@ func configFromEnv(getenv func(string) string) Config {
 		SpeakerAccept: getenv(speakerAcceptEnv),
 		Confirm:       getenv(confirmEnv),
 		Speculate:     getenv(speculateEnv),
-		KokoroURL:     getenv(kokoroURLEnv),
-		STTURL:        getenv(sttURLEnv),
+
+		SmartTurnSure:  getenv(smartTurnSureEnv),
+		SmartTurnDoubt: getenv(smartTurnDoubtEnv),
+		KokoroURL:      getenv(kokoroURLEnv),
+		STTURL:         getenv(sttURLEnv),
 
 		TTSProvider:     getenv(ttsProviderEnv),
 		OpenAITTSURL:    getenv(openaiTTSURLEnv),
@@ -335,6 +352,9 @@ func (c Config) validate() error {
 	if _, err := c.speculate(); err != nil {
 		missing = append(missing, fmt.Sprintf("  %-20s %v", speculateEnv, err))
 	}
+	if _, _, err := c.turnBands(); err != nil {
+		missing = append(missing, fmt.Sprintf("  %-20s %v", smartTurnSureEnv+", "+smartTurnDoubtEnv, err))
+	}
 	for _, r := range required {
 		if r.value == "" {
 			missing = append(missing, fmt.Sprintf("  %-20s %s", r.name, r.purpose))
@@ -371,13 +391,16 @@ type providers struct {
 	summarizer session.Summarizer
 	// embedder chooses what a turn recalls by relevance, once a person has
 	// more than fits. Nil recalls the newest (ADR-0044).
-	embedder  memory.Embedder
-	versions  journal.Versions
-	synth     satellite.Synth
-	stt       stt.Transcriber
-	speakers  listen.Speakers
-	judge     listen.Judge
-	household []string
+	embedder memory.Embedder
+	versions journal.Versions
+	synth    satellite.Synth
+	stt      stt.Transcriber
+	speakers listen.Speakers
+	judge    listen.Judge
+	// sure and doubt band the judge's probability; zero keeps listen's
+	// defaults (ADR-0094).
+	sure, doubt float64
+	household   []string
 	// skipConfirm runs a held call as written, for a household that turned
 	// the yes off (ADR-0091).
 	skipConfirm bool
@@ -467,6 +490,9 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 	} else {
 		judge, err := smartturn.New(smartturn.Config{BaseURL: cfg.SmartTurnURL})
 		if err != nil {
+			return providers{}, err
+		}
+		if p.sure, p.doubt, err = cfg.turnBands(); err != nil {
 			return providers{}, err
 		}
 		p.judge = judge
@@ -589,6 +615,35 @@ func (c Config) speculate() (bool, error) {
 		return true, nil
 	}
 	return false, fmt.Errorf("%q is not on or off", c.Speculate)
+}
+
+// turnBands reads CHORUS_SMARTTURN_SURE and CHORUS_SMARTTURN_DOUBT: zero
+// keeps listen's default for either. A band outside 0 to 1 never or always
+// fires, and doubt above sure leaves no probability its band, so all three
+// are refused at startup rather than at the first pause. Equal, they are the
+// single cut chorusd had before the bands (ADR-0094).
+func (c Config) turnBands() (sure, doubt float64, err error) {
+	for _, b := range []struct {
+		raw string
+		v   *float64
+	}{{c.SmartTurnSure, &sure}, {c.SmartTurnDoubt, &doubt}} {
+		if b.raw == "" {
+			continue
+		}
+		v, err := strconv.ParseFloat(b.raw, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("%q is not a number", b.raw)
+		}
+		if v <= 0 || v >= 1 {
+			return 0, 0, fmt.Errorf("%v is not a probability between 0 and 1", v)
+		}
+		*b.v = v
+	}
+	s, d := cmp.Or(sure, listen.DefaultSure), cmp.Or(doubt, listen.DefaultDoubt)
+	if d > s {
+		return 0, 0, fmt.Errorf("doubt %v is above sure %v", d, s)
+	}
+	return sure, doubt, nil
 }
 
 // skipConfirmation reads CHORUS_CONFIRM: unset or "on" holds a call for the

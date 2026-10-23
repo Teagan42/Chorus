@@ -16,10 +16,21 @@ import (
 // ms is that much device audio, in bytes.
 func ms(n int) int { return n * 32 }
 
+// Probabilities Smart Turn v3.2 gave household commands, measured on the
+// rendered corpus (ADR-0094): "Turn off the kitchen lights." at 0.988, "Turn
+// off the, uh," at 0.009, and "Turn on the porch light." in a voice it was
+// unsure of at 0.704.
+const (
+	sure     = 0.988
+	doubtful = 0.009
+	torn     = 0.704
+)
+
 // judgement is one scripted answer from the judge.
 type judgement struct {
-	done bool
-	err  error
+	p        float64
+	dangling bool
+	err      error
 }
 
 // judge answers from a script and keeps every turn it was sent, with the
@@ -31,17 +42,17 @@ type judge struct {
 	ctxs    []context.Context
 }
 
-func (j *judge) Complete(ctx context.Context, pcm []byte) (bool, error) {
+func (j *judge) Complete(ctx context.Context, pcm []byte) (listen.Judgement, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.asked = append(j.asked, pcm)
 	j.ctxs = append(j.ctxs, ctx)
 	if len(j.answers) == 0 {
-		return false, errors.New("smartturn judge: no answer scripted")
+		return listen.Judgement{}, errors.New("smartturn judge: no answer scripted")
 	}
 	a := j.answers[0]
 	j.answers = j.answers[1:]
-	return a.done, a.err
+	return listen.Judgement{Probability: a.p, Dangling: a.dangling}, a.err
 }
 
 func (j *judge) asks() int {
@@ -122,7 +133,7 @@ var pauseChunks = (listen.DefaultPause + chunkBytes - 1) / chunkBytes
 //
 // verifies SPEC §4.5
 func TestSemanticEndsAFinishedTurnAfterAShortPause(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}}}
+	j := &judge{answers: []judgement{{p: sure}}}
 	ep, q := semantic(j, nil)
 
 	speakTo(t, ep, 8000, ms(1900))
@@ -152,7 +163,7 @@ func TestSemanticEndsAFinishedTurnAfterAShortPause(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestSemanticHoldsAnUnfinishedTurnThroughAHesitation(t *testing.T) {
-	j := &judge{answers: []judgement{{done: false}, {done: true}}}
+	j := &judge{answers: []judgement{{p: doubtful}, {p: sure}}}
 	ep, q := semantic(j, nil)
 
 	speakTo(t, ep, 8000, ms(800))
@@ -184,7 +195,7 @@ func TestSemanticHoldsAnUnfinishedTurnThroughAHesitation(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestSemanticEndsAnUnfinishedTurnAtTheHold(t *testing.T) {
-	j := &judge{answers: []judgement{{done: false}}}
+	j := &judge{answers: []judgement{{p: doubtful}}}
 	ep, q := semantic(j, nil)
 
 	speakTo(t, ep, 8000, ms(2900))
@@ -208,7 +219,7 @@ func TestSemanticEndsAnUnfinishedTurnAtTheHold(t *testing.T) {
 // verifies SPEC §4.5
 func TestSemanticFallsBackToTheSilenceWhenTheJudgeFails(t *testing.T) {
 	down := errors.New("smartturn judge: dial tcp 127.0.0.1:8891: connection refused")
-	j := &judge{answers: []judgement{{err: down}, {err: down}, {done: true}}}
+	j := &judge{answers: []judgement{{err: down}, {err: down}, {p: sure}}}
 	var logs bytes.Buffer
 	ep, q := semantic(j, &logs)
 
@@ -244,7 +255,7 @@ func TestSemanticFallsBackToTheSilenceWhenTheJudgeFails(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestSemanticDoesNotWaitForASlowJudge(t *testing.T) {
-	j := &judge{answers: []judgement{{done: false}, {done: true}}}
+	j := &judge{answers: []judgement{{p: doubtful}, {p: sure}}}
 	ep, q := semantic(j, nil)
 
 	speakTo(t, ep, 8000, ms(1900))
@@ -303,7 +314,7 @@ func afterAStall(j *judge) (*listen.Semantic, *later, *wall) {
 //
 // verifies SPEC §4.5
 func TestSemanticWaitsOutABurstForTheJudge(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}}}
+	j := &judge{answers: []judgement{{p: sure}}}
 	ep, q, _ := afterAStall(j)
 
 	speakTo(t, ep, 8000, ms(1900))
@@ -321,7 +332,7 @@ func TestSemanticWaitsOutABurstForTheJudge(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestSemanticStopsWaitingWhenTheJudgesTimeIsUp(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}}}
+	j := &judge{answers: []judgement{{p: sure}}}
 	ep, _, clk := afterAStall(j)
 
 	speakTo(t, ep, 8000, ms(1900))
@@ -340,7 +351,7 @@ func TestSemanticStopsWaitingWhenTheJudgesTimeIsUp(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestSemanticEndsABurstAtTheHold(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}}}
+	j := &judge{answers: []judgement{{p: sure}}}
 	ep, _, _ := afterAStall(j)
 
 	speakTo(t, ep, 8000, ms(1900))
@@ -358,7 +369,7 @@ func TestSemanticEndsABurstAtTheHold(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestSemanticDropsAVerdictOnAPauseThatEnded(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}}}
+	j := &judge{answers: []judgement{{p: sure}}}
 	ep, q := semantic(j, nil)
 
 	speakTo(t, ep, 8000, ms(700))
@@ -377,7 +388,7 @@ func TestSemanticDropsAVerdictOnAPauseThatEnded(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestSemanticSendsTheJudgeTheEndOfALongTurn(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}}}
+	j := &judge{answers: []judgement{{p: sure}}}
 	ep, q := semantic(j, nil)
 
 	speakTo(t, ep, 7000, ms(2000))
@@ -400,7 +411,7 @@ func TestSemanticSendsTheJudgeTheEndOfALongTurn(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestSemanticSendsTheJudgeTheOnsetTheThresholdMissed(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}}}
+	j := &judge{answers: []judgement{{p: sure}}}
 	ep, q := semantic(j, nil)
 
 	feed(t, ep, 0, ms(1000))
@@ -420,7 +431,7 @@ func TestSemanticSendsTheJudgeTheOnsetTheThresholdMissed(t *testing.T) {
 
 // A mute forgets the turn and the ask about it.
 func TestSemanticResetForgetsTheTurnAndItsAsk(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}}}
+	j := &judge{answers: []judgement{{p: sure}}}
 	ep, q := semantic(j, nil)
 
 	speakTo(t, ep, 8000, ms(900))
@@ -472,7 +483,7 @@ func TestSemanticDefaults(t *testing.T) {
 //
 // verifies SPEC §4.5, §11
 func TestSemanticPausesWhereItAsksTheJudge(t *testing.T) {
-	j := &judge{answers: []judgement{{done: false}, {done: false}}}
+	j := &judge{answers: []judgement{{p: doubtful}, {p: doubtful}}}
 	ep, q := semantic(j, nil)
 	speakTo(t, ep, 8000, ms(1200))
 	if _, paused := ep.Paused(); paused {

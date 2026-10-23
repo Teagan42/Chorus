@@ -728,7 +728,7 @@ func TestAListenerWithoutAClockRecordsNoWait(t *testing.T) {
 // verifies SPEC §4.5, §11
 func TestASemanticEndpointShortensTheWait(t *testing.T) {
 	endpoint := time.Date(2026, 10, 6, 11, 59, 58, 160_000_000, time.UTC)
-	j := &judge{answers: []judgement{{done: true}}}
+	j := &judge{answers: []judgement{{p: sure}}}
 	ep, q := semantic(j, nil)
 	ep.Threshold = 0.05
 	r := newRig(t, talking(), func(c *listen.Config) {
@@ -766,11 +766,11 @@ type stalled struct {
 	gone  atomic.Bool
 }
 
-func (s *stalled) Complete(ctx context.Context, _ []byte) (bool, error) {
+func (s *stalled) Complete(ctx context.Context, _ []byte) (listen.Judgement, error) {
 	close(s.asked)
 	<-ctx.Done()
 	s.gone.Store(true)
-	return false, ctx.Err()
+	return listen.Judgement{}, ctx.Err()
 }
 
 // An ask in flight when the kitchen satellite drops is cancelled with the
@@ -812,7 +812,7 @@ func TestAnAskInFlightEndsWithTheLink(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestACutOffCommandIsHeardWholeAfterItsPause(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}, {done: true}}}
+	j := &judge{answers: []judgement{{p: sure}, {p: sure}}}
 	ep, q := semantic(j, nil)
 	ep.Threshold = 0.05
 	r := newRig(t, talking(), func(c *listen.Config) {
