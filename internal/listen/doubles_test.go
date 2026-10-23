@@ -211,6 +211,9 @@ type fakeSTT struct {
 	held chan context.Context
 	// down fails every decode, as a sidecar that is not running does.
 	down error
+	// otherwise is what audio nobody scripted decodes to: the words the ear
+	// reads in real speech, whose peak no line was written for.
+	otherwise string
 }
 
 func newSTT() *fakeSTT {
@@ -219,7 +222,11 @@ func newSTT() *fakeSTT {
 
 func (f *fakeSTT) Transcribe(ctx context.Context, pcm []byte) (stt.Result, error) {
 	f.mu.Lock()
-	text, hold, down := f.by[peak(pcm)], f.hold, f.down
+	text, ok := f.by[peak(pcm)]
+	if !ok && f.otherwise != "" && peak(pcm) != 0 {
+		text = f.otherwise
+	}
+	hold, down := f.hold, f.down
 	f.calls = append(f.calls, pcm)
 	f.mu.Unlock()
 	if down != nil {
@@ -273,6 +280,10 @@ type fakeEmbedder struct {
 	mu    sync.Mutex
 	by    map[int16][]float32
 	calls int
+	// sizes is how many bytes each call was asked about.
+	sizes []int
+	// otherwise is the voice of audio nobody scripted: real speech.
+	otherwise []float32
 }
 
 func newEmbedder() *fakeEmbedder {
@@ -282,7 +293,11 @@ func newEmbedder() *fakeEmbedder {
 func (f *fakeEmbedder) Embed(_ context.Context, pcm []byte) ([]float32, error) {
 	f.mu.Lock()
 	f.calls++
+	f.sizes = append(f.sizes, len(pcm))
 	v, ok := f.by[peak(pcm)]
+	if !ok && f.otherwise != nil {
+		v, ok = f.otherwise, true
+	}
 	f.mu.Unlock()
 	if !ok {
 		return nil, errors.New("sidecar unreachable")

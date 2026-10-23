@@ -30,5 +30,13 @@ satellites:
     # turn and every one ran to its cap. Raise it above the room's floor and
     # below speech; 0.05 is -26 dBFS. See ADR-0083.
     # speech_energy: 0.05
+    # Optional. How closely a barge-in must match what this satellite was
+    # playing, from 0 to 1, to be refused as its own voice coming back through
+    # the microphone; absent takes the built-in 0.6 (echo.DefaultThreshold),
+    # measured on simulated echo. Every candidate's echo_score is journalled
+    # on barge_in_detected and barge_in_rejected: lower it if echo still gets
+    # through, raise it if people are refused at the echo stage. Above 1
+    # turns the stage off. See ADR-0096.
+    # echo_threshold: 0.6
     # retention: # this satellite's own horizons; what it leaves out is the house's
     #   audio: 7d

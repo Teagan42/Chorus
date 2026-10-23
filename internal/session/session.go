@@ -1129,6 +1129,12 @@ func (s *Session) BargeIn(_ context.Context, c Candidate) (bool, error) {
 	if c.AudioFrames > 0 {
 		fields["audio_frames"] = strconv.Itoa(c.AudioFrames)
 	}
+	if c.EchoJudged {
+		// Kept on admissions too: a real barge-in's score is the other half
+		// of what tunes the threshold (ADR-0096).
+		fields["echo_score"] = strconv.FormatFloat(c.EchoScore, 'f', 2, 64)
+		fields["echo_lag_ms"] = strconv.Itoa(c.EchoLagMS)
+	}
 	stage, hot, ok := s.sup.cfg.Gate.admit(c, speaker)
 	if hot != "" {
 		fields["hot_word"] = string(hot)

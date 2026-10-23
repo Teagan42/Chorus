@@ -270,10 +270,13 @@ func (neverTimers) After(time.Duration) <-chan time.Time { return make(chan time
 // ----------------------------------------------------------------- hearing
 
 // fakeSTT answers a decode with the text scripted for the audio's peak
-// sample. Unscripted audio decodes to nothing, as noise does.
+// sample. Unscripted audio decodes to nothing, as noise does, unless
+// otherwise says what the ear reads in real speech.
 type fakeSTT struct {
-	mu sync.Mutex
-	by map[int16]string
+	mu        sync.Mutex
+	by        map[int16]string
+	otherwise string
+	calls     int
 }
 
 func newSTT() *fakeSTT { return &fakeSTT{by: map[int16]string{}} }
@@ -281,7 +284,18 @@ func newSTT() *fakeSTT { return &fakeSTT{by: map[int16]string{}} }
 func (f *fakeSTT) Transcribe(_ context.Context, pcm []byte) (stt.Result, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return stt.Result{Text: f.by[peak(pcm)]}, nil
+	f.calls++
+	text, ok := f.by[peak(pcm)]
+	if !ok && peak(pcm) != 0 {
+		text = f.otherwise
+	}
+	return stt.Result{Text: text}, nil
+}
+
+func (f *fakeSTT) decodes() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
 }
 
 // fakeEmbedder maps the peak sample to the vector scripted for that voice.

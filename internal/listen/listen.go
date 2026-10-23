@@ -25,6 +25,7 @@ import (
 
 	"github.com/teagan42/chorus/internal/blob"
 	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/echo"
 	"github.com/teagan42/chorus/internal/identity"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/session"
@@ -85,6 +86,13 @@ type Config struct {
 	// Playback is the Speaking side of the same link, which owns the origin a
 	// candidate's position is measured from.
 	Playback Playback
+
+	// Reference is what the Speaking side sent the DAC, on the count PLAYED
+	// reports, and Echo judges a candidate against it: the device's own
+	// voice is refused at the gate's echo stage before any embedding is
+	// spent on it (ADR-0096). Nil compares nothing and the stage passes.
+	Reference *echo.Reference
+	Echo      echo.Judge
 
 	// Blobs keeps every utterance and candidate the journal refers to.
 	Blobs blob.Store
@@ -372,7 +380,7 @@ func (l *Listener) aecLocked(pcm []byte) {
 		return
 	}
 	split := false
-	if err := l.cur.write(pcm); err != nil {
+	if err := l.cur.write(pcm, l.played); err != nil {
 		if !errors.Is(err, stt.ErrTooLong) {
 			l.warn("write utterance audio", err)
 			return
@@ -450,7 +458,7 @@ func (l *Listener) startLocked(pcm []byte) {
 		if len(chunk) == 0 {
 			continue
 		}
-		if err := u.write(chunk); err != nil {
+		if err := u.write(chunk, l.played); err != nil {
 			l.warn("write utterance audio", err)
 		}
 	}
@@ -890,6 +898,9 @@ type utterance struct {
 	mu    sync.Mutex
 	pcm   []byte
 	sumsq float64
+	// at is the DAC's reported position when the newest audio arrived: where
+	// the echo stage looks for what the device was playing under it.
+	at uint64
 	// second is the second channel over the same span, for the corpus.
 	second []byte
 }
@@ -910,17 +921,26 @@ func (u *utterance) seconds() []byte {
 	return slices.Clone(u.second)
 }
 
-// write hands a chunk to STT and keeps it for the embedder and the blob.
-// Kept only on success, so the audio matches what was decoded.
-func (u *utterance) write(pcm []byte) error {
+// write hands a chunk to STT and keeps it for the embedder and the blob,
+// with the DAC's position as it arrived. Kept only on success, so the audio
+// matches what was decoded.
+func (u *utterance) write(pcm []byte, played uint64) error {
 	if err := u.stt.Write(pcm); err != nil {
 		return err
 	}
 	u.mu.Lock()
 	u.pcm = append(u.pcm, pcm...)
 	u.sumsq += sumSquares(pcm)
+	u.at = played
 	u.mu.Unlock()
 	return nil
+}
+
+// reached is the DAC's position when the newest audio arrived.
+func (u *utterance) reached() uint64 {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.at
 }
 
 // snapshot is the audio so far and its RMS as a fraction of full scale.
@@ -992,7 +1012,13 @@ func (l *Listener) candidate(u *utterance, r stt.Result) {
 	}
 
 	pcm, energy := u.snapshot()
-	out := l.resolve(pcm)
+	// Compared first, because an echo needs no embedding to be refused:
+	// most candidates while the device speaks are its own voice (ADR-0088).
+	v := l.cfg.Echo.Recent(l.cfg.Reference, pcm, u.reached())
+	var out identity.Outcome
+	if !v.Echo {
+		out = l.resolve(pcm)
+	}
 	u.judged = len(pcm)
 	ok, err := sess.BargeIn(l.ctx, session.Candidate{
 		PositionMS: int(l.offset(played).Milliseconds()),
@@ -1003,6 +1029,10 @@ func (l *Listener) candidate(u *utterance, r stt.Result) {
 		SpeakerID:   out.PersonID,
 		Energy:      energy,
 		Partial:     r.Text,
+		Echo:        v.Echo,
+		EchoJudged:  v.Judged,
+		EchoScore:   v.Score,
+		EchoLagMS:   v.Lag * 1000 / bridge.SampleRate,
 	})
 	if err != nil {
 		l.warn("offer barge-in", err)
