@@ -88,7 +88,7 @@ CUE is the authoring layer. It carries types *and constraints*, which is the
 point: this project's invariants are cross-field policy, not shapes.
 
 ```
-schema/*.cue  ──┬─→ internal/<pkg>/*.gen.go     Go types + validators
+schema/*.cue  ──┬─→ internal/<pkg>/*.gen.go     Go types, validators, declarations
                 ├─→ schema/json/*.json          JSON Schema (LLM tool schemas)
                 └─→ docs/reference/*.md         reference tables
 ```
@@ -100,11 +100,14 @@ What is generated, in order of how badly drift hurts:
 2. **Tool registry** → Go interfaces, LLM-facing JSON Schema, policy enforcement
    middleware, docs. One declaration yields both the model's view and the
    interrupt/confirm/scope enforcement, so they cannot disagree. (SPEC §6)
+3. **Provider capabilities** → Go declarations, what each role needs, docs.
+   `chorusd` refuses a configured pipeline whose providers lack what the
+   architecture needs, at startup, and `task test` holds the shipped stack
+   and every provider choice to the same check. (SPEC §10, ADR-0102)
 
-Those two are all `schema/` holds. Device profiles (SPEC §3), provider
-capabilities (SPEC §10) and the config schema (SPEC §13) are not in CUE:
-`devices.yaml` is validated in Go by `internal/config` when it loads, and
-nothing checks a pipeline's viability at build time.
+Those three are all `schema/` holds. Device profiles (SPEC §3) and the
+config schema (SPEC §13) are not in CUE: `devices.yaml` is validated in Go
+by `internal/config` when it loads.
 
 Constraints CUE enforces that a type system cannot — these are why we chose it:
 
@@ -123,7 +126,8 @@ CI fails if `task gen` produces a diff (`task gen:check`). Two reasons: the
 generator cannot silently rot, and a reviewer sees the actual blast radius of a
 schema change. `task commit:check` counts these paths as generated:
 
-- `*.gen.go` and `schema/json/`, from CUE, and `docs/reference/`, its docs;
+- `*.gen.go` and `schema/json/`, from CUE, and `docs/reference/`, its docs
+  (`internal/provider/capability/capability.gen.go` among them);
 - `internal/pb/`, from the vendored ESPHome protos;
 - `hardware/*/*.net` and `hardware/*/bom.csv`, from each board's netlist data;
 - `internal/satellite/fallback/`, the canned lines' audio, which `task
@@ -303,6 +307,7 @@ internal/
                         speakerid, smartturn; chat, the engines' shared prompt and
                         dialogue; pcm, the voices' WAV and resampling; mcp, MCP
                         servers' tools (ADR-0075) (SPEC §10)
+    capability/         what each provider declares, and the startup check (ADR-0102)
   harvest/              barge-ins as preference candidates, and the dataset export (SPEC §9.1)
   contexts/             the text behind every prompt and tool-schema version (SPEC §13)
   triage/               signals worth a reviewer's time, derived on read
