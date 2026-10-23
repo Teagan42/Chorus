@@ -265,6 +265,17 @@ conversation to its close, not to the summary.
 
 ![The door waits for a yes: recall, nonce and summary](e2e/journey-door-audit.png)
 
+With `CHORUS_SPECULATE` on, chorusd asks the model at the endpointer's
+pause, before the utterance has ended (ADR-0095). A guess the person talked
+through, or one the confirmed turn would not have asked, is a muted
+`speculation discarded` row: what was guessed, why it was thrown away, and
+how long the model ran on it. It is no turn, so it has no labels, and
+Replay skips it as `replay()` does. A guess that was kept shows on the
+turn's completion as *asked in the pause, N ms before the turn was
+confirmed*.
+
+![A guess thrown away when Alan went on, and the one kept](e2e/journey-speculation.png)
+
 Under each utterance sit SPEC §9.2's labels for the turn it opens:
 *transcript wrong*, *misunderstood intent*, *wrong tool / args*, *should
 have spoken*, *spoke when it shouldn't*, *too slow*, *wrong person*, *good —
