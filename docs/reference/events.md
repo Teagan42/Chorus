@@ -19,6 +19,7 @@ See [SPEC §8](../SPEC.md). The journal is the runtime's source of truth.
 | `presence_changed` | device |  |  | The satellite's own presence sensor changed: the Satellite1's mmWave radar, read over the native API. Recorded in the device's log, since presence belongs to the room, not to a conversation (ADR-0050). |
 | `session_closed` | session |  |  | Session ended. The conversation outlives it when the reason is a migration: the person moved device, so this session closes and a resumed one opens (SPEC §4.5). An announcement nobody was asked to answer closes as announced once it has been said. |
 | `session_opened` | session |  |  | Wake word confirmed; a session begins. A resumed one joins a conversation already in progress on another device (SPEC §4.5). |
+| `speculation_discarded` | thinking |  |  | A turn asked in the pause before its utterance ended was thrown away: the person went on speaking, or the confirmed turn would not have asked the same. Nothing it generated was dispatched or played, so replay skips it; it is recorded as what the guess cost (SPEC §11, ADR-0095). |
 | `speech_discarded` | speaking |  | yes | Speech generated but never played, because a barge-in, or whatever reason names, emptied the queue first. Distinct from truncation: nothing was heard. |
 | `speech_failed` | speaking |  |  | A speak call's audio failed short of the person interrupting: the voice could not render it, or the device never confirmed playing it. The truncation or discard it caused names the same reason, so it is never mistaken for a barge-in (SPEC §7, ADR-0051). |
 | `speech_spoken` | speaking | yes |  | Audio the user actually heard, bounded by DAC-reported playback position. |
@@ -145,6 +146,7 @@ Actor: `thinking`. `has_audio`: no. `training_signal`: no. `speculative`: no. `r
 |---|---|---|---|
 | `completion_json` | string | yes | Raw completion as returned. |
 | `finish_reason` | string | yes | Why generation stopped. One of: `stop`, `length`, `tool_calls`, `error`. |
+| `asked_early_ms` | integer |  | How long before its turn was confirmed this completion's ask began, in milliseconds: the ask was made in the pause before the utterance ended, and kept because the confirmed turn would have asked the same (ADR-0095). Absent for an ask made after. |
 | `streamed_speech_json` | string |  | The words of each speak call this completion streamed, as a JSON object keyed by call_id, as the model generated them. A streamed call's tool_called is recorded at its first words and carries none, so this is how an ask made while it still plays is told what it is saying, live and on replay (ADR-0077). Absent when no speak call streamed: one that arrived whole carries its words in its tool_called. |
 
 ## `model_failed`
@@ -196,6 +198,21 @@ Actor: `session`. `has_audio`: no. `training_signal`: no. `speculative`: no. `re
 | `announced` | boolean |  | Opened with no wake word, to say an announcement: a timer going off, or something asked to be said in this room (SPEC §4). |
 | `room` | string |  | Where the device is, as the inventory names it: what the model is told it is speaking from, so "the lights" can mean this room's (SPEC §5). Empty when the inventory names no room. |
 | `wake_word` | string |  | The name the device's wake frame carried, as wake_rejected records it: the wake model's, or button for a push-to-talk press (bridge.WakeButton). Empty for an announcement, which no wake opened, and in logs from before it was recorded. |
+
+## `speculation_discarded`
+
+A turn asked in the pause before its utterance ended was thrown away: the person went on speaking, or the confirmed turn would not have asked the same. Nothing it generated was dispatched or played, so replay skips it; it is recorded as what the guess cost (SPEC §11, ADR-0095).
+
+Actor: `thinking`. `has_audio`: no. `training_signal`: no. `speculative`: yes. `requires_versions`: yes.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | yes | The words the pause supposed were the turn. |
+| `reason` | string | yes | resumed: the person went on speaking. changed: the turn was confirmed, but what it would tell the model differs from what the speculative ask was told -- other words, another speaker, something new in the log, or the minute turned over. not_a_turn: the utterance was never answered -- an impulse, the device's own voice, the television, a hot phrase, or an ear that failed. session_closed: the session ended first. One of: `resumed`, `changed`, `not_a_turn`, `session_closed`. |
+| `speaker_id` | string |  | Who the pause attributed the words to. Empty for a guest. |
+| `completion_json` | string |  | The completion as far as the model got before it was cut off. Empty when it had said nothing. |
+| `finish_reason` | string |  | Why its generation stopped, as model_completed records it. Empty when the model reported no end. One of: `stop`, `length`, `tool_calls`, `error`. |
+| `ran_ms` | integer |  | Milliseconds from the speculative ask to its discard. |
 
 ## `speech_discarded`
 

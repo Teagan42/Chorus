@@ -109,6 +109,14 @@ func lost(winner, energy, winnerEnergy, audio string, fields ...string) journal.
 	}, fields...)...)
 }
 
+// guessed is a turn asked in a pause and thrown away, as the session
+// records it: speculative, so replay skips it (ADR-0095).
+func guessed(text, speaker, reason, ran string) journal.Record {
+	r := rec(journal.KindSpeculationDiscarded, "", "text", text, "speaker_id", speaker, "reason", reason, "ran_ms", ran)
+	r.Speculative = true
+	return r
+}
+
 func at(h, m int, s float64) time.Duration {
 	return time.Duration(h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(s*float64(time.Second))
 }
@@ -288,6 +296,10 @@ func Logs() map[string][]Line {
 			{at(18, 40, 7.2), rec(journal.KindSpeechTruncated, "blob://tts/jazz-playlist", "spoken_text", "Playing Late Night Jazz", "unspoken_text", " from Spotify, starting with Take Five.", "frames_played", "17600", "call_id", "s2", "reason", "barge_in")},
 			{at(18, 40, 7.2), rec(journal.KindSpeechDiscarded, "", "unspoken_text", "Say skip to hear the next one.", "reason", "barge_in")},
 			{at(18, 40, 7.2), rec(journal.KindToolResult, "", "call_id", "s2", "outcome", "cancelled")},
+			// "Something" -- a breath -- "quieter": the guess at the breath is
+			// thrown away when he goes on, and the one at the end is kept
+			// (ADR-0095). Replay skips the discarded one.
+			{at(18, 40, 7.85), guessed("something", "alan", "resumed", "180")},
 			{at(18, 40, 8.3), rec(journal.KindUtteranceTranscribed, "blob://mic/jazz-quieter", "text", "something quieter", "speaker_id", "alan")},
 			{at(18, 40, 8.35), rec(journal.KindToolCalled, "", "tool", "media_search", "call_id", "c3", "args_json", `{"query":"quiet jazz piano","limit":3,"acknowledgement":"Looking for something quieter."}`)},
 			{at(18, 40, 8.35), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "c3_ack", "args_json", ackArgs("c3", "Looking for something quieter."))},
@@ -300,7 +312,7 @@ func Logs() map[string][]Line {
 			{at(18, 40, 10.25), rec(journal.KindToolCalled, "", "tool", "speak", "call_id", "s3", "args_json", speakArgs)},
 			{at(18, 40, 11.85), rec(journal.KindSpeechSpoken, "blob://tts/jazz-quiet", "text", "Playing Quiet Jazz Piano.", "frames_played", "24000", "call_id", "s3")},
 			{at(18, 40, 11.95), rec(journal.KindToolResult, "", "call_id", "s3", "outcome", "ok")},
-			{at(18, 40, 12.05), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop")},
+			{at(18, 40, 12.05), rec(journal.KindModelCompleted, "", "completion_json", "{}", "finish_reason", "stop", "asked_early_ms", "640")},
 			{at(18, 41, 0), rec(journal.KindSessionClosed, "", "reason", "model_ended", "satellite", "living_room")},
 		},
 		ConvList: {

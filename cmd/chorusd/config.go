@@ -62,6 +62,10 @@ const (
 	// "on" or unset holds them; "off" runs them as written (ADR-0091).
 	confirmEnv = "CHORUS_CONFIRM"
 
+	// speculateEnv answers a turn in its pause, kept only if nothing
+	// changed by its end. "off" or unset waits for the end (ADR-0095).
+	speculateEnv = "CHORUS_SPECULATE"
+
 	// The voice's and the ear's providers, and the endpoints of the ones
 	// that are not the defaults (ADR-0081). Kokoro's and speaches' are
 	// above.
@@ -133,6 +137,9 @@ type Config struct {
 	// Confirm is CHORUS_CONFIRM as written; skipConfirmation parses it.
 	Confirm string
 
+	// Speculate is CHORUS_SPECULATE as written; speculate parses it.
+	Speculate string
+
 	// TTSProvider is the voice: kokoro, openai or wyoming (ADR-0081).
 	TTSProvider     string
 	OpenAITTSURL    string
@@ -185,6 +192,7 @@ func configFromEnv(getenv func(string) string) Config {
 		VLLMThinking:  getenv(vllmThinkingEnv),
 		SpeakerAccept: getenv(speakerAcceptEnv),
 		Confirm:       getenv(confirmEnv),
+		Speculate:     getenv(speculateEnv),
 		KokoroURL:     getenv(kokoroURLEnv),
 		STTURL:        getenv(sttURLEnv),
 
@@ -324,6 +332,9 @@ func (c Config) validate() error {
 	if _, err := c.skipConfirmation(); err != nil {
 		missing = append(missing, fmt.Sprintf("  %-20s %v", confirmEnv, err))
 	}
+	if _, err := c.speculate(); err != nil {
+		missing = append(missing, fmt.Sprintf("  %-20s %v", speculateEnv, err))
+	}
 	for _, r := range required {
 		if r.value == "" {
 			missing = append(missing, fmt.Sprintf("  %-20s %s", r.name, r.purpose))
@@ -370,7 +381,9 @@ type providers struct {
 	// skipConfirm runs a held call as written, for a household that turned
 	// the yes off (ADR-0091).
 	skipConfirm bool
-	tools       map[string]session.Tool
+	// speculate answers each turn in its pause (ADR-0095).
+	speculate bool
+	tools     map[string]session.Tool
 	// specs is what the session enforces policy from: the registry's, and
 	// any provided tools'. Nil is the registry's alone.
 	specs map[string]registry.ToolSpec
@@ -476,6 +489,9 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 		return providers{}, err
 	}
 	p.skipConfirm = skip
+	if p.speculate, err = cfg.speculate(); err != nil {
+		return providers{}, err
+	}
 
 	return p, nil
 }
@@ -561,6 +577,18 @@ func (c Config) speakerAccept() (float64, error) {
 		return 0, fmt.Errorf("%v is not a cosine between 0 and 1", v)
 	}
 	return v, nil
+}
+
+// speculate reads CHORUS_SPECULATE: "on" answers a turn in its pause,
+// unset or "off" at its end. Anything else is refused rather than guessed.
+func (c Config) speculate() (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(c.Speculate)) {
+	case "", "off", "false", "no":
+		return false, nil
+	case "on", "true", "yes":
+		return true, nil
+	}
+	return false, fmt.Errorf("%q is not on or off", c.Speculate)
 }
 
 // skipConfirmation reads CHORUS_CONFIRM: unset or "on" holds a call for the

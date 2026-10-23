@@ -58,6 +58,14 @@ type Trailer interface {
 	Trailing() int
 }
 
+// Pauser is an Endpointer that can say the speech it holds has paused for
+// long enough to be worth answering, though the utterance has not ended.
+// Paused numbers the pause, so a pause spoken through and a later one are
+// told apart; paused is false while speech goes on (ADR-0095).
+type Pauser interface {
+	Paused() (n uint64, paused bool)
+}
+
 // DefaultSpeechEnergy is the RMS, as a fraction of full scale, at or above
 // which a chunk counts as speech: -40 dBFS. The XMOS AGC lands speech well
 // above it and the AEC residual during playback well below. Unmeasured on a
@@ -81,14 +89,19 @@ type Energy struct {
 	// Silence is how many bytes of consecutive quiet end an utterance.
 	Silence int
 
+	// Pause is how many bytes of quiet make a pause, as Semantic asks its
+	// judge after. Zero reports none.
+	Pause int
+
 	voiced bool
 	quiet  int
 	trail  int
+	pauses uint64
 }
 
 // NewEnergy returns the defaults.
 func NewEnergy() *Energy {
-	return &Energy{Threshold: DefaultSpeechEnergy, Silence: DefaultSilence}
+	return &Energy{Threshold: DefaultSpeechEnergy, Silence: DefaultSilence, Pause: DefaultPause}
 }
 
 func (e *Energy) Feed(pcm []byte) Boundary {
@@ -101,6 +114,9 @@ func (e *Energy) Feed(pcm []byte) Boundary {
 		return Start
 	}
 	if loud {
+		if e.quiet > 0 {
+			e.pauses++
+		}
 		e.quiet = 0
 		return Continue
 	}
@@ -109,10 +125,16 @@ func (e *Energy) Feed(pcm []byte) Boundary {
 		return Continue
 	}
 	e.voiced, e.quiet, e.trail = false, 0, e.quiet
+	e.pauses++
 	return End
 }
 
-func (e *Energy) Reset() { e.voiced, e.quiet = false, 0 }
+func (e *Energy) Reset() { e.voiced, e.quiet, e.pauses = false, 0, e.pauses+1 }
+
+// Paused is the current pause, once the quiet has reached Pause.
+func (e *Energy) Paused() (uint64, bool) {
+	return e.pauses, e.Pause > 0 && e.voiced && e.quiet >= e.Pause
+}
 
 // Trailing is the quiet the last End waited through, in bytes.
 func (e *Energy) Trailing() int { return e.trail }

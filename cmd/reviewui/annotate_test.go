@@ -81,7 +81,7 @@ func TestEveryEventKindSaysSomethingOnTheConversationPage(t *testing.T) {
 			}
 		}
 	}
-	for _, k := range []journal.Kind{journal.KindMemoryRecalled, journal.KindConversationSummarized, journal.KindConfirmationRequested, journal.KindConfirmationGiven} {
+	for _, k := range []journal.Kind{journal.KindMemoryRecalled, journal.KindConversationSummarized, journal.KindConfirmationRequested, journal.KindConfirmationGiven, journal.KindSpeculationDiscarded} {
 		if !seen[k] {
 			t.Errorf("the household's day has no %s", k)
 		}

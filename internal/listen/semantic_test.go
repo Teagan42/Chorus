@@ -466,3 +466,30 @@ func TestSemanticDefaults(t *testing.T) {
 	}
 	var _ listen.Trailer = ep
 }
+
+// The semantic endpointer's pause is the one its judge is asked about: Alan
+// is paused from the ask, and talking on makes the next pause another.
+//
+// verifies SPEC §4.5, §11
+func TestSemanticPausesWhereItAsksTheJudge(t *testing.T) {
+	j := &judge{answers: []judgement{{done: false}, {done: false}}}
+	ep, q := semantic(j, nil)
+	speakTo(t, ep, 8000, ms(1200))
+	if _, paused := ep.Paused(); paused {
+		t.Fatal("paused while Alan talks")
+	}
+	feed(t, ep, 0, pauseChunks*chunkBytes)
+	first, paused := ep.Paused()
+	if !paused || len(q.queued) != 1 {
+		t.Fatalf("paused %v with %d asks queued, want paused with the judge asked", paused, len(q.queued))
+	}
+	q.run()
+	feed(t, ep, 8000, chunkBytes)
+	if _, paused := ep.Paused(); paused {
+		t.Fatal("still paused once Alan talked on")
+	}
+	feed(t, ep, 0, pauseChunks*chunkBytes)
+	if second, paused := ep.Paused(); !paused || second == first {
+		t.Errorf("second pause = %d (paused %v), want one numbered apart from %d", second, paused, first)
+	}
+}

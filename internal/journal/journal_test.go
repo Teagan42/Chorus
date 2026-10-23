@@ -171,6 +171,10 @@ func TestAppendRejectsMalformedWrites(t *testing.T) {
 		"audio without a blob reference": {versions(), journal.Record{
 			Kind: journal.KindUtteranceTranscribed, Fields: map[string]string{"text": "hello"},
 		}},
+		// A guess the person talked over, written as if it had been answered.
+		"a speculative kind written as committed": {versions(), journal.Record{
+			Kind: journal.KindSpeculationDiscarded, Fields: map[string]string{"text": "turn off the kitchen lights", "reason": "resumed"},
+		}},
 		"versions required but incomplete": {journal.Versions{Model: "qwen3-32b@1"}, journal.Record{
 			Kind: journal.KindWakeRejected, AudioRef: "blob/1", Fields: map[string]string{"reason": "no_speech"},
 		}},

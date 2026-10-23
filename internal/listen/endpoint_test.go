@@ -131,3 +131,49 @@ func TestEnergyEndpointerSaysHowMuchQuietItWaitedThrough(t *testing.T) {
 	}
 	var _ listen.Trailer = ep
 }
+
+// "Turn off the... kitchen lights": the energy endpointer calls the first
+// quiet a pause once it reaches Pause, a second one a different pause, and
+// none once the utterance has ended (ADR-0095).
+//
+// verifies SPEC §4.5, §11
+func TestEnergyEndpointerNumbersEachPause(t *testing.T) {
+	ep := &listen.Energy{Threshold: 0.1, Silence: 4 * chunkBytes, Pause: 2 * chunkBytes}
+	ep.Feed(voice(8000, chunkBytes))
+	ep.Feed(quiet(chunkBytes))
+	if _, paused := ep.Paused(); paused {
+		t.Fatal("paused short of Pause")
+	}
+	ep.Feed(quiet(chunkBytes))
+	first, paused := ep.Paused()
+	if !paused {
+		t.Fatal("not paused at Pause")
+	}
+	ep.Feed(voice(8000, chunkBytes))
+	if _, paused := ep.Paused(); paused {
+		t.Fatal("still paused once speech resumed")
+	}
+	ep.Feed(quiet(chunkBytes))
+	ep.Feed(quiet(chunkBytes))
+	second, paused := ep.Paused()
+	if !paused || second == first {
+		t.Fatalf("second pause = %d (paused %v), want one numbered apart from %d", second, paused, first)
+	}
+	ep.Feed(quiet(chunkBytes))
+	if got := ep.Feed(quiet(chunkBytes)); got != listen.End {
+		t.Fatalf("the bound = %v, want End", got)
+	}
+	if _, paused := ep.Paused(); paused {
+		t.Error("an ended utterance is still paused")
+	}
+}
+
+// Pause zero reports none, as an Energy built before pauses existed.
+func TestEnergyEndpointerWithNoPauseReportsNone(t *testing.T) {
+	ep := &listen.Energy{Threshold: 0.1, Silence: 4 * chunkBytes}
+	ep.Feed(voice(8000, chunkBytes))
+	ep.Feed(quiet(3 * chunkBytes))
+	if _, paused := ep.Paused(); paused {
+		t.Error("paused with Pause zero")
+	}
+}

@@ -218,6 +218,11 @@ type Transcript struct {
 	// AudioLost is why AudioRef was never written. The words were decoded,
 	// so the turn goes on, and the log says the clip is gone (ADR-0069).
 	AudioLost error
+
+	// Speculation is the ask made in the pause before these words were
+	// confirmed. The turn keeps it if it would ask the same, and discards it
+	// otherwise (ADR-0095). Nil asks once the turn starts.
+	Speculation *Speculation
 }
 
 // Session is the supervisor of one conversation's concurrent children. It
@@ -256,6 +261,9 @@ type Session struct {
 
 	speech    *speechChannel
 	closeOnce sync.Once
+
+	// spec is the ask made in a pause and not yet kept or discarded.
+	spec *Speculation
 
 	// annMu orders announcements against the session's close. answerable:
 	// one asked for an answer; ending: the close after one nobody need answer
@@ -381,29 +389,19 @@ func (s *Session) State(ctx context.Context) (journal.State, error) {
 func (s *Session) Heard(ctx context.Context, t Transcript) error {
 	hot, again, err := s.answeredAs(ctx, t)
 	if err != nil {
+		t.Speculation.Discard(DiscardNotATurn)
 		return err
 	}
-	fields := map[string]string{"text": t.Text, "speaker_id": t.SpeakerID}
-	if t.SpeakerMatch != "" {
-		fields["speaker_match"] = t.SpeakerMatch
-	}
 	if hot != "" {
-		fields["hot_word"] = string(hot)
+		t.Speculation.Discard(DiscardNotATurn)
 	}
-	if len(t.Embedding) > 0 {
-		// Fails only on a non-finite value, which the matcher refuses upstream.
-		b, err := json.Marshal(t.Embedding)
-		if err != nil {
-			return fmt.Errorf("encode embedding for %s: %w", s.convID, err)
-		}
-		fields["embedding_json"] = string(b)
+	rec, err := heardRecord(t, hot)
+	if err != nil {
+		t.Speculation.Discard(DiscardNotATurn)
+		return fmt.Errorf("%s: %w", s.convID, err)
 	}
-	if t.SecondAudioRef != "" {
-		fields["second_audio_ref"] = t.SecondAudioRef
-	}
-	if err := s.record(journal.Record{
-		Kind: journal.KindUtteranceTranscribed, AudioRef: t.AudioRef, Fields: fields,
-	}); err != nil {
+	if err := s.record(rec); err != nil {
+		t.Speculation.Discard(DiscardNotATurn)
 		return err
 	}
 	if t.AudioLost != nil {
@@ -431,6 +429,30 @@ func (s *Session) Heard(ctx context.Context, t Transcript) error {
 		return s.repeat(t, again)
 	}
 	return s.turn(ctx, t)
+}
+
+// heardRecord is the utterance_transcribed t is journalled as, and supposed
+// as by a speculative ask.
+func heardRecord(t Transcript, hot HotWord) (journal.Record, error) {
+	fields := map[string]string{"text": t.Text, "speaker_id": t.SpeakerID}
+	if t.SpeakerMatch != "" {
+		fields["speaker_match"] = t.SpeakerMatch
+	}
+	if hot != "" {
+		fields["hot_word"] = string(hot)
+	}
+	if len(t.Embedding) > 0 {
+		// Fails only on a non-finite value, which the matcher refuses upstream.
+		b, err := json.Marshal(t.Embedding)
+		if err != nil {
+			return journal.Record{}, fmt.Errorf("encode embedding: %w", err)
+		}
+		fields["embedding_json"] = string(b)
+	}
+	if t.SecondAudioRef != "" {
+		fields["second_audio_ref"] = t.SecondAudioRef
+	}
+	return journal.Record{Kind: journal.KindUtteranceTranscribed, AudioRef: t.AudioRef, Fields: fields}, nil
 }
 
 // answeredAs is the hot phrase the session answers t as itself, and for a
@@ -493,10 +515,19 @@ func (s *Session) repeat(t Transcript, text string) error {
 func (s *Session) turn(ctx context.Context, t Transcript) error {
 	st, err := s.State(ctx)
 	if err != nil {
+		t.Speculation.Discard(DiscardChanged)
 		return err
 	}
-	if st, err = s.recall(ctx, st, t.Text); err != nil {
-		return err
+	var kept *Speculation
+	if t.Speculation != nil {
+		if st, kept, err = s.keep(ctx, st, t.Speculation, t); err != nil {
+			return err
+		}
+	}
+	if kept == nil {
+		if st, err = s.recall(ctx, st, t.Text); err != nil {
+			return err
+		}
 	}
 
 	s.speech.resume(t.Ended)
@@ -515,16 +546,9 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 	// only worth having if the model is asked again with it. Speech alone
 	// needs no answer, and a barge-in or a closing session ends the turn.
 	for round := 1; ; round++ {
-		acted, err := s.ask(turnCtx, Input{
-			ConversationID: s.convID,
-			Speaker:        st.Speaker,
-			Room:           st.Room,
-			Text:           t.Text,
-			Dialogue:       st.Dialogue,
-			Memories:       st.Recalled,
-			Summaries:      st.RecalledSummaries,
-			Now:            st.HeardAt,
-		})
+		// The first ask may have been made in the pause already.
+		acted, err := s.ask(turnCtx, s.input(st, t.Text), kept)
+		kept = nil
 		if f, ok := isModelFailure(err); ok {
 			// No model is left to reason with, so no follow-up either: the
 			// canned line is the turn's answer (SPEC §7).
@@ -550,6 +574,20 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 	return s.turnErr
 }
 
+// input is what the model is asked with over st, for an utterance of text.
+func (s *Session) input(st journal.State, text string) Input {
+	return Input{
+		ConversationID: s.convID,
+		Speaker:        st.Speaker,
+		Room:           st.Room,
+		Text:           text,
+		Dialogue:       st.Dialogue,
+		Memories:       st.Recalled,
+		Summaries:      st.RecalledSummaries,
+		Now:            st.HeardAt,
+	}
+}
+
 // ask runs one completion: it drains the action stream, dispatching each
 // action as it arrives, and waits for the calls it made. It reports whether
 // the model called anything that answers and did not also end the session,
@@ -558,11 +596,21 @@ func (s *Session) turn(ctx context.Context, t Transcript) error {
 // The model streams on a context of its own under the turn's: the deadline
 // cancels the model, never the calls it already made, which run on the
 // turn's. An ask the model let down returns a *modelFailure.
-func (s *Session) ask(turnCtx context.Context, in Input) (bool, error) {
+//
+// A kept speculation is the ask already made: its stream replays from the
+// start, and is dispatched exactly as if it were arriving now (ADR-0095).
+func (s *Session) ask(turnCtx context.Context, in Input, kept *Speculation) (bool, error) {
 	modelCtx, cancelModel := context.WithCancel(turnCtx)
 	defer cancelModel()
 	dog := s.watch(cancelModel)
-	actions, err := s.sup.cfg.Engine.Turn(modelCtx, in)
+	early := ""
+	var actions <-chan Action
+	var err error
+	if kept != nil {
+		actions, early = kept.stream(modelCtx), kept.early(s.sup.cfg.Clock.Now())
+	} else {
+		actions, err = s.sup.cfg.Engine.Turn(modelCtx, in)
+	}
 	if err != nil {
 		if f := s.failure(turnCtx.Err() != nil, dog.stop(), false, err.Error()); f != nil {
 			return false, f
@@ -600,6 +648,9 @@ func (s *Session) ask(turnCtx context.Context, in Input) (bool, error) {
 			}
 			if words := streamedWords(streamed); words != "" {
 				fields["streamed_speech_json"] = words
+			}
+			if early != "" {
+				fields["asked_early_ms"] = early
 			}
 			s.fail(s.record(journal.Record{Kind: journal.KindModelCompleted, Fields: fields}))
 			broke, brokeWhy = act.FinishReason == FinishError, act.Error
@@ -1111,7 +1162,12 @@ func (s *Session) end(reason, discard string) error {
 		// First, so the ring is dark while the cut speech settles.
 		s.mu.Lock()
 		s.over = true
+		spec := s.spec
 		s.mu.Unlock()
+		// A placeholder has no ask yet; Speculate discards what it makes.
+		if spec != nil && spec.s != nil {
+			spec.Discard(DiscardSessionClosed)
+		}
 		// Under annMu: an announcement is journalled wholly before the close, or refused.
 		s.annMu.Lock()
 		close(s.closing)

@@ -181,6 +181,7 @@ events: {
 		fields: [
 			{name: "completion_json", type: "string", description: "Raw completion as returned.", required: true},
 			{name: "finish_reason", type: "string", description: "Why generation stopped.", required: true, enum: ["stop", "length", "tool_calls", "error"]},
+			{name: "asked_early_ms", type: "integer", description: "How long before its turn was confirmed this completion's ask began, in milliseconds: the ask was made in the pause before the utterance ended, and kept because the confirmed turn would have asked the same (ADR-0095). Absent for an ask made after."},
 			{name: "streamed_speech_json", type: "string", description: "The words of each speak call this completion streamed, as a JSON object keyed by call_id, as the model generated them. A streamed call's tool_called is recorded at its first words and carries none, so this is how an ask made while it still plays is told what it is saying, live and on replay (ADR-0077). Absent when no speak call streamed: one that arrived whole carries its words in its tool_called."},
 		]
 	}
@@ -193,6 +194,20 @@ events: {
 			{name: "reason", type: "string", description: "unavailable: the ask never started. failed: the stream broke partway. timed_out: nothing came for longer than the deadline, and the ask was given up on.", required: true, enum: ["unavailable", "failed", "timed_out"]},
 			{name: "error", type: "string", description: "What the engine reported.", required: true},
 			{name: "canned_call_id", type: "string", description: "The speak call that said the canned line. Empty when none was said: one has already been said this turn, or the session is ending."},
+		]
+	}
+	speculation_discarded: {
+		name:              "speculation_discarded", actor: "thinking"
+		description:       "A turn asked in the pause before its utterance ended was thrown away: the person went on speaking, or the confirmed turn would not have asked the same. Nothing it generated was dispatched or played, so replay skips it; it is recorded as what the guess cost (SPEC §11, ADR-0095)."
+		speculative:       true
+		requires_versions: true
+		fields: [
+			{name: "text", type: "string", description: "The words the pause supposed were the turn.", required: true},
+			{name: "reason", type: "string", description: "resumed: the person went on speaking. changed: the turn was confirmed, but what it would tell the model differs from what the speculative ask was told -- other words, another speaker, something new in the log, or the minute turned over. not_a_turn: the utterance was never answered -- an impulse, the device's own voice, the television, a hot phrase, or an ear that failed. session_closed: the session ended first.", required: true, enum: ["resumed", "changed", "not_a_turn", "session_closed"]},
+			{name: "speaker_id", type: "string", description: "Who the pause attributed the words to. Empty for a guest."},
+			{name: "completion_json", type: "string", description: "The completion as far as the model got before it was cut off. Empty when it had said nothing."},
+			{name: "finish_reason", type: "string", description: "Why its generation stopped, as model_completed records it. Empty when the model reported no end.", enum: ["stop", "length", "tool_calls", "error"]},
+			{name: "ran_ms", type: "integer", description: "Milliseconds from the speculative ask to its discard."},
 		]
 	}
 	speech_failed: {

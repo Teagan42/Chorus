@@ -125,6 +125,20 @@ func apply(e Event, ov Overrides) Event {
 	return e
 }
 
+// Suppose is state as it would be had r been appended at at: the reducer's
+// fold of a record that is never written. A speculative ask is made from it,
+// and kept only if the appended record yields the same ask (ADR-0095).
+func Suppose(s State, at time.Time, r Record) (State, error) {
+	meta, ok := Meta[r.Kind]
+	if !ok {
+		return s, fmt.Errorf("suppose %q: undeclared event kind", r.Kind)
+	}
+	return Reduce(s, Event{
+		Seq: s.LastSeq + 1, ConversationID: s.ConversationID, Kind: r.Kind, Actor: meta.Actor,
+		At: at, AudioRef: r.AudioRef, Fields: r.Fields, Speculative: r.Speculative,
+	})
+}
+
 // Reduce folds one event into state. Pure: same state plus same event yields
 // the same result, with no clock, no I/O, and no randomness.
 func Reduce(s State, e Event) (State, error) {
@@ -352,6 +366,7 @@ var handled = map[Kind]bool{
 	KindPresenceChanged:        true,
 	KindSessionClosed:          true,
 	KindSessionOpened:          true,
+	KindSpeculationDiscarded:   true,
 	KindSpeechDiscarded:        true,
 	KindSpeechFailed:           true,
 	KindSpeechSpoken:           true,

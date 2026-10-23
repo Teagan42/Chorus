@@ -741,6 +741,39 @@ func TestE2EJourneyTheOvenTimerGoesOffInTheKitchen(t *testing.T) {
 	p.shot("journey-oven-timer-set")
 }
 
+// Alan's "something -- quieter" in the jazz evening: the answer guessed at
+// his breath is a muted row saying it was thrown away and why, the one at his
+// last pause is the turn's completion, saying how early it was asked, and
+// Replay skips the thrown-away guess as replay() does (ADR-0095).
+//
+// verifies SPEC §9.2, §11
+func TestE2EJourneyAGuessInThePauseIsThrownAwayOrKept(t *testing.T) {
+	s, _ := newHouseholdServer(t)
+	p := open(t, s)
+
+	p.visit(conversationHref(convJazz))
+	p.waitText("#seq-23", "speculation discarded")
+	p.waitText("#seq-23", "guessed “something” in the pause")
+	p.waitText("#seq-23", "discarded: they went on speaking · the model ran 180 ms")
+	p.waitText("#seq-24", "something quieter")
+	p.waitText("#seq-36", "completed: stop")
+	p.waitText("#seq-36", "asked in the pause, 640 ms before the turn was confirmed")
+	if p.has("#turn-23-labels") {
+		t.Error("the thrown-away guess is offered labels as if it were a turn")
+	}
+	if !p.has("#turn-24-labels") {
+		t.Error("the turn the kept guess answered has no labels")
+	}
+	p.run(chromedp.ScrollIntoView("#seq-23", chromedp.ByQuery))
+	p.shot("journey-speculation")
+
+	p.visit(replayHref(convJazz))
+	p.waitText("h1", "dim the living room lights")
+	if strings.Contains(p.text("body"), "guessed") {
+		t.Error("Replay offers the thrown-away guess as a turn")
+	}
+}
+
 // failsOn answers like the scripted engine until it reaches one utterance,
 // then the stream dies the way Ollama's does: finish_reason error.
 type failsOn struct {
@@ -813,7 +846,7 @@ func TestE2EJourneyReplayTheJazzEveningUnderAnEditedPrompt(t *testing.T) {
 	}
 
 	p.follow(fmt.Sprintf(`#replays a[href="%s"]`, replayHref(convJazz)))
-	if got := p.metrics(`[aria-label="Recorded"]`)["Journal replay"]; got != "replay() reads back all 36 events" {
+	if got := p.metrics(`[aria-label="Recorded"]`)["Journal replay"]; got != "replay() reads back all 37 events" {
 		t.Errorf("journal replay check = %q", got)
 	}
 	if n := p.count(`#replay-result [id^="turn-"]`); n != 3 {
@@ -842,7 +875,7 @@ func TestE2EJourneyReplayTheJazzEveningUnderAnEditedPrompt(t *testing.T) {
 	p.waitText("#replay-result", "Alice is here too. Shall I put some jazz on?")
 	tags := map[string]string{}
 	p.eval(`Object.fromEntries([...document.querySelectorAll('#replay-result [id^="turn-"]')].map(r => [r.id, r.lastElementChild.querySelector(".sig-tag").textContent.trim()]))`, &tags)
-	for turn, w := range map[string]string{"turn-2": "same", "turn-11": "speech and calls changed", "turn-23": "speech and calls changed"} {
+	for turn, w := range map[string]string{"turn-2": "same", "turn-11": "speech and calls changed", "turn-24": "speech and calls changed"} {
 		if tags[turn] != w {
 			t.Errorf("%s is tagged %q, want %q (all %v)", turn, tags[turn], w, tags)
 		}
@@ -892,8 +925,8 @@ func TestE2EJourneyReplayFailuresSaySoOnThePage(t *testing.T) {
 	if got := p.metrics(`#replay-result [aria-label="Outcome"]`)["Turns re-run"]; got != "1 of 3" {
 		t.Errorf("turns re-run = %q, want 1 of 3", got)
 	}
-	if n := p.count(`#replay-result .list__detail`); n == 0 || !strings.Contains(p.text("#turn-23"), "not re-run") {
-		t.Errorf("the turn after the failure should say it was not re-run: %q", p.text("#turn-23"))
+	if n := p.count(`#replay-result .list__detail`); n == 0 || !strings.Contains(p.text("#turn-24"), "not re-run") {
+		t.Errorf("the turn after the failure should say it was not re-run: %q", p.text("#turn-24"))
 	}
 	p.shot("journey-replay-died")
 

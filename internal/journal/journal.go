@@ -49,8 +49,8 @@ type Record struct {
 	// AudioRef points at the blob store; audio is never inlined.
 	AudioRef string
 
-	// Speculative marks work that may be discarded. Phase 1 writes none, but
-	// replay must be able to tell it from committed work (SPEC §11).
+	// Speculative marks work that may be discarded, which replay must tell
+	// from committed work (SPEC §11). A kind declared speculative needs it.
 	Speculative bool
 }
 
@@ -178,6 +178,10 @@ func (j *Journal) append(ctx context.Context, conversationID string, r Record) (
 		if r.Fields[f] == "" {
 			return Event{}, fmt.Errorf("append %s: missing required field %q", r.Kind, f)
 		}
+	}
+	if meta.Speculative && !r.Speculative {
+		// Written as committed, replay would fold work nobody heard (SPEC §11).
+		return Event{}, fmt.Errorf("append %s: a speculative kind must be written as speculative", r.Kind)
 	}
 	if meta.HasAudio && r.AudioRef == "" {
 		return Event{}, fmt.Errorf("append %s: audio-bearing event needs a blob reference", r.Kind)

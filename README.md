@@ -57,6 +57,7 @@ household voice. What exists today:
 | speaker-ID — `internal/identity` over `internal/provider/speakerid` and `sidecars/speakerid` (TitaNet-L on ONNX) | thresholds measured on 37 speakers; sidecar runs without Docker |
 | `cmd/enroll` — adds, lists and removes the household's voiceprints in `identities.yaml` | under test; enrolls from WAV files through the speaker-ID sidecar |
 | endpointing — `listen.Semantic` over `internal/provider/smartturn` and `sidecars/smartturn` (Smart Turn v3.2 on ONNX) | ends a turn ~340 ms after the last word on CPU; right on 76 of 88 synthetic household takes, not yet measured on recorded speech |
+| speculation — with `CHORUS_SPECULATE=on`, a turn asked of the model at the endpointer's pause and kept only if the confirmed turn would ask the same; otherwise one `speculation_discarded` that `replay()` skips (ADR-0095) | under test through the daemon, on recorded vLLM streams too; off by default; the latency it saves not yet measured on a real model |
 | `internal/hass` — the one real tool (SPEC §14 item 5) | verified against Home Assistant 2026.10; unlocking a door or disarming the alarm waits for a yes from whoever asked |
 | `internal/listen` — the Listening child: mic stream to utterances, barge-in candidates, attribution, and the arbiter that lets only the loudest of several satellites answer one wake | under test |
 | `internal/timer`, `internal/announce` — timers that go off where they were set, and announcements to other rooms, answerable with no wake word | under test; timers survive a restart |

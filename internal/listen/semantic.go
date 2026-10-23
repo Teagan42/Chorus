@@ -181,6 +181,13 @@ func (s *Semantic) Reset() {
 	s.endPauseLocked()
 }
 
+// Paused is the pause the judge is asked about, from when it is asked.
+func (s *Semantic) Paused() (uint64, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pause, s.voiced && s.quiet >= s.Pause
+}
+
 // Trailing is the quiet the last End waited through, in bytes.
 func (s *Semantic) Trailing() int {
 	s.mu.Lock()

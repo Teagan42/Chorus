@@ -539,6 +539,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 		// windows at this satellite's speech level, and the built-in
 		// default sits under a room that rides its own gain (ADR-0083).
 		SpeechEnergy: sat.SpeechEnergy,
+		Speculate:    d.speculate,
 	})
 	if err != nil {
 		return err
