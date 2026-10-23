@@ -316,6 +316,9 @@ internal/
   reviewui/             the review UI's component kit and audio handler
     household/          the made-up household's Thursday: tests' fixture, the demo's data
   config/               satellite inventory and retention horizons
+  discover/             where a satellite the inventory does not pin is (SPEC §13)
+  mdns/                 one-shot mDNS queries: a .local host, an ESPHome node
+    mdnstest/           an ESPHome-shaped responder on loopback, for tests
   board/                a satellite PCB's pin map, checked against its module
   msgid/                ESPHome wire ids, derived from the proto descriptors
   tools/                build-time tooling (schemagen, spectrace, atomic, docexec, docsite,

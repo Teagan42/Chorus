@@ -31,6 +31,7 @@ import (
 	"github.com/teagan42/chorus/internal/blob"
 	"github.com/teagan42/chorus/internal/config"
 	"github.com/teagan42/chorus/internal/curation"
+	"github.com/teagan42/chorus/internal/discover"
 	"github.com/teagan42/chorus/internal/esphome"
 	"github.com/teagan42/chorus/internal/identity"
 	"github.com/teagan42/chorus/internal/journal"
@@ -180,6 +181,7 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 	return run(ctx, inv, deps{
 		Listener:  ln,
 		Native:    esphomeDialer{},
+		Locator:   discover.New(wallTimers{}),
 		Store:     journal.NewPgStore(pool),
 		Memories:  memory.NewPgStore(pool),
 		Blobs:     blobs,

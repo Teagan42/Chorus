@@ -93,10 +93,61 @@ func TestLoadValidatesPSK(t *testing.T) {
 }
 
 func TestLoadValidatesAddress(t *testing.T) {
-	for _, addr := range []string{"", "10.0.12.116", "not a host:port:extra"} {
-		path := writeConfig(t, "satellites:\n  - name: x\n    address: \""+addr+"\"\n    psk: "+goodPSK+"\n")
+	for _, addr := range []string{
+		"10.0.12.116",
+		"not a host:port:extra",
+		"kitchen satellite.local:6053",
+		"kitchen-satellite1-a1b2c3.local:0",
+		"kitchen-satellite1-a1b2c3.local:api",
+	} {
+		path := writeConfig(t, "satellites:\n  - name: kitchen-satellite1-a1b2c3\n    address: \""+addr+"\"\n    psk: "+goodPSK+"\n")
 		if _, err := Load(path); err == nil {
 			t.Errorf("address %q accepted", addr)
+		}
+	}
+}
+
+// An address may be a hostname, found on the network, or absent: the
+// satellite is then its node name's _esphomelib._tcp instance.
+//
+// verifies SPEC §13
+func TestLoadTakesSatellitesFoundOnTheNetwork(t *testing.T) {
+	path := writeConfig(t, `satellites:
+  - name: kitchen-satellite1-a1b2c3
+    psk: `+goodPSK+`
+    room: kitchen
+    profile: satellite1
+  - name: office-voice-pe-5c7e91
+    address: office-voice-pe-5c7e91.local:6053
+    psk: `+goodPSK+`
+    room: office
+    profile: voice-pe
+  - name: garage-satellite1-0d4f22
+    address: garage-sat.lan:6053
+    psk: `+goodPSK+`
+    room: garage
+    profile: satellite1
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := c.Satellites[0].Address; got != "" {
+		t.Errorf("kitchen address = %q, want none: it is found by name", got)
+	}
+	if got := c.Satellites[1].Address; got != "office-voice-pe-5c7e91.local:6053" {
+		t.Errorf("office address = %q", got)
+	}
+}
+
+// With no address, the name is what mDNS is asked for, so it must be one a
+// device could answer to.
+func TestLoadRefusesANameNothingCouldAnswerTo(t *testing.T) {
+	for _, name := range []string{"Kitchen Satellite", "kitchen_satellite1", "-kitchen", "kitchen.local"} {
+		path := writeConfig(t, "satellites:\n  - name: \""+name+"\"\n    psk: "+goodPSK+"\n")
+		_, err := Load(path)
+		if err == nil || !strings.Contains(err.Error(), "node name") {
+			t.Errorf("name %q with no address: err = %v, want it refused as no node name", name, err)
 		}
 	}
 }

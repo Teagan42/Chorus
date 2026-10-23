@@ -193,9 +193,12 @@ task probe -- -listen 10s
 ```
 
 Each satellite's `name` in `devices.yaml` must be the node name the device
-reports, MAC suffix included (`satellite1-4b2c10`), and its `address` the
-IP it dials from: the audio link's handshake proves that name under that
-`psk`, and refuses a connection from anywhere else.
+reports, MAC suffix included (`satellite1-4b2c10`). Its `address` is where
+it is: an IP, a hostname such as `satellite1-4b2c10.local:6053`, or left out,
+when the satellite is found over mDNS by that name as ESPHome advertises it,
+and found again if its lease moves it. The audio link's handshake proves the
+name under that `psk`, and refuses a connection from any address but the one
+given or found (ADR-0103).
 
 `probe` completes the Noise handshake, prints the device info and entity list,
 and then streams incoming messages for as long as you asked. It is the phase-1
@@ -241,7 +244,9 @@ reachable LAN IP (not a Compose service name); the bridge dials port 6055.
 Docker Desktop rewrites the inbound source IP, so `audio_source_ip` in
 `devices.yaml` maps that gateway address to the satellite. The native API still
 uses the device's real LAN address, and the bridge handshake checks its name
-and PSK.
+and PSK. Compose's bridge network keeps mDNS off the LAN, so there a
+satellite's `address` is an IP; to have satellites found, run `chorusd` with
+host networking.
 
 The model services start locally one task each: `task stt:up`, `task tts:up`,
 `task speakerid:up` and `task smartturn:up` (or `task speakerid:serve` and

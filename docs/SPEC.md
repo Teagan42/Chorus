@@ -811,21 +811,36 @@ Do not build the S2S path until the cascade works end to end.
 - **Satellite inventory:** static YAML for each satellite's address, Noise
   PSK, room assignment, and capability profile, and the house's and each
   satellite's retention horizons (§8). Secrets stay out of a database
-  that would need separate backup. On the audio link a satellite is its name,
+  that would need separate backup. The address may be pinned or found. An
+  IP literal pins it. A hostname is resolved, a `.local` name over mDNS and
+  any other by the system resolver. A satellite with no address is
+  discovered over mDNS as its node name's `_esphomelib._tcp` instance,
+  whose SRV gives the native API's port. `chorusd` finds each satellite
+  that is not pinned when it starts, again before the answer lapses (a
+  minute at least, five at most), and at once when a link comes from an
+  address that matches no satellite or proves another's name, or the
+  native API will not dial. A satellite is not dialled until it is first
+  found; one that is not answering is looked for with backoff, and its last
+  address is kept meanwhile. On the audio link a satellite is its name,
   its PSK and its address together (§3.2.2): the device proves its ESPHome
   node name with a MAC under the PSK, and must dial from the address the
-  inventory gives that name. So `name` is the node name, MAC suffix included,
-  and the address is an IP literal: a connection from an address the
-  inventory does not name is refused before a frame is read, and `chorusd`
-  refuses a hostname, or a host two satellites share, at startup. mDNS
-  discovery (`_esphomelib._tcp`) is not built. The profile, `satellite1` or
+  inventory pins, or discovery last found, for that name. So `name` is the
+  node name, MAC suffix included. A connection from an address no satellite
+  has is refused before a frame is read, and so is one from an address two
+  satellites have: pinned, that is refused at startup; found, until one of
+  them is found elsewhere. mDNS is unauthenticated, so a found address only
+  says where a link is taken from; the key still proves the satellite
+  (ADR-0103). Queries are one-shot, multicast from an ephemeral port and
+  answered by unicast (RFC 6762 §5.1, §6.7), so `chorusd` must be on the
+  satellites' link: under docker-compose, host networking, or pinned
+  addresses. The profile, `satellite1` or
   `voice-pe`, is informational: chorusd reads what a satellite has (its ring,
   its volume, a presence sensor) from the entities it lists over the native
   API, and both boards stream the same two channels, so nothing in the host
   branches on it (ADR-0073).
-- **Addressing is asymmetric.** Discovery, were it built, would run one way
-  only: the orchestrator could resolve satellites, but the orchestrator's own
-  address must be a literal IP in the device YAML. ESPHome's `set_sockaddr`
+- **Addressing is asymmetric.** Discovery runs one way only: the
+  orchestrator finds satellites, but the orchestrator's own address must be
+  a literal IP in the device YAML. ESPHome's `set_sockaddr`
   does not resolve hostnames, so the device cannot dial an mDNS name. The
   orchestrator needs a static lease; `chorus_bridge` enforces this at
   `esphome config` time via `cv.ipaddress`.

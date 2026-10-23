@@ -183,7 +183,7 @@ func TestAConnectedSatelliteShowsInReadinessUntilItDrops(t *testing.T) {
 	}
 
 	conn := r.ln.dial(t, kitchenIP)
-	dev := bridgetest.Connect(conn, 2, as(t, r.dm.byHost[kitchenIP]))
+	dev := bridgetest.Connect(conn, 2, as(t, r.at(kitchenIP)))
 	await(t, "the kitchen connected in /readyz", func() bool {
 		return satNamed(r.readyz(t), "kitchen").AudioLink == ops.Connected
 	})

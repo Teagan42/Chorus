@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"regexp"
 	"strconv"
 
 	"gopkg.in/yaml.v3"
@@ -21,7 +22,10 @@ const pskLen = 32
 const pskPlaceholder = "BASE64_32_BYTE_KEY_HERE"
 
 type Satellite struct {
-	Name    string `yaml:"name"`
+	Name string `yaml:"name"`
+	// Address is the native API's host:port, an IP or a hostname. Absent,
+	// the satellite is found over mDNS as Name's _esphomelib._tcp instance
+	// (SPEC §13, ADR-0103).
 	Address string `yaml:"address"`
 	// AudioSourceIP overrides the address used to match inbound audio links.
 	// Useful behind Docker Desktop's source-NAT gateway; Address remains the
@@ -122,7 +126,11 @@ func (s *Satellite) validate() error {
 	if s.Name == "" {
 		return fmt.Errorf("name is required")
 	}
-	if err := validateAddress(s.Address); err != nil {
+	if s.Address == "" {
+		if !nodeName.MatchString(s.Name) {
+			return fmt.Errorf("name %q cannot be found on the network: with no address it must be the device's ESPHome node name, lowercase letters, digits and hyphens", s.Name)
+		}
+	} else if err := validateAddress(s.Address); err != nil {
 		return err
 	}
 	if s.AudioSourceIP != "" && net.ParseIP(s.AudioSourceIP) == nil {
@@ -152,10 +160,13 @@ func (s *Satellite) validate() error {
 	return validatePSK(s.PSK)
 }
 
+// nodeName is an ESPHome node name, which is also its mDNS host label.
+var nodeName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// hostname is a DNS name a resolver could be asked for.
+var hostname = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*\.?$`)
+
 func validateAddress(address string) error {
-	if address == "" {
-		return fmt.Errorf("address is required (host:6053)")
-	}
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return fmt.Errorf("address %q is not host:port: %w", address, err)
@@ -163,8 +174,11 @@ func validateAddress(address string) error {
 	if host == "" {
 		return fmt.Errorf("address %q has no host", address)
 	}
-	if _, err := strconv.Atoi(port); err != nil {
-		return fmt.Errorf("address %q has a non-numeric port", address)
+	if net.ParseIP(host) == nil && !hostname.MatchString(host) {
+		return fmt.Errorf("address %q is neither an IP literal nor a hostname", address)
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("address %q has no port between 1 and 65535", address)
 	}
 	return nil
 }

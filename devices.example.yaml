@@ -13,9 +13,14 @@
 
 # name is the device's node name as it reports it, MAC suffix included: the
 # audio link's auth frame carries it, and must come from this address (SPEC §3.2.2).
+# address is the native API's host:port. An IP pins it; a hostname, .local
+# over mDNS, is found when chorusd starts and again when it may have moved;
+# left out, the satellite is found over mDNS by name, as ESPHome advertises
+# it on _esphomelib._tcp. Found addresses need chorusd on the satellites'
+# network: host networking under Docker (SPEC §13, ADR-0103).
 satellites:
   - name: satellite1-abcdef
-    address: 10.0.0.42:6053
+    address: 10.0.0.42:6053 # or satellite1-abcdef.local:6053, or leave it out
     # Optional. Docker Desktop's forwarded inbound connections share this
     # source IP; set it only when the daemon sees a gateway instead of device.
     # audio_source_ip: 192.168.65.1
