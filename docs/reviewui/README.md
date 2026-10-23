@@ -739,7 +739,11 @@ satellite more surely than a browser's microphone (ADR-0082). Pick the
 satellite and the screen lists its newest clips with enough speech in them
 to embed, each with when it was kept, how much was spoken and what the log
 heard; with the sidecars up, also what the ear read and whose enrolled
-voice it sounds nearest. Play a clip before ticking it: whose voice it is
+voice it sounds nearest. A score under the level that satellite is matched
+at, its own `speaker_accept` or else `CHORUS_SPEAKER_ACCEPT` or the 0.70
+default, is called out as a guest today; the review UI reads the satellite
+levels from the inventory named by `-devices` or `CHORUS_DEVICES`, the file
+`chorusd` reads (ADR-0099). Play a clip before ticking it: whose voice it is
 stays the reviewer's call. Each player is named by its clip, so a screen
 reader can tell them apart.
 
