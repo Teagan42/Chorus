@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,7 +53,7 @@ type Config struct {
 	BaseURL string
 
 	// Voice defaults to DefaultVoice. An unknown one fails every utterance, so
-	// it is worth checking against /v1/audio/voices at startup.
+	// Health checks it against /v1/audio/voices.
 	Voice string
 
 	// Model defaults to DefaultModel.
@@ -167,6 +168,50 @@ func (s *Synth) Synthesize(ctx context.Context, text string) ([]byte, error) {
 		return nil, err
 	}
 	return encode(s.down.run(samples)), nil
+}
+
+// voices is the GET /v1/audio/voices reply, as Kokoro-FastAPI and
+// sidecars/kokoromlx both answer it.
+type voices struct {
+	Voices []string `json:"voices"`
+}
+
+// voiceList bounds the voice list read: Kokoro-FastAPI's 72 names are under
+// a kilobyte and a half.
+const voiceList = 64 << 10
+
+// Health asks the endpoint for its voices and checks the one this Synth
+// speaks in is among them. An unknown voice is a 400 on every utterance,
+// which nothing would say until the first answer went silent; readiness says
+// it at startup instead (ADR-0097). A blend such as "af_bella+af_sky(2)"
+// needs each of its voices.
+func (s *Synth) Health(ctx context.Context) error {
+	url := strings.TrimSuffix(s.cfg.BaseURL, "/") + "/v1/audio/voices"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("kokoro: build request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := s.cfg.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("kokoro voices: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, errBody))
+		return fmt.Errorf("kokoro voices: %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+	}
+	var v voices
+	if err := json.NewDecoder(io.LimitReader(resp.Body, voiceList)).Decode(&v); err != nil {
+		return fmt.Errorf("kokoro voices: decode reply: %w", err)
+	}
+	for part := range strings.SplitSeq(s.cfg.Voice, "+") {
+		name, _, _ := strings.Cut(strings.TrimSpace(part), "(")
+		if !slices.Contains(v.Voices, name) {
+			return fmt.Errorf("kokoro voices: the endpoint has no voice %q among its %d", name, len(v.Voices))
+		}
+	}
+	return nil
 }
 
 // decode reads little-endian samples. An odd length is a truncated response,

@@ -82,6 +82,14 @@ type roundTrip func(*http.Request) (*http.Response, error)
 
 func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+// sidecarAnswers is what each dependency's probe route answers when it is
+// up and serving what chorusd is built for, keyed by host and path.
+var sidecarAnswers = map[string]string{
+	"speakerid:8890/health":       `{"status":"ok","model":"nemo_en_titanet_large","dim":192}`,
+	"smartturn:8891/health":       `{"status":"ok","model":"smart-turn-v3.2-cpu"}`,
+	"kokoro:8880/v1/audio/voices": `{"voices":["af_bella","af_heart","am_michael","bf_emma","bm_george"]}`,
+}
+
 // Readiness names what chorusd already requires at startup as required,
 // and the optional sidecars only when configured. Each probe asks the
 // dependency's own cheap route, Home Assistant's with the token (SPEC §13).
@@ -94,7 +102,7 @@ func TestReadinessChecksWhatTheHouseConfigured(t *testing.T) {
 		mu.Lock()
 		asked = append(asked, r.URL.String()+" "+r.Header.Get("Authorization"))
 		mu.Unlock()
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}")), Request: r}, nil
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(sidecarAnswers[r.URL.Host+r.URL.Path])), Request: r}, nil
 	})}
 	pgDown := errors.New("connection refused")
 	pg := func(context.Context) error { return pgDown }
@@ -107,6 +115,9 @@ func TestReadinessChecksWhatTheHouseConfigured(t *testing.T) {
 		if c.Name == "postgres" && !errors.Is(err, pgDown) {
 			t.Errorf("postgres probe = %v, want the pool's ping", err)
 		}
+		if c.Name != "postgres" && err != nil {
+			t.Errorf("%s probe = %v, want the sidecar's answer to pass", c.Name, err)
+		}
 	}
 	want := []string{"postgres=true", "stt=true", "tts=true", "llm=true", "speaker_id=false", "smart_turn=false", "home_assistant=false"}
 	if !slices.Equal(got, want) {
@@ -114,7 +125,7 @@ func TestReadinessChecksWhatTheHouseConfigured(t *testing.T) {
 	}
 	wantAsked := []string{
 		"http://speaches:8000/health ",
-		"http://kokoro:8880/health ",
+		"http://kokoro:8880/v1/audio/voices ",
 		"http://ollama:11434/api/version ",
 		"http://speakerid:8890/health ",
 		"http://smartturn:8891/health ",

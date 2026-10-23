@@ -153,3 +153,43 @@ func (c *Client) Embed(ctx context.Context, pcm []byte) ([]float32, error) {
 	}
 	return r.Embedding, nil
 }
+
+// health is the sidecar's GET /health reply: the model it loaded and the
+// width it embeds at, the same two things every embed states.
+type health struct {
+	Model string `json:"model"`
+	Dim   int    `json:"dim"`
+}
+
+// Health asks the sidecar's /health whether it is up and serving what this
+// client is built for. A sidecar that answers but serves another model
+// would refuse every embed, so readiness says so before the first wake
+// does (ADR-0097).
+func (c *Client) Health(ctx context.Context) error {
+	url := strings.TrimSuffix(c.cfg.BaseURL, "/") + "/health"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("speakerid: build request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.cfg.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("speakerid health: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, errBody))
+		return fmt.Errorf("speakerid health: %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+	}
+	var h health
+	if err := json.NewDecoder(io.LimitReader(resp.Body, errBody)).Decode(&h); err != nil {
+		return fmt.Errorf("speakerid health: decode reply: %w", err)
+	}
+	switch {
+	case h.Model != c.cfg.Model:
+		return fmt.Errorf("speakerid health: sidecar serves %q, client is built for %q", h.Model, c.cfg.Model)
+	case h.Dim != c.cfg.Dim:
+		return fmt.Errorf("speakerid health: sidecar embeds at %d dims, client is built for %d", h.Dim, c.cfg.Dim)
+	}
+	return nil
+}

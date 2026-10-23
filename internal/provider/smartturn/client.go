@@ -136,3 +136,35 @@ func (c *Client) Judge(ctx context.Context, pcm []byte) (Verdict, error) {
 	}
 	return v, nil
 }
+
+// Health asks the sidecar's /health whether it is up and serving the
+// checkpoint this client is built for. One that answers with another would
+// fail every judgement, and the endpointer would fall back to silence
+// without a word at startup (ADR-0097).
+func (c *Client) Health(ctx context.Context) error {
+	url := strings.TrimSuffix(c.cfg.BaseURL, "/") + "/health"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("smartturn: build request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.cfg.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("smartturn health: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, errBody))
+		return fmt.Errorf("smartturn health: %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+	}
+	var h struct {
+		Model string `json:"model"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, errBody)).Decode(&h); err != nil {
+		return fmt.Errorf("smartturn health: decode reply: %w", err)
+	}
+	if h.Model != c.cfg.Model {
+		return fmt.Errorf("smartturn health: sidecar serves %q, client is built for %q", h.Model, c.cfg.Model)
+	}
+	return nil
+}
