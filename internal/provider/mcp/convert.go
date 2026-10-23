@@ -33,7 +33,7 @@ func Name(server, tool string) (string, error) {
 			b.WriteByte('_')
 		}
 	}
-	name := "mcp_" + server + "_" + b.String()
+	name := registry.ProvidedPrefix + server + "_" + b.String()
 	if b.Len() == 0 {
 		return "", errors.New("the server gave the tool no name")
 	}
