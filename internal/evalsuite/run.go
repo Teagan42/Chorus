@@ -60,6 +60,12 @@ type Side struct {
 	Model  string
 	Prompt string
 	Tools  map[string]registry.ToolSpec
+
+	// HouseTools adds to Tools each MCP tool a case's turn was offered that
+	// Tools does not name. A candidate built from the registry cannot
+	// declare the house's servers' tools, and asking a turn without the
+	// tools it had scores the missing server, not the candidate (ADR-0101).
+	HouseTools bool
 }
 
 // Run is one ask of one case.
@@ -114,8 +120,11 @@ func (r Runner) Side(ctx context.Context, cases []Resolved, side Side) (map[stri
 		if cfg.Prompt == "" {
 			cfg.Prompt = c.Recorded.Prompt
 		}
-		if cfg.Tools == nil {
+		switch {
+		case cfg.Tools == nil:
 			cfg.Tools = c.Recorded.Tools
+		case side.HouseTools:
+			cfg.Tools = registry.WithProvided(cfg.Tools, c.Recorded.Tools)
 		}
 		for seed := range max(r.Repetitions, 1) {
 			cfg.Seed = seed

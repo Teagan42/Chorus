@@ -50,6 +50,18 @@ func run(ctx context.Context, ids []string, out, report io.Writer) error {
 	}
 	defer func() { _ = conn.Close(ctx) }()
 	store := journal.NewPgStore(conn)
+	// What chorusd recorded of each version it offered, after the build's
+	// and the archive's: where a turn that offered the house's MCP tools
+	// finds its schema (ADR-0101). Migrated, so a journal no chorusd of
+	// this build has written to reads as nothing recorded.
+	if err := contexts.Migrate(ctx, conn); err != nil {
+		return err
+	}
+	kept, err := contexts.NewPgStore(conn).Recorded(ctx)
+	if err != nil {
+		return err
+	}
+	src := contexts.Chain{contexts.Default(), kept}
 
 	for _, id := range ids {
 		res, err := harvest.Scan(ctx, store, id)
@@ -57,7 +69,7 @@ func run(ctx context.Context, ids []string, out, report io.Writer) error {
 			return err
 		}
 		// Raw candidates, unsplit: a training set is cut from curated rows.
-		if err := harvest.Export(out, res.Pairs, harvest.Options{Contexts: contexts.Default()}); err != nil {
+		if err := harvest.Export(out, res.Pairs, harvest.Options{Contexts: src}); err != nil {
 			return err
 		}
 		fmt.Fprintf(report, "%s: %d candidates, %d uncorrected cuts, %d hushed\n", id, len(res.Pairs), res.Uncorrected, res.Hushed)

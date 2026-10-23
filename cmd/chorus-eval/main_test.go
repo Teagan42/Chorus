@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/teagan42/chorus/internal/contexts"
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/evalsuite"
 	"github.com/teagan42/chorus/internal/journal"
@@ -26,9 +28,9 @@ func testEnv(t *testing.T, decisions curation.Store, vars map[string]string) (en
 	var out, errs bytes.Buffer
 	return env{
 		stdout: &out, stderr: &errs, getenv: func(k string) string { return vars[k] },
-		open: func(ctx context.Context) (journal.Store, curation.Store, func(), error) {
+		open: func(ctx context.Context) (stores, error) {
 			store, err := household.Journal(ctx)
-			return store, decisions, func() {}, err
+			return stores{journal: store, decisions: decisions, kept: contexts.NewMemStore(), close: func() {}}, err
 		},
 		clock: journal.FixedClock(household.ReviewedAt()),
 	}, &out, &errs
@@ -258,5 +260,96 @@ func TestTheProviderIsTheOneChorusdAnswersWith(t *testing.T) {
 		return map[string]string{vllmURLEnv: "http://127.0.0.1:1", vllmThinkingEnv: "true"}[k]
 	}, nil); err != nil {
 		t.Errorf("a configured vLLM did not build: %v", err)
+	}
+}
+
+// portoTools is what chorusd offered with the household's weather server
+// connected: the registry's tools and the server's forecast.
+func portoTools(t *testing.T) map[string]registry.ToolSpec {
+	t.Helper()
+	forecast, err := registry.Provide(registry.ToolSpec{
+		Name: "mcp_weather_get_forecast", Description: "Get the weather forecast for a city.",
+		Params:      []registry.ParamSpec{{Name: "city", Type: "string", Description: "City name.", Required: true}},
+		OnInterrupt: registry.InterruptCancel, Scope: registry.ScopeHousehold, Timeout: 8 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := registry.Offered()
+	tools[forecast.Name] = forecast
+	return tools
+}
+
+// portoJournal is Teagan asking the kitchen whether it will rain in Porto
+// on Saturday, answered from the weather server.
+func portoJournal(t *testing.T) *journal.MemStore {
+	t.Helper()
+	store := journal.NewMemStore()
+	v := journal.Versions{Model: "qwen3:32b", Prompt: ollama.PromptVersion(ollama.DefaultPrompt), ToolSchema: ollama.ToolSchemaVersion(portoTools(t))}
+	j := journal.New(store, journal.FixedClock(time.Unix(1_760_036_400, 0)), v)
+	for _, r := range []journal.Record{
+		{Kind: journal.KindSessionOpened, Fields: map[string]string{"satellite": "kitchen", "speaker_id": "teagan", "resumed": "false"}},
+		{Kind: journal.KindUtteranceTranscribed, AudioRef: "blob://mic/porto-1", Fields: map[string]string{"text": "will it rain in porto on saturday", "speaker_id": "teagan"}},
+		{Kind: journal.KindToolCalled, Fields: map[string]string{"tool": "mcp_weather_get_forecast", "call_id": "call_w1", "args_json": `{"city":"Porto"}`}},
+		{Kind: journal.KindToolResult, Fields: map[string]string{"call_id": "call_w1", "outcome": "ok", "result_json": `{"text":"Saturday: rain from 12:00, 17°C."}`}},
+		{Kind: journal.KindToolCalled, Fields: map[string]string{"tool": "speak", "call_id": "s1", "args_json": `{"mode":"queue","streamed":true}`}},
+		{Kind: journal.KindSpeechSpoken, AudioRef: "blob://tts/porto-s1", Fields: map[string]string{"text": "Rain from midday in Porto on Saturday, high of seventeen.", "frames_played": "48000"}},
+		{Kind: journal.KindToolResult, Fields: map[string]string{"call_id": "s1", "outcome": "ok"}},
+		{Kind: journal.KindModelCompleted, Fields: map[string]string{"completion_json": "{}", "finish_reason": "stop"}},
+	} {
+		if _, err := j.Append(context.Background(), "conv-porto", r); err != nil {
+			t.Fatalf("append %s: %v", r.Kind, err)
+		}
+	}
+	return store
+}
+
+// A case names Teagan's Porto turn. Read from the journal's database with
+// what chorusd recorded, it is asked and holds its ground; with nothing
+// recorded, as before chorusd kept its offers, it is skipped and says why.
+//
+// verifies SPEC §6, §13
+func TestAnMCPTurnIsAskedFromWhatChorusdRecorded(t *testing.T) {
+	suite := write(t, "porto.yaml", `name: porto
+cases:
+  - id: porto-rain
+    ref: conv-porto/2
+    expect:
+      tool_called: [{tool: mcp_weather_get_forecast, args: {city: Porto}}]
+      says: {contains: [rain]}
+`)
+	for _, recorded := range []bool{true, false} {
+		kept := contexts.NewMemStore()
+		if recorded {
+			o := contexts.Offer{Prompt: ollama.DefaultPrompt, Summary: ollama.SummaryPrompt, ToolSchema: ollama.ToolSchema(portoTools(t))}
+			if err := kept.Record(context.Background(), o); err != nil {
+				t.Fatal(err)
+			}
+		}
+		e, out, errs := testEnv(t, nil, nil)
+		store := portoJournal(t)
+		e.open = func(context.Context) (stores, error) {
+			return stores{journal: store, decisions: curation.NewMemStore(), kept: kept, close: func() {}}, nil
+		}
+		// A suite whose only case is skipped judges nothing, which fails.
+		want := exitRegressed
+		if recorded {
+			want = exitOK
+		}
+		if code := run(context.Background(), []string{"-provider", "demo", "-no-cache", "-json", "-", suite}, e); code != want {
+			t.Fatalf("recorded %v: exit %d, want %d\nstdout:\n%s\nstderr:\n%s", recorded, code, want, out, errs)
+		}
+		var rep struct {
+			Skipped int `json:"skipped"`
+		}
+		if err := json.NewDecoder(strings.NewReader(out.String()[strings.Index(out.String(), "{"):])).Decode(&rep); err != nil {
+			t.Fatalf("recorded %v: %v\n%s", recorded, err, out)
+		}
+		if recorded && rep.Skipped != 0 {
+			t.Errorf("with chorusd's record the case was skipped:\n%s", out)
+		}
+		if !recorded && (rep.Skipped != 1 || !strings.Contains(out.String(), "context_missing: tool_schema")) {
+			t.Errorf("without it the case was not skipped as context_missing:\n%s", out)
+		}
 	}
 }
