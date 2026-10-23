@@ -1,5 +1,6 @@
 // Command schemagen turns CUE schemas into Go types, LLM-facing JSON Schema,
-// and reference docs. One declaration drives the model's view of a tool and the
+// and reference docs: the tool registry, the event taxonomy and the
+// providers' capabilities. One declaration drives the model's view of a tool and the
 // orchestrator's enforcement of it, so the two cannot drift (SPEC §6).
 package main
 
@@ -108,8 +109,22 @@ func run() error {
 	if err := cueExport("events", &events); err != nil {
 		return err
 	}
-	if len(tools) == 0 || len(events) == 0 {
-		return fmt.Errorf("schema produced no tools (%d) or events (%d)", len(tools), len(events))
+	var prov providerSchema
+	for expr, into := range map[string]any{"roles": &prov.Roles, "providers": &prov.Providers, "needs": &prov.Needs} {
+		if err := cueExport(expr, into); err != nil {
+			return err
+		}
+	}
+	if len(tools) == 0 || len(events) == 0 || len(prov.Providers) == 0 {
+		return fmt.Errorf("schema produced no tools (%d), events (%d) or providers (%d)", len(tools), len(events), len(prov.Providers))
+	}
+	providersGo, err := renderProvidersGo(prov)
+	if err != nil {
+		return err
+	}
+	providerDocs, err := renderProviderDocs(prov)
+	if err != nil {
+		return err
 	}
 
 	writes := map[string][]byte{
@@ -118,6 +133,9 @@ func run() error {
 		"schema/json/tools.schema.json":  mustJSON(LLMToolSchemas(tools)),
 		"docs/reference/tools.md":        []byte(renderToolDocs(tools)),
 		"docs/reference/events.md":       []byte(renderEventDocs(events)),
+
+		"internal/provider/capability/capability.gen.go": []byte(providersGo),
+		"docs/reference/providers.md":                    []byte(providerDocs),
 	}
 	for path, content := range writes {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
