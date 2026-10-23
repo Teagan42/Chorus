@@ -163,6 +163,8 @@ tasks:
       # or `task test:models -- ./internal/provider/speaches -stt-url http://127.0.0.1:8000 -stt-wav /path/to/0.wav`
       # (the STT tiers take a WAV of consented speech the same way, since no
       # recording lives in the repo; `./internal/stt` takes the same two flags)
+      # or `task test:models -- ./internal/provider/wyoming -wyoming-tts host:10200 -wyoming-voice en_US-lessac-medium -wyoming-stt host:10300`
+      # or `task test:models -- ./internal/provider/openai -openai-url http://127.0.0.1:8000 -openai-tts-model tts-1 -openai-voice alloy -openai-stt-model whisper-1`
       # or `task test:models -- ./internal/hass -hass-url http://127.0.0.1:8123 -hass-token "$HASS_TOKEN"`
       # or `task test:models -- -v ./internal/provider/smartturn -smartturn-url http://127.0.0.1:8891 -smartturn-wavs .corpus/turns`
       # (after `task smartturn:corpus`; -v prints each take's verdict, and

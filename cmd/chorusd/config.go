@@ -447,9 +447,11 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 	}
 
 	if cfg.SpeakerIDURL == "" {
-		// Said here because the symptom is a house the television can
-		// interrupt, and nothing else explains it (ADR-0031).
-		log.Warn("speaker identification is off: "+speakerIDURLEnv+" is not set, so every speaker is a guest and barge-in gates on energy and partial length alone: any voice loud enough and long enough interrupts, the television included",
+		// Said here because the symptoms are a house that never answers a
+		// wake (listen's confirm fails closed on an unidentified speaker)
+		// and one the television can interrupt, and nothing else explains
+		// either (ADR-0031).
+		log.Warn("speaker identification is off: "+speakerIDURLEnv+" is not set, so every speaker is a guest and no wake opens a session, a button press included, until it is; barge-in gates on energy and partial length alone: any voice loud enough and long enough interrupts, the television included",
 			"enrolled", enrolled(ids))
 	} else {
 		emb, err := speakerid.New(speakerid.Config{BaseURL: cfg.SpeakerIDURL})
@@ -471,7 +473,7 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 		}
 		p.speakers, p.household = resolver, ids.Household()
 		if len(p.household) == 0 {
-			log.Warn("nobody is enrolled: spoken wakes will be rejected until a household voice is enrolled")
+			log.Warn("nobody is enrolled: every wake, a button press included, is rejected until a household voice is enrolled")
 		}
 	}
 

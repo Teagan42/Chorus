@@ -99,10 +99,12 @@ task eval -- thursday.yaml -prompt persona.txt -reps 3 -markdown eval.md
 ```
 
 `chorus-eval` reads the journal at `CHORUS_POSTGRES_DSN` and asks the model
-at `OLLAMA_URL`, the endpoint `chorusd` uses under its default provider;
-`-provider` is `ollama` or `demo` (what `-demo` picks), and vLLM
-([ADR-0077](adr/0077-the-turn-engine-may-run-on-vllm-and-a-speak-calls-words-stream-out-of-its-arguments.md))
-is not one yet. The candidate runs this
+on the provider `chorusd` answers with: `CHORUS_LLM_PROVIDER`, so Ollama at
+`OLLAMA_URL` by default, or vLLM at `VLLM_URL` with `VLLM_MODEL` and
+`VLLM_THINKING` read as `chorusd` reads them
+([ADR-0077](adr/0077-the-turn-engine-may-run-on-vllm-and-a-speak-calls-words-stream-out-of-its-arguments.md)).
+`-provider` overrides it: `ollama`, `vllm`, or `demo` (what `-demo` picks).
+The candidate runs this
 build's prompt and offered tools unless `-prompt` or `-tools` names a file;
 `-print-tools` writes the tools in the shape Replay's schema editor holds,
 to start a `-tools` file from. `-model`, or `OLLAMA_MODEL`, picks the

@@ -130,7 +130,7 @@ func TestOptionalSidecarsDegradeWithALogLine(t *testing.T) {
 	if p.embedder != nil {
 		t.Error("an embedder was built with no embedding model")
 	}
-	for _, want := range []string{"guest", "barge-in", "television", "not_implemented", "800 ms of quiet", "mid-sentence", "memory relevance is off", "newest 20 memories"} {
+	for _, want := range []string{"guest", "no wake opens a session", "button press", "barge-in", "television", "not_implemented", "800 ms of quiet", "mid-sentence", "memory relevance is off", "newest 20 memories"} {
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("log does not say %q:\n%s", want, logs.String())
 		}
