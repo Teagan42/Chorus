@@ -724,6 +724,17 @@ embedded over `SPEAKERID_URL`, so too few takes, one in another format, an
 id already enrolled or a malformed one is refused on the page with the form
 kept, costing no sidecar call and writing nothing.
 
+Takes can also come from a satellite's own recordings, which match that
+satellite more surely than a browser's microphone (ADR-0082). Pick the
+satellite and the screen lists its newest clips with enough speech in them
+to embed, each with when it was kept, how much was spoken and what the log
+heard; with the sidecars up, also what the ear read and whose enrolled
+voice it sounds nearest. Play a clip before ticking it: whose voice it is
+stays the reviewer's call. Each player is named by its clip, so a screen
+reader can tell them apart.
+
+![Teagan's three kitchen clips, ticked as takes](e2e/voices-clips.png)
+
 *Remove…* drops one person behind the second press and saves the rest
 atomically. `chorusd` reads the household at startup only, so after either
 the screen says to restart it.

@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"html/template"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -719,6 +722,35 @@ func TestEveryPlayerAndSessionSaysWhatItIs(t *testing.T) {
 			if !strings.Contains(h, want) {
 				t.Errorf("%s is missing %s", c.path, want)
 			}
+		}
+	}
+}
+
+// Every player in every template names itself, so a screen added later
+// cannot bring back the unnamed "audio" the pages above were fixed for: the
+// Voices clip picker did, after the audit that named the rest.
+//
+// verifies SPEC §9.2
+func TestNoTemplateShipsAnUnnamedPlayer(t *testing.T) {
+	audio := regexp.MustCompile(`<audio\b[^>]*>`)
+	for _, root := range []fs.FS{pagesFS, os.DirFS("../../internal/reviewui/ui/templates")} {
+		err := fs.WalkDir(root, ".", func(name string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(name, ".tmpl") {
+				return err
+			}
+			b, err := fs.ReadFile(root, name)
+			if err != nil {
+				return err
+			}
+			for _, tag := range audio.FindAllString(string(b), -1) {
+				if !strings.Contains(tag, "aria-label=") && !strings.Contains(tag, "aria-labelledby=") {
+					t.Errorf("%s: %s has no accessible name", name, tag)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
 	}
 }

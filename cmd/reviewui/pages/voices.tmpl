@@ -67,7 +67,7 @@
 {{- with .Said}}<span class="list__detail" style="font-style: italic">“{{.}}”</span>{{end}}
 {{- with .Closest}}<span class="list__detail">{{.}}</span>{{end}}
 <span class="list__detail">{{.What}}</span></span>
-<audio controls preload="metadata" src="{{.Audio}}" style="flex: 0 1 260px; max-width: 100%"></audio>
+<audio aria-label="Clip from {{.When}} · {{.What}}" controls preload="metadata" src="{{.Audio}}" style="flex: 0 1 260px; max-width: 100%"></audio>
 </label>
 {{- end}}
 </div>{{end}}

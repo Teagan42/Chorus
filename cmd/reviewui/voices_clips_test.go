@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/teagan42/chorus/internal/bridge"
 	"github.com/teagan42/chorus/internal/identity"
@@ -43,6 +44,12 @@ func (v *voicesVisit) keep(t *testing.T, satellite, key string, pcm []byte) stri
 // keepReason writes one clip with the rejection reason the log would carry.
 func (v *voicesVisit) keepReason(t *testing.T, satellite, key string, pcm []byte, reason string) string {
 	t.Helper()
+	return v.keepWake(t, satellite, key, pcm, reason, household.ReviewedAt())
+}
+
+// keepWake writes one clip refused for reason at the time the log says.
+func (v *voicesVisit) keepWake(t *testing.T, satellite, key string, pcm []byte, reason string, at time.Time) string {
+	t.Helper()
 	ctx := context.Background()
 	w, err := v.s.blobs.Create(ctx, key)
 	if err != nil {
@@ -62,7 +69,7 @@ func (v *voicesVisit) keepReason(t *testing.T, satellite, key string, pcm []byte
 	}
 	err = v.s.journal.Append(ctx, journal.Event{
 		ConversationID: conv, Seq: last + 1, Kind: journal.KindWakeRejected, Actor: "device",
-		At: household.ReviewedAt(), AudioRef: ref, Fields: map[string]string{"reason": reason},
+		At: at, AudioRef: ref, Fields: map[string]string{"reason": reason},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -178,6 +185,11 @@ func TestTheClipPickerListsOneSatellitesRecordings(t *testing.T) {
 	}
 	if !strings.Contains(body, "unknown_speaker") {
 		t.Errorf("the picker does not say what the log knows was heard: %s", body)
+	}
+	// The player says which clip it plays: ticking one is judged by ear, and
+	// a screen reader reading "audio" down the list leaves nothing to judge.
+	if n, named := strings.Count(body, "<audio "), strings.Count(body, `<audio aria-label="Clip from `); n == 0 || n != named {
+		t.Errorf("%d of %d clip players have no name: %s", n-named, n, body)
 	}
 
 	// An unknown satellite is not a log to read: the picker shows a real one.
