@@ -80,7 +80,7 @@ type Journal struct {
 	// does not cover the other.
 	seq seqLocks
 
-	observer Observer
+	observers []Observer
 }
 
 // Observer hears the outcome of each append once the store has answered.
@@ -94,9 +94,9 @@ type Observer interface {
 	AppendFailed(Kind, error)
 }
 
-// Observe makes o hear every append from now on. Call it before the
-// journal is shared.
-func (j *Journal) Observe(o Observer) { j.observer = o }
+// Observe makes o hear every append from now on, beside any observer
+// already added. Call it before the journal is shared.
+func (j *Journal) Observe(o Observer) { j.observers = append(j.observers, o) }
 
 // seqLocks hands out one lock per conversation.
 //
@@ -156,12 +156,12 @@ func New(store Store, clock Clock, v Versions) *Journal {
 // Append validates r against the generated taxonomy and writes it.
 func (j *Journal) Append(ctx context.Context, conversationID string, r Record) (Event, error) {
 	e, err := j.append(ctx, conversationID, r)
-	switch {
-	case j.observer == nil:
-	case err != nil:
-		j.observer.AppendFailed(r.Kind, err)
-	default:
-		j.observer.Appended(e)
+	for _, o := range j.observers {
+		if err != nil {
+			o.AppendFailed(r.Kind, err)
+		} else {
+			o.Appended(e)
+		}
 	}
 	return e, err
 }
