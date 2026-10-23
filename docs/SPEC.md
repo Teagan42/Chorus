@@ -509,7 +509,11 @@ but is not offered (ADR-0060). The MCP servers' tools are the exception: they
 belong to the house, so they join the offer, and the version, as the servers
 list them when `chorusd` starts, and stay fixed until it restarts. A server
 that drops is reconnected and its tools answer `mcp_unavailable` meanwhile;
-a tool it stops listing answers `mcp_tool_gone` (ADR-0075).
+a tool it stops listing answers `mcp_tool_gone` (ADR-0075). What `chorusd`
+offers, the servers' tools among it, is recorded beside the journal under
+the version every event records, so a turn that offered an MCP tool can be
+exported, evaluated and re-run with it; a re-run keeps the build's tools
+and the turn's `mcp_` ones (ADR-0101).
 
 A tool can act through a satellite rather than a backend. `set_volume` sets
 a satellite's speaker over its native API connection (§3.3.1), in the room
@@ -836,10 +840,12 @@ Do not build the S2S path until the cascade works end to end.
   against replayed traces. Every version's text, and every native tool
   schema's, is kept in the repository by the hash an event records, so the
   dataset export ships the prompt and tools each turn ran under (ADR-0071).
-  An MCP server's tools are the exception: their schemas come from the
-  server at startup and are not kept, so a turn that offered them exports
-  as `context_missing` for its tools, and replay runs it without them
-  (ADR-0075).
+  An MCP server's tools come from the server at startup, so no build can
+  keep their schemas: `chorusd` records the text of what it offers its
+  model beside the journal at every start, under the same hashes, and the
+  export, the eval and replay read it after the repository's. A re-run of
+  a turn is offered the build's tools and the MCP tools the turn had
+  (ADR-0101).
 
 ## 14. Phase plan
 
@@ -883,11 +889,11 @@ sessions, so a session now opens only for an enrolled household voice (§5).
   prompt and tools its turn ran under.
 - ~~Memory~~ **Done — ADR-0040, ADR-0043, ADR-0044, ADR-0049.** Summaries are
   kept per conversation, not as one rolling summary per person.
-- ~~MCP provider~~ **Done — ADR-0075.** Servers' tools are offered under
-  conservative defaults a household relaxes per server or tool, fixed at
-  startup. Resources, prompts and OAuth are not built, a re-run offers
-  only the build's tools, and an MCP turn's export says `context_missing`
-  for its tools.
+- ~~MCP provider~~ **Done — ADR-0075, ADR-0101.** Servers' tools are offered
+  under conservative defaults a household relaxes per server or tool, fixed
+  at startup. What `chorusd` offers is recorded beside the journal, so an
+  MCP turn exports, evaluates and re-runs with the tools it had. Resources,
+  prompts and OAuth are not built.
 - ~~Confirmation gates~~ **Done — ADR-0038, ADR-0041, ADR-0063.** Garage, gate
   and door covers are held by the class Home Assistant gives them, and a yes
   counts only from the person who asked, when they were identified, and
