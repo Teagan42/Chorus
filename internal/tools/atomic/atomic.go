@@ -137,7 +137,8 @@ func IsDependency(p string) bool {
 	if strings.HasPrefix(base, "requirements") && (strings.HasSuffix(base, ".txt") || strings.HasSuffix(base, ".in")) {
 		return true
 	}
-	return strings.HasPrefix(p, "vendor/") || strings.HasPrefix(p, "proto/esphome/")
+	return strings.HasPrefix(p, "vendor/") || strings.HasPrefix(p, "proto/esphome/") ||
+		strings.HasPrefix(p, "proto/opentelemetry/")
 }
 
 // Check applies the atomicity rules. whitespaceOnly is called lazily because it

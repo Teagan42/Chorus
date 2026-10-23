@@ -111,6 +111,27 @@ func TestCheckSeparatesDependencyChanges(t *testing.T) {
 	}
 }
 
+// Both vendored proto trees are someone else's code: re-vendoring the OTLP
+// trace protos is a chore(vendor) commit, as the ESPHome API's is.
+func TestTheVendoredProtosAreDependencies(t *testing.T) {
+	vendored := []string{
+		"proto/esphome/api.proto",
+		"proto/opentelemetry/opentelemetry/proto/trace/v1/trace.proto",
+		"proto/opentelemetry/LICENSE",
+	}
+	for _, p := range vendored {
+		if !IsDependency(p) {
+			t.Errorf("%s should be vendored code", p)
+		}
+	}
+	if v := Check("chore(vendor): opentelemetry-proto v1.9.0", vendored[1:], nil); len(v) != 0 {
+		t.Errorf("a pure vendor commit should pass, got %v", v)
+	}
+	if v := Check("feat(otel): export spans", []string{"internal/otel/span.go", vendored[1]}, nil); len(v) != 1 {
+		t.Errorf("a feature commit re-vendoring the protos passed: %v", v)
+	}
+}
+
 func TestIsDependencyCountsPythonRequirements(t *testing.T) {
 	deps := []string{
 		"internal/tools/waketrain/requirements.txt",
