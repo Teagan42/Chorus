@@ -130,6 +130,12 @@ type Config struct {
 	// is measured over, in bytes; zero is DefaultArbitrationSpan.
 	ArbitrationSpan int
 
+	// Speculate answers a turn in its pause: once the endpointer says the
+	// speech has paused, the audio so far is decoded and the session asked
+	// to answer it ahead of the end, which it keeps only if nothing changed
+	// (ADR-0095). Needs an Endpointer that is a Pauser.
+	Speculate bool
+
 	// Log receives what a goroutine with no caller cannot return. Nil discards.
 	Log *slog.Logger
 }
@@ -378,6 +384,8 @@ func (l *Listener) aecLocked(pcm []byte) {
 	}
 	if b == End {
 		l.endLocked()
+	} else {
+		l.pausedLocked()
 	}
 	// Speech did not stop, so the endpointer is still voiced and no Start is
 	// coming to open the utterance the rest of it belongs to. Without this the
@@ -858,6 +866,12 @@ type utterance struct {
 	// stopped is when its speech stopped, set before ended closes.
 	stopped time.Time
 
+	// hunch is the guess the current pause made, and guessed the last pause
+	// considered, plus one. Held under the listener's lock while the
+	// utterance is open; read by run once it has ended.
+	hunch   *hunch
+	guessed uint64
+
 	// Touched only by run. refused is set once the gate turned a candidate
 	// down, and bargedIn once one stopped speech. judged is how many bytes
 	// the gate was offered, and kept that the blob holds them.
@@ -925,6 +939,7 @@ func (l *Listener) run(u *utterance) {
 		case <-l.ctx.Done():
 			return
 		case <-u.aborted:
+			l.drop(u)
 			return
 		case r := <-u.stt.Partials():
 			l.candidate(u, r)
@@ -935,6 +950,16 @@ func (l *Listener) run(u *utterance) {
 			return
 		}
 	}
+}
+
+// drop discards the guess of an utterance that was never heard.
+func (l *Listener) drop(u *utterance) {
+	if u.hunch == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.dropLocked(u.hunch, session.DiscardNotATurn)
 }
 
 // candidate offers a partial to the gate while the session is speaking. The
@@ -1023,9 +1048,23 @@ func (l *Listener) offset(played uint64) time.Duration {
 
 // complete finishes an ended utterance: the final decode, the speaker, the
 // blob, then -- in order behind the utterance before it -- the turn.
+//
+// A guess the pause made stands in for the final decode and the speaker: the
+// audio since is quiet, so the words are the same, and the turn they asked
+// is kept only if they are (ADR-0095). Every way out that is not a turn
+// discards the guess; the turn keeps or discards it itself.
 func (l *Listener) complete(u *utterance) {
-	res, err := u.stt.Finish(l.ctx)
-	if err != nil {
+	h := l.settled(u)
+	var spec *session.Speculation
+	if h != nil {
+		spec = h.spec
+		defer spec.Discard(session.DiscardNotATurn)
+	}
+	var res stt.Result
+	var err error
+	if h != nil && h.err == nil {
+		res = h.res
+	} else if res, err = u.stt.Finish(l.ctx); err != nil {
 		// A link that closed mid-decode is no verdict on anything.
 		if l.ctx.Err() == nil {
 			l.misheard(u, err)
@@ -1050,7 +1089,12 @@ func (l *Listener) complete(u *utterance) {
 		}
 		return
 	}
-	out := l.resolve(pcm)
+	var out identity.Outcome
+	if h != nil && h.err == nil {
+		out = h.out
+	} else {
+		out = l.resolve(pcm)
+	}
 	if !u.first {
 		// A turn inside a session need not re-earn the speaker: too little
 		// voice to judge leaves whoever was speaking speaking (ADR-0085).
@@ -1104,7 +1148,7 @@ func (l *Listener) complete(u *utterance) {
 	err = sess.Heard(l.ctx, session.Transcript{
 		Text: res.Text, SpeakerID: out.PersonID, SpeakerMatch: string(out.Reason),
 		AudioRef: ref, Embedding: out.Embedding, Ended: u.stopped, SecondAudioRef: secondRef,
-		BargedIn: u.bargedIn, AudioLost: lost,
+		BargedIn: u.bargedIn, AudioLost: lost, Speculation: spec,
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		l.warn("hear utterance", err)
