@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/teagan42/chorus/internal/bridge"
@@ -23,8 +24,10 @@ const voiceDim = 4
 
 // fakeVoices maps each take to the vector a test chose for it, so enrolling
 // runs without a sidecar; a take it was not told of is a sidecar that is
-// down.
+// down. The clip picker embeds its rows in parallel, as the real sidecar
+// client allows, so Embed takes mu.
 type fakeVoices struct {
+	mu    sync.Mutex
 	by    map[string][]float32
 	calls int
 
@@ -35,6 +38,8 @@ type fakeVoices struct {
 }
 
 func (f *fakeVoices) Embed(_ context.Context, pcm []byte) ([]float32, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls++
 	f.heard = append(f.heard, pcm)
 	v, ok := f.by[string(pcm)]
