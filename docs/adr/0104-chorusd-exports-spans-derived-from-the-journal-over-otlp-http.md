@@ -1,4 +1,4 @@
-# 0101. chorusd exports spans derived from the journal over OTLP/HTTP
+# 0104. chorusd exports spans derived from the journal over OTLP/HTTP
 
 - **Status:** accepted · refines [ADR-0068](0068-chorusd-serves-health-readiness-and-metrics-derived-from-the-journal-on-loopback.md)
 - **Source:** SPEC §8, §13, §14 · ADR-0007, ADR-0019, ADR-0068

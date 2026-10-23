@@ -357,7 +357,7 @@ func everyAttr(spans []otel.Span) []otel.Attr {
 
 // A trace backend is one more place a home's speech would be kept. Unless
 // the house asks for the words, no span of the whole day carries one: who,
-// where, which tool and how it went, and nothing anyone said (ADR-0101).
+// where, which tool and how it went, and nothing anyone said (ADR-0104).
 //
 // verifies SPEC §8
 func TestTheWordsStayHomeUnlessAskedFor(t *testing.T) {
@@ -401,7 +401,7 @@ func TestTheWordsStayHomeUnlessAskedFor(t *testing.T) {
 // Reading the day twice yields the same spans, ids and all; and the day fed
 // to one builder as it happened, every conversation interleaved, yields
 // what each log read alone does. A live export and a later read of the log
-// cannot disagree (ADR-0007, ADR-0101).
+// cannot disagree (ADR-0007, ADR-0104).
 //
 // verifies SPEC §8, §15
 func TestTheSpansAreAFunctionOfTheLog(t *testing.T) {

@@ -104,7 +104,7 @@ func TestAnUnobservedJournalAppends(t *testing.T) {
 }
 
 // The metrics and the trace export both read the log as it is written, so
-// every observer hears each append, in the order they were added (ADR-0101).
+// every observer hears each append, in the order they were added (ADR-0104).
 //
 // verifies SPEC §8
 func TestEveryObserverHearsEachAppend(t *testing.T) {

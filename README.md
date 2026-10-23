@@ -376,7 +376,7 @@ Each conversation becomes one trace: a span per session, per turn, per
 model ask and per tool call, derived from the journal as it is written, so
 a trace never says anything the log does not. Spans carry who, where, which
 tool and how long, but no words unless `CHORUS_OTEL_WORDS=on`.
-[ADR-0101](docs/adr/0101-chorusd-exports-spans-derived-from-the-journal-over-otlp-http.md)
+[ADR-0104](docs/adr/0104-chorusd-exports-spans-derived-from-the-journal-over-otlp-http.md)
 has the span names, the attributes and why it is not the SDK.
 
 ## Tests

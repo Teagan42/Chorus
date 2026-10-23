@@ -622,7 +622,7 @@ OpenTelemetry spans are read off the log the same way: a conversation is
 one trace, each session, turn, model ask and tool call a span derived from
 the events that open and end it, with ids hashed from the conversation and
 the opening event's seq, so the log read later yields the same trace the
-live export sent (ADR-0101). `chorusd` exports them over OTLP/HTTP to the
+live export sent (ADR-0104). `chorusd` exports them over OTLP/HTTP to the
 collector the standard `OTEL_*` variables name, and to none when they name
 none. A span carries no words — no transcript, speech, tool arguments or
 results, completion or summary — unless the house sets
@@ -852,7 +852,7 @@ Do not build the S2S path until the cascade works end to end.
 - **Tracing it.** With `OTEL_EXPORTER_OTLP_ENDPOINT` or
   `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` set, `chorusd` posts the spans it
   derives from the journal there, as OTLP/HTTP protobuf, with the headers,
-  timeout and resource the other `OTEL_*` variables give (ADR-0101). gRPC
+  timeout and resource the other `OTEL_*` variables give (ADR-0104). gRPC
   and OTLP's JSON are refused at startup, as is any variable set but
   unusable. Unset, nothing is exported.
 
@@ -1021,7 +1021,7 @@ sessions, so a session now opens only for an enrolled household voice (§5).
 
 Media playback on satellites. Session survival across restart. Multi-tenancy.
 
-- ~~OpenTelemetry export~~ **Done — ADR-0101.** Spans derived from the
+- ~~OpenTelemetry export~~ **Done — ADR-0104.** Spans derived from the
   journal, exported over OTLP/HTTP protobuf. Not built: gRPC, OTLP's JSON,
   metrics or logs over OTLP (Prometheus serves the metrics), and a
   backfill of logs written before the export was configured.

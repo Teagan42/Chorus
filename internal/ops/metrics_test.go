@@ -179,7 +179,7 @@ func TestBlobBytesAndDeclinedWritesAreCounted(t *testing.T) {
 
 // The trace export's own outcomes are counted beside the journal's: spans
 // the collector took, spans it refused or the backlog could not hold, and
-// events the queue was too full for (ADR-0101).
+// events the queue was too full for (ADR-0104).
 //
 // verifies SPEC §8
 func TestTheTraceExportIsCounted(t *testing.T) {

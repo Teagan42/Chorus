@@ -191,7 +191,7 @@ type Config struct {
 
 	// Traces is where spans derived from the journal are exported, from
 	// the standard OTEL_* variables; tracesErr is what was wrong with them
-	// (ADR-0101).
+	// (ADR-0104).
 	Traces    otel.Settings
 	tracesErr error
 }

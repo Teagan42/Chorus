@@ -21,7 +21,7 @@ type Options struct {
 	// Words puts what was said, heard, generated and passed to tools on the
 	// spans. Off, a span says who, where, which tool and how it went, never
 	// the words: a trace backend is one more place a home's speech would be
-	// kept (ADR-0101).
+	// kept (ADR-0104).
 	Words bool
 }
 

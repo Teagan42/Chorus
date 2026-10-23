@@ -11,7 +11,7 @@ import (
 // ProtocolProtobuf is the one protocol chorusd speaks: OTLP over HTTP as
 // protobuf, every collector's default. gRPC's client would be the module's
 // largest dependency for a port collectors also serve over HTTP, and OTLP's
-// JSON is not protobuf's JSON mapping (ADR-0101).
+// JSON is not protobuf's JSON mapping (ADR-0104).
 const ProtocolProtobuf = "http/protobuf"
 
 // WordsEnv puts what was said on the spans: "on", or "off" and unset.

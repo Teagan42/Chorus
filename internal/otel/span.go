@@ -1,7 +1,7 @@
 // Package otel derives OpenTelemetry spans from the journal and exports them
 // over OTLP/HTTP. The log stays the one record: a span is a reader's view of
 // it, as a harvested pair is, so it cannot disagree with what was journalled
-// (SPEC §8, ADR-0007, ADR-0101).
+// (SPEC §8, ADR-0007, ADR-0104).
 package otel
 
 import (
@@ -24,7 +24,7 @@ func (id SpanID) String() string  { return hex.EncodeToString(id[:]) }
 func (id SpanID) IsZero() bool { return id == SpanID{} }
 
 // traceOf is a conversation's trace id. Derived, not random, so a log read
-// twice, live or later, yields the same trace (ADR-0101).
+// twice, live or later, yields the same trace (ADR-0104).
 func traceOf(conversationID string) TraceID {
 	sum := sha256.Sum256([]byte("chorus/trace\x00" + conversationID))
 	var id TraceID

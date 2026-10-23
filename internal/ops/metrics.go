@@ -163,7 +163,7 @@ func (m *Metrics) resulted(k callKey, outcome string) string {
 	return tool
 }
 
-// SpansExported counts spans the collector took (otel.Meter, ADR-0101).
+// SpansExported counts spans the collector took (otel.Meter, ADR-0104).
 func (m *Metrics) SpansExported(n int) { m.spansExported.Add(float64(n)) }
 
 // SpansDropped counts spans never exported, by why.

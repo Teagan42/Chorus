@@ -116,7 +116,7 @@ type deps struct {
 	Ops *opsDeps
 
 	// Traces exports spans derived from the journal as it is written. Nil
-	// exports none (ADR-0101).
+	// exports none (ADR-0104).
 	Traces *otel.Exporter
 
 	// WakeArbitration is how long a wake waits for the same wake from the

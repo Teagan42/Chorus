@@ -312,7 +312,7 @@ internal/
   curation/             reviewer verdicts, beside the journal (ADR-0034)
   erasure/              the trail of what a reviewer deleted, beside the journal (ADR-0070)
   ops/                  chorusd's /healthz, /readyz and /metrics (ADR-0068)
-  otel/                 OpenTelemetry spans derived from the journal, over OTLP/HTTP (ADR-0101)
+  otel/                 OpenTelemetry spans derived from the journal, over OTLP/HTTP (ADR-0104)
   reviewui/             the review UI's component kit and audio handler
     household/          the made-up household's Thursday: tests' fixture, the demo's data
   config/               satellite inventory and retention horizons

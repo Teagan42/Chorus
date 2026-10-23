@@ -10,7 +10,7 @@ vars:
   # Pinned for the same reason as the Go tools: a component API change must
   # not turn a green build red with no code change. Bump on purpose.
   ESPHOME_VERSION: 2026.7.2
-  # The OTLP trace protos vendored in proto/opentelemetry (ADR-0101).
+  # The OTLP trace protos vendored in proto/opentelemetry (ADR-0104).
   OTLP_PROTO_VERSION: v1.9.0
   # task hardware:kicad builds boards in this; .github/workflows/hardware.yml pins the same.
   KICAD_IMAGE: kicad/kicad:9.0.5@sha256:699f65fd2e4670bbdbe6846586768207f9f1528edd526c0e0502fda7c7f9bfad

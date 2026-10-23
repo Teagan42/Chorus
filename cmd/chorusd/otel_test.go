@@ -114,7 +114,7 @@ func label(s *tracepb.Span) string {
 // session closed by the migration, the office's resumed one closed by the
 // shutdown, each turn's ask with the Home Assistant call it made and the
 // follow-up ask that spoke. What was sent is what reading the daemon's log
-// afterwards derives, and none of Alan's words left the house (ADR-0101).
+// afterwards derives, and none of Alan's words left the house (ADR-0104).
 //
 // verifies SPEC §8, §4.5, §13
 func TestTheDaemonExportsAConversationThatFollowsAlanAsOneTrace(t *testing.T) {
