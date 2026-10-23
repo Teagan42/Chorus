@@ -10,6 +10,8 @@ vars:
   # Pinned for the same reason as the Go tools: a component API change must
   # not turn a green build red with no code change. Bump on purpose.
   ESPHOME_VERSION: 2026.7.2
+  # The OTLP trace protos vendored in proto/opentelemetry (ADR-0101).
+  OTLP_PROTO_VERSION: v1.9.0
   # task hardware:kicad builds boards in this; .github/workflows/hardware.yml pins the same.
   KICAD_IMAGE: kicad/kicad:9.0.5@sha256:699f65fd2e4670bbdbe6846586768207f9f1528edd526c0e0502fda7c7f9bfad
   # The wake-word trainer (internal/tools/waketrain/Dockerfile), built locally.
@@ -61,10 +63,23 @@ tasks:
     cmds: [task: gen:proto, task: gen:cue, task: gen:hardware]
 
   gen:proto:
-    desc: ESPHome API bindings from the vendored proto
-    sources: ["proto/esphome/*.proto", "buf.gen.yaml"]
-    generates: ["internal/pb/*.pb.go"]
+    desc: ESPHome API and OTLP trace bindings from the vendored protos
+    sources: ["proto/esphome/*.proto", "proto/opentelemetry/**/*.proto", "buf.yaml", "buf.gen.yaml"]
+    generates: ["internal/pb/**/*.pb.go"]
     cmds: [buf generate]
+
+  proto:otlp:
+    desc: Re-vendor the OTLP trace protos at OTLP_PROTO_VERSION, then regenerate
+    cmds:
+      - |
+        set -e
+        base=https://raw.githubusercontent.com/open-telemetry/opentelemetry-proto/{{.OTLP_PROTO_VERSION}}
+        for f in common/v1/common.proto resource/v1/resource.proto trace/v1/trace.proto collector/trace/v1/trace_service.proto; do
+          mkdir -p "proto/opentelemetry/opentelemetry/proto/$(dirname "$f")"
+          curl -fsSL -o "proto/opentelemetry/opentelemetry/proto/$f" "$base/opentelemetry/proto/$f"
+        done
+        curl -fsSL -o proto/opentelemetry/LICENSE "$base/LICENSE"
+      - task: gen:proto
 
   gen:cue:
     desc: Go types, JSON Schema, and docs from CUE schemas
