@@ -78,7 +78,8 @@ func (w *weatherServer) called() []string {
 
 // withWeather connects the weather server under policy (YAML under the
 // server, empty for the defaults) and wires its tools into the daemon as
-// buildProviders would.
+// buildProviders does, events stamped with the labels a real engine offered
+// them records.
 func withWeather(t *testing.T, w *weatherServer, policy string) func(*deps) {
 	t.Helper()
 	cfg, err := mcp.Parse([]byte("servers:\n  weather:\n    url: http://weather.lan:8080/mcp\n"+policy), lookup(nil))
@@ -90,12 +91,13 @@ func withWeather(t *testing.T, w *weatherServer, policy string) func(*deps) {
 		t.Fatalf("mcp: %v", err)
 	}
 	t.Cleanup(m.Close)
-	specs, _, err := offerable(m)
+	built, err := buildProviders(configFromEnv(lookup(complete())), nil, slog.New(slog.DiscardHandler), m)
 	if err != nil {
-		t.Fatalf("offerable: %v", err)
+		t.Fatalf("providers: %v", err)
 	}
 	return func(d *deps) {
-		d.tools, d.specs = m.Tools(), specs
+		d.tools, d.specs = m.Tools(), built.specs
+		d.versions, d.offer = built.versions, built.offer
 	}
 }
 
