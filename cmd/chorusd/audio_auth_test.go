@@ -174,7 +174,7 @@ func TestANameTheInventoryDoesNotListIsRefused(t *testing.T) {
 func TestTheRightNameFromTheWrongAddressIsRefused(t *testing.T) {
 	r := newRig(t, inventory())
 
-	dev := bridgetest.Connect(r.ln.dial(t, officeIP), 2, as(t, r.dm.byHost[kitchenIP]))
+	dev := bridgetest.Connect(r.ln.dial(t, officeIP), 2, as(t, r.at(kitchenIP)))
 	r.refused(t, dev, "wrong address")
 	if r.dm.linked("kitchen") != nil || r.dm.linked("office") != nil {
 		t.Error("a link refused for its address was linked anyway")

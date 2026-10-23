@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/discover"
 	"github.com/teagan42/chorus/internal/esphome"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/listen"
@@ -53,19 +54,22 @@ var errDeviceDisconnected = errors.New("device requested disconnect")
 // redialing with backoff. The audio link is independent of it, so a device
 // that is offline is a retry here and never a failed start.
 func (d *daemon) keep(ctx context.Context, sat *config.Satellite) {
-	log := d.Log.With("satellite", sat.Name, "address", sat.Address)
+	log := d.Log.With("satellite", sat.Name, "address", discover.Described(sat))
 	p := &presence{journal: d.journal, conv: listen.DeviceConversation(sat.Name), log: log}
 	l := &led{ring: d.rings[sat.Name], log: log}
 	v := d.volumes[sat.Name]
 	backoff := nativeRetryMin
+	// A satellite that is found is dialled once it has been.
+	if !d.addrs.wait(ctx, sat) {
+		return
+	}
 	for {
-		conn, err := within(ctx, d.Timers, nativeDialTimeout, func(ctx context.Context) (nativeConn, error) {
-			return d.Native.Dial(ctx, sat.Address, sat.PSK)
-		})
+		conn, err := d.dialNative(ctx, sat)
 		if ctx.Err() != nil {
 			return
 		}
 		if err != nil {
+			d.addrs.nudge(sat)
 			log.Warn("native api unreachable", "err", err, "retry_in", backoff)
 		} else {
 			log.Info("native api connected", "device", conn.Describe())
@@ -86,6 +90,17 @@ func (d *daemon) keep(ctx context.Context, sat *config.Satellite) {
 		}
 		backoff = min(2*backoff, nativeRetryMax)
 	}
+}
+
+// dialNative opens sat's native API wherever it is now.
+func (d *daemon) dialNative(ctx context.Context, sat *config.Satellite) (nativeConn, error) {
+	address, err := d.addrs.dialAddress(sat)
+	if err != nil {
+		return nil, err
+	}
+	return within(ctx, d.Timers, nativeDialTimeout, func(ctx context.Context) (nativeConn, error) {
+		return d.Native.Dial(ctx, address, sat.PSK)
+	})
 }
 
 // hold answers the device's keepalive until the connection fails or ctx

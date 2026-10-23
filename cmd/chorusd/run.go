@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/teagan42/chorus/internal/blob"
 	"github.com/teagan42/chorus/internal/bridge"
 	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/discover"
 	"github.com/teagan42/chorus/internal/echo"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/listen"
@@ -96,6 +98,10 @@ type deps struct {
 	// Native dials each satellite's native API. Nil holds none.
 	Native nativeDialer
 
+	// Locator finds each satellite the inventory gives a hostname or no
+	// address. An inventory with one needs it (SPEC §13, ADR-0103).
+	Locator locator
+
 	Store  journal.Store
 	Blobs  blob.Store
 	Clock  journal.Clock
@@ -131,7 +137,7 @@ type deps struct {
 type daemon struct {
 	deps
 	inv     *config.Config
-	byHost  map[string]*config.Satellite
+	addrs   *addresses
 	journal *journal.Journal
 	// convs is the one thing per-satellite supervisors share: the person's
 	// conversation follows them from device to device (SPEC §4.5, ADR-0022).
@@ -192,9 +198,13 @@ func run(ctx context.Context, inv *config.Config, d deps) error {
 // newDaemon checks the inventory can be matched against and composes the
 // shared stack. Nothing runs until run.
 func newDaemon(inv *config.Config, d deps) (*daemon, error) {
-	byHost, err := indexByHost(inv)
+	addrs, err := newAddresses(inv)
 	if err != nil {
 		return nil, err
+	}
+	if sought := addrs.soughtSatellites(); len(sought) > 0 && d.Locator == nil {
+		return nil, fmt.Errorf("satellite %s: address %q is not an IP literal, and nothing finds it on the network",
+			sought[0].Name, discover.Described(sought[0]))
 	}
 	if d.Log == nil {
 		d.Log = slog.New(slog.DiscardHandler)
@@ -202,7 +212,7 @@ func newDaemon(inv *config.Config, d deps) (*daemon, error) {
 	dm := &daemon{
 		deps:    d,
 		inv:     inv,
-		byHost:  byHost,
+		addrs:   addrs,
 		journal: journal.New(d.Store, d.Clock, d.versions),
 		convs:   session.NewConversations(d.Clock, session.MigrationWindow),
 		links:   map[string]*listen.Listener{},
@@ -229,7 +239,7 @@ func newDaemon(inv *config.Config, d deps) (*daemon, error) {
 		}
 		dm.rooms[sat.Name] = sat.Room
 		dm.rings[sat.Name] = newRing()
-		dm.volumes[sat.Name] = &speakerVolume{log: d.Log.With("satellite", sat.Name, "address", sat.Address), timers: d.Timers}
+		dm.volumes[sat.Name] = &speakerVolume{log: d.Log.With("satellite", sat.Name, "address", discover.Described(&sat)), timers: d.Timers}
 		dm.panels[sat.Name] = session.NewPanel(dm.rings[sat.Name])
 	}
 	dm.wireOps()
@@ -308,6 +318,9 @@ func (d *daemon) run(ctx context.Context) error {
 		defer d.wg.Done()
 		d.rehearse(ctx, canned)
 	}()
+	for _, sat := range d.addrs.soughtSatellites() {
+		d.wg.Go(func() { d.seek(ctx, sat) })
+	}
 	if d.Native != nil {
 		for i := range d.inv.Satellites {
 			sat := &d.inv.Satellites[i]
@@ -347,34 +360,6 @@ func (d *daemon) rehearse(ctx context.Context, c *satellite.Canned) {
 	}
 }
 
-// indexByHost maps each inventory address's host, or an explicitly configured
-// source-NAT address, to its satellite. The bridge's authenticated handshake
-// still checks the satellite name and PSK after this source-address lookup.
-func indexByHost(inv *config.Config) (map[string]*config.Satellite, error) {
-	byHost := make(map[string]*config.Satellite, len(inv.Satellites))
-	for i := range inv.Satellites {
-		sat := &inv.Satellites[i]
-		host := sat.AudioSourceIP
-		if host == "" {
-			var err error
-			host, _, err = net.SplitHostPort(sat.Address)
-			if err != nil {
-				return nil, fmt.Errorf("satellite %s: address %q: %w", sat.Name, sat.Address, err)
-			}
-		}
-		ip := net.ParseIP(host)
-		if ip == nil {
-			return nil, fmt.Errorf("satellite %s: audio source %q is not an IP literal", sat.Name, host)
-		}
-		key := ip.String()
-		if other, dup := byHost[key]; dup {
-			return nil, fmt.Errorf("satellites %s and %s share the host %s, so their audio links cannot be told apart", other.Name, sat.Name, key)
-		}
-		byHost[key] = sat
-	}
-	return byHost, nil
-}
-
 // accept hands each connection to its own goroutine until ctx ends. Closing
 // the listener is the only way to unblock Accept, so the close rides on ctx.
 func (d *daemon) accept(ctx context.Context) error {
@@ -402,20 +387,16 @@ func (d *daemon) accept(ctx context.Context) error {
 
 // satelliteAt names the device behind a remote address, or nil.
 func (d *daemon) satelliteAt(addr net.Addr) *config.Satellite {
-	var ip net.IP
+	var ip netip.Addr
 	if tcp, ok := addr.(*net.TCPAddr); ok {
-		ip = tcp.IP
-	} else {
-		host, _, err := net.SplitHostPort(addr.String())
-		if err != nil {
-			return nil
-		}
-		ip = net.ParseIP(host)
+		ip, _ = netip.AddrFromSlice(tcp.IP)
+	} else if ap, err := netip.ParseAddrPort(addr.String()); err == nil {
+		ip = ap.Addr()
 	}
-	if ip == nil {
+	if !ip.IsValid() {
 		return nil
 	}
-	return d.byHost[ip.String()]
+	return d.addrs.at(ip)
 }
 
 // satelliteNamed is the inventory's satellite by exactly that name, or nil.
@@ -449,6 +430,8 @@ func (d *daemon) serve(ctx context.Context, conn net.Conn) {
 		// not name is worth parsing (SPEC §13).
 		d.Log.Warn("refused a connection from an address not in the inventory", "remote", remote)
 		_ = conn.Close()
+		// A found satellite may have moved there.
+		d.addrs.nudgeAll()
 		return
 	}
 	log := d.Log.With("remote", remote, "address_of", from.Name)
@@ -466,6 +449,7 @@ func (d *daemon) serve(ctx context.Context, conn net.Conn) {
 	if sat != from {
 		log.Warn("refused an audio link", "reason", "wrong address",
 			"err", fmt.Sprintf("%s proved its name from %s's address", sat.Name, from.Name))
+		d.addrs.nudgeAll()
 		return
 	}
 
