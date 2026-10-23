@@ -106,8 +106,21 @@ func actingFor(spec registry.ToolSpec, speaker string) string {
 // as told nothing, or the guest's turn would inherit that person's memories
 // from the log (ADR-0049).
 func (s *Session) recall(ctx context.Context, st journal.State, words string) (journal.State, error) {
+	rec, err := s.recollect(ctx, st, words)
+	if err != nil || rec == nil {
+		return st, err
+	}
+	if err := s.record(*rec); err != nil {
+		return st, err
+	}
+	return s.State(ctx)
+}
+
+// recollect is the memory_recalled recall would write over st, or nil when
+// the log already says it. Nothing is written: a speculative ask supposes it.
+func (s *Session) recollect(ctx context.Context, st journal.State, words string) (*journal.Record, error) {
 	if s.sup.cfg.Memories == nil {
-		return st, nil
+		return nil, nil
 	}
 	var got Recollection
 	if st.Speaker != "" {
@@ -116,13 +129,13 @@ func (s *Session) recall(ctx context.Context, st journal.State, words string) (j
 			Person: st.Speaker, ConversationID: s.convID, Now: st.HeardAt, Words: words,
 		})
 		if err != nil {
-			return st, err
+			return nil, err
 		}
 	}
 	if st.RecalledFor == st.Speaker && slices.Equal(got.Memories, st.Recalled) &&
 		slices.EqualFunc(got.Summaries, st.RecalledSummaries, sameSummary) &&
 		got.RankedBy == st.RecalledRankedBy {
-		return st, nil
+		return nil, nil
 	}
 	fields := map[string]string{
 		"person":         st.Speaker,
@@ -132,10 +145,7 @@ func (s *Session) recall(ctx context.Context, st journal.State, words string) (j
 	if got.RankedBy != "" {
 		fields["ranked_by"] = got.RankedBy
 	}
-	if err := s.record(journal.Record{Kind: journal.KindMemoryRecalled, Fields: fields}); err != nil {
-		return st, err
-	}
-	return s.State(ctx)
+	return &journal.Record{Kind: journal.KindMemoryRecalled, Fields: fields}, nil
 }
 
 // sameSummary compares instants, not locations: the log hands back in UTC
