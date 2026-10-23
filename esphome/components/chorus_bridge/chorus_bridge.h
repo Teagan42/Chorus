@@ -162,6 +162,8 @@ class ChorusBridge : public Component {
   void pump_speaker_();
   void publish_played_();
   void publish_mute_();
+  uint8_t mute_flags_() const;
+  void discard_uplink_();
 
   void handle_frame_(FrameType type, uint8_t flags, const uint8_t *payload, size_t length);
   void verify_host_(const uint8_t *payload, size_t length);
@@ -230,6 +232,7 @@ class ChorusBridge : public Component {
   bool mic_requested_{true};
   bool mic_started_{false};
   uint8_t last_mute_flags_{0xff};
+  bool uplink_held_{false};  // mic frames withheld while muted; see pump_uplink_
   uint32_t dropped_chunks_{0};
   size_t next_channel_{0};    // round-robin cursor; see pump_uplink_
   bool tx_urgent_{false};     // a control frame is queued; do not coalesce

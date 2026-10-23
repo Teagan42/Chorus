@@ -948,8 +948,10 @@ sessions, so a session now opens only for an enrolled household voice (§5).
   any audio, and every frame after the handshake is sealed with AES-256-GCM
   under a key per direction, forward-secret against a PSK that leaks later.
   Flashed onto a Satellite1, which completes the handshake with `chorusd`.
-- Stop the uplink in firmware while the mute switch is on; today the host
-  drops the frames (ADR-0067)
+- ~~Stop the uplink in firmware while the mute switch is on~~ **Built —
+  ADR-0100.** Muted by either bit, `chorus_bridge` sends no mic frames and
+  drains its rings, so unmuting sends nothing from the mute. Not yet
+  flashed onto a satellite.
 - ~~Confirm a volume level~~ **Done.** `set_volume` answers with the level
   the device reports back after the command; with no report within a second
   it gives the level sent and says it is unconfirmed (ADR-0067).
