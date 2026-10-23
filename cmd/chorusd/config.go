@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/teagan42/chorus/internal/contexts"
 	"github.com/teagan42/chorus/internal/hass"
 	"github.com/teagan42/chorus/internal/identity"
 	"github.com/teagan42/chorus/internal/journal"
@@ -405,6 +406,10 @@ type providers struct {
 	// more than fits. Nil recalls the newest (ADR-0044).
 	embedder memory.Embedder
 	versions journal.Versions
+	// offer is the text behind versions' prompt and tool schema, which
+	// start keeps beside the journal: a schema with the house's MCP tools
+	// in it is one no build can name (ADR-0101).
+	offer    contexts.Offer
 	synth    satellite.Synth
 	stt      stt.Transcriber
 	speakers listen.Speakers
@@ -460,8 +465,12 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 	// are in effect is a wiring fact only this function holds (SPEC §8).
 	versions := engine.Versions()
 	versions.STT, versions.TTS = transcriber.Version(), synth.Version()
+	if offered == nil {
+		offered = registry.Offered()
+	}
 	p := providers{
 		engine: engine, summarizer: engine, versions: versions, synth: synth, stt: transcriber,
+		offer: contexts.Offer{Prompt: ollama.DefaultPrompt, Summary: ollama.SummaryPrompt, ToolSchema: ollama.ToolSchema(offered)},
 		tools: map[string]session.Tool{}, specs: enforced,
 		pipeline: capability.Pipeline{
 			Providers: []capability.Declaration{transcriber.Capabilities(), engine.Capabilities(), synth.Capabilities()},

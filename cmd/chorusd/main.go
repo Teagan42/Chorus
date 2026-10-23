@@ -30,6 +30,7 @@ import (
 
 	"github.com/teagan42/chorus/internal/blob"
 	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/contexts"
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/discover"
 	"github.com/teagan42/chorus/internal/esphome"
@@ -125,6 +126,12 @@ func start(ctx context.Context, cfg Config, log *slog.Logger) error {
 	// before the review UI has first run.
 	if err := curation.Migrate(ctx, pool); err != nil {
 		return fmt.Errorf("migrate curation: %w", err)
+	}
+	if err := contexts.Migrate(ctx, pool); err != nil {
+		return fmt.Errorf("migrate contexts: %w", err)
+	}
+	if err := recordOffer(ctx, contexts.NewPgStore(pool), prov); err != nil {
+		return fmt.Errorf("record what the model is offered: %w", err)
 	}
 
 	dir, err := blob.NewDir(cfg.BlobDir)
