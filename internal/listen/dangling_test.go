@@ -170,13 +170,13 @@ func (w *words) done() bool {
 //
 // verifies SPEC §4.5
 func TestDanglingOverrulesAFinishedVerdictOnACutOffCommand(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}}}
+	j := &judge{answers: []judgement{{p: sure}}}
 	w := newWords("Set a timer for")
 	turn := voice(8000, ms(1200))
 
-	done, err := listen.Dangling{Judge: j, Words: w}.Complete(context.Background(), turn)
-	if err != nil || done {
-		t.Fatalf("Complete = %v, %v; want unfinished", done, err)
+	v, err := listen.Dangling{Judge: j, Words: w}.Complete(context.Background(), turn)
+	if err != nil || !v.Dangling || v.Probability != sure {
+		t.Fatalf("Complete = %+v, %v; want Smart Turn's %v, dangling", v, err, sure)
 	}
 	if len(w.asked) != 1 || len(w.asked[0]) != len(turn) || len(j.asked) != 1 {
 		t.Errorf("decoded %d and judged %d turns; want the same audio once each", len(w.asked), len(j.asked))
@@ -187,11 +187,11 @@ func TestDanglingOverrulesAFinishedVerdictOnACutOffCommand(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestDanglingKeepsAFinishedVerdictOnAWholeCommand(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}}}
-	done, err := listen.Dangling{Judge: j, Words: newWords("Set a timer for twelve minutes.")}.
+	j := &judge{answers: []judgement{{p: sure}}}
+	v, err := listen.Dangling{Judge: j, Words: newWords("Set a timer for twelve minutes.")}.
 		Complete(context.Background(), voice(8000, ms(1900)))
-	if err != nil || !done {
-		t.Fatalf("Complete = %v, %v; want finished", done, err)
+	if err != nil || v.Dangling || v.Probability != sure {
+		t.Fatalf("Complete = %+v, %v; want Smart Turn's %v, whole", v, err, sure)
 	}
 }
 
@@ -200,13 +200,13 @@ func TestDanglingKeepsAFinishedVerdictOnAWholeCommand(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestDanglingNeverEndsATurnTheJudgeHeldOpen(t *testing.T) {
-	j := &judge{answers: []judgement{{done: false}}}
+	j := &judge{answers: []judgement{{p: doubtful}}}
 	w := newWords("Turn off the kitchen lights.")
 	w.release = make(chan struct{})
 
-	done, err := listen.Dangling{Judge: j, Words: w}.Complete(context.Background(), voice(8000, ms(900)))
-	if err != nil || done {
-		t.Fatalf("Complete = %v, %v; want the judge's unfinished", done, err)
+	v, err := listen.Dangling{Judge: j, Words: w}.Complete(context.Background(), voice(8000, ms(900)))
+	if err != nil || v.Probability != doubtful || v.Dangling {
+		t.Fatalf("Complete = %+v, %v; want the judge's %v as it was", v, err, doubtful)
 	}
 	if !w.done() {
 		t.Error("the decode outlived the ask it was for")
@@ -232,12 +232,12 @@ func TestDanglingPassesOnAJudgeThatFailed(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestDanglingTrustsTheJudgeWhenTheWordsFail(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}}}
+	j := &judge{answers: []judgement{{p: sure}}}
 	w := newWords("")
 	w.err = errors.New("transcribe istupakov/parakeet-tdt-0.6b-v2-onnx: 503 Service Unavailable")
-	done, err := listen.Dangling{Judge: j, Words: w}.Complete(context.Background(), voice(8000, ms(900)))
-	if err != nil || !done {
-		t.Errorf("Complete = %v, %v; want the judge's finished", done, err)
+	v, err := listen.Dangling{Judge: j, Words: w}.Complete(context.Background(), voice(8000, ms(900)))
+	if err != nil || v.Dangling || v.Probability != sure {
+		t.Errorf("Complete = %+v, %v; want the judge's %v as it was", v, err, sure)
 	}
 }
 
@@ -251,9 +251,9 @@ func TestDanglingDecodesWhileTheJudgeListens(t *testing.T) {
 	w.release = make(chan struct{})
 	j := &rendezvous{words: w}
 
-	done, err := listen.Dangling{Judge: j, Words: w}.Complete(context.Background(), voice(8000, ms(1100)))
-	if err != nil || !done {
-		t.Fatalf("Complete = %v, %v; want finished", done, err)
+	v, err := listen.Dangling{Judge: j, Words: w}.Complete(context.Background(), voice(8000, ms(1100)))
+	if err != nil || v.Dangling || v.Probability != sure {
+		t.Fatalf("Complete = %+v, %v; want finished", v, err)
 	}
 }
 
@@ -261,14 +261,14 @@ func TestDanglingDecodesWhileTheJudgeListens(t *testing.T) {
 // running, then lets the decode answer.
 type rendezvous struct{ words *words }
 
-func (r *rendezvous) Complete(ctx context.Context, _ []byte) (bool, error) {
+func (r *rendezvous) Complete(ctx context.Context, _ []byte) (listen.Judgement, error) {
 	select {
 	case <-r.words.heard:
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return listen.Judgement{}, ctx.Err()
 	}
 	close(r.words.release)
-	return true, nil
+	return listen.Judgement{Probability: sure}, nil
 }
 
 // An ask the endpointer dropped, because Alan kept talking, drops the decode
@@ -276,7 +276,7 @@ func (r *rendezvous) Complete(ctx context.Context, _ []byte) (bool, error) {
 //
 // verifies SPEC §4.5
 func TestDanglingStopsDecodingWhenTheAskIsDropped(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}}}
+	j := &judge{answers: []judgement{{p: sure}}}
 	w := newWords("Turn on the porch light and the")
 	w.release = make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -302,10 +302,10 @@ func TestDanglingStopsDecodingWhenTheAskIsDropped(t *testing.T) {
 // waiting when Dangling looks.
 type stubborn struct{ words *words }
 
-func (j stubborn) Complete(ctx context.Context, _ []byte) (bool, error) {
+func (j stubborn) Complete(ctx context.Context, _ []byte) (listen.Judgement, error) {
 	<-ctx.Done()
 	<-j.words.gaveUp
-	return true, nil
+	return listen.Judgement{Probability: sure}, nil
 }
 
 // Alan keeps talking after "turn on the porch light and the", so the ask is
@@ -340,7 +340,7 @@ func TestDanglingGivesNoVerdictOnAnAskDroppedMidDecode(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestSemanticHoldsACutOffCommandForItsLastWords(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}, {done: true}}}
+	j := &judge{answers: []judgement{{p: sure}, {p: sure}}}
 	w := &script{texts: []string{"Set a timer for", "Set a timer for twelve minutes."}}
 	ep, q := semantic(nil, nil)
 	ep.Judge = listen.Dangling{Judge: j, Words: w}
@@ -370,7 +370,7 @@ func TestSemanticHoldsACutOffCommandForItsLastWords(t *testing.T) {
 //
 // verifies SPEC §4.5
 func TestSemanticEndsAtTheSilenceWhileTheWordsAreStillDecoding(t *testing.T) {
-	j := &judge{answers: []judgement{{done: true}}}
+	j := &judge{answers: []judgement{{p: sure}}}
 	w := newWords("Turn off the")
 	w.release = make(chan struct{})
 	ep, q := semantic(nil, nil)

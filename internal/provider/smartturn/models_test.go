@@ -179,14 +179,15 @@ func TestARealCorpusEndsTurnsSoonerThanTheSilence(t *testing.T) {
 	}
 
 	for _, tk := range takes {
-		waited := stream(t, c, tk.pcm)
-		t.Logf("%-24s ended %4d ms after the last loud chunk (Energy: %d ms)", tk.name, waited.Milliseconds(), listen.DefaultSilence*1000/(2*bridge.SampleRate))
+		waited, how := stream(t, c, tk.pcm)
+		t.Logf("%-24s ended %4d ms after the last loud chunk, %s at p=%.3f (Energy: %d ms)", tk.name, waited.Milliseconds(), how.Rule, how.Probability, listen.DefaultSilence*1000/(2*bridge.SampleRate))
 	}
 }
 
 // stream feeds a take and then quiet through a Semantic endpointer at 32 ms a
-// chunk, the satellite's pace, and returns the quiet its End waited through.
-func stream(t *testing.T, j listen.Judge, pcm []byte) time.Duration {
+// chunk, the satellite's pace, and returns the quiet its End waited through
+// and the rule it ended on.
+func stream(t *testing.T, j listen.Judge, pcm []byte) (time.Duration, listen.Ending) {
 	t.Helper()
 	const chunk = 1024
 	ep := listen.NewSemantic(j)
@@ -201,11 +202,24 @@ func stream(t *testing.T, j listen.Judge, pcm []byte) time.Duration {
 			in = pcm[off:min(off+chunk, len(pcm))]
 		}
 		if ep.Feed(in) == listen.End {
-			return time.Duration(ep.Trailing()) * time.Second / (2 * bridge.SampleRate)
+			return time.Duration(ep.Trailing()) * time.Second / (2 * bridge.SampleRate), ep.Ending()
 		}
 	}
 	t.Fatalf("no End within the hold")
-	return 0
+	return 0, listen.Ending{}
+}
+
+// band is the rule a verdict ends its pause on, under the given bands.
+func band(v listen.Judgement, sure, doubt float64) listen.EndRule {
+	switch {
+	case v.Dangling && v.Probability >= doubt:
+		return listen.EndDangling
+	case v.Probability < doubt:
+		return listen.EndHeld
+	case v.Probability >= sure:
+		return listen.EndFinished
+	}
+	return listen.EndUnsure
 }
 
 // corpus is the -smartturn-wavs takes, both kinds of them.
@@ -251,6 +265,10 @@ func TestARealCorpusJudgedWithItsWordsHoldsCutOffCommands(t *testing.T) {
 
 	var alone, withWords [2]int // right verdicts, unfinished then finished
 	var n [2]int
+	// What each kind of take ends on, under the single cut chorusd had
+	// before the bands and under the bands (ADR-0094).
+	cut := [2]map[listen.EndRule]int{{}, {}}
+	banded := [2]map[listen.EndRule]int{{}, {}}
 	for _, tk := range takes {
 		ctx, cancel := context.WithTimeout(context.Background(), judgeBudget)
 		start := time.Now()
@@ -268,7 +286,7 @@ func TestARealCorpusJudgedWithItsWordsHoldsCutOffCommands(t *testing.T) {
 			t.Fatalf("transcribe %s: %v", tk.name, err)
 		}
 		start = time.Now()
-		done, err := both.Complete(ctx, tk.pcm)
+		got, err := both.Complete(ctx, tk.pcm)
 		took := time.Since(start)
 		cancel()
 		if err != nil {
@@ -282,12 +300,16 @@ func TestARealCorpusJudgedWithItsWordsHoldsCutOffCommands(t *testing.T) {
 		if v.Complete == tk.complete {
 			alone[i]++
 		}
+		done := got.Probability > 0.5 && !got.Dangling
 		if done == tk.complete {
 			withWords[i]++
 		}
-		t.Logf("%-34s %-44q smart turn %-5v (%v) words %-5v (%v) both %-5v in %v",
-			tk.name, heard.Text, v.Complete, judged.Round(time.Millisecond),
-			!listen.Dangles(heard.Text), decoded.Round(time.Millisecond), done, took.Round(time.Millisecond))
+		single, bands := band(got, 0.5+1e-9, 0.5+1e-9), band(got, listen.DefaultSure, listen.DefaultDoubt)
+		cut[i][single]++
+		banded[i][bands]++
+		t.Logf("%-34s %-44q smart turn %-5v p=%.3f (%v) words %-5v (%v) both %-5v in %v; cut %-8s bands %s",
+			tk.name, heard.Text, v.Complete, v.Probability, judged.Round(time.Millisecond),
+			!listen.Dangles(heard.Text), decoded.Round(time.Millisecond), done, took.Round(time.Millisecond), single, bands)
 		if tk.complete && listen.Dangles(heard.Text) {
 			t.Errorf("%s: the finished %q was called cut off", tk.name, heard.Text)
 		}
@@ -297,10 +319,19 @@ func TestARealCorpusJudgedWithItsWordsHoldsCutOffCommands(t *testing.T) {
 	if withWords[0] < alone[0] {
 		t.Errorf("the words let %d cut-off takes end that Smart Turn held", alone[0]-withWords[0])
 	}
+	for i, kind := range []string{"cut off", "finished"} {
+		t.Logf("%-8s single cut: %v", kind, cut[i])
+		t.Logf("%-8s bands:      %v", kind, banded[i])
+	}
+	// The bands exist to end fewer half-said commands at the pause; a
+	// checkpoint or corpus on which they end more is a reason to move them.
+	if banded[0][listen.EndFinished] > cut[0][listen.EndFinished] {
+		t.Errorf("the bands end %d cut-off takes at the pause, the single cut %d", banded[0][listen.EndFinished], cut[0][listen.EndFinished])
+	}
 
 	for _, tk := range takes {
-		waited := stream(t, both, tk.pcm)
-		t.Logf("%-34s ended %4d ms after the last loud chunk with its words", tk.name, waited.Milliseconds())
+		waited, how := stream(t, both, tk.pcm)
+		t.Logf("%-34s ended %4d ms after the last loud chunk with its words, %s at p=%.3f", tk.name, waited.Milliseconds(), how.Rule, how.Probability)
 	}
 }
 

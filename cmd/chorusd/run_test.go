@@ -636,6 +636,71 @@ func TestSmartTurnShortensTheWaitForAnAnswer(t *testing.T) {
 	if wait < 200 || wait >= 800 {
 		t.Errorf("waited %d ms, want the pause the judge was asked after, under Energy's 800", wait)
 	}
+	heard := r.store.awaitKind(t, journal.KindUtteranceTranscribed, 1)
+	if heard.Fields["turn_end"] != "finished" || heard.Fields["turn_probability"] != "0.988" {
+		t.Errorf("utterance_transcribed = %v, want it ended finished at 0.988", heard.Fields)
+	}
+}
+
+// Alan asks the kitchen satellite to "turn on the porch light" in a voice
+// Smart Turn is unsure of, 0.704. Under the default bands that is no reason
+// to end the turn early, so it waits Energy's 800 ms and journals why. A
+// household that set CHORUS_SMARTTURN_SURE to 0.7 for its own voices gets the
+// short wait back (ADR-0094).
+//
+// verifies SPEC §4.5, §11
+func TestAnUnsureVerdictWaitsAsEnergyWouldUnlessTheHouseholdSaysOtherwise(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		sure     float64
+		end      string
+		min, max int
+	}{
+		{"default bands", 0, "unsure", 800, 900},
+		{"household sure at 0.7", 0.7, "finished", 200, 800},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			answer := "The porch light is on."
+			r := newRig(t, inventory(), func(d *deps) {
+				d.judge = &turnJudge{p: 0.704}
+				d.sure = tc.sure
+				d.engine = &scriptEngine{acts: []session.Action{
+					session.SpeechDelta{CallID: "call_1", Text: answer, Last: true},
+					session.TurnEnd{FinishReason: "stop", Completion: "{}"},
+				}}
+			})
+			dev := r.join(t, kitchenIP)
+			porch := r.line("turn on the porch light", alan)
+
+			dev.SendWake(t, "hey_eddie")
+			for range 8 {
+				dev.SendMic(t, bridge.ChannelAEC, voice(porch, chunkBytes))
+			}
+			sent := 0
+			for ; sent < listen.DefaultPause; sent += chunkBytes {
+				dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+			}
+			r.judged(t, 1)
+			for ; sent < silence; sent += chunkBytes {
+				dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+			}
+
+			dev.AwaitTTS(t, 2*len(answer))
+			dev.PlayAll(t)
+			start := r.store.awaitKind(t, journal.KindSpeechStarted, 1)
+			wait, err := strconv.Atoi(start.Fields["wait_ms"])
+			if err != nil {
+				t.Fatalf("wait_ms = %q: %v", start.Fields["wait_ms"], err)
+			}
+			if wait < tc.min || wait >= tc.max {
+				t.Errorf("waited %d ms, want [%d, %d)", wait, tc.min, tc.max)
+			}
+			heard := r.store.awaitKind(t, journal.KindUtteranceTranscribed, 1)
+			if heard.Fields["turn_end"] != tc.end || heard.Fields["turn_probability"] != "0.704" {
+				t.Errorf("utterance_transcribed = %v, want it ended %s at 0.704", heard.Fields, tc.end)
+			}
+		})
+	}
 }
 
 // The kitchen satellite's radio stalls while Alan thinks after "set a timer
@@ -760,5 +825,9 @@ func TestACutOffCommandReachesTheModelWhole(t *testing.T) {
 	}
 	if j.asks() != 2 {
 		t.Errorf("Smart Turn judged %d pauses, want the cut and the end", j.asks())
+	}
+	// The pause that ended it was the second, whole one.
+	if end := r.store.ofKind(journal.KindUtteranceTranscribed)[0].Fields["turn_end"]; end != "finished" {
+		t.Errorf("turn_end = %q, want finished", end)
 	}
 }

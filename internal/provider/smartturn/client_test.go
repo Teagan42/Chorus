@@ -94,17 +94,21 @@ func TestItPostsTheTurnSoFarAsRawPCM(t *testing.T) {
 	}
 }
 
-// What the endpointer asks: "turn off the... uh..." is not finished.
+// What the endpointer asks is the probability, not the sidecar's cut: "turn
+// off the... uh..." at 0.009, and "turn on the porch light" in a voice the
+// model is unsure of at 0.704, which the sidecar calls complete and the
+// endpointer's bands do not (ADR-0094).
 //
 // verifies SPEC §4.5
-func TestCompleteIsTheVerdict(t *testing.T) {
-	for body, want := range map[string]bool{
-		finished: true,
-		`{"complete":false,"probability":0.009,"model":"smart-turn-v3.2-cpu"}`: false,
+func TestCompleteIsTheProbability(t *testing.T) {
+	for body, want := range map[string]float64{
+		finished: 0.981,
+		`{"complete":false,"probability":0.009,"model":"smart-turn-v3.2-cpu"}`: 0.009,
+		`{"complete":true,"probability":0.704,"model":"smart-turn-v3.2-cpu"}`:  0.704,
 	} {
-		done, err := clientOn(t, &roundTrip{body: body}).Complete(context.Background(), turn(1300))
-		if err != nil || done != want {
-			t.Errorf("%s: complete = %v, %v; want %v", body, done, err, want)
+		v, err := clientOn(t, &roundTrip{body: body}).Complete(context.Background(), turn(1300))
+		if err != nil || v.Probability != want || v.Dangling {
+			t.Errorf("%s: complete = %+v, %v; want probability %v", body, v, err, want)
 		}
 	}
 }

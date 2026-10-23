@@ -9,8 +9,8 @@ import (
 	"github.com/teagan42/chorus/internal/stt"
 )
 
-// Dangling is a Judge that will not call a turn finished while its words end
-// on one no command ends on. Smart Turn hears "set a timer for", said on a
+// Dangling is a Judge that will not let a turn end while its words end on
+// one no command ends on. Smart Turn hears "set a timer for", said on a
 // falling pitch, as done; the words say the duration is still coming
 // (ADR-0042).
 type Dangling struct {
@@ -18,13 +18,19 @@ type Dangling struct {
 
 	// Words decodes the same audio the judge hears, alongside it.
 	Words stt.Transcriber
+
+	// Doubt is the endpointer's: a probability under it holds the turn
+	// whatever the words say, so the decode is not waited for. Zero takes
+	// DefaultDoubt.
+	Doubt float64
 }
 
 var _ Judge = Dangling{}
 
-// Complete is the judge's verdict, overruled only from finished to
-// unfinished. A failed decode leaves the verdict as the judge gave it.
-func (d Dangling) Complete(ctx context.Context, pcm []byte) (bool, error) {
+// Complete is the judge's verdict, marked Dangling when the words leave the
+// command unsaid. Only a verdict that could end the turn waits for them, and
+// a failed decode leaves it as the judge gave it.
+func (d Dangling) Complete(ctx context.Context, pcm []byte) (Judgement, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
 	// Deferred in this order so the decode is cancelled, then waited for.
@@ -40,20 +46,28 @@ func (d Dangling) Complete(ctx context.Context, pcm []byte) (bool, error) {
 		close(decoded)
 	})
 
-	done, err := d.Judge.Complete(ctx, pcm)
-	if err != nil || !done {
-		return done, err
+	v, err := d.Judge.Complete(ctx, pcm)
+	doubt := d.Doubt
+	if doubt == 0 {
+		doubt = DefaultDoubt
+	}
+	if err != nil || v.Probability < doubt {
+		return v, err
 	}
 	select {
 	case r, ok := <-decoded:
 		if !ok {
 			// A decode that gave up on a dropped ask did not fail: the ask
 			// gets its cancellation, not the judge's verdict.
-			return ctx.Err() == nil, ctx.Err()
+			if err := ctx.Err(); err != nil {
+				return Judgement{}, err
+			}
+			return v, nil
 		}
-		return !Dangles(r.Text), nil
+		v.Dangling = Dangles(r.Text)
+		return v, nil
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return Judgement{}, ctx.Err()
 	}
 }
 

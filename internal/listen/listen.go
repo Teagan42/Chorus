@@ -485,6 +485,9 @@ func (l *Listener) endLocked() {
 			u.stopped = u.stopped.Add(-time.Duration(t.Trailing()) * time.Second / bytesPerSecond)
 		}
 	}
+	if e, ok := l.cfg.Endpointer.(Ender); ok {
+		u.ending = e.Ending()
+	}
 	close(u.ended)
 }
 
@@ -872,6 +875,10 @@ type utterance struct {
 	hunch   *hunch
 	guessed uint64
 
+	// ending is how the endpointer decided it was over, set before ended
+	// closes. Zero when the endpointer cannot say.
+	ending Ending
+
 	// Touched only by run. refused is set once the gate turned a candidate
 	// down, and bargedIn once one stopped speech. judged is how many bytes
 	// the gate was offered, and kept that the blob holds them.
@@ -1149,6 +1156,7 @@ func (l *Listener) complete(u *utterance) {
 		Text: res.Text, SpeakerID: out.PersonID, SpeakerMatch: string(out.Reason),
 		AudioRef: ref, Embedding: out.Embedding, Ended: u.stopped, SecondAudioRef: secondRef,
 		BargedIn: u.bargedIn, AudioLost: lost, Speculation: spec,
+		TurnEnd: string(u.ending.Rule), TurnProbability: u.ending.Probability,
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		l.warn("hear utterance", err)

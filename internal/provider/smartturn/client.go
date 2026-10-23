@@ -84,10 +84,15 @@ type Verdict struct {
 	Model       string  `json:"model"`
 }
 
-// Complete says whether the turn so far is finished (listen.Judge).
-func (c *Client) Complete(ctx context.Context, pcm []byte) (bool, error) {
+// Complete says how likely the turn so far is finished (listen.Judge). The
+// sidecar's own cut is not used: the endpointer bands the probability itself
+// (ADR-0094).
+func (c *Client) Complete(ctx context.Context, pcm []byte) (listen.Judgement, error) {
 	v, err := c.Judge(ctx, pcm)
-	return v.Complete, err
+	if err != nil {
+		return listen.Judgement{}, err
+	}
+	return listen.Judgement{Probability: v.Probability}, nil
 }
 
 // Judge posts the turn so far and checks the reply against what the client

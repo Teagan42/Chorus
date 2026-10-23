@@ -223,6 +223,13 @@ type Transcript struct {
 	// confirmed. The turn keeps it if it would ask the same, and discards it
 	// otherwise (ADR-0095). Nil asks once the turn starts.
 	Speculation *Speculation
+
+	// TurnEnd is the endpointer's rule that ended the utterance, as
+	// listen.EndRule names it, and TurnProbability the probability Smart
+	// Turn gave the pause it ended on, which means nothing under "silence"
+	// (ADR-0094). Empty when the endpointer cannot say.
+	TurnEnd         string
+	TurnProbability float64
 }
 
 // Session is the supervisor of one conversation's concurrent children. It
@@ -451,6 +458,12 @@ func heardRecord(t Transcript, hot HotWord) (journal.Record, error) {
 	}
 	if t.SecondAudioRef != "" {
 		fields["second_audio_ref"] = t.SecondAudioRef
+	}
+	if t.TurnEnd != "" {
+		fields["turn_end"] = t.TurnEnd
+		if t.TurnEnd != "silence" {
+			fields["turn_probability"] = strconv.FormatFloat(t.TurnProbability, 'f', 3, 64)
+		}
 	}
 	return journal.Record{Kind: journal.KindUtteranceTranscribed, AudioRef: t.AudioRef, Fields: fields}, nil
 }

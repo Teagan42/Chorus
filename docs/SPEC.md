@@ -395,7 +395,11 @@ the position from `add_audio_output_callback` (§3.2.1) rather than estimating.
 
 Wake word opens a session; continuous streaming while open; **server-side
 semantic endpointing** (Smart Turn v3.2 on the audio, not the big LLM, ADR-0036) so
-"turn off the... uh... kitchen lights" works.
+"turn off the... uh... kitchen lights" works. Its probability is read in bands:
+a turn it is sure of ends at the pause, one it doubts is held, and one it is
+unsure of ends where silence alone would end it. Every utterance records the
+rule that ended it and the probability, so the bands are tuned from the
+household's own voices (ADR-0094).
 
 Close is **model-decided** via an `end_session` tool, with a ~20 s silence
 backstop. The model knows when a task is done better than a timer does. The

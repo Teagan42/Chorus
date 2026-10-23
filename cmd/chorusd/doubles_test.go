@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/teagan42/chorus/internal/identity"
 	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/listen"
 	"github.com/teagan42/chorus/internal/session"
 	"github.com/teagan42/chorus/internal/stt"
 )
@@ -537,11 +539,15 @@ type turnJudge struct {
 	// sidecar slower than the audio arriving.
 	gate chan struct{}
 
+	// p is the probability every verdict carries. Zero is Smart Turn's for
+	// "Turn off the kitchen lights.", 0.988 (ADR-0094).
+	p float64
+
 	mu    sync.Mutex
 	asked int
 }
 
-func (j *turnJudge) Complete(ctx context.Context, _ []byte) (bool, error) {
+func (j *turnJudge) Complete(ctx context.Context, _ []byte) (listen.Judgement, error) {
 	j.mu.Lock()
 	j.asked++
 	first := j.asked == 1
@@ -550,10 +556,10 @@ func (j *turnJudge) Complete(ctx context.Context, _ []byte) (bool, error) {
 		select {
 		case <-j.gate:
 		case <-ctx.Done():
-			return false, ctx.Err()
+			return listen.Judgement{}, ctx.Err()
 		}
 	}
-	return true, nil
+	return listen.Judgement{Probability: cmp.Or(j.p, 0.988)}, nil
 }
 
 func (j *turnJudge) asks() int {
