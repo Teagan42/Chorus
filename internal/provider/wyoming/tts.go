@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/teagan42/chorus/internal/provider/capability"
 	"github.com/teagan42/chorus/internal/provider/pcm"
 	"github.com/teagan42/chorus/internal/satellite"
 )
@@ -126,4 +127,10 @@ func (s *Synth) Synthesize(ctx context.Context, text string) ([]byte, error) {
 			return nil, fmt.Errorf("wyoming tts %s: %w", s.Version(), ev.failed())
 		}
 	}
+}
+
+// Capabilities is what this provider declares as the voice, from
+// schema/provider.cue (ADR-0102).
+func (s *Synth) Capabilities() capability.Declaration {
+	return capability.Of(capability.RoleTTS, "wyoming")
 }

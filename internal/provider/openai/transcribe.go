@@ -11,6 +11,7 @@ import (
 	"net/textproto"
 
 	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/provider/capability"
 	"github.com/teagan42/chorus/internal/provider/pcm"
 	"github.com/teagan42/chorus/internal/stt"
 )
@@ -128,4 +129,10 @@ func (t *Transcriber) form(audio []byte) ([]byte, string, error) {
 		return nil, "", err
 	}
 	return buf.Bytes(), w.FormDataContentType(), nil
+}
+
+// Capabilities is what this provider declares as the ear, from
+// schema/provider.cue (ADR-0102).
+func (t *Transcriber) Capabilities() capability.Declaration {
+	return capability.Of(capability.RoleSTT, "openai")
 }
