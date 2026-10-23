@@ -36,6 +36,9 @@ type Metrics struct {
 	audioDropped   *prometheus.CounterVec
 	blobBytes      prometheus.Counter
 	blobDeclined   prometheus.Counter
+	spansExported  prometheus.Counter
+	spansDropped   *prometheus.CounterVec
+	eventsDropped  prometheus.Counter
 
 	mu      sync.Mutex
 	calls   map[callKey]string
@@ -76,6 +79,9 @@ func NewMetrics(version string) *Metrics {
 		audioDropped:   vec("chorus_audio_dropped_total", "Audio recorded as gone, by audio_dropped's reason.", "reason"),
 		blobBytes:      counter("chorus_blob_bytes_written_total", "Audio bytes committed to the blob store."),
 		blobDeclined:   counter("chorus_blob_writes_declined_total", "Audio blobs not written because the disk was below its floor."),
+		spansExported:  counter("chorus_otel_spans_exported_total", "Spans derived from the journal that the OTLP collector took."),
+		spansDropped:   vec("chorus_otel_spans_dropped_total", "Spans derived from the journal and never exported, by why.", "reason"),
+		eventsDropped:  counter("chorus_otel_events_dropped_total", "Journal events the trace export's queue was too full to take."),
 		calls:          map[callKey]string{},
 	}
 	m.firstAudio = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -156,6 +162,17 @@ func (m *Metrics) resulted(k callKey, outcome string) string {
 	}
 	return tool
 }
+
+// SpansExported counts spans the collector took (otel.Meter, ADR-0101).
+func (m *Metrics) SpansExported(n int) { m.spansExported.Add(float64(n)) }
+
+// SpansDropped counts spans never exported, by why.
+func (m *Metrics) SpansDropped(reason string, n int) {
+	m.spansDropped.WithLabelValues(reason).Add(float64(n))
+}
+
+// EventsDropped counts events the trace export's queue was too full for.
+func (m *Metrics) EventsDropped(n int) { m.eventsDropped.Add(float64(n)) }
 
 // BlobDeclined counts one write the disk guard declined (blob.GuardConfig).
 func (m *Metrics) BlobDeclined(string) { m.blobDeclined.Inc() }
