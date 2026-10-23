@@ -34,6 +34,14 @@ const speakerIDURLEnv = "SPEAKERID_URL"
 // sttURLEnv is the ear chorusd uses, read here to put words beside a clip.
 const sttURLEnv = "STT_URL"
 
+// speakerAcceptEnv is the house's accept level, as chorusd reads it
+// (ADR-0084): the Voices screen judges a clip against the same number.
+const speakerAcceptEnv = "CHORUS_SPEAKER_ACCEPT"
+
+// devicesEnv names the inventory chorusd reads, for each satellite's own
+// speaker_accept (ADR-0098). Unset, every satellite takes the house's.
+const devicesEnv = "CHORUS_DEVICES"
+
 // maxEnrollBytes bounds one enrollment's upload. A take is 32 kB a second
 // at the satellite's format, so this is minutes of phrases, not a household's
 // recordings sent by mistake.
@@ -89,6 +97,25 @@ type voices struct {
 	// words dials the ear, to say what a clip holds before it is ticked.
 	// Nil lists the clips without words.
 	words func() (stt.Transcriber, error)
+	// house is CHORUS_SPEAKER_ACCEPT, and satAccept each satellite's own
+	// speaker_accept from devices.yaml: the levels chorusd matches at, so a
+	// clip is called under the threshold against the one its satellite
+	// uses (ADR-0098). Zero and absent fall through to the next.
+	house     float64
+	satAccept map[string]float64
+}
+
+// acceptFor is the level chorusd matches a satellite's voices at: its own,
+// else the house's, else identity.DefaultAccept, in the order chorusd reads
+// them (ADR-0084, ADR-0098).
+func (v voices) acceptFor(sat string) float64 {
+	if a := v.satAccept[sat]; a > 0 {
+		return a
+	}
+	if v.house > 0 {
+		return v.house
+	}
+	return identity.DefaultAccept
 }
 
 // voiceRow is one enrolled person as the screen lists them: never the
@@ -255,7 +282,7 @@ func (s *server) deviceClips(ctx context.Context, sat string) ([]clipRow, error)
 			Voiced: fmt.Sprintf("%.1f s spoken", voiced),
 		})
 	}
-	s.describeClips(ctx, rows)
+	s.describeClips(ctx, sat, rows)
 	return rows, nil
 }
 
@@ -267,7 +294,7 @@ const clipDescribeWait = 20 * time.Second
 // describeClips fills in who each clip sounds like and what was said, in
 // parallel and best-effort. A row whose sidecar did not answer keeps its
 // length and its log line, which is what the screen offered before.
-func (s *server) describeClips(ctx context.Context, rows []clipRow) {
+func (s *server) describeClips(ctx context.Context, sat string, rows []clipRow) {
 	if len(rows) == 0 {
 		return
 	}
@@ -290,6 +317,7 @@ func (s *server) describeClips(ctx context.Context, rows []clipRow) {
 		return
 	}
 
+	accept := s.voices.acceptFor(sat)
 	ctx, cancel := context.WithTimeout(ctx, clipDescribeWait)
 	defer cancel()
 	var wg sync.WaitGroup
@@ -313,8 +341,8 @@ func (s *server) describeClips(ctx context.Context, rows []clipRow) {
 				if v, err := emb.Embed(ctx, voiced); err == nil {
 					if who, score, err := ids.Closest(v); err == nil && who != "" {
 						r.Closest = fmt.Sprintf("sounds like %s, %.2f", who, score)
-						if score < identity.DefaultAccept {
-							r.Closest += " — under the threshold, so a guest today"
+						if score < accept {
+							r.Closest += fmt.Sprintf(" — under this satellite's %.2f, so a guest today", accept)
 						}
 					}
 				}

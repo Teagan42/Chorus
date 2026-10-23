@@ -112,6 +112,8 @@ services:
       - :8080
       - -identities
       - /var/lib/chorus/identity/identities.yaml
+      - -devices
+      - /etc/chorus/devices.yaml
     extra_hosts:
       # Docker Desktop provides this name itself; host-gateway covers Linux.
       - "host.docker.internal:host-gateway"
@@ -120,6 +122,9 @@ services:
     volumes:
       - blobs:/var/lib/chorus/blobs
       - identities:/var/lib/chorus/identity
+      # Read for each satellite's speaker_accept, which Voices judges clips
+      # at (ADR-0099). It holds the PSKs, so read-only.
+      - ./devices.yaml:/etc/chorus/devices.yaml:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -17,12 +17,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/teagan42/chorus/internal/blob"
+	"github.com/teagan42/chorus/internal/config"
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/erasure"
 	"github.com/teagan42/chorus/internal/identity"
@@ -56,6 +58,7 @@ func main() {
 	identities := flag.String("identities", identity.DefaultPath, "the household's voiceprints, the file chorusd reads at startup; the Voices screen lists, enrolls and removes them")
 	speakerIDURL := flag.String("speakerid-url", os.Getenv(speakerIDURLEnv), "speaker-ID sidecar base URL the Voices screen enrolls through; unset, it enrolls nobody ($"+speakerIDURLEnv+")")
 	sttURL := flag.String("stt-url", os.Getenv(sttURLEnv), "speaches base URL the Voices screen transcribes a satellite's clips with, so a reviewer reads what was said before ticking it; unset, the clips are listed without words ($"+sttURLEnv+")")
+	devices := flag.String("devices", os.Getenv(devicesEnv), "the satellite inventory chorusd reads, for each satellite's own speaker_accept; unset, the Voices screen judges every clip at the house's level ($"+devicesEnv+")")
 	readOnly := flag.Bool("read-only", readOnlyDefault, "hide and refuse every deletion: conversations, clips, memories and summaries ($"+readOnlyEnv+")")
 	flag.Parse()
 
@@ -66,7 +69,12 @@ func main() {
 	if len(allowed) == 0 {
 		allowed = defaultHosts(*addr)
 	}
-	if err := run(ctx, *addr, allowed, *readOnly, enrollment(*identities, *speakerIDURL, *sttURL)); err != nil {
+	v := enrollment(*identities, *speakerIDURL, *sttURL)
+	if v.house, v.satAccept, err = acceptLevels(os.Getenv(speakerAcceptEnv), *devices); err != nil {
+		fmt.Fprintf(os.Stderr, "reviewui: %v\n", err)
+		os.Exit(2)
+	}
+	if err := run(ctx, *addr, allowed, *readOnly, v); err != nil {
 		fmt.Fprintf(os.Stderr, "reviewui: %v\n", err)
 		os.Exit(1)
 	}
@@ -135,6 +143,36 @@ func enrollment(identities, speakerIDURL, sttURL string) voices {
 		}
 	}
 	return v
+}
+
+// acceptLevels reads the levels chorusd matches speakers at: the house's
+// from CHORUS_SPEAKER_ACCEPT and each satellite's from the inventory at
+// devices, when one is named. Both are refused here as chorusd refuses them,
+// so the screen never judges against a number the daemon would not start
+// with (ADR-0084, ADR-0098).
+func acceptLevels(house, devices string) (float64, map[string]float64, error) {
+	var level float64
+	if house != "" {
+		v, err := strconv.ParseFloat(house, 64)
+		if err != nil || v <= 0 || v >= 1 {
+			return 0, nil, fmt.Errorf("%s=%q is not a cosine between 0 and 1", speakerAcceptEnv, house)
+		}
+		level = v
+	}
+	if devices == "" {
+		return level, nil, nil
+	}
+	inv, err := config.Load(devices)
+	if err != nil {
+		return 0, nil, fmt.Errorf("-devices: %w", err)
+	}
+	per := map[string]float64{}
+	for _, sat := range inv.Satellites {
+		if sat.SpeakerAccept > 0 {
+			per[sat.Name] = sat.SpeakerAccept
+		}
+	}
+	return level, per, nil
 }
 
 // pgJournal names the two read interfaces PgStore already satisfies.
