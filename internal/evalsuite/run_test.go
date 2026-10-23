@@ -323,3 +323,43 @@ func TestTheReviewUIsFactoryShapeSlotsIn(t *testing.T) {
 		t.Errorf("factory built %q, %+v, %v", got, v, err)
 	}
 }
+
+// Teagan's forecast turn ran on a day the household's weather server was
+// connected, so its recorded tools hold the server's forecast beside the
+// registry's. The candidate, built from the registry, is asked with that
+// forecast too; without HouseTools it would be scored on a tool it could
+// not have called.
+//
+// verifies SPEC §6, §13
+func TestTheCandidateKeepsTheHousesToolsTheTurnHad(t *testing.T) {
+	store := day(t)
+	_, rs := resolved(t, store, weatherSuite)
+	forecast, err := registry.Provide(registry.ToolSpec{
+		Name: "mcp_weather_get_forecast", Description: "Get the weather forecast for a city.",
+		Params:      []registry.ParamSpec{{Name: "city", Type: "string", Description: "City name.", Required: true}},
+		OnInterrupt: registry.InterruptCancel, Scope: registry.ScopeHousehold, Timeout: 8 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs[0].Recorded.Tools[forecast.Name] = forecast
+
+	for _, keep := range []bool{true, false} {
+		m := model(t, store)
+		side := candidate
+		side.HouseTools = keep
+		if _, err := (evalsuite.Runner{Engines: m}).Side(context.Background(), rs, side); err != nil {
+			t.Fatal(err)
+		}
+		asked := m.Asked()[0].Tools
+		if _, ok := asked[forecast.Name]; ok != keep {
+			t.Errorf("HouseTools %v: the candidate was offered the forecast: %v", keep, ok)
+		}
+		if _, ok := asked["media_search"]; ok {
+			t.Errorf("HouseTools %v: the candidate was offered media_search, which the recorded tools had and the registry defers", keep)
+		}
+		if len(candidate.Tools) != len(registry.Offered()) {
+			t.Fatal("the candidate's own tools were changed")
+		}
+	}
+}
