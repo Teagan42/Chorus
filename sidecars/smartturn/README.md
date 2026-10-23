@@ -25,8 +25,10 @@ client and this README are its two copies; change both.
   {"complete": true, "probability": 0.981, "model": "smart-turn-v3.2-cpu"}
   ```
 
-  `complete` is `probability > 0.5`, upstream's cut. `model` is declared on
-  every reply so a client built for one checkpoint can refuse another.
+  `complete` is `probability > 0.5`, upstream's cut. chorusd reads
+  `probability` and bands it itself (ADR-0094), so `complete` is for other
+  clients. `model` is declared on every reply so a client built for one
+  checkpoint can refuse another.
 - `400` with `{"detail": "..."}` for an empty body, an odd byte count, or
   fewer than 1600 samples (100 ms).
 - `500` if the model fails on the audio or answers something that is not a
