@@ -46,6 +46,7 @@ household voice. What exists today:
 | `internal/blob` — the audio a journal event refers to, and the free-space floor below which it is not written | under test |
 | `internal/retention` — prunes audio and logs by each satellite's horizon, and the deletion path the review UI shares | under test; the Postgres delete path in the db tier |
 | `internal/ops` — `chorusd`'s `/healthz`, `/readyz` and `/metrics` on loopback | under test |
+| `internal/otel` — OpenTelemetry spans derived from the journal, exported over OTLP/HTTP | under test against an OTLP/HTTP receiver; not yet run against a real collector |
 | `esphome/components/chorus_bridge` — firmware component, with the on-device "Hey Eddie" wake word, a Speaker Volume number, the HAT's mute switch and the ring's Muted and Error effects | flashed onto a Satellite1, which completes the protocol 4 handshake with `chorusd`; validated by `esphome config` and its handshake MAC on the host |
 | `esphome/voice-pe.yaml` — the Home Assistant Voice PE, wired from its stock firmware: the same bridge, wake word, ring effects, Speaker Volume (which its dial turns) and mute switch as the Satellite1, and a centre button that wakes it | validated by `esphome config`; not compiled or flashed (ADR-0073) |
 | `cmd/probe` — connect to a satellite and dump what it exposes | works |
@@ -359,7 +360,24 @@ is written (sessions, barge-ins, model and voice failures, tool calls, the
 first-audio wait) beside the blob disk, the satellites and each
 dependency. The compose healthcheck is `chorusd -healthcheck`, since the
 image has no shell. [ADR-0068](docs/adr/0068-chorusd-serves-health-readiness-and-metrics-derived-from-the-journal-on-loopback.md)
-has the metric names and why OpenTelemetry waits.
+has the metric names.
+
+To explore conversations in Jaeger, Tempo or Langfuse, point the standard
+OpenTelemetry variables at a collector's OTLP/HTTP port:
+
+```sh norun
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+# Langfuse wants its own path and a Basic credential, percent-encoded:
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://langfuse.lan/api/public/otel/v1/traces
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20<base64 of public:secret key>
+```
+
+Each conversation becomes one trace: a span per session, per turn, per
+model ask and per tool call, derived from the journal as it is written, so
+a trace never says anything the log does not. Spans carry who, where, which
+tool and how long, but no words unless `CHORUS_OTEL_WORDS=on`.
+[ADR-0104](docs/adr/0104-chorusd-exports-spans-derived-from-the-journal-over-otlp-http.md)
+has the span names, the attributes and why it is not the SDK.
 
 ## Tests
 

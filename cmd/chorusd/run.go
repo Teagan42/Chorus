@@ -20,6 +20,7 @@ import (
 	"github.com/teagan42/chorus/internal/listen"
 	"github.com/teagan42/chorus/internal/memory"
 	"github.com/teagan42/chorus/internal/ops"
+	"github.com/teagan42/chorus/internal/otel"
 	"github.com/teagan42/chorus/internal/satellite"
 	"github.com/teagan42/chorus/internal/session"
 	"github.com/teagan42/chorus/internal/timer"
@@ -113,6 +114,10 @@ type deps struct {
 
 	// Ops serves health, readiness and metrics. Nil serves none (ADR-0068).
 	Ops *opsDeps
+
+	// Traces exports spans derived from the journal as it is written. Nil
+	// exports none (ADR-0104).
+	Traces *otel.Exporter
 
 	// WakeArbitration is how long a wake waits for the same wake from the
 	// house's other satellites. Zero arbitrates nothing: every satellite
@@ -228,6 +233,9 @@ func newDaemon(inv *config.Config, d deps) (*daemon, error) {
 		dm.panels[sat.Name] = session.NewPanel(dm.rings[sat.Name])
 	}
 	dm.wireOps()
+	if d.Traces != nil {
+		dm.journal.Observe(d.Traces)
+	}
 	return dm, nil
 }
 
@@ -264,6 +272,17 @@ func (d *daemon) run(ctx context.Context) error {
 	defer timers.Wait()
 	if err := d.arbitrate(ctx); err != nil {
 		return err
+	}
+	// The export outlives everything that journals, so the last closes and
+	// summaries are sent before run returns.
+	var tracing sync.WaitGroup
+	tracesCtx, stopTraces := context.WithCancel(context.WithoutCancel(ctx))
+	defer func() {
+		stopTraces()
+		tracing.Wait()
+	}()
+	if d.Traces != nil {
+		tracing.Go(func() { d.Traces.Run(tracesCtx) })
 	}
 	if d.ops != nil {
 		d.wg.Go(func() { d.serveOps(ctx) })

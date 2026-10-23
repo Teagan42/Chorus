@@ -102,3 +102,52 @@ func TestAnUnobservedJournalAppends(t *testing.T) {
 		t.Fatalf("append: %v", err)
 	}
 }
+
+// The metrics and the trace export both read the log as it is written, so
+// every observer hears each append, in the order they were added (ADR-0104).
+//
+// verifies SPEC §8
+func TestEveryObserverHearsEachAppend(t *testing.T) {
+	j := journal.New(refusingAfter(1), journal.FixedClock(time.Date(2026, 10, 8, 7, 5, 0, 0, time.UTC)), versions())
+	metrics, traces := &observed{}, &observed{}
+	j.Observe(metrics)
+	j.Observe(traces)
+
+	ctx := context.Background()
+	if _, err := j.Append(ctx, "conv-0705-kitchen", journal.Record{
+		Kind: journal.KindSessionOpened, Fields: map[string]string{"satellite": "kitchen", "speaker_id": "teagan"},
+	}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if _, err := j.Append(ctx, "conv-0705-kitchen", journal.Record{
+		Kind: journal.KindUtteranceTranscribed, AudioRef: "blob://mic/weather-ask",
+		Fields: map[string]string{"text": "what's the weather today", "speaker_id": "teagan"},
+	}); err == nil {
+		t.Fatal("the second append landed on a store that refuses it")
+	}
+
+	for name, h := range map[string]*observed{"metrics": metrics, "traces": traces} {
+		if len(h.appended) != 1 || h.appended[0].Kind != journal.KindSessionOpened {
+			t.Errorf("%s heard %+v, want the session_opened", name, h.appended)
+		}
+		if len(h.failed) != 1 || h.failed[0] != journal.KindUtteranceTranscribed {
+			t.Errorf("%s heard failures %v, want the utterance that never landed", name, h.failed)
+		}
+	}
+}
+
+// refusingAfter is a store that takes n writes, then goes away.
+func refusingAfter(n int) journal.Store { return &goesAway{Store: journal.NewMemStore(), left: n} }
+
+type goesAway struct {
+	journal.Store
+	left int
+}
+
+func (s *goesAway) Append(ctx context.Context, e journal.Event) error {
+	if s.left == 0 {
+		return errGone
+	}
+	s.left--
+	return s.Store.Append(ctx, e)
+}

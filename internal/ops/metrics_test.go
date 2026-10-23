@@ -9,6 +9,7 @@ import (
 	"github.com/teagan42/chorus/internal/blob"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/ops"
+	"github.com/teagan42/chorus/internal/otel"
 )
 
 var _ journal.Observer = (*ops.Metrics)(nil)
@@ -173,5 +174,33 @@ func TestBlobBytesAndDeclinedWritesAreCounted(t *testing.T) {
 	}
 	if !strings.Contains(get(t, hs.h, "/metrics").Body.String(), "# HELP chorus_blob_bytes_written_total") {
 		t.Error("the scrape does not describe its metrics")
+	}
+}
+
+// The trace export's own outcomes are counted beside the journal's: spans
+// the collector took, spans it refused or the backlog could not hold, and
+// events the queue was too full for (ADR-0104).
+//
+// verifies SPEC §8
+func TestTheTraceExportIsCounted(t *testing.T) {
+	hs := newHouse(t)
+	var meter otel.Meter = hs.ops.Metrics()
+	meter.SpansExported(8)
+	meter.SpansExported(5)
+	meter.SpansDropped(otel.DroppedRejected, 2)
+	meter.SpansDropped(otel.DroppedBacklog, 40)
+	meter.EventsDropped(1)
+
+	if got := sample(t, hs.h, "chorus_otel_spans_exported_total"); got != 13 {
+		t.Errorf("exported = %v, want 13", got)
+	}
+	if got := sample(t, hs.h, `chorus_otel_spans_dropped_total{reason="rejected"}`); got != 2 {
+		t.Errorf("rejected = %v, want 2", got)
+	}
+	if got := sample(t, hs.h, `chorus_otel_spans_dropped_total{reason="backlog"}`); got != 40 {
+		t.Errorf("backlog = %v, want 40", got)
+	}
+	if got := sample(t, hs.h, "chorus_otel_events_dropped_total"); got != 1 {
+		t.Errorf("events dropped = %v, want 1", got)
 	}
 }
