@@ -616,9 +616,18 @@ Operational metrics are read off the log as it is written: an observer on
 the journal's append path counts what each event records, and `chorusd`
 serves the counts in Prometheus's text format beside its health and
 readiness (§13, ADR-0068). They are derived, never a second record, and a
-write that fails is counted by the kind it would have been. OpenTelemetry
-export is deferred (§14); the annotation layer stays in the journal either
-way.
+write that fails is counted by the kind it would have been.
+
+OpenTelemetry spans are read off the log the same way: a conversation is
+one trace, each session, turn, model ask and tool call a span derived from
+the events that open and end it, with ids hashed from the conversation and
+the opening event's seq, so the log read later yields the same trace the
+live export sent (ADR-0101). `chorusd` exports them over OTLP/HTTP to the
+collector the standard `OTEL_*` variables name, and to none when they name
+none. A span carries no words — no transcript, speech, tool arguments or
+results, completion or summary — unless the house sets
+`CHORUS_OTEL_WORDS=on`. The annotation layer stays in the journal either
+way (ADR-0019).
 
 ## 9. Learning loop
 
@@ -840,6 +849,12 @@ Do not build the S2S path until the cascade works end to end.
   server at startup and are not kept, so a turn that offered them exports
   as `context_missing` for its tools, and replay runs it without them
   (ADR-0075).
+- **Tracing it.** With `OTEL_EXPORTER_OTLP_ENDPOINT` or
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` set, `chorusd` posts the spans it
+  derives from the journal there, as OTLP/HTTP protobuf, with the headers,
+  timeout and resource the other `OTEL_*` variables give (ADR-0101). gRPC
+  and OTLP's JSON are refused at startup, as is any variable set but
+  unusable. Unset, nothing is exported.
 
 ## 14. Phase plan
 
@@ -1005,7 +1020,11 @@ sessions, so a session now opens only for an enrolled household voice (§5).
 ### Explicitly deferred
 
 Media playback on satellites. Session survival across restart. Multi-tenancy.
-OpenTelemetry export (§8, ADR-0068).
+
+- ~~OpenTelemetry export~~ **Done — ADR-0101.** Spans derived from the
+  journal, exported over OTLP/HTTP protobuf. Not built: gRPC, OTLP's JSON,
+  metrics or logs over OTLP (Prometheus serves the metrics), and a
+  backfill of logs written before the export was configured.
 
 ## 15. Decisions that cannot be retrofitted
 

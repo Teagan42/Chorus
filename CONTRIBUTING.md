@@ -124,7 +124,7 @@ generator cannot silently rot, and a reviewer sees the actual blast radius of a
 schema change. `task commit:check` counts these paths as generated:
 
 - `*.gen.go` and `schema/json/`, from CUE, and `docs/reference/`, its docs;
-- `internal/pb/`, from the vendored ESPHome protos;
+- `internal/pb/`, from the vendored ESPHome and OTLP trace protos;
 - `hardware/*/*.net` and `hardware/*/bom.csv`, from each board's netlist data;
 - `internal/satellite/fallback/`, the canned lines' audio, which `task
   canned:voice` renders with Kokoro, so it is not part of `task gen` or
@@ -281,7 +281,7 @@ cmd/
   chorus-eval/          score an eval suite against a candidate; exits 1 on a regression (docs/eval.md)
 internal/
   esphome/              native API client, Noise transport
-  pb/                   generated ESPHome bindings (do not edit)
+  pb/                   generated ESPHome and OTLP trace bindings (do not edit)
   bridge/               the chorus_bridge audio link (SPEC §3.2)
     bridgetest/         in-process satellite for tests
   satellite/            renders speech onto a device; the DAC's truncation point
@@ -312,6 +312,7 @@ internal/
   curation/             reviewer verdicts, beside the journal (ADR-0034)
   erasure/              the trail of what a reviewer deleted, beside the journal (ADR-0070)
   ops/                  chorusd's /healthz, /readyz and /metrics (ADR-0068)
+  otel/                 OpenTelemetry spans derived from the journal, over OTLP/HTTP (ADR-0101)
   reviewui/             the review UI's component kit and audio handler
     household/          the made-up household's Thursday: tests' fixture, the demo's data
   config/               satellite inventory and retention horizons
@@ -339,6 +340,7 @@ docs/
   hardware/             the satellite board's design
 mkdocs.yml              the docs site: which Markdown, in what nav
 proto/esphome/          vendored ESPHome protos
+proto/opentelemetry/    vendored OTLP trace protos (`task proto:otlp` re-vendors them)
 ```
 
 Go code is `internal/` by default. Promote to a public package only when
