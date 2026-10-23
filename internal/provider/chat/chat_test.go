@@ -5,9 +5,11 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/registry"
+	"github.com/teagan42/chorus/internal/session"
 )
 
 // Each result names both the tool and the call it answers, so an endpoint
@@ -79,5 +81,30 @@ func TestContentIsAnAnswerInOneShapeOnly(t *testing.T) {
 		if got := Answer(c.content, c.called, c.reasoned, c.reason); got != c.want {
 			t.Errorf("Answer(%q, called=%v, reasoned=%v, %s) = %q, want %q", c.content, c.called, c.reasoned, c.reason, got, c.want)
 		}
+	}
+}
+
+// A turn asked in its pause is kept only if the confirmed turn would ask the
+// same, and the session compares the time to the minute (ADR-0095). That is
+// only sound while the model is told it to the minute: a second here would
+// make every kept answer one the confirmed turn would not have asked.
+//
+// verifies SPEC §5, §11
+func TestTheTimeIsToldToTheMinute(t *testing.T) {
+	loc := time.FixedZone("PDT", -7*3600)
+	at := func(sec int) string {
+		return System("You are the house.", session.Input{
+			Speaker: "teagan", Room: "kitchen",
+			Now: time.Date(2026, 10, 9, 1, 4, sec, 0, time.UTC),
+		}, loc)
+	}
+	if at(1) != at(59) {
+		t.Errorf("the pause and the end of one minute are told apart:\n%s\n%s", at(1), at(59))
+	}
+	next := System("You are the house.", session.Input{
+		Speaker: "teagan", Room: "kitchen", Now: time.Date(2026, 10, 9, 1, 5, 0, 0, time.UTC),
+	}, loc)
+	if next == at(59) {
+		t.Error("the next minute is told as the last")
 	}
 }
