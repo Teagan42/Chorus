@@ -107,7 +107,10 @@ on the provider `chorusd` answers with: `CHORUS_LLM_PROVIDER`, so Ollama at
 The candidate runs this
 build's prompt and offered tools unless `-prompt` or `-tools` names a file;
 `-print-tools` writes the tools in the shape Replay's schema editor holds,
-to start a `-tools` file from. `-model`, or `OLLAMA_MODEL`, picks the
+to start a `-tools` file from. Either way each case also keeps the MCP
+tools its turn was offered (`mcp_<server>_<tool>`), which no build can
+declare, so a case on one scores the candidate, not a missing server
+([ADR-0101](adr/0101-what-chorusd-offers-its-model-is-recorded-beside-the-journal.md)). `-model`, or `OLLAMA_MODEL`, picks the
 candidate's model; unset, each turn's recorded model is asked.
 
 The baseline is one of two:
@@ -178,10 +181,13 @@ its runs vary as the model samples.
 
 ## Skipped cases
 
-A turn whose prompt or tools no build archived cannot be asked as it was:
-it is reported `skipped: context_missing: prompt` or `tool_schema`, as the
-dataset export says it, and never counted as a failure. Every turn that
-offered an MCP server's tools is one (ADR-0075).
+A turn whose prompt or tools nothing holds the text of cannot be asked as
+it was: it is reported `skipped: context_missing: prompt` or `tool_schema`,
+as the dataset export says it, and never counted as a failure. The text
+comes from this build, the repository's archive, or what `chorusd` recorded
+of its offer at startup beside the journal, which is where a turn that
+offered an MCP server's tools finds its own (ADR-0101). A turn journalled
+before `chorusd` recorded its offer is still skipped.
 
 ## What it does not do
 

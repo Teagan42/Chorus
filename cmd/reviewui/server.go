@@ -66,6 +66,9 @@ type server struct {
 	// contexts resolves the versions an exported row ran under; nil is
 	// contexts.Default.
 	contexts contexts.Source
+	// kept is what chorusd kept of each version it offered, read after
+	// contexts; nil reads none (ADR-0101).
+	kept contexts.Store
 
 	// redaction is what deleting and forgetting need (ADR-0070).
 	redaction
