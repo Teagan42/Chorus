@@ -977,6 +977,10 @@ sessions, so a session now opens only for an enrolled household voice (§5).
   `CHORUS_TTS_PROVIDER` and `CHORUS_STT_PROVIDER` add OpenAI-compatible and
   Wyoming servers beside Kokoro and speaches, the defaults. Not yet run
   against a real server.
+- ~~A satellite's own speaker accept level and click ceiling~~ **Done —
+  ADR-0098.** `speaker_accept` and `max_crest` in `devices.yaml` override
+  the house's for one satellite, as `speech_energy` does. A person still has
+  one voiceprint, averaged across every satellite's takes (ADR-0082).
 
 ### Phase 3
 
