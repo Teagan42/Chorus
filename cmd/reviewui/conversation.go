@@ -13,6 +13,7 @@ import (
 	"github.com/teagan42/chorus/internal/harvest"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/reviewui/ui"
+	sess "github.com/teagan42/chorus/internal/session"
 	"github.com/teagan42/chorus/internal/triage"
 )
 
@@ -60,7 +61,7 @@ var kindTones = map[journal.Kind]ui.Tone{
 	journal.KindMemoryRecalled: ui.ToneConv, journal.KindConversationSummarized: ui.ToneConv,
 	journal.KindConfirmationRequested: ui.ToneHome, journal.KindConfirmationGiven: ui.ToneHome,
 	journal.KindModelFailed: ui.ToneMuted, journal.KindSpeechFailed: ui.ToneVoice,
-	journal.KindAudioDropped: ui.ToneMuted,
+	journal.KindAudioDropped: ui.ToneMuted, journal.KindSpeculationDiscarded: ui.ToneMuted,
 }
 
 // logContext is what a row needs from the events before it: the call a
@@ -105,6 +106,21 @@ func droppedBecause(reason string) string {
 		return "audio redacted"
 	}
 	return "audio pruned"
+}
+
+// speculatedBecause says why a turn asked in its pause was thrown away.
+func speculatedBecause(reason string) string {
+	switch reason {
+	case sess.DiscardResumed:
+		return "they went on speaking"
+	case sess.DiscardChanged:
+		return "the confirmed turn would have asked something else"
+	case sess.DiscardNotATurn:
+		return "the utterance was never answered"
+	case sess.DiscardSessionClosed:
+		return "the conversation closed first"
+	}
+	return reason
 }
 
 func (lc *logContext) see(e journal.Event) {
@@ -233,6 +249,17 @@ func logRowOf(e journal.Event, start journal.Event, lc *logContext) (row logRow)
 		row.Text, row.Note = f["outcome"], f["call_id"]
 	case journal.KindModelCompleted:
 		row.Text = "completed: " + f["finish_reason"]
+		if ms := f["asked_early_ms"]; ms != "" {
+			row.Note = "asked in the pause, " + ms + " ms before the turn was confirmed"
+		}
+	case journal.KindSpeculationDiscarded:
+		// A guess at a turn that never was: replay skips it (ADR-0095).
+		row.Who = f["speaker_id"]
+		row.Text = "guessed “" + f["text"] + "” in the pause"
+		row.Note = "discarded: " + speculatedBecause(f["reason"])
+		if f["ran_ms"] != "" {
+			row.Note += " · the model ran " + f["ran_ms"] + " ms"
+		}
 	case journal.KindModelFailed:
 		row.Text, row.Note = "model failed: "+f["reason"], failedBecause(f)
 	case journal.KindSpeechFailed:
