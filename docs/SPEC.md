@@ -354,7 +354,10 @@ Detection gate, stacked, ~300 ms from user speech to TTS stop:
    reference silent at every lag, passes (ADR-0096).
 3. **Speaker-ID match** against the session's current speaker or a known
    household member — the high-value filter. The TV and the wrong housemate both
-   fail it. Much stronger than energy thresholds.
+   fail it. Much stronger than energy thresholds. A candidate the embedder
+   failed on is refused too, as `speaker_id_failed`: only a recognised voice
+   stops speech, and an outage is kept apart from the television in the
+   tuning corpus (ADR-0097).
 4. STT partial length gate (not "uh", not a single word)
 
 No semantic "was this addressed to me" check: it costs latency exactly where
@@ -451,6 +454,8 @@ no working speaker resolver, chorusd fails closed because it cannot distinguish
 the television from a person. Inside an already-open session, a guest who
 chimes in is a guest for that turn, told none of the other person's memories,
 while a voice nothing could judge stays with the current speaker (ADR-0049).
+An embedder that fails is recorded as `failed`, never as a stranger
+(ADR-0097).
 Guest context is reached only in a session already open, one a household member
 woke or an announcement that asked for an answer. The embedding is stored on
 every trace record regardless, which gives implicit clustering for free later.
@@ -549,6 +554,10 @@ nothing can be said, shown on the LED ring (§3.3.1, ADR-0069).
   as `transcription_failed` (§9.3), and when the voice would have passed
   stage three the canned line follows the rejection in the device's log,
   which names it; the television's wake stays silent.
+- A speaker embedder that fails is shown on the ring until it next answers,
+  never said: it cannot tell the household from the television, so a spoken
+  wake it failed on is rejected as `speaker_id_failed` in silence (§9.3,
+  ADR-0097).
 - A journal that refuses a write is shown, never said. The log is the runtime
   (ADR-0007), so a word it cannot record is not spoken: a wake whose session
   the journal will not open, or whose rejection it will not take, gets the
@@ -663,8 +672,11 @@ when the session opens (ADR-0030):
 
 A cough fails all three. A guest fails the third: a voice below the accept
 threshold, too close to two people, or otherwise unmatched is rejected as
-`unknown_speaker`. With nobody enrolled, or no working speaker ID, stage three
-cannot verify a household member and rejects the spoken wake the same way.
+`unknown_speaker`. With nobody enrolled, or no speaker ID configured, stage
+three cannot verify a household member and rejects the spoken wake the same
+way. A configured speaker ID that fails on the utterance rejects it too, as
+`speaker_id_failed`: nothing judged the voice, so it is neither held as a
+guest's nor a hard negative (ADR-0097).
 Guests are heard only in a session already open (§5). Only on confirmation
 does the session become perceptible to the user. Rejections
 are logged with audio and auto-labeled as hard negatives, so the retraining
@@ -814,7 +826,9 @@ Do not build the S2S path until the cascade works end to end.
   `chorusd` requires at startup is down (Postgres, STT, TTS, the LLM), and
   only degrades for the optional sidecars, Home Assistant, and each
   inventory satellite whose audio link or native API is not connected.
-  Dependencies are probed on an interval, never on a request.
+  Dependencies are probed on an interval, never on a request. A sidecar that
+  answers but serves another model than its client is built for, or a voice
+  server without the configured voice, is down (ADR-0097).
 - Wake word: existing trained "Hey Eddie" model, gated by two-stage
   confirmation (§9.3). Swappable without touching anything else.
 - Persona lives in the system prompt as a **versioned artifact** — because
