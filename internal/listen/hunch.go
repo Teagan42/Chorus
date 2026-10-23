@@ -69,7 +69,7 @@ func (l *Listener) guess(ctx context.Context, h *hunch, sess *session.Session, p
 		return
 	}
 	h.out = l.resolve(pcm)
-	if h.res.Text == "" || (l.cfg.MinSustained >= 0 && Impulsive(pcm, l.cfg.SpeechEnergy, l.cfg.MinSustained)) {
+	if h.res.Text == "" || (l.cfg.MinSustained >= 0 && Impulsive(pcm, l.cfg.SpeechEnergy, l.cfg.MinSustained, l.cfg.MaxCrest)) {
 		return
 	}
 	out := unjudged(h.out, pcm, sess.Speaker())

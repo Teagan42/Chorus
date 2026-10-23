@@ -64,10 +64,34 @@ func TestAnImpulseIsToldFromAVoiceByItsShape(t *testing.T) {
 		{"an ordinary sentence", speech(2.5), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := listen.Impulsive(tc.pcm, gate, listen.DefaultMinSustained); got != tc.impulse {
+			if got := listen.Impulsive(tc.pcm, gate, listen.DefaultMinSustained, 0); got != tc.impulse {
 				t.Errorf("Impulsive = %v, want %v", got, tc.impulse)
 			}
 		})
+	}
+}
+
+// The ceiling is the satellite's: a room whose voices crest higher than
+// the measured one raises it, and the same click is then believed, while
+// zero keeps the measured 22 dB (ADR-0098).
+//
+// verifies SPEC §4.5
+func TestTheClickCeilingIsTheSatellites(t *testing.T) {
+	const gate = 0.03
+	c := click(1.0, 0.02)
+	if !listen.Impulsive(c, gate, listen.DefaultMinSustained, 0) {
+		t.Fatal("zero did not take the measured default")
+	}
+	if !listen.Impulsive(c, gate, listen.DefaultMinSustained, listen.DefaultMaxCrest) {
+		t.Error("the default, named, judged differently from zero")
+	}
+	if listen.Impulsive(c, gate, listen.DefaultMinSustained, 30) {
+		t.Error("a 30 dB ceiling still called a ~25 dB click an impulse")
+	}
+	// Lowering it never makes a sustained sentence a click: length still
+	// has to fail as well as shape.
+	if listen.Impulsive(speech(2.5), gate, listen.DefaultMinSustained, 4) {
+		t.Error("a sentence was judged by shape alone")
 	}
 }
 

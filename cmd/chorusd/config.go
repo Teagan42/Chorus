@@ -396,7 +396,11 @@ type providers struct {
 	synth    satellite.Synth
 	stt      stt.Transcriber
 	speakers listen.Speakers
-	judge    listen.Judge
+	// speakersAt builds a resolver over the same embedder and household at
+	// another accept level, for a satellite that names its own
+	// (ADR-0098). Nil when nothing identifies speakers.
+	speakersAt func(accept float64) (listen.Speakers, error)
+	judge      listen.Judge
 	// sure and doubt band the judge's probability; zero keeps listen's
 	// defaults (ADR-0094).
 	sure, doubt float64
@@ -472,6 +476,9 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 			return providers{}, err
 		}
 		p.speakers, p.household = resolver, ids.Household()
+		p.speakersAt = func(accept float64) (listen.Speakers, error) {
+			return identity.NewResolver(emb, ids, identity.Thresholds{Accept: accept})
+		}
 		if len(p.household) == 0 {
 			log.Warn("nobody is enrolled: every wake, a button press included, is rejected until a household voice is enrolled")
 		}

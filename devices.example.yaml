@@ -38,5 +38,17 @@ satellites:
     # through, raise it if people are refused at the echo stage. Above 1
     # turns the stage off. See ADR-0096.
     # echo_threshold: 0.6
+    # Optional. The cosine below which this satellite's best match is a
+    # guest, overriding CHORUS_SPEAKER_ACCEPT for this satellite alone. A
+    # far-field front end compresses every score and a close microphone does
+    # not, so one house-wide level either refuses the household on one or
+    # admits strangers on the other. Lower it only from your own room's
+    # measurements, with more than one voice enrolled. See ADR-0098.
+    # speaker_accept: 0.50
+    # Optional. The peak-to-RMS ratio in dB above which a brief utterance is
+    # a click rather than a voice; absent takes the measured 22 dB
+    # (listen.DefaultMaxCrest). Raise it if short words from this room are
+    # logged as "decoded words from an impulse". See ADR-0090, ADR-0098.
+    # max_crest: 22
     # retention: # this satellite's own horizons; what it leaves out is the house's
     #   audio: 7d

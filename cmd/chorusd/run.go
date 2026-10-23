@@ -149,6 +149,10 @@ type daemon struct {
 	// device's mute and over any fault its link saw (ADR-0069).
 	panels map[string]*session.Panel
 
+	// ownSpeakers is the resolver of each satellite that names its own
+	// speaker_accept; one that does not uses the house's (ADR-0098).
+	ownSpeakers map[string]listen.Speakers
+
 	// links is each connected satellite's Listening child, by name: where
 	// an announcement for that satellite is said (ADR-0045).
 	linksMu sync.Mutex
@@ -201,8 +205,23 @@ func newDaemon(inv *config.Config, d deps) (*daemon, error) {
 		rings:   map[string]*ring{},
 		volumes: map[string]*speakerVolume{},
 		panels:  map[string]*session.Panel{},
+
+		ownSpeakers: map[string]listen.Speakers{},
 	}
 	for _, sat := range inv.Satellites {
+		if sat.SpeakerAccept != 0 {
+			if d.speakersAt == nil {
+				// Said, because the setting reads as if it does something.
+				d.Log.Warn("speaker_accept has no effect: nothing identifies speakers", "satellite", sat.Name, "speaker_accept", sat.SpeakerAccept)
+			} else {
+				own, err := d.speakersAt(sat.SpeakerAccept)
+				if err != nil {
+					return nil, fmt.Errorf("satellite %s: %w", sat.Name, err)
+				}
+				dm.ownSpeakers[sat.Name] = own
+				d.Log.Info("speaker accept level is the satellite's own", "satellite", sat.Name, "speaker_accept", sat.SpeakerAccept)
+			}
+		}
 		dm.rooms[sat.Name] = sat.Room
 		dm.rings[sat.Name] = newRing()
 		dm.volumes[sat.Name] = &speakerVolume{log: d.Log.With("satellite", sat.Name, "address", sat.Address), timers: d.Timers}
@@ -508,6 +527,16 @@ func (d *daemon) handshake(ctx context.Context, conn net.Conn) (*bridge.Link, er
 	return link, nil
 }
 
+// speakersFor is the resolver a satellite's utterances are matched by: its
+// own when its inventory entry names a speaker_accept, else the house's
+// (ADR-0098).
+func (d *daemon) speakersFor(name string) listen.Speakers {
+	if own, ok := d.ownSpeakers[name]; ok {
+		return own
+	}
+	return d.speakers
+}
+
 // attach builds this link's Speaking and Listening sides on a supervisor of
 // its own and serves until the link drops. The Speaker is per device, which
 // is why the supervisor is too; the Conversations are shared (ADR-0022).
@@ -540,7 +569,7 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 		return err
 	}
 	lst, err := listen.Open(linkCtx, listen.Config{
-		Satellite: sat.Name, Sessions: sup, Transcriber: d.stt, Speakers: d.speakers,
+		Satellite: sat.Name, Sessions: sup, Transcriber: d.stt, Speakers: d.speakersFor(sat.Name),
 		Playback: speaker, Blobs: d.Blobs, Journal: d.journal, Clock: d.Clock, Log: log,
 		Endpointer: d.endpointer(sat.SpeechEnergy), Indicator: d.panels[sat.Name], Arbiter: d.contender(),
 		// The same gate the endpointer uses: the sustain floor counts
@@ -551,6 +580,9 @@ func (d *daemon) attach(ctx context.Context, sat *config.Satellite, link *bridge
 		// Compared only over audio at the same level, so the quiet before a
 		// person starts is not lined up against the device's last word.
 		Reference: played, Echo: echo.Judge{Threshold: sat.EchoThreshold, Voiced: sat.SpeechEnergy},
+		// And its own click ceiling: the measured one is one room's
+		// (ADR-0090, ADR-0098). Zero takes it.
+		MaxCrest: sat.MaxCrest,
 	})
 	if err != nil {
 		return err
