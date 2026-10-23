@@ -299,9 +299,14 @@ func (f *fakeSTT) decodes() int {
 }
 
 // fakeEmbedder maps the peak sample to the vector scripted for that voice.
+// Audio nobody scripted is the sidecar failing, unless otherwise names whose
+// voice it is.
 type fakeEmbedder struct {
-	mu sync.Mutex
-	by map[int16][]float32
+	mu        sync.Mutex
+	by        map[int16][]float32
+	otherwise []float32
+	// down fails every call, as a sidecar that went away does.
+	down error
 }
 
 func newEmbedder() *fakeEmbedder { return &fakeEmbedder{by: map[int16][]float32{}} }
@@ -309,7 +314,13 @@ func newEmbedder() *fakeEmbedder { return &fakeEmbedder{by: map[int16][]float32{
 func (f *fakeEmbedder) Embed(_ context.Context, pcm []byte) ([]float32, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.down != nil {
+		return nil, f.down
+	}
 	v, ok := f.by[peak(pcm)]
+	if !ok && f.otherwise != nil {
+		v, ok = f.otherwise, true
+	}
 	if !ok {
 		return nil, errors.New("sidecar unreachable")
 	}
