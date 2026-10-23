@@ -309,7 +309,8 @@ internal/
                         servers' tools (ADR-0075) (SPEC §10)
     capability/         what each provider declares, and the startup check (ADR-0102)
   harvest/              barge-ins as preference candidates, and the dataset export (SPEC §9.1)
-  contexts/             the text behind every prompt and tool-schema version (SPEC §13)
+  contexts/             the text behind every prompt and tool-schema version, archived and
+                        as chorusd recorded it (ADR-0101) (SPEC §13)
   triage/               signals worth a reviewer's time, derived on read
   rerun/                edit-and-replay (SPEC §9.2)
   evalsuite/            eval suites: journalled turns replayed under a candidate, scored (ADR-0079)

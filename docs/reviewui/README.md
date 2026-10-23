@@ -400,6 +400,17 @@ version (ADR-0059). That is the recorded one unless the turn was recorded
 under an older schema; then the page says so beside the editor, and a turn
 that called a tool no longer offered is asked without it.
 
+A turn that was offered the household's MCP tools is the exception to
+starting from what the build offers alone. The servers' tools are not the
+build's to drop, so the editor starts from the registry's tools and every
+`mcp_` tool the conversation's turns were offered, read from what `chorusd`
+recorded of its offer at startup, and says how many it carries. Unedited,
+the re-run is asked the same question the turn was. A turn journalled
+before `chorusd` recorded its offer has a schema nothing here holds; the
+note names it, and its MCP tools are missing unless pasted in (ADR-0101).
+
+![Replay, Teagan's Porto forecast from the weather server](replay-mcp.png)
+
 ![Replay, a tool's description reworded](e2e/journey-replay-tool-schema.png)
 ![Replay, a tool schema that does not read](e2e/journey-replay-tool-schema-malformed.png)
 
@@ -522,11 +533,13 @@ household's Zeppelin cut, accepted with the reviewer's fix:
 - **`meta.context_missing`** lists `prompt` and/or `tool_schema` when no
   source holds that version's text. The row still ships, without the
   system message or `tools` it lacks; nothing is guessed. A version's text
-  comes from the running build or from `internal/contexts`, which archives
+  comes from the running build, from `internal/contexts`, which archives
   every version main has built, each filed by the hash the journal
-  records. A build that changes the prompt or a tool must file the new
-  version (`CHORUS_UPDATE_CONTEXTS=1 go test ./internal/contexts`), or
-  `task test` fails.
+  records, or from what `chorusd` recorded of its offer at startup beside
+  the journal: the only place a schema with the household's MCP tools in
+  it is kept (ADR-0101). A build that changes the prompt or a tool must
+  file the new version (`CHORUS_UPDATE_CONTEXTS=1 go test
+  ./internal/contexts`), or `task test` fails.
 - **Provenance**: `source` (`barge-in`, `annotation`, `replay`),
   `verdict` and `decided_at` from the stored decision, `conversation_id`
   and `seq`, and the model, STT and TTS identities in `versions`. Who

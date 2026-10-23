@@ -65,7 +65,7 @@ household voice. What exists today:
 | `internal/volume` — `set_volume`: a satellite's speaker level, by level or step, in the turn's room or one named | under test |
 | `internal/memory` — what each person asked to be remembered, and a summary of each conversation for the people in it | under test |
 | `internal/harvest`, `cmd/harvest` — barge-ins as DPO candidates, and the dataset export (format 2) | under test |
-| `internal/contexts` — the text of every prompt and tool-schema version, filed by the hash the journal records | under test; a test recomputes every hash |
+| `internal/contexts` — the text of every prompt and tool-schema version, filed by the hash the journal records, and what `chorusd` offered its model, recorded beside the journal at every start so an MCP turn exports with its tools (ADR-0101) | under test; a test recomputes every hash, and the record is checked against both engines' labels in memory and on Postgres |
 | `cmd/reviewui` — Browse, Triage, Review, Replay, Curate, Export, Arbitration, Memory, Voices and Deletions over the journal, on loopback unless told otherwise ([guide](docs/reviewui/README.md), [demo](https://teagan42.github.io/Chorus/demo/)) | under test, in a headless Chrome too |
 | `internal/triage` — barge-ins, failures, repeated asks, slow answers and speaker flips, derived on read | under test |
 | `internal/rerun` — edit-and-replay: a conversation's turns asked again under another prompt or model | under test |

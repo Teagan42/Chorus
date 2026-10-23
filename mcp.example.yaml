@@ -18,6 +18,10 @@
 # listed its tools within discovery_timeout_ms offers nothing until the next
 # start; one that drops later is reconnected, and its tools answer
 # mcp_unavailable meanwhile.
+#
+# What the model is offered, these tools among it, is recorded beside the
+# journal at every start (ADR-0101), so the review UI and chorus-eval can
+# export, evaluate and re-run a turn that offered them.
 
 # How long startup waits for every server to list its tools. Default 10000.
 discovery_timeout_ms: 10000
