@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/teagan42/chorus/internal/journal"
+	"github.com/teagan42/chorus/internal/provider/capability"
 	"github.com/teagan42/chorus/internal/provider/chat"
 	"github.com/teagan42/chorus/internal/registry"
 	"github.com/teagan42/chorus/internal/session"
@@ -203,4 +204,10 @@ func (e *Engine) messages(in session.Input) []message {
 		return append(out, message{Role: "user", Content: in.Text})
 	}
 	return append(out, dialogue(in.Dialogue)...)
+}
+
+// Capabilities is what this provider declares as the turn engine, from
+// schema/provider.cue (ADR-0102).
+func (e *Engine) Capabilities() capability.Declaration {
+	return capability.Of(capability.RoleLLM, "ollama")
 }

@@ -717,9 +717,16 @@ privacy story holds. Not needed today.
 Local-first, cloud escape hatch per provider. Each behind an HTTP contract,
 or Wyoming's over TCP (ADR-0081),
 every provider declaring capabilities (streaming? tool calls? interruption?)
-so a build-time check can reject a pipeline that cannot work. Those
-declarations and the check are not built: nothing in `schema/` describes a
-provider.
+so a check can reject a pipeline that cannot work. The declarations, and
+what the architecture needs of each role, are `schema/provider.cue`'s
+([the reference](reference/providers.md)). `chorusd` holds the providers it
+is configured with to those needs at startup, before it opens the journal or
+hears a satellite: a required need a provider lacks stops it, every one
+named in one error, and a degraded one is logged with what it costs. The
+shipped stack and every choice of engine, voice and ear are checked on
+every push. On the default stack the check says that Ollama cannot stream a
+call's arguments; it refuses an ear asked for a language it does not hear,
+as Parakeet on speaches is for anything but English (ADR-0102).
 
 | Role | Choice | Rationale |
 |---|---|---|

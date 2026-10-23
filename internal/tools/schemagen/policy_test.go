@@ -11,7 +11,7 @@ import (
 // Policy constraints are the reason the schemas are CUE rather than JSON
 // Schema. If a violation ever validates, the generated Go and the model-facing
 // schema agree on something unsafe, and nothing downstream catches it.
-// verifies SPEC §6
+// verifies SPEC §6, §10
 
 const schemaDir = "../../../schema"
 
@@ -140,6 +140,31 @@ func TestPolicyViolationsAreRejected(t *testing.T) {
 			"confirmation_param_declared.cue",
 			"the nonce argument is the orchestrator's, not a tool's",
 			"confirmation",
+		},
+		{
+			"provider_streams_arguments_without_tool_calls.cue",
+			"an engine cannot stream the arguments of calls it cannot make",
+			"tool_calls",
+		},
+		{
+			"provider_capability_on_another_role.cue",
+			"a capability its role has no word for is read by nothing",
+			"tool_calls",
+		},
+		{
+			"provider_without_cancels.cue",
+			"a provider that does not say whether a barge-in can stop it is not declared",
+			"cancels",
+		},
+		{
+			"provider_language_not_iso.cue",
+			"an ear's languages are the ISO 639-1 codes STT_LANGUAGE is matched against",
+			"languages",
+		},
+		{
+			"need_on_undeclared_capability.cue",
+			"a need on a capability its role does not declare can never be met",
+			"streams_tool_arguments",
 		},
 		{
 			"acknowledgement_param_declared.cue",

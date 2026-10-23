@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/teagan42/chorus/internal/bridge"
+	"github.com/teagan42/chorus/internal/provider/capability"
 	"github.com/teagan42/chorus/internal/stt"
 )
 
@@ -103,4 +104,10 @@ func (t *Transcriber) Transcribe(ctx context.Context, audio []byte) (stt.Result,
 		// transcript-start and transcript-chunk come first from a server
 		// that streams; the final transcript is the whole of it.
 	}
+}
+
+// Capabilities is what this provider declares as the ear, from
+// schema/provider.cue (ADR-0102).
+func (t *Transcriber) Capabilities() capability.Declaration {
+	return capability.Of(capability.RoleSTT, "wyoming")
 }
