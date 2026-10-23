@@ -331,9 +331,12 @@ func TestEachSessionsSpansReachTheCollectorAsItCloses(t *testing.T) {
 			t.Error("chorus.seq sent as zero")
 		}
 	}
-	if exported, _, _ := e.meter.read(); exported != len(want) {
-		t.Errorf("meter counted %d exported, want %d", exported, len(want))
-	}
+	// The collector holds the batch before its answer reaches the exporter,
+	// and the exporter counts only once it has that answer.
+	await(t, "the meter to count every span exported", func() bool {
+		exported, _, _ := e.meter.read()
+		return exported == len(want)
+	})
 }
 
 // The collector restarts mid-evening: the spans are held, logged once, and
