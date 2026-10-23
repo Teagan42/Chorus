@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/teagan42/chorus/internal/bridge"
@@ -12,6 +16,7 @@ import (
 	"github.com/teagan42/chorus/internal/hass"
 	"github.com/teagan42/chorus/internal/journal"
 	"github.com/teagan42/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/provider/vllm"
 	"github.com/teagan42/chorus/internal/session"
 )
 
@@ -225,5 +230,122 @@ func TestTheSpeculationSwitch(t *testing.T) {
 		case !tc.refused && got != tc.on:
 			t.Errorf("%q parsed to %v, want %v", tc.set, got, tc.on)
 		}
+	}
+}
+
+// The same evening on the vLLM engine, whose speak calls stream their words
+// out of the arguments: Alan greets the kitchen, then asks for the kitchen
+// and porch lights off. vLLM is asked in the pause, its stream is held
+// until the utterance ends, and then plays out as if it were arriving --
+// both lights switched, the words heard, and vLLM asked once more with the
+// results. A real engine on a recorded stream, through the whole daemon.
+//
+// verifies SPEC §4.1, §11, §12
+func TestAKeptSpeculationStreamsFromVLLM(t *testing.T) {
+	read := func(name string) []byte {
+		b, err := os.ReadFile(filepath.Join("..", "..", "internal", "provider", "vllm", "testdata", name))
+		if err != nil {
+			t.Fatalf("read stream: %v", err)
+		}
+		return b
+	}
+	rec := &recordedVLLM{streams: [][]byte{read("reply.sse"), read("speak_and_two_lights.sse"), read("done_and_end.sse")}}
+	eng, err := vllm.New(vllm.Config{BaseURL: "http://10.0.0.20:8000", Model: "Qwen/Qwen3-32B-AWQ", HTTP: &http.Client{Transport: rec}})
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+	var mu sync.Mutex
+	var switched []string
+	lights := session.ToolFunc(func(_ context.Context, args string) (string, error) {
+		var a struct {
+			EntityID string `json:"entity_id"`
+		}
+		if err := json.Unmarshal([]byte(args), &a); err != nil {
+			return "", err
+		}
+		mu.Lock()
+		switched = append(switched, a.EntityID)
+		mu.Unlock()
+		return `{"changed":["` + a.EntityID + `"]}`, nil
+	})
+	r := newRig(t, inventory(), func(d *deps) {
+		d.engine, d.summarizer, d.versions = eng, nil, eng.Versions()
+		d.tools = map[string]session.Tool{"ha_call_service": lights}
+		d.Timers = wallTimers{}
+		d.speculate = true
+	})
+	dev := r.join(t, kitchenIP)
+	dev.SendWake(t, "hey_eddie")
+	r.utter(t, dev, r.line("hello there", alan))
+	// Settled, not heard: on this engine a lone short clause is sometimes
+	// recorded with no speech_spoken, with speculation on or off.
+	await(t, "the first turn to settle", func() bool {
+		dev.PlayAll(t)
+		if len(r.store.ofKind(journal.KindToolResult)) < 1 {
+			return false
+		}
+		s := r.dm.linked("kitchen").Session()
+		return s != nil && slices.Equal(s.Children(), []string{"listening"})
+	})
+
+	speakFor(t, dev, r.line("turn off the kitchen and porch lights", alan), 8)
+	await(t, "vLLM to be asked in the pause", func() bool {
+		rec.mu.Lock()
+		defer rec.mu.Unlock()
+		return len(rec.sent) == 2
+	})
+	if n := len(r.store.ofKind(journal.KindUtteranceTranscribed)); n != 1 {
+		t.Fatalf("%d utterances heard when vLLM was asked, want only the greeting", n)
+	}
+	mu.Lock()
+	if len(switched) != 0 {
+		t.Errorf("lights switched in the pause: %v", switched)
+	}
+	mu.Unlock()
+	for sent := listen.DefaultPause; sent < silence; sent += chunkBytes {
+		dev.SendMic(t, bridge.ChannelAEC, quiet(chunkBytes))
+	}
+
+	var heard []string
+	await(t, "both answers to be heard", func() bool {
+		dev.PlayAll(t)
+		heard = nil
+		for _, e := range r.store.ofKind(journal.KindSpeechSpoken) {
+			if e.Fields["text"] != "Hello!" {
+				heard = append(heard, e.Fields["text"])
+			}
+		}
+		return len(heard) >= 2
+	})
+	if want := []string{"Turning off the kitchen and porch lights.", "Done, both are off."}; !slices.Equal(heard, want) {
+		t.Errorf("speech_spoken = %q, want %q", heard, want)
+	}
+	mu.Lock()
+	slices.Sort(switched)
+	if !slices.Equal(switched, []string{"light.kitchen", "light.porch"}) {
+		t.Errorf("lights switched = %v", switched)
+	}
+	mu.Unlock()
+	r.store.awaitKind(t, journal.KindModelCompleted, 3)
+	completed := r.store.ofKind(journal.KindModelCompleted)
+	if completed[1].Fields["asked_early_ms"] == "" || completed[1].Fields["streamed_speech_json"] == "" {
+		t.Errorf("the kept completion = %v, want it asked early with its streamed words", completed[1].Fields)
+	}
+	if n := len(r.store.ofKind(journal.KindSpeculationDiscarded)); n != 0 {
+		t.Errorf("%d discarded speculations, want none", n)
+	}
+	// The speculative request is the one a late ask would have sent: it
+	// ends on the words the utterance was confirmed as.
+	var asked struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.request(t, 1), &asked); err != nil {
+		t.Fatal(err)
+	}
+	if last := asked.Messages[len(asked.Messages)-1]; last.Role != "user" || last.Content != "turn off the kitchen and porch lights" {
+		t.Errorf("the pause asked vLLM with %+v last", last)
 	}
 }
