@@ -146,10 +146,8 @@ func (d *daemon) wireOps() {
 		return
 	}
 	sats := make([]ops.Satellite, 0, len(d.inv.Satellites))
-	byAddress := map[string]string{}
 	for _, sat := range d.inv.Satellites {
 		sats = append(sats, ops.Satellite{Name: sat.Name, Room: sat.Room})
-		byAddress[sat.Address] = sat.Name
 	}
 	d.ops = ops.New(ops.Config{
 		Version: version, Clock: d.Clock, Timers: d.Timers,
@@ -157,7 +155,7 @@ func (d *daemon) wireOps() {
 	})
 	d.journal.Observe(d.ops.Metrics())
 	if d.Native != nil {
-		d.Native = trackedDialer{nativeDialer: d.Native, sats: d.ops.Satellites(), byAddress: byAddress}
+		d.Native = trackedDialer{nativeDialer: d.Native, sats: d.ops.Satellites(), named: d.addrs.dialled}
 	}
 }
 
@@ -190,8 +188,9 @@ func (d *daemon) serveOps(ctx context.Context) {
 // held and dropped.
 type trackedDialer struct {
 	nativeDialer
-	sats      *ops.Satellites
-	byAddress map[string]string
+	sats *ops.Satellites
+	// named is the satellite dialled at an address.
+	named func(address string) string
 }
 
 func (t trackedDialer) Dial(ctx context.Context, address, psk string) (nativeConn, error) {
@@ -199,7 +198,7 @@ func (t trackedDialer) Dial(ctx context.Context, address, psk string) (nativeCon
 	if err != nil {
 		return nil, err
 	}
-	name := t.byAddress[address]
+	name := t.named(address)
 	t.sats.Native(name, true)
 	return &trackedConn{nativeConn: c, dropped: func() { t.sats.Native(name, false) }}, nil
 }

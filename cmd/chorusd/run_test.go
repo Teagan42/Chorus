@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -122,6 +123,11 @@ func (r *rig) line(text string, who []float32) int16 {
 	return amp
 }
 
+// at is the satellite whose audio link the daemon expects from ip, or nil.
+func (r *rig) at(ip string) *config.Satellite {
+	return r.dm.addrs.at(netip.MustParseAddr(ip))
+}
+
 // join connects a device from ip, proving the identity the inventory gives
 // that address, and returns it once the daemon can reach it: the handshake
 // alone is not that, and an announcement made before then finds nothing
@@ -129,7 +135,7 @@ func (r *rig) line(text string, who []float32) int16 {
 // waits for it.
 func (r *rig) join(t *testing.T, ip string) *bridgetest.Device {
 	t.Helper()
-	sat := r.dm.byHost[ip]
+	sat := r.at(ip)
 	if sat == nil {
 		return bridgetest.Connect(r.ln.dial(t, ip), 2)
 	}
@@ -333,7 +339,7 @@ func TestTheSecondMicChannelIsJournalledBesideTheFirst(t *testing.T) {
 func TestADroppedLinkClosesTheSessionAndAReconnectResumesIt(t *testing.T) {
 	r := newRig(t, inventory())
 	first := r.ln.dial(t, kitchenIP)
-	dev := bridgetest.Connect(first, 2, as(t, r.dm.byHost[kitchenIP]))
+	dev := bridgetest.Connect(first, 2, as(t, r.at(kitchenIP)))
 
 	dev.SendWake(t, "hey_eddie")
 	r.utter(t, dev, r.line("find zeppelin", alan))
@@ -480,8 +486,8 @@ func TestAnUnverifiedWakeIsRejectedOnAnySatellite(t *testing.T) {
 }
 
 // The audio link identifies a device by source address, so two satellites
-// on one host could not be told apart and a hostname could not be matched
-// at all. Both are startup errors that name the satellite.
+// pinned to one host could not be told apart, and a hostname means nothing
+// until something finds it. Both are startup errors that name the satellite.
 func TestRunRefusesAnInventoryItCannotMatchDevicesAgainst(t *testing.T) {
 	cases := map[string]*config.Config{
 		"shared host": {Satellites: []config.Satellite{

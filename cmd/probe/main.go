@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/discover"
 	"github.com/teagan42/chorus/internal/esphome"
 	"github.com/teagan42/chorus/internal/msgid"
 	"github.com/teagan42/chorus/internal/pb"
@@ -46,12 +47,16 @@ func run(inventory, device string, listen time.Duration) error {
 	}
 
 	fmt.Printf("message ids known from descriptors: %d\n", msgid.Known())
-	fmt.Printf("dialing %s (%s)...\n", sat.Name, sat.Address)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	c, err := esphome.Dial(ctx, sat.Address, sat.PSK)
+	address, err := where(ctx, sat, discover.New(wallTimers{}))
+	if err != nil {
+		return err
+	}
+	fmt.Printf("dialing %s (%s)...\n", sat.Name, address)
+	c, err := esphome.Dial(ctx, address, sat.PSK)
 	if err != nil {
 		return err
 	}
@@ -69,6 +74,25 @@ func run(inventory, device string, listen time.Duration) error {
 	}
 	return nil
 }
+
+// where is the address to dial: the inventory's IP literal, or wherever
+// the satellite is found, as chorusd finds it (SPEC §13).
+func where(ctx context.Context, sat *config.Satellite, net *discover.Network) (string, error) {
+	ip, err := discover.Literal(sat)
+	if err != nil || ip.IsValid() {
+		return sat.Address, err
+	}
+	ap, _, err := net.Locate(ctx, sat)
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("found %s at %s\n", discover.Described(sat), ap)
+	return ap.String(), nil
+}
+
+type wallTimers struct{}
+
+func (wallTimers) After(d time.Duration) <-chan time.Time { return time.After(d) }
 
 // listEntities enumerates components so we can confirm what the stock firmware
 // exposes: mic, speaker, micro_wake_word, LED ring.
