@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.19.0](https://github.com/Teagan42/Chorus/compare/v0.18.0...v0.19.0) (2026-10-25)
+
+
+### Features
+
+* a failed speaker embed is a failure, and readiness asks sidecars what they serve (ADR-0097) ([#134](https://github.com/Teagan42/Chorus/issues/134)) ([15ce9c6](https://github.com/Teagan42/Chorus/commit/15ce9c6000748d9aaa3a54bbba80b60ab1e58af9))
+* a satellite's own speaker accept level and click ceiling (ADR-0098) ([#128](https://github.com/Teagan42/Chorus/issues/128)) ([f9db4cc](https://github.com/Teagan42/Chorus/commit/f9db4ccd8b6900e5d34fcbae506de10780e2396f))
+* ask a turn in its pause, keep it only if nothing changed (ADR-0095) ([#130](https://github.com/Teagan42/Chorus/issues/130)) ([82fbe77](https://github.com/Teagan42/Chorus/commit/82fbe7717ec5536511caa8d7b2eb907141058f0c))
+* **esphome:** send no mic audio while muted (ADR-0100) ([#136](https://github.com/Teagan42/Chorus/issues/136)) ([f7513c4](https://github.com/Teagan42/Chorus/commit/f7513c4c640cd96fe670f19cee14fd38bcdfff04))
+* every provider declares what it can do, and chorusd refuses a pipeline that cannot work (ADR-0102) ([#138](https://github.com/Teagan42/Chorus/issues/138)) ([c9ede6d](https://github.com/Teagan42/Chorus/commit/c9ede6dfd2416eafa277150141312d4496d45e0b))
+* find satellites the inventory does not pin, over mDNS (ADR-0103) ([#137](https://github.com/Teagan42/Chorus/issues/137)) ([79381d1](https://github.com/Teagan42/Chorus/commit/79381d1d39bb91806fe85d8b4cec1d70693c10b7))
+* OpenTelemetry spans derived from the journal, over OTLP/HTTP (ADR-0104) ([#140](https://github.com/Teagan42/Chorus/issues/140)) ([3a59eb8](https://github.com/Teagan42/Chorus/commit/3a59eb87d6cddcacab662679e5d27d9dcbc16b57))
+* read Smart Turn in bands, and journal what ended each turn (ADR-0094) ([#131](https://github.com/Teagan42/Chorus/issues/131)) ([e6748aa](https://github.com/Teagan42/Chorus/commit/e6748aa971e772c0192a6284f50818df68936f12))
+* record what chorusd offers so MCP turns export, eval and re-run with their tools (ADR-0101) ([#139](https://github.com/Teagan42/Chorus/issues/139)) ([52f6bb0](https://github.com/Teagan42/Chorus/commit/52f6bb067ea61f5503103f36a1ac54ca63589d4d))
+* refuse the device's own voice at a barge-in echo stage (ADR-0096) ([#132](https://github.com/Teagan42/Chorus/issues/132)) ([09f6419](https://github.com/Teagan42/Chorus/commit/09f641954b1908f49ecf4dcceecf44df76289dd9))
+* render the voice on Apple Silicon's GPU via an MLX sidecar ([#126](https://github.com/Teagan42/Chorus/issues/126)) ([b5ffd1c](https://github.com/Teagan42/Chorus/commit/b5ffd1cd1fa5778b828684fd39f755c2b083a5db))
+* **reviewui:** judge a Voices clip at its satellite's accept level (ADR-0099) ([#135](https://github.com/Teagan42/Chorus/issues/135)) ([c8f9d29](https://github.com/Teagan42/Chorus/commit/c8f9d298911f30dec597fe49f5cd0b10d8d0e67c))
+* speaker ID that works on a Voice PE's own audio ([#124](https://github.com/Teagan42/Chorus/issues/124)) ([c96b35c](https://github.com/Teagan42/Chorus/commit/c96b35ce4b282c5f33c4952d3f60f0ef4334caa3))
+
+
+### Bug Fixes
+
+* a Voice PE that answers once, and only to the room ([#127](https://github.com/Teagan42/Chorus/issues/127)) ([79bdc15](https://github.com/Teagan42/Chorus/commit/79bdc157a7743933f1241d02f28a22f2724b403b))
+* honest startup warnings, chorus-eval on vLLM, and real-server tests for OpenAI/Wyoming ([#129](https://github.com/Teagan42/Chorus/issues/129)) ([14ce443](https://github.com/Teagan42/Chorus/commit/14ce44341e4cc874d077d687fc37dc6b01dd8684))
+* **reviewui:** name the Voices clip players for screen readers ([#133](https://github.com/Teagan42/Chorus/issues/133)) ([adb79cf](https://github.com/Teagan42/Chorus/commit/adb79cf9d9135affed57c707fcb9a94e53d68547))
+
 ## [0.18.0](https://github.com/Teagan42/Chorus/compare/v0.17.0...v0.18.0) (2026-10-13)
 
 
