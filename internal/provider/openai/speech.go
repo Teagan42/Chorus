@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/teagan42/chorus/internal/provider/capability"
 	"github.com/teagan42/chorus/internal/provider/pcm"
 	"github.com/teagan42/chorus/internal/satellite"
 )
@@ -119,4 +120,10 @@ func (s *Synth) Synthesize(ctx context.Context, text string) ([]byte, error) {
 		return nil, fmt.Errorf("openai speech %s: %w", s.Version(), err)
 	}
 	return out, nil
+}
+
+// Capabilities is what this provider declares as the voice, from
+// schema/provider.cue (ADR-0102).
+func (s *Synth) Capabilities() capability.Declaration {
+	return capability.Of(capability.RoleTTS, "openai")
 }

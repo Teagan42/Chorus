@@ -22,6 +22,7 @@ import (
 
 	"github.com/teagan42/chorus/internal/bridge"
 	"github.com/teagan42/chorus/internal/listen"
+	"github.com/teagan42/chorus/internal/provider/capability"
 )
 
 // DefaultModel is the checkpoint the sidecar pins (ADR-0036). Anything
@@ -167,4 +168,10 @@ func (c *Client) Health(ctx context.Context) error {
 		return fmt.Errorf("smartturn health: sidecar serves %q, client is built for %q", h.Model, c.cfg.Model)
 	}
 	return nil
+}
+
+// Capabilities is what this provider declares as the endpointer, from
+// schema/provider.cue (ADR-0102).
+func (c *Client) Capabilities() capability.Declaration {
+	return capability.Of(capability.RoleEndpointing, "smartturn")
 }

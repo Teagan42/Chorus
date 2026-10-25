@@ -22,6 +22,7 @@ import (
 
 	"github.com/teagan42/chorus/internal/bridge"
 	"github.com/teagan42/chorus/internal/identity"
+	"github.com/teagan42/chorus/internal/provider/capability"
 )
 
 // DefaultModel is TitaNet-L, one of the two models SPEC §10 names, under
@@ -192,4 +193,10 @@ func (c *Client) Health(ctx context.Context) error {
 		return fmt.Errorf("speakerid health: sidecar embeds at %d dims, client is built for %d", h.Dim, c.cfg.Dim)
 	}
 	return nil
+}
+
+// Capabilities is what this provider declares as speaker identification, from
+// schema/provider.cue (ADR-0102).
+func (c *Client) Capabilities() capability.Declaration {
+	return capability.Of(capability.RoleSpeakerID, "speakerid")
 }

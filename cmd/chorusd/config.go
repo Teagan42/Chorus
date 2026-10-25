@@ -14,6 +14,7 @@ import (
 	"github.com/teagan42/chorus/internal/listen"
 	"github.com/teagan42/chorus/internal/memory"
 	"github.com/teagan42/chorus/internal/otel"
+	"github.com/teagan42/chorus/internal/provider/capability"
 	"github.com/teagan42/chorus/internal/provider/kokoro"
 	"github.com/teagan42/chorus/internal/provider/mcp"
 	"github.com/teagan42/chorus/internal/provider/ollama"
@@ -425,6 +426,9 @@ type providers struct {
 	// specs is what the session enforces policy from: the registry's, and
 	// any provided tools'. Nil is the registry's alone.
 	specs map[string]registry.ToolSpec
+	// pipeline is what each built provider declared, as the startup check
+	// held it to its role's needs (ADR-0102).
+	pipeline capability.Pipeline
 }
 
 // buildProviders constructs the providers without touching the network: a
@@ -459,6 +463,10 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 	p := providers{
 		engine: engine, summarizer: engine, versions: versions, synth: synth, stt: transcriber,
 		tools: map[string]session.Tool{}, specs: enforced,
+		pipeline: capability.Pipeline{
+			Providers: []capability.Declaration{transcriber.Capabilities(), engine.Capabilities(), synth.Capabilities()},
+			Language:  cfg.STTLanguage,
+		},
 	}
 
 	if cfg.SpeakerIDURL == "" {
@@ -487,6 +495,7 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 			return providers{}, err
 		}
 		p.speakers, p.household = resolver, ids.Household()
+		p.pipeline.Providers = append(p.pipeline.Providers, emb.Capabilities())
 		p.speakersAt = func(accept float64) (listen.Speakers, error) {
 			return identity.NewResolver(emb, ids, identity.Thresholds{Accept: accept})
 		}
@@ -503,6 +512,7 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 			return providers{}, err
 		}
 		p.embedder = emb
+		p.pipeline.Providers = append(p.pipeline.Providers, emb.Capabilities())
 	}
 
 	if cfg.SmartTurnURL == "" {
@@ -516,6 +526,7 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 			return providers{}, err
 		}
 		p.judge = judge
+		p.pipeline.Providers = append(p.pipeline.Providers, judge.Capabilities())
 	}
 
 	if cfg.HassURL == "" {
@@ -539,6 +550,15 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 		return providers{}, err
 	}
 
+	// Held before a satellite is heard: a pipeline that cannot work stops
+	// here, and one that works less well says what it costs (ADR-0102).
+	report := capability.Check(p.pipeline)
+	if err := report.Err(); err != nil {
+		return providers{}, err
+	}
+	for _, f := range report.Degraded {
+		log.Warn(f.String(), "role", f.Role, "provider", f.Provider)
+	}
 	return p, nil
 }
 
@@ -547,6 +567,7 @@ func buildProviders(cfg Config, ids *identity.Identities, log *slog.Logger, extr
 type llmEngine interface {
 	session.Engine
 	session.Summarizer
+	capability.Declarer
 	Versions() journal.Versions
 }
 
@@ -569,12 +590,14 @@ type versioned interface{ Version() string }
 // synthesizer is the voice CHORUS_TTS_PROVIDER chooses.
 type synthesizer interface {
 	satellite.Synth
+	capability.Declarer
 	versioned
 }
 
 // transcriber is the ear CHORUS_STT_PROVIDER chooses.
 type transcriber interface {
 	stt.Transcriber
+	capability.Declarer
 	versioned
 }
 

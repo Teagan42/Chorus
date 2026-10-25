@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/teagan42/chorus/internal/provider/capability"
 	"github.com/teagan42/chorus/internal/satellite"
 )
 
@@ -234,4 +235,10 @@ func encode(samples []int16) []byte {
 		binary.LittleEndian.PutUint16(out[2*i:], uint16(s))
 	}
 	return out
+}
+
+// Capabilities is what this provider declares as the voice, from
+// schema/provider.cue (ADR-0102).
+func (s *Synth) Capabilities() capability.Declaration {
+	return capability.Of(capability.RoleTTS, "kokoro")
 }

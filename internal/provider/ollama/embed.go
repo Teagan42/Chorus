@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/teagan42/chorus/internal/memory"
+	"github.com/teagan42/chorus/internal/provider/capability"
 )
 
 // maxEmbedBody bounds one /api/embed response: a batch of vectors is a few
@@ -105,4 +106,10 @@ func (e *Embedder) Embed(ctx context.Context, texts []string) ([][]float32, erro
 		return nil, fmt.Errorf("ollama embed: %d vectors for %d texts", len(r.Embeddings), len(texts))
 	}
 	return r.Embeddings, nil
+}
+
+// Capabilities is what this provider declares as recall's embedder, from
+// schema/provider.cue (ADR-0102).
+func (e *Embedder) Capabilities() capability.Declaration {
+	return capability.Of(capability.RoleEmbedding, "ollama")
 }
