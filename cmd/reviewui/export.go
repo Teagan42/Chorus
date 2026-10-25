@@ -39,12 +39,23 @@ type exportSet struct {
 	heldExemplars int
 }
 
-// contextSource resolves the versions a row ran under to their text.
-func (s *server) contextSource() contexts.Source {
+// contextSource resolves the versions a row ran under to their text: the
+// build's and the archive's, then what chorusd recorded beside the journal,
+// where a turn that offered the house's MCP tools finds its schema
+// (ADR-0101).
+func (s *server) contextSource(ctx context.Context) (contexts.Source, error) {
+	src := contexts.Default()
 	if s.contexts != nil {
-		return s.contexts
+		src = s.contexts
 	}
-	return contexts.Default()
+	if s.kept == nil {
+		return src, nil
+	}
+	kept, err := s.kept.Recorded(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return contexts.Chain{src, kept}, nil
 }
 
 // readCorpus reads the dataset under the lock and returns it detached, so a
@@ -124,8 +135,12 @@ func silent(t harvest.Turn) bool {
 }
 
 // dataset builds the corpus's rows, split by the download's fraction.
-func (s *server) dataset(c exportSet, validation float64) (harvest.Dataset, error) {
-	return harvest.Build(c.rows, c.exemplars, harvest.Options{Contexts: s.contextSource(), Validation: validation})
+func (s *server) dataset(ctx context.Context, c exportSet, validation float64) (harvest.Dataset, error) {
+	src, err := s.contextSource(ctx)
+	if err != nil {
+		return harvest.Dataset{}, err
+	}
+	return harvest.Build(c.rows, c.exemplars, harvest.Options{Contexts: src, Validation: validation})
 }
 
 // exportQuery is a download's validation fraction and the side of the split
@@ -158,7 +173,7 @@ func (s *server) download(w http.ResponseWriter, r *http.Request) (harvest.Datas
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return harvest.Dataset{}, "", false
 	}
-	d, err := s.dataset(c, validation)
+	d, err := s.dataset(r.Context(), c, validation)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return harvest.Dataset{}, "", false
@@ -284,7 +299,7 @@ func (s *server) export(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	d, err := s.dataset(c, defaultValidation)
+	d, err := s.dataset(r.Context(), c, defaultValidation)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

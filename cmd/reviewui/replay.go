@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -94,6 +95,15 @@ type replayable struct {
 	unread int
 	promos map[uint64]curation.Promotion
 	runs   []curation.Rerun // kept re-runs, newest first
+
+	// offered is what a re-run is offered unless the reviewer edits it:
+	// the registry's tools and the house's MCP tools the turns were offered
+	// (ADR-0101). house counts the latter; unheld are the turns' schema
+	// labels nothing here holds the text of, whose MCP tools, if any, are
+	// not in offered.
+	offered map[string]registry.ToolSpec
+	house   int
+	unheld  []string
 }
 
 // readReplayable reads one conversation under the lock and lets it go: the
@@ -123,10 +133,46 @@ func (s *server) readReplayable(ctx context.Context, id string) (replayable, err
 	if rp.runs, err = s.decisions.Reruns(ctx, id); err != nil {
 		return replayable{}, err
 	}
+	if err := s.houseOffered(ctx, &rp); err != nil {
+		return replayable{}, err
+	}
 	// The reducer is what keeps the log honest (SPEC §8): if it cannot read
 	// the whole conversation back, nothing on this page can be trusted.
 	_, rp.replay = journal.Replay(ctx, s.journal, id, journal.Overrides{})
 	return rp, nil
+}
+
+// houseOffered sets what a re-run of rp's turns is offered: the registry's
+// tools, and each MCP tool the turns' recorded schemas declare, a later
+// turn's declaration over an earlier one's.
+func (s *server) houseOffered(ctx context.Context, rp *replayable) error {
+	src, err := s.contextSource(ctx)
+	if err != nil {
+		return err
+	}
+	recorded := map[string]registry.ToolSpec{}
+	seen := map[string]bool{}
+	for _, t := range rp.turns {
+		label := t.Versions.ToolSchema
+		if seen[label] {
+			continue
+		}
+		seen[label] = true
+		schema, ok := src.ToolSchema(label)
+		if !ok {
+			rp.unheld = append(rp.unheld, label)
+			continue
+		}
+		tools, err := ollama.ParseToolSchema(schema)
+		if err != nil {
+			return fmt.Errorf("tool schema %s: %w", label, err)
+		}
+		maps.Copy(recorded, tools)
+	}
+	build := registry.Offered()
+	rp.offered = registry.WithProvided(build, recorded)
+	rp.house = len(rp.offered) - len(build)
+	return nil
 }
 
 func (s *server) replays(w http.ResponseWriter, r *http.Request) {
@@ -377,10 +423,31 @@ func (s *server) compared(rp replayable, run curation.Rerun) replayResult {
 	}
 	// Both sides written the same way, so a reindented edit is not a change,
 	// and against what chorusd offers, so a deferred tool is not a cut.
-	if d := lineDiff(ollama.ToolSchema(registry.Offered()), run.ToolSchema); d != nil {
+	if d := lineDiff(ollama.ToolSchema(rp.offered), run.ToolSchema); d != nil {
 		res.ToolDiff = &ui.CodeDiff{Label: "Tool schema diff", Lines: hunks(d, 3)}
 	}
 	return res
+}
+
+// toolsNoteFor says what the tool schema starts from: the registry's, with
+// the house's MCP tools the turns had when there were any, and which of the
+// turns' schemas nothing here holds the text of.
+func toolsNoteFor(rp replayable, recorded, now string) string {
+	from := "the registry's schema"
+	if rp.house > 0 {
+		from = fmt.Sprintf("the registry's schema with the %s the turns were offered", plural(rp.house, "MCP tool"))
+	}
+	note := fmt.Sprintf("%s (%s) matches the recorded tool schema", from, now)
+	if now != recorded {
+		note = fmt.Sprintf("recorded under %s; %s is now %s, so this starts from it", recorded, from, now)
+		if rp.house == 0 {
+			note = fmt.Sprintf("recorded under %s; the registry's schema is now %s, so this starts from the registry's", recorded, now)
+		}
+	}
+	if len(rp.unheld) > 0 {
+		note += fmt.Sprintf("; nothing here holds the text of %s, so an MCP tool it offered is not in this schema unless pasted in", strings.Join(rp.unheld, ", "))
+	}
+	return note
 }
 
 // overrides is what the form holds: what a re-run will run under.
@@ -399,7 +466,7 @@ func (s *server) replayPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	recorded := rp.turns[len(rp.turns)-1].Versions
-	s.renderReplay(w, rp, overrides{recorded.Model, ollama.DefaultPrompt, ollama.ToolSchema(registry.Offered())}, s.recorded(rp))
+	s.renderReplay(w, rp, overrides{recorded.Model, ollama.DefaultPrompt, ollama.ToolSchema(rp.offered)}, s.recorded(rp))
 }
 
 // runPage handles GET /replays/{id}/runs/{run}: a kept re-run, with the form
@@ -451,15 +518,12 @@ func (s *server) renderReplay(w http.ResponseWriter, rp replayable, form overrid
 			Body:  "Set OLLAMA_URL and OLLAMA_MODEL for reviewui, the same endpoint chorusd uses, to re-run these turns (or VLLM_URL and VLLM_MODEL, with CHORUS_LLM_PROVIDER=vllm).",
 			Tone:  ui.ToneConv,
 		}
-	} else if _, v, err := s.engineFor(recorded.Model, ollama.DefaultPrompt, registry.Offered()); err == nil {
+	} else if _, v, err := s.engineFor(recorded.Model, ollama.DefaultPrompt, rp.offered); err == nil {
 		promptNote = "the default prompt (" + v.Prompt + ") matches the recorded prompt"
 		if v.Prompt != recorded.Prompt {
 			promptNote = fmt.Sprintf("recorded under %s; the default prompt is now %s, so this starts from the default", recorded.Prompt, v.Prompt)
 		}
-		toolsNote = "the registry's schema (" + v.ToolSchema + ") matches the recorded tool schema"
-		if v.ToolSchema != recorded.ToolSchema {
-			toolsNote = fmt.Sprintf("recorded under %s; the registry's schema is now %s, so this starts from the registry's", recorded.ToolSchema, v.ToolSchema)
-		}
+		toolsNote = toolsNoteFor(rp, recorded.ToolSchema, v.ToolSchema)
 	}
 
 	s.render(w, "page-replay", map[string]any{
@@ -524,8 +588,9 @@ func (s *server) replayRun(w http.ResponseWriter, r *http.Request) {
 	}
 	model, prompt := strings.TrimSpace(r.PostForm.Get("model")), r.PostForm.Get("prompt")
 	// Unedited, a re-run is offered what chorusd offers: every declared tool
-	// but the deferred (ADR-0060).
-	schema := ollama.ToolSchema(registry.Offered())
+	// but the deferred (ADR-0060), and the house's MCP tools the turns had
+	// (ADR-0101).
+	schema := ollama.ToolSchema(rp.offered)
 	if r.PostForm.Has("tools") {
 		schema = r.PostForm.Get("tools")
 	}

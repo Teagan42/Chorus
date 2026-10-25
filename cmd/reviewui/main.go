@@ -25,6 +25,7 @@ import (
 
 	"github.com/teagan42/chorus/internal/blob"
 	"github.com/teagan42/chorus/internal/config"
+	"github.com/teagan42/chorus/internal/contexts"
 	"github.com/teagan42/chorus/internal/curation"
 	"github.com/teagan42/chorus/internal/erasure"
 	"github.com/teagan42/chorus/internal/identity"
@@ -99,6 +100,11 @@ func run(ctx context.Context, addr string, hosts []string, readOnly bool, v voic
 	if err := erasure.Migrate(ctx, pool); err != nil {
 		return err
 	}
+	// Created here too, so a review box started before chorusd ever ran
+	// reads an empty table rather than failing.
+	if err := contexts.Migrate(ctx, pool); err != nil {
+		return err
+	}
 	blobs, err := blob.NewDir(os.Getenv(blobDirEnv))
 	if err != nil {
 		return fmt.Errorf("%s: %w", blobDirEnv, err)
@@ -107,6 +113,7 @@ func run(ctx context.Context, addr string, hosts []string, readOnly bool, v voic
 	s := newServer(pgJournal{journal.NewPgStore(pool)}, curation.NewPgStore(pool), blobs, time.Now)
 	s.engineFor = llmEngines(os.Getenv)
 	s.memories, s.erasures, s.readOnly = memory.NewPgStore(pool), erasure.NewPgStore(pool), readOnly
+	s.kept = contexts.NewPgStore(pool)
 	s.voices = v
 	srv := &http.Server{Addr: addr, Handler: s.handler(hosts), ReadHeaderTimeout: 5 * time.Second}
 	go func() {

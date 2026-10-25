@@ -78,21 +78,34 @@ type env struct {
 	stdout, stderr io.Writer
 	getenv         func(string) string
 
-	// open connects to the journal and the review UI's judgements.
-	open  func(ctx context.Context) (journal.Store, curation.Store, func(), error)
+	// open connects to the journal and what is kept beside it.
+	open  func(ctx context.Context) (stores, error)
 	clock journal.Clock
+}
+
+// stores is what chorus-eval reads: the journal, the review UI's
+// judgements, and what chorusd recorded of each version it offered, where a
+// turn that offered the house's MCP tools finds its schema (ADR-0101).
+type stores struct {
+	journal   journal.Store
+	decisions curation.Store
+	kept      contexts.Store
+	close     func()
 }
 
 type wallClock struct{}
 
 func (wallClock) Now() time.Time { return time.Now() }
 
-func openPostgres(ctx context.Context) (journal.Store, curation.Store, func(), error) {
+func openPostgres(ctx context.Context) (stores, error) {
 	pool, err := pgxpool.New(ctx, journal.DSN())
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("connect journal: %w", err)
+		return stores{}, fmt.Errorf("connect journal: %w", err)
 	}
-	return pgJournal{journal.NewPgStore(pool)}, curation.NewPgStore(pool), pool.Close, nil
+	return stores{
+		journal: pgJournal{journal.NewPgStore(pool)}, decisions: curation.NewPgStore(pool),
+		kept: contexts.NewPgStore(pool), close: pool.Close,
+	}, nil
 }
 
 // pgJournal names the two read interfaces PgStore already satisfies.
@@ -233,7 +246,7 @@ func parseFlags(args []string, e env) (options, int, bool) {
 	fs.StringVar(&o.provider, "provider", "", "what answers: "+strings.Join(slices.Sorted(maps.Keys(providers)), ", ")+" (default $"+llmProviderEnv+" as chorusd reads it, else ollama; demo with -demo)")
 	fs.StringVar(&o.model, "model", "", "the candidate's model (default $"+ollamaModelEnv+", else each turn's recorded model)")
 	fs.StringVar(&o.prompt, "prompt", "", "file holding the candidate's system prompt (default this build's; -print-prompt writes it)")
-	fs.StringVar(&o.tools, "tools", "", "file holding the candidate's tool schema, as Replay edits it (default this build's offered tools; -print-tools writes it)")
+	fs.StringVar(&o.tools, "tools", "", "file holding the candidate's tool schema, as Replay edits it (default this build's offered tools; -print-tools writes it); each case also keeps the MCP tools its turn was offered")
 	fs.StringVar(&o.baseline, "baseline", "rerun", "rerun: each turn asked again under the prompt and tools it recorded; recorded: the take it recorded, asked of nobody")
 	fs.StringVar(&o.baselineModel, "baseline-model", "", "the baseline's model when it reruns (default each turn's recorded model)")
 	fs.IntVar(&o.reps, "reps", 0, "times each case is asked of each side (default the suite's, else 1)")
@@ -328,11 +341,17 @@ func evaluate(ctx context.Context, o options, e env) (evalsuite.Report, error) {
 		}
 		src = contexts.Chain{household.Contexts(), contexts.Default()}
 	} else {
-		var closeStore func()
-		if store, _, closeStore, err = e.open(ctx); err != nil {
+		st, err := e.open(ctx)
+		if err != nil {
 			return evalsuite.Report{}, err
 		}
-		defer closeStore()
+		defer st.close()
+		store = st.journal
+		kept, err := st.kept.Recorded(ctx)
+		if err != nil {
+			return evalsuite.Report{}, err
+		}
+		src = contexts.Chain{src, kept}
 	}
 	cases, err := evalsuite.Resolve(ctx, store, src, s)
 	if err != nil {
@@ -371,7 +390,7 @@ func evaluate(ctx context.Context, o options, e env) (evalsuite.Report, error) {
 // candidate is the side under test: this build's prompt and offered tools
 // unless files say otherwise.
 func candidate(o options) (evalsuite.Side, error) {
-	side := evalsuite.Side{Name: "candidate", Model: o.model, Prompt: ollama.DefaultPrompt, Tools: registry.Offered()}
+	side := evalsuite.Side{Name: "candidate", Model: o.model, Prompt: ollama.DefaultPrompt, Tools: registry.Offered(), HouseTools: true}
 	if o.prompt != "" {
 		b, err := os.ReadFile(o.prompt)
 		if err != nil {
@@ -436,13 +455,13 @@ func draft(ctx context.Context, args []string, e env) int {
 		}
 		return exitError
 	}
-	store, decisions, closeStore, err := e.open(ctx)
+	st, err := e.open(ctx)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "chorus-eval draft: %v\n", err)
 		return exitError
 	}
-	defer closeStore()
-	s, err := evalsuite.Draft(ctx, store, decisions, *name)
+	defer st.close()
+	s, err := evalsuite.Draft(ctx, st.journal, st.decisions, *name)
 	if err == nil && len(s.Cases) == 0 {
 		err = errors.New("nothing judged yet: mark turns good, or correct them, in the review UI first")
 	}
